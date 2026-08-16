@@ -74,11 +74,17 @@ mod bindings {
 
 // Re-export everything from the bindings module so users of this crate
 // can access the types directly (e.g., `ok_fpga_ffi::okTDeviceInfo`).
-//
-// In Phase 3B, we will add a safe API layer on top of these raw bindings.
-// At that point, the raw bindings will still be available but the safe API
-// will be the preferred way to interact with FrontPanel.
 pub use bindings::*;
+
+// ============================================================================
+// High-level modules (Phase 3B)
+// ============================================================================
+
+/// Error types for FFI operations — wraps `ok_ErrorCode` into Rust errors.
+pub mod error;
+
+/// Runtime DLL loading via `libloading` — the `FrontPanelDll` dispatch table.
+pub mod api;
 
 #[cfg(test)]
 mod tests {
