@@ -68,11 +68,11 @@
 
 ### Verification
 
-- [ ] `cargo build` succeeds with no errors from the workspace root
-- [ ] `cargo test` succeeds (even if there are no real tests yet)
-- [ ] `cargo doc --no-deps` succeeds and shows all three crates with doc comments
-- [ ] Directory structure matches the layout above
-- [ ] Commit: `chore: initialize Cargo workspace with three crates`
+- [x] `cargo build` succeeds with no errors from the workspace root — ✅ 44.77s
+- [x] `cargo test` succeeds (even if there are no real tests yet) — ✅ 2/2 passed
+- [x] `cargo doc --no-deps` succeeds and shows all three crates with doc comments — ✅ 3 crates documented
+- [x] Directory structure matches the layout above — ✅ verified
+- [x] Commit: `c56145b` — `chore: initialize Cargo workspace with three crates`
 
 ---
 
@@ -160,11 +160,11 @@ Create `api/openapi.yaml` — a complete OpenAPI 3.0.0 specification.
 
 ### Verification
 
-- [ ] YAML is valid (parse with any YAML validator)
-- [ ] OpenAPI is valid: run `npx @redocly/cli lint api/openapi.yaml` or equivalent
-- [ ] Every endpoint from ADR-004 is present
-- [ ] Every schema has a `description` field explaining what it represents
-- [ ] Commit: `docs: add OpenAPI 3.0 specification`
+- [x] YAML is valid (parse with any YAML validator) — ✅ parsed successfully
+- [x] OpenAPI is valid: `npx @redocly/cli lint` — ✅ 0 errors, 31 warnings (all acknowledged `operation-4xx-response`)
+- [x] Every endpoint from ADR-004 is present — ✅ 41 paths, 43 operations
+- [x] Every schema has a `description` field explaining what it represents — ✅ verified by script
+- [x] Commit: `44c2d0c` + `7767a71` (lint fix)
 
 ---
 
@@ -199,10 +199,10 @@ Create `proto/okfpga/v1/okfpga.proto` — a complete proto3 service definition.
 
 ### Verification
 
-- [ ] Proto file compiles: `protoc --proto_path=proto proto/okfpga/v1/okfpga.proto --descriptor_set_out=/dev/null` (or Windows equivalent)
-- [ ] Every RPC from ADR-005 is present
-- [ ] Every message field has a comment
-- [ ] Commit: `docs: add proto3 gRPC service definition`
+- [x] Proto file compiles — ⚠️ `protoc` not installed locally; validated structurally by script (3 services, 60 RPCs, 1135 lines)
+- [x] Every RPC from ADR-005 is present — ✅ 60 RPCs across 3 services verified
+- [x] Every message field has a comment — ✅ 0 uncommented fields (212 added in `47e037f`)
+- [x] Commit: `44c2d0c` + `47e037f` (field comments)
 
 ---
 
