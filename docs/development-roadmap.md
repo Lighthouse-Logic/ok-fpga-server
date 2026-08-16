@@ -78,7 +78,7 @@
 
 ## Phase 1: OpenAPI 3.0 Specification
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed (2026-08-16, `44c2d0c`)  
 **Depends on**: Phase 0  
 **ADR reference**: [ADR-004 REST API Design](architecture/adr/ADR-004-rest-api-design.md)
 
@@ -170,7 +170,7 @@ Create `api/openapi.yaml` — a complete OpenAPI 3.0.0 specification.
 
 ## Phase 2: Proto3 gRPC Specification
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed (2026-08-16, `44c2d0c`)  
 **Depends on**: Phase 0  
 **ADR reference**: [ADR-005 gRPC API Design](architecture/adr/ADR-005-grpc-api-design.md)
 

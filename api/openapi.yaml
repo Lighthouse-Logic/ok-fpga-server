@@ -23,6 +23,13 @@ servers:
   - url: http://localhost:8080/api/v1
     description: Local development server
 
+# Root-level security: empty array means no auth required by default.
+# This matches ADR-008 (NoAuth provider is the default).
+# Individual endpoints can override this when auth stubs are enabled.
+security:
+  - {}
+  - basicAuth: []
+
 tags:
   - name: Server
     description: Server status, restart, and log streaming

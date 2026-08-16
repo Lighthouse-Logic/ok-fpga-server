@@ -1,0 +1,15 @@
+# Redocly configuration for ok-FPGA-Server OpenAPI linting.
+# See: https://redocly.com/docs/cli/configuration
+
+extends:
+  - recommended
+
+rules:
+  # We acknowledge the need for 4XX responses on all operations.
+  # Many data port operations return errors via the response body (ErrorCluster pattern)
+  # rather than HTTP status codes, so we downgrade this to a warning.
+  operation-4xx-response: warn
+  
+  # The security scheme is defined but applied at root level.
+  # Individual operations inherit from root.
+  security-defined: error
