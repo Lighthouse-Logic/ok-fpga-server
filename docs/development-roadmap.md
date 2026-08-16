@@ -199,7 +199,7 @@ Create `proto/okfpga/v1/okfpga.proto` — a complete proto3 service definition.
 
 ### Verification
 
-- [x] Proto file compiles — ⚠️ `protoc` not installed locally; validated structurally by script (3 services, 60 RPCs, 1135 lines)
+- [x] Proto file compiles — ✅ `protoc 35.1` — exit code 0, no errors
 - [x] Every RPC from ADR-005 is present — ✅ 60 RPCs across 3 services verified
 - [x] Every message field has a comment — ✅ 0 uncommented fields (212 added in `47e037f`)
 - [x] Commit: `44c2d0c` + `47e037f` (field comments)
