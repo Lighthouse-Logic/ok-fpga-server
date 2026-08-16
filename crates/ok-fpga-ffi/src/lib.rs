@@ -86,6 +86,8 @@ pub mod error;
 /// Runtime DLL loading via `libloading` — the `FrontPanelDll` dispatch table.
 pub mod api;
 
+/// RAII handle wrappers — automatic cleanup of C opaque handles on drop.
+pub mod handles;
 #[cfg(test)]
 mod tests {
     use super::*;
