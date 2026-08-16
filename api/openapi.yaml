@@ -1,0 +1,1623 @@
+openapi: 3.0.0
+
+info:
+  title: ok-FPGA-Server API
+  version: 1.0.0
+  description: |
+    REST API for remote management of Opal Kelly FPGAs via the FrontPanel 6.1.0 C API.
+    Supports USB 3.0, PCIe, and Gen3 devices only. USB 2.0 devices are filtered out.
+    
+    The API provides:
+    - Device discovery with hot-plug detection (via SSE events)
+    - Full FrontPanel data port operations (Classic wire/trigger/pipe/register, AXI Lite/Full/Stream)
+    - Device sensors, settings, and SYZYGY peripheral discovery
+    - Multi-user resource management with shared/exclusive locking
+    - Bitfile programming and tracking
+    - Server status, restart, and log streaming
+  license:
+    name: MIT
+  contact:
+    name: Lighthouse Logic
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development server
+
+tags:
+  - name: Server
+    description: Server status, restart, and log streaming
+  - name: Devices
+    description: Device discovery, info, sensors, settings, SYZYGY, and configuration
+  - name: Classic Data Port
+    description: FrontPanel Classic wire, trigger, pipe, and register operations
+  - name: AXI Data Port
+    description: FrontPanel AXI Lite, Full, and Stream operations
+  - name: Resources
+    description: Multi-user resource management (acquire, release, state tracking)
+  - name: Users
+    description: Connected user sessions
+  - name: Events
+    description: Real-time event streaming via Server-Sent Events (SSE)
+
+# ===========================================================================
+# Paths
+# ===========================================================================
+
+paths:
+
+  # ---- Server ----
+
+  /server/status:
+    get:
+      tags: [Server]
+      summary: Get server status
+      description: Returns server version, uptime, FrontPanel DLL version, platform info, and connected device count.
+      operationId: getServerStatus
+      responses:
+        '200':
+          description: Server status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerStatus'
+
+  /server/restart:
+    post:
+      tags: [Server]
+      summary: Restart the server
+      description: Initiates a graceful server restart. All resources are released and all client connections are closed.
+      operationId: restartServer
+      responses:
+        '202':
+          description: Restart initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+
+  /server/logs:
+    get:
+      tags: [Server]
+      summary: Stream server logs (SSE)
+      description: |
+        Returns a Server-Sent Events stream of log entries as they are produced.
+        Each event has type `log` and data is a JSON LogEntry object.
+      operationId: streamServerLogs
+      responses:
+        '200':
+          description: SSE stream of log entries
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/LogEntry'
+
+  # ---- Devices ----
+
+  /devices:
+    get:
+      tags: [Devices]
+      summary: List all connected FPGA devices
+      description: Returns info for all connected, supported FPGA devices. USB 2.0 devices are excluded.
+      operationId: listDevices
+      responses:
+        '200':
+          description: List of connected devices
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  devices:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DeviceInfo'
+
+  /devices/{serial}:
+    get:
+      tags: [Devices]
+      summary: Get device information
+      description: Returns full device information for the specified FPGA, including okTDeviceInfo fields and current bitfile status.
+      operationId: getDeviceInfo
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      responses:
+        '200':
+          description: Device information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceInfo'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /devices/{serial}/sensors:
+    get:
+      tags: [Devices]
+      summary: Read device sensor values
+      description: Returns all sensor readings (voltage, temperature, current, power, etc.) for the specified device.
+      operationId: getDeviceSensors
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      responses:
+        '200':
+          description: Sensor readings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sensors:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DeviceSensor'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /devices/{serial}/settings:
+    get:
+      tags: [Devices]
+      summary: List all device settings
+      description: Returns all device settings as key-value pairs for the specified device.
+      operationId: getDeviceSettings
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      responses:
+        '200':
+          description: Device settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  settings:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DeviceSetting'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /devices/{serial}/settings/{key}:
+    get:
+      tags: [Devices]
+      summary: Read a single device setting
+      description: Returns the value of a specific device setting by key name.
+      operationId: getDeviceSetting
+      parameters:
+        - $ref: '#/components/parameters/serial'
+        - $ref: '#/components/parameters/settingKey'
+      responses:
+        '200':
+          description: Setting value
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceSetting'
+        '404':
+          description: Device or setting not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+    put:
+      tags: [Devices]
+      summary: Update a device setting
+      description: Sets the value of a specific device setting by key name.
+      operationId: setDeviceSetting
+      parameters:
+        - $ref: '#/components/parameters/serial'
+        - $ref: '#/components/parameters/settingKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceSettingValue'
+      responses:
+        '200':
+          description: Setting updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '404':
+          description: Device or setting not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /devices/{serial}/syzygy:
+    get:
+      tags: [Devices]
+      summary: Discover SYZYGY ports
+      description: |
+        Auto-discovers all SYZYGY peripheral ports on the device by probing
+        DeviceSettings keys (SYZYGYn_PORT_STATUS, SYZYGYn_MANUFACTURER_NAME, etc.).
+        Returns info about each port including SmartVIO voltage and peripheral DNA.
+      operationId: getSyzygyPorts
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      responses:
+        '200':
+          description: SYZYGY port information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ports:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SyzygyPort'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /devices/{serial}/configure:
+    post:
+      tags: [Devices]
+      summary: Program the FPGA with a bitfile
+      description: |
+        Uploads and programs a bitfile to the specified FPGA. The bitfile can be
+        sent as a multipart file upload. After successful programming, the device
+        transitions from Connected to Programmed state and resources can be created.
+      operationId: configureFPGA
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [bitfile]
+              properties:
+                bitfile:
+                  type: string
+                  format: binary
+                  description: The .bit or .rbf bitfile to program
+                description:
+                  type: string
+                  description: Optional description of the bitfile
+                user_id:
+                  type: string
+                  description: User performing the programming
+      responses:
+        '200':
+          description: FPGA configured successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BitfileInfo'
+        '400':
+          description: Invalid bitfile or FPGA configuration error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '409':
+          description: Device has resources in use — cannot reprogram
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+    delete:
+      tags: [Devices]
+      summary: Clear FPGA configuration
+      description: Un-programs the FPGA. All resources for this device become Unavailable.
+      operationId: clearFPGAConfiguration
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      responses:
+        '200':
+          description: FPGA configuration cleared
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '409':
+          description: Device has resources in use
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /devices/{serial}/bitfile:
+    get:
+      tags: [Devices]
+      summary: Get current bitfile information
+      description: Returns info about the bitfile currently loaded on the FPGA (if any).
+      operationId: getBitfileInfo
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      responses:
+        '200':
+          description: Bitfile information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BitfileInfo'
+        '404':
+          description: Device not found or no bitfile loaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /devices/{serial}/dataport:
+    get:
+      tags: [Devices]
+      summary: Get data port type
+      description: Returns the data port type (classic, axi, or none if not configured).
+      operationId: getDataportType
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      responses:
+        '200':
+          description: Data port type
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dataport:
+                    type: string
+                    enum: [unknown, classic, axi, none]
+                    description: The data port type for this device
+
+  # ---- Classic Data Port ----
+
+  /devices/{serial}/classic/wires/in:
+    post:
+      tags: [Classic Data Port]
+      summary: Set WireIn value
+      description: Sets a WireIn endpoint value with an optional bitmask and optionally triggers UpdateWireIns.
+      operationId: setWireInValue
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WireInRequest'
+      responses:
+        '200':
+          description: WireIn value set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '400':
+          description: Invalid endpoint or device does not have Classic data port
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /devices/{serial}/classic/wires/out:
+    get:
+      tags: [Classic Data Port]
+      summary: Read WireOut values
+      description: Calls UpdateWireOuts and returns the value for the specified endpoint.
+      operationId: getWireOutValue
+      parameters:
+        - $ref: '#/components/parameters/serial'
+        - name: endpoint
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: WireOut endpoint address (0x20-0x3F)
+      responses:
+        '200':
+          description: WireOut value
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WireOutResponse'
+
+  /devices/{serial}/classic/triggers/in:
+    post:
+      tags: [Classic Data Port]
+      summary: Activate a TriggerIn
+      description: Fires a single trigger bit on the specified TriggerIn endpoint.
+      operationId: activateTriggerIn
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriggerInRequest'
+      responses:
+        '200':
+          description: Trigger activated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+
+  /devices/{serial}/classic/triggers/out:
+    get:
+      tags: [Classic Data Port]
+      summary: Read TriggerOut values
+      description: Calls UpdateTriggerOuts and checks the specified endpoint.
+      operationId: getTriggerOutValue
+      parameters:
+        - $ref: '#/components/parameters/serial'
+        - name: endpoint
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: TriggerOut endpoint address (0x60-0x7F)
+        - name: mask
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 4294967295
+          description: Bitmask to check (default 0xFFFFFFFF)
+      responses:
+        '200':
+          description: TriggerOut result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TriggerOutResponse'
+
+  /devices/{serial}/classic/pipes/in:
+    post:
+      tags: [Classic Data Port]
+      summary: Write to PipeIn
+      description: Writes data to a PipeIn endpoint. Data is sent as raw bytes in the request body.
+      operationId: writeToPipeIn
+      parameters:
+        - $ref: '#/components/parameters/serial'
+        - name: endpoint
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: PipeIn endpoint address (0x80-0x9F)
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Pipe write result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PipeTransferResponse'
+
+  /devices/{serial}/classic/pipes/out:
+    get:
+      tags: [Classic Data Port]
+      summary: Read from PipeOut
+      description: Reads data from a PipeOut endpoint.
+      operationId: readFromPipeOut
+      parameters:
+        - $ref: '#/components/parameters/serial'
+        - name: endpoint
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: PipeOut endpoint address (0xA0-0xBF)
+        - name: length
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: Number of bytes to read
+      responses:
+        '200':
+          description: Pipe data
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /devices/{serial}/classic/pipes/block-in:
+    post:
+      tags: [Classic Data Port]
+      summary: Write to BlockPipeIn
+      description: Writes data to a BlockPipeIn endpoint with the specified block size.
+      operationId: writeToBlockPipeIn
+      parameters:
+        - $ref: '#/components/parameters/serial'
+        - name: endpoint
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: block_size
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: Block size in bytes
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Block pipe write result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PipeTransferResponse'
+
+  /devices/{serial}/classic/pipes/block-out:
+    get:
+      tags: [Classic Data Port]
+      summary: Read from BlockPipeOut
+      description: Reads data from a BlockPipeOut endpoint with the specified block size.
+      operationId: readFromBlockPipeOut
+      parameters:
+        - $ref: '#/components/parameters/serial'
+        - name: endpoint
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: block_size
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: length
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Block pipe data
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /devices/{serial}/classic/registers/read:
+    post:
+      tags: [Classic Data Port]
+      summary: Read registers
+      description: Reads one or more registers by address. Supports single and bulk reads.
+      operationId: readRegisters
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [addresses]
+              properties:
+                addresses:
+                  type: array
+                  items:
+                    type: integer
+                  description: List of register addresses to read
+      responses:
+        '200':
+          description: Register values
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RegisterEntry'
+
+  /devices/{serial}/classic/registers/write:
+    post:
+      tags: [Classic Data Port]
+      summary: Write registers
+      description: Writes one or more register address-data pairs. Supports single and bulk writes.
+      operationId: writeRegisters
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entries]
+              properties:
+                entries:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/RegisterEntry'
+      responses:
+        '200':
+          description: Registers written
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+
+  /devices/{serial}/classic/reset:
+    post:
+      tags: [Classic Data Port]
+      summary: Reset FPGA
+      description: Issues a FrontPanel reset to the FPGA.
+      operationId: resetFPGAClassic
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      responses:
+        '200':
+          description: FPGA reset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+
+  # ---- AXI Data Port ----
+
+  /devices/{serial}/axi/lite/read:
+    post:
+      tags: [AXI Data Port]
+      summary: AXI Lite read
+      description: Reads a single 32-bit value or bulk values from an AXI Lite address.
+      operationId: axiLiteRead
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AXILiteReadRequest'
+      responses:
+        '200':
+          description: AXI Lite read result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AXILiteReadResponse'
+
+  /devices/{serial}/axi/lite/write:
+    post:
+      tags: [AXI Data Port]
+      summary: AXI Lite write
+      description: Writes a single 32-bit value or bulk values to an AXI Lite address.
+      operationId: axiLiteWrite
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AXILiteWriteRequest'
+      responses:
+        '200':
+          description: AXI Lite write result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AXIOperationStats'
+
+  /devices/{serial}/axi/lite/reset:
+    post:
+      tags: [AXI Data Port]
+      summary: Reset AXI Lite interface
+      operationId: axiLiteReset
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      responses:
+        '200':
+          description: AXI Lite reset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+
+  /devices/{serial}/axi/full/read:
+    post:
+      tags: [AXI Data Port]
+      summary: AXI Full read
+      description: Reads bulk data from an AXI Full memory-mapped address.
+      operationId: axiFullRead
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AXIFullReadRequest'
+      responses:
+        '200':
+          description: AXI Full read result (binary data)
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /devices/{serial}/axi/full/write:
+    post:
+      tags: [AXI Data Port]
+      summary: AXI Full write
+      description: Writes bulk data to an AXI Full memory-mapped address.
+      operationId: axiFullWrite
+      parameters:
+        - $ref: '#/components/parameters/serial'
+        - name: address
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: burst
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: timeout_ms
+          in: query
+          required: false
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: AXI Full write result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AXIOperationStats'
+
+  /devices/{serial}/axi/full/datapath-width:
+    get:
+      tags: [AXI Data Port]
+      summary: Get AXI Full datapath width
+      operationId: axiFullGetDatapathWidth
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      responses:
+        '200':
+          description: Datapath width in bytes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  width_bytes:
+                    type: integer
+
+  /devices/{serial}/axi/full/reset:
+    post:
+      tags: [AXI Data Port]
+      summary: Reset AXI Full interface
+      operationId: axiFullReset
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      responses:
+        '200':
+          description: AXI Full reset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+
+  /devices/{serial}/axi/stream/read:
+    post:
+      tags: [AXI Data Port]
+      summary: AXI Stream read
+      description: Reads data from the AXI Stream interface.
+      operationId: axiStreamRead
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AXIStreamReadRequest'
+      responses:
+        '200':
+          description: AXI Stream read result
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /devices/{serial}/axi/stream/write:
+    post:
+      tags: [AXI Data Port]
+      summary: AXI Stream write
+      description: Writes data to the AXI Stream interface.
+      operationId: axiStreamWrite
+      parameters:
+        - $ref: '#/components/parameters/serial'
+        - name: timeout_ms
+          in: query
+          required: false
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: AXI Stream write result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AXIStreamWriteResponse'
+
+  /devices/{serial}/axi/stream/datapath-width:
+    get:
+      tags: [AXI Data Port]
+      summary: Get AXI Stream datapath widths
+      operationId: axiStreamGetDatapathWidths
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      responses:
+        '200':
+          description: Read and write datapath widths
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  write_width_bytes:
+                    type: integer
+                  read_width_bytes:
+                    type: integer
+
+  /devices/{serial}/axi/stream/reset:
+    post:
+      tags: [AXI Data Port]
+      summary: Reset AXI Stream interface
+      operationId: axiStreamReset
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      responses:
+        '200':
+          description: AXI Stream reset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+
+  # ---- Resources ----
+
+  /resources:
+    get:
+      tags: [Resources]
+      summary: List all resources
+      description: Returns all resources across all programmed FPGAs with their current state.
+      operationId: listResources
+      responses:
+        '200':
+          description: List of resources
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resources:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Resource'
+
+  /resources/{resource_id}:
+    get:
+      tags: [Resources]
+      summary: Get resource details
+      operationId: getResource
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '200':
+          description: Resource details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resource'
+        '404':
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /resources/{resource_id}/acquire:
+    post:
+      tags: [Resources]
+      summary: Acquire a resource
+      description: |
+        Acquires a resource in shared or exclusive mode. Shared mode allows
+        multiple users to hold the resource simultaneously. Exclusive mode
+        grants sole access — other users' acquire requests will be denied.
+      operationId: acquireResource
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, mode]
+              properties:
+                user_id:
+                  type: string
+                mode:
+                  type: string
+                  enum: [shared, exclusive]
+      responses:
+        '200':
+          description: Resource acquired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resource'
+        '404':
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '409':
+          description: Resource is locked by another user or unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /resources/{resource_id}/release:
+    post:
+      tags: [Resources]
+      summary: Release a resource
+      description: Releases a previously acquired resource. If no holders remain, state returns to Available.
+      operationId: releaseResource
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id:
+                  type: string
+      responses:
+        '200':
+          description: Resource released
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '404':
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  # ---- Users ----
+
+  /users:
+    get:
+      tags: [Users]
+      summary: List connected users
+      operationId: listUsers
+      responses:
+        '200':
+          description: List of user sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UserSession'
+
+  /users/{user_id}:
+    get:
+      tags: [Users]
+      summary: Get user details
+      operationId: getUser
+      parameters:
+        - $ref: '#/components/parameters/userId'
+      responses:
+        '200':
+          description: User session details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSession'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  # ---- Events ----
+
+  /events/stream:
+    get:
+      tags: [Events]
+      summary: Subscribe to real-time events (SSE)
+      description: |
+        Opens a Server-Sent Events stream that pushes device and resource events
+        as they occur. Event types include: device_added, device_removed,
+        bitfile_programmed, resource_state_changed.
+      operationId: watchEvents
+      responses:
+        '200':
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/DeviceEvent'
+
+# ===========================================================================
+# Components
+# ===========================================================================
+
+components:
+
+  parameters:
+    serial:
+      name: serial
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 10
+        maxLength: 10
+      description: 10-character FPGA device serial number
+
+    settingKey:
+      name: key
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Device setting key name (e.g., "SYZYGY0_PORT_STATUS")
+
+    resourceId:
+      name: resource_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Unique resource identifier
+
+    userId:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: User identifier
+
+  schemas:
+
+    # ---- Common ----
+
+    StatusResponse:
+      type: object
+      description: Generic status response for operations that don't return data.
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+
+    ProblemDetail:
+      type: object
+      description: RFC 7807 Problem Details for HTTP APIs.
+      properties:
+        type:
+          type: string
+          description: A URI reference that identifies the problem type
+        title:
+          type: string
+          description: A short, human-readable summary of the problem
+        status:
+          type: integer
+          description: The HTTP status code
+        detail:
+          type: string
+          description: A human-readable explanation specific to this occurrence
+        instance:
+          type: string
+          description: A URI reference that identifies the specific occurrence
+
+    # ---- Device ----
+
+    DeviceInfo:
+      type: object
+      description: Complete device information for a connected FPGA. Maps to okTDeviceInfo.
+      properties:
+        serial:
+          type: string
+          description: 10-character serial number
+        device_id:
+          type: string
+          description: User-settable device ID
+        product_name:
+          type: string
+          description: Product name (e.g., "XEM8320-AU25P")
+        product_id:
+          type: integer
+          description: OK_PRODUCT_* constant
+        device_interface:
+          type: string
+          enum: [unknown, usb2, pcie, usb3, gen3]
+        usb_speed:
+          type: string
+          enum: [unknown, full, high, super, ss_gen1, ss_gen2, ss_gen2x2]
+        device_major_version:
+          type: integer
+        device_minor_version:
+          type: integer
+        wire_width:
+          type: integer
+        trigger_width:
+          type: integer
+        pipe_width:
+          type: integer
+        register_address_width:
+          type: integer
+        register_data_width:
+          type: integer
+        fpga_vendor:
+          type: string
+          enum: [unknown, xilinx, intel]
+        dataport:
+          type: string
+          enum: [unknown, classic, axi]
+        is_front_panel_enabled:
+          type: boolean
+        bitfile:
+          $ref: '#/components/schemas/BitfileInfo'
+
+    BitfileInfo:
+      type: object
+      description: Information about a programmed bitfile.
+      properties:
+        filename:
+          type: string
+        description:
+          type: string
+        programmed_at:
+          type: string
+          format: date-time
+        programmed_by:
+          type: string
+
+    DeviceSensor:
+      type: object
+      description: A single sensor reading from a device.
+      properties:
+        id:
+          type: integer
+        sensor_type:
+          type: string
+          enum: [invalid, bool, integer, float, voltage, current, temperature, fan_rpm, power]
+        name:
+          type: string
+        description:
+          type: string
+        min:
+          type: number
+        max:
+          type: number
+        step:
+          type: number
+        value:
+          type: number
+
+    DeviceSetting:
+      type: object
+      description: A device setting key-value pair.
+      properties:
+        key:
+          type: string
+        value_type:
+          type: string
+          enum: [string, integer]
+        string_value:
+          type: string
+        int_value:
+          type: integer
+
+    DeviceSettingValue:
+      type: object
+      description: Value to set for a device setting.
+      properties:
+        value_type:
+          type: string
+          enum: [string, integer]
+        string_value:
+          type: string
+        int_value:
+          type: integer
+
+    SyzygyPort:
+      type: object
+      description: A SYZYGY peripheral port with DNA information.
+      properties:
+        index:
+          type: integer
+          description: 0-based port index
+        port_status_mv:
+          type: integer
+          description: SmartVIO voltage in millivolts (0 = unpowered)
+        is_populated:
+          type: boolean
+          description: true if a peripheral is detected
+        manufacturer_name:
+          type: string
+        product_name:
+          type: string
+        product_model:
+          type: string
+        product_version:
+          type: string
+        serial_number:
+          type: string
+
+    # ---- Classic Data Port ----
+
+    WireInRequest:
+      type: object
+      required: [endpoint, value]
+      properties:
+        endpoint:
+          type: integer
+          description: WireIn endpoint address (0x00-0x1F)
+        value:
+          type: integer
+          format: int64
+        mask:
+          type: integer
+          format: int64
+          default: 4294967295
+          description: Bitmask — only bits set in mask are modified (default 0xFFFFFFFF)
+        auto_update:
+          type: boolean
+          default: true
+          description: If true, calls UpdateWireIns after setting the value
+
+    WireOutResponse:
+      type: object
+      properties:
+        endpoint:
+          type: integer
+        value:
+          type: integer
+          format: int64
+
+    TriggerInRequest:
+      type: object
+      required: [endpoint, bit]
+      properties:
+        endpoint:
+          type: integer
+          description: TriggerIn endpoint address (0x40-0x5F)
+        bit:
+          type: integer
+          description: Bit index to trigger (0-31)
+
+    TriggerOutResponse:
+      type: object
+      properties:
+        endpoint:
+          type: integer
+        triggered:
+          type: boolean
+        vector:
+          type: integer
+          format: int64
+          description: Full 32-bit trigger vector
+
+    PipeTransferResponse:
+      type: object
+      properties:
+        bytes_transferred:
+          type: integer
+          format: int64
+
+    RegisterEntry:
+      type: object
+      description: A single register address-data pair (maps to okTRegisterEntry).
+      properties:
+        address:
+          type: integer
+        data:
+          type: integer
+
+    # ---- AXI Data Port ----
+
+    AXILiteReadRequest:
+      type: object
+      required: [address]
+      properties:
+        address:
+          type: integer
+          format: int64
+        count:
+          type: integer
+          format: int64
+          description: Number of 32-bit words to read (1 for single read, >1 for bulk)
+          default: 1
+        timeout_ms:
+          type: integer
+
+    AXILiteReadResponse:
+      type: object
+      properties:
+        values:
+          type: array
+          items:
+            type: integer
+        bytes_transferred:
+          type: integer
+          format: int64
+
+    AXILiteWriteRequest:
+      type: object
+      required: [address]
+      properties:
+        address:
+          type: integer
+          format: int64
+        value:
+          type: integer
+          description: Single value (for single write)
+        values:
+          type: array
+          items:
+            type: integer
+          description: Multiple values (for bulk write)
+        timeout_ms:
+          type: integer
+
+    AXIOperationStats:
+      type: object
+      description: Statistics returned by AXI bulk operations.
+      properties:
+        transfer_byte_count:
+          type: integer
+          format: int64
+        transaction_count:
+          type: integer
+          format: int64
+
+    AXIFullReadRequest:
+      type: object
+      required: [address, length]
+      properties:
+        address:
+          type: integer
+          format: int64
+        length:
+          type: integer
+          format: int64
+          description: Number of bytes to read
+        burst:
+          type: integer
+        timeout_ms:
+          type: integer
+
+    AXIStreamReadRequest:
+      type: object
+      required: [length]
+      properties:
+        length:
+          type: integer
+          format: int64
+        timeout_ms:
+          type: integer
+
+    AXIStreamWriteResponse:
+      type: object
+      properties:
+        bytes_transferred:
+          type: integer
+          format: int64
+
+    # ---- Resources ----
+
+    Resource:
+      type: object
+      description: A user-defined resource exposed by a programmed FPGA.
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        device_serial:
+          type: string
+          description: Serial of the FPGA providing this resource
+        state:
+          type: string
+          enum: [unavailable, initializing, available, in_use_shared, in_use_locked]
+        holders:
+          type: array
+          items:
+            type: string
+          description: User IDs currently holding this resource
+
+    # ---- Users ----
+
+    UserSession:
+      type: object
+      description: A connected user and their held resources.
+      properties:
+        user_id:
+          type: string
+        connected_at:
+          type: string
+          format: date-time
+        held_resource_ids:
+          type: array
+          items:
+            type: string
+
+    # ---- Server ----
+
+    ServerStatus:
+      type: object
+      description: Server status information.
+      properties:
+        version:
+          type: string
+        frontpanel_version:
+          type: string
+        platform:
+          type: string
+        uptime:
+          type: string
+        uptime_seconds:
+          type: integer
+          format: int64
+        connected_devices:
+          type: integer
+        active_resources:
+          type: integer
+
+    LogEntry:
+      type: object
+      description: A structured log entry streamed via SSE.
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        level:
+          type: string
+          enum: [TRACE, DEBUG, INFO, WARN, ERROR]
+        target:
+          type: string
+          description: Module path that produced the log
+        message:
+          type: string
+        fields:
+          type: object
+          additionalProperties: true
+
+    # ---- Events ----
+
+    DeviceEvent:
+      type: object
+      description: A real-time event for SSE streaming.
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        event_type:
+          type: string
+          enum: [device_added, device_removed, bitfile_programmed, resource_state_changed]
+        device_added:
+          type: object
+          properties:
+            serial:
+              type: string
+            product_name:
+              type: string
+            device_interface:
+              type: string
+        device_removed:
+          type: object
+          properties:
+            serial:
+              type: string
+        bitfile_programmed:
+          type: object
+          properties:
+            serial:
+              type: string
+            filename:
+              type: string
+            programmed_by:
+              type: string
+        resource_state_changed:
+          type: object
+          properties:
+            resource_id:
+              type: string
+            previous_state:
+              type: string
+            new_state:
+              type: string
+            device_serial:
+              type: string
+
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: |
+        HTTP Basic authentication. Disabled by default (no-auth mode).
+        Enable via config: auth.provider = "local" or "ldap".
