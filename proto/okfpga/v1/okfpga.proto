@@ -42,6 +42,7 @@ message DeviceRequest {
 
 // Generic status response used by operations that don't return data.
 message StatusResponse {
+  // Error status for this operation.
   ErrorCluster error = 1;
 }
 
@@ -123,16 +124,27 @@ message DeviceInfo {
   string product_name = 3;              // e.g., "XEM8320-AU25P"
   int32 product_id = 4;                 // OK_PRODUCT_* constant
   DeviceInterface device_interface = 5;  // USB3, PCIe, or Gen3
+  // USB connection speed.
   USBSpeed usb_speed = 6;
+  // Device firmware major version.
   int32 device_major_version = 7;
+  // Device firmware minor version.
   int32 device_minor_version = 8;
+  // FrontPanel wire endpoint bit width.
   int32 wire_width = 9;
+  // FrontPanel trigger endpoint bit width.
   int32 trigger_width = 10;
+  // FrontPanel pipe endpoint bit width.
   int32 pipe_width = 11;
+  // Register address width in bits.
   int32 register_address_width = 12;
+  // Register data width in bits.
   int32 register_data_width = 13;
+  // FPGA silicon vendor.
   FPGAVendor fpga_vendor = 14;
+  // Data port type for this device.
   DataportType dataport = 15;
+  // True if FrontPanel is enabled in the bitfile.
   bool is_front_panel_enabled = 16;
   // Present only if the FPGA has been programmed with a bitfile.
   optional BitfileInfo bitfile = 17;
@@ -140,7 +152,9 @@ message DeviceInfo {
 
 // Information about the bitfile currently loaded on an FPGA.
 message BitfileInfo {
+  // Filename on disk.
   string filename = 1;
+  // Human-readable description.
   string description = 2;
   string programmed_at = 3;   // ISO 8601 timestamp
   string programmed_by = 4;   // User ID who programmed it
@@ -148,23 +162,32 @@ message BitfileInfo {
 
 // A single sensor reading from a device.
 message DeviceSensor {
+  // Numeric identifier.
   int32 id = 1;
+  // Type of sensor reading.
   SensorType sensor_type = 2;
+  // Human-readable name.
   string name = 3;
+  // Human-readable description.
   string description = 4;
+  // Minimum sensor value.
   double min = 5;
+  // Maximum sensor value.
   double max = 6;
+  // Sensor value step/resolution.
   double step = 7;
+  // Current sensor reading.
   double value = 8;
 }
 
 // A single device setting key-value pair.
 message DeviceSetting {
+  // Setting key name.
   string key = 1;
   // The value is either a string or an integer — use oneof.
   oneof value {
-    string string_value = 2;
-    uint32 int_value = 3;
+    string string_value = 2;   // String value variant.
+    uint32 int_value = 3;      // Integer value variant.
   }
 }
 
@@ -173,10 +196,15 @@ message SyzygyPort {
   uint32 index = 1;               // 0-based port index
   uint32 port_status_mv = 2;      // SmartVIO voltage in millivolts (0 = unpowered)
   bool is_populated = 3;          // true if a peripheral is detected
+  // SYZYGY peripheral manufacturer.
   string manufacturer_name = 4;
+  // Product name.
   string product_name = 5;
+  // Product model identifier.
   string product_model = 6;
+  // Product version string.
   string product_version = 7;
+  // Device serial number.
   string serial_number = 8;
 }
 
@@ -186,18 +214,24 @@ message SyzygyPort {
 
 // A user-defined resource exposed by a programmed FPGA.
 message Resource {
+  // Unique resource identifier.
   string id = 1;
+  // Human-readable name.
   string name = 2;
+  // Human-readable description.
   string description = 3;
   string device_serial = 4;      // Serial of the FPGA providing this resource
+  // Current resource state.
   ResourceState state = 5;
   repeated string holders = 6;   // User IDs currently holding this resource
 }
 
 // A connected user and their held resources.
 message UserSession {
+  // User identifier.
   string user_id = 1;
   string connected_at = 2;       // ISO 8601 timestamp
+  // IDs of resources held by this user.
   repeated string held_resource_ids = 3;
 }
 
@@ -211,8 +245,11 @@ message ServerStatus {
   string frontpanel_version = 2; // FrontPanel API version (e.g., "6.1.0")
   string platform = 3;           // e.g., "windows-x86_64" or "linux-x86_64"
   string uptime = 4;             // Human-readable uptime
+  // Server uptime in seconds.
   int64 uptime_seconds = 5;
+  // Number of connected FPGA devices.
   int32 connected_devices = 6;
+  // Number of active resources.
   int32 active_resources = 7;
 }
 
@@ -224,33 +261,44 @@ message ServerStatus {
 message DeviceEvent {
   string timestamp = 1;          // ISO 8601 timestamp
   oneof event {
-    DeviceAdded device_added = 2;
-    DeviceRemoved device_removed = 3;
-    BitfileProgrammed bitfile_programmed = 4;
-    ResourceStateChanged resource_state_changed = 5;
+    DeviceAdded device_added = 2;                           // Device connected.
+    DeviceRemoved device_removed = 3;                       // Device disconnected.
+    BitfileProgrammed bitfile_programmed = 4;               // FPGA programmed.
+    ResourceStateChanged resource_state_changed = 5;        // Resource state changed.
   }
 }
 
 message DeviceAdded {
+  // Device serial number.
   string serial = 1;
+  // Product name.
   string product_name = 2;
+  // Physical interface type.
   DeviceInterface device_interface = 3;
 }
 
 message DeviceRemoved {
+  // Device serial number.
   string serial = 1;
 }
 
 message BitfileProgrammed {
+  // Device serial number.
   string serial = 1;
+  // Filename on disk.
   string filename = 2;
+  // User who programmed the bitfile.
   string programmed_by = 3;
 }
 
 message ResourceStateChanged {
+  // Resource identifier.
   string resource_id = 1;
+  // State before the change.
   ResourceState previous_state = 2;
+  // State after the change.
   ResourceState new_state = 3;
+  // Serial of the FPGA device.
   string device_serial = 4;
 }
 
@@ -261,49 +309,68 @@ message ResourceStateChanged {
 message ListDevicesRequest {}
 
 message ListDevicesResponse {
+  // List of device info records.
   repeated DeviceInfo devices = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 message DeviceInfoResponse {
+  // Device information record.
   DeviceInfo device = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 message DeviceSensorsResponse {
+  // List of sensor readings.
   repeated DeviceSensor sensors = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 message DeviceSettingsResponse {
+  // List of device settings.
   repeated DeviceSetting settings = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 message GetDeviceSettingRequest {
+  // Device serial number.
   string serial = 1;
+  // Setting key name.
   string key = 2;
 }
 
 message DeviceSettingResponse {
+  // Device setting key-value pair.
   DeviceSetting setting = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 message SetDeviceSettingRequest {
+  // Device serial number.
   string serial = 1;
+  // Device setting key-value pair.
   DeviceSetting setting = 2;
 }
 
 message SyzygyPortsResponse {
+  // List of SYZYGY ports.
   repeated SyzygyPort ports = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 // Configure FPGA from a file path on the server's filesystem.
 message ConfigureFPGARequest {
+  // Device serial number.
   string serial = 1;
+  // Path to the bitfile on the server filesystem.
   string bitfile_path = 2;
+  // User identifier.
   string user_id = 3;
 }
 
@@ -316,77 +383,108 @@ message ConfigureFPGAChunk {
 }
 
 message ConfigureFPGAResponse {
+  // Bitfile programming record.
   BitfileInfo bitfile = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 message BitfileInfoResponse {
+  // Bitfile programming record.
   BitfileInfo bitfile = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 message DataportTypeResponse {
+  // Data port type for this device.
   DataportType dataport = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 // Set the user-definable device ID string (max 32 chars).
 message SetDeviceIDRequest {
+  // Device serial number.
   string serial = 1;
+  // User-settable device ID string.
   string device_id = 2;
 }
 
 // Set the communication timeout in milliseconds.
 message SetTimeoutRequest {
+  // Device serial number.
   string serial = 1;
+  // Communication timeout in milliseconds.
   int32 timeout_ms = 2;
 }
 
 // PLL configuration is opaque — the server manages it internally.
 message GetPLLRequest {
+  // Device serial number.
   string serial = 1;
   int32 pll_index = 2;    // 0 = PLL22150, 1 = PLL22393
 }
 
 message PLLConfigurationResponse {
+  // PLL reference clock frequency in Hz.
   double reference_frequency = 1;
+  // PLL output channel configurations.
   repeated PLLOutput outputs = 2;
+  // Error status for this operation.
   ErrorCluster error = 3;
 }
 
 message PLLOutput {
+  // Zero-based index.
   int32 index = 1;
+  // Frequency in Hz.
   double frequency = 2;
+  // Whether this item is enabled.
   bool enabled = 3;
 }
 
 message SetPLLRequest {
+  // Device serial number.
   string serial = 1;
+  // PLL index (0 = PLL22150, 1 = PLL22393).
   int32 pll_index = 2;
+  // PLL reference clock frequency in Hz.
   double reference_frequency = 3;
+  // PLL output channel configurations.
   repeated PLLOutput outputs = 4;
 }
 
 // Flash memory operations.
 message FlashReadRequest {
+  // Device serial number.
   string serial = 1;
+  // Memory/register address.
   uint32 address = 2;
+  // Number of bytes to read.
   uint32 length = 3;
 }
 
 message FlashDataResponse {
+  // Raw binary data payload.
   bytes data = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 message FlashWriteRequest {
+  // Device serial number.
   string serial = 1;
+  // Memory/register address.
   uint32 address = 2;
+  // Raw binary data payload.
   bytes data = 3;
 }
 
 message FlashEraseSectorRequest {
+  // Device serial number.
   string serial = 1;
+  // Memory/register address.
   uint32 address = 2;
 }
 
@@ -402,132 +500,178 @@ message ServerStatusRequest {}
 
 // Set one or more WireIn values and optionally update.
 message SetWireInValueRequest {
+  // Device serial number.
   string serial = 1;
   int32 endpoint = 2;        // Endpoint address (0x00-0x1F)
+  // Read/write value.
   uint32 value = 3;
   uint32 mask = 4;            // Bitmask — only bits set in mask are modified
   bool auto_update = 5;       // If true, call UpdateWireIns after setting
 }
 
 message GetWireValueRequest {
+  // Device serial number.
   string serial = 1;
   int32 endpoint = 2;        // Endpoint address
 }
 
 message WireValueResponse {
+  // Read/write value.
   uint32 value = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 message ActivateTriggerInRequest {
+  // Device serial number.
   string serial = 1;
   int32 endpoint = 2;        // Endpoint address (0x40-0x5F)
   int32 bit = 3;              // Bit index to trigger (0-31)
 }
 
 message IsTriggeredRequest {
+  // Device serial number.
   string serial = 1;
   int32 endpoint = 2;        // Endpoint address (0x60-0x7F)
   uint32 mask = 3;            // Bitmask of trigger bits to check
 }
 
 message IsTriggeredResponse {
+  // True if the trigger condition was met.
   bool triggered = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 message TriggerOutVectorRequest {
+  // Device serial number.
   string serial = 1;
+  // FrontPanel endpoint address.
   int32 endpoint = 2;
 }
 
 message TriggerOutVectorResponse {
+  // Full trigger bit vector.
   uint32 vector = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 // Write data to a PipeIn endpoint.
 message WriteToPipeInRequest {
+  // Device serial number.
   string serial = 1;
   int32 endpoint = 2;        // Endpoint address (0x80-0x9F)
+  // Raw binary data payload.
   bytes data = 3;
 }
 
 // Read data from a PipeOut endpoint.
 message ReadFromPipeOutRequest {
+  // Device serial number.
   string serial = 1;
   int32 endpoint = 2;        // Endpoint address (0xA0-0xBF)
   int64 length = 3;          // Number of bytes to read
 }
 
 message PipeTransferResponse {
+  // Number of bytes actually transferred.
   int64 bytes_transferred = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 message PipeDataResponse {
+  // Raw binary data payload.
   bytes data = 1;
+  // Number of bytes actually transferred.
   int64 bytes_transferred = 2;
+  // Error status for this operation.
   ErrorCluster error = 3;
 }
 
 // Block pipe transfers — more efficient for large data.
 message WriteToBlockPipeInRequest {
+  // Device serial number.
   string serial = 1;
+  // FrontPanel endpoint address.
   int32 endpoint = 2;
+  // Block size in bytes for block-throttled transfers.
   int32 block_size = 3;
+  // Raw binary data payload.
   bytes data = 4;
 }
 
 message ReadFromBlockPipeOutRequest {
+  // Device serial number.
   string serial = 1;
+  // FrontPanel endpoint address.
   int32 endpoint = 2;
+  // Block size in bytes for block-throttled transfers.
   int32 block_size = 3;
+  // Number of bytes to read.
   int64 length = 4;
 }
 
 // Set the polling interval for block-throttled pipe transfers.
 message SetBTPipePollingIntervalRequest {
+  // Device serial number.
   string serial = 1;
+  // Polling interval in milliseconds.
   int32 interval = 2;
 }
 
 // A single register address-data pair (maps to okTRegisterEntry).
 message RegisterEntry {
+  // Memory/register address.
   uint32 address = 1;
+  // Data value.
   uint32 data = 2;
 }
 
 message ReadRegisterRequest {
+  // Device serial number.
   string serial = 1;
+  // Memory/register address.
   uint32 address = 2;
 }
 
 message RegisterValueResponse {
+  // Read/write value.
   uint32 value = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 message WriteRegisterRequest {
+  // Device serial number.
   string serial = 1;
+  // Memory/register address.
   uint32 address = 2;
+  // Data value.
   uint32 data = 3;
 }
 
 // Bulk register read — reads multiple registers in one call.
 message ReadRegistersRequest {
+  // Device serial number.
   string serial = 1;
+  // Memory/register address.
   repeated uint32 addresses = 2;
 }
 
 message RegisterEntriesResponse {
+  // Array of register address-data pairs.
   repeated RegisterEntry entries = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 // Bulk register write — writes multiple registers in one call.
 message WriteRegistersRequest {
+  // Device serial number.
   string serial = 1;
+  // Array of register address-data pairs.
   repeated RegisterEntry entries = 2;
 }
 
@@ -538,107 +682,154 @@ message WriteRegistersRequest {
 // --- AXI Lite ---
 
 message AXILiteReadRequest {
+  // Device serial number.
   string serial = 1;
+  // AXI address.
   uint64 address = 2;
   optional uint32 timeout_ms = 3;  // If absent, uses device default timeout
 }
 
 message AXILiteReadResponse {
+  // Read/write value.
   uint32 value = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 message AXILiteWriteRequest {
+  // Device serial number.
   string serial = 1;
+  // AXI address.
   uint64 address = 2;
+  // Read/write value.
   uint32 value = 3;
+  // Communication timeout in milliseconds.
   optional uint32 timeout_ms = 4;
 }
 
 message AXILiteReadBulkRequest {
+  // Device serial number.
   string serial = 1;
+  // AXI address.
   uint64 address = 2;
   uint64 count = 3;               // Number of 32-bit words to read
+  // Communication timeout in milliseconds.
   optional uint32 timeout_ms = 4;
 }
 
 message AXILiteReadBulkResponse {
+  // Read/write value.
   repeated uint32 values = 1;
+  // Number of bytes actually transferred.
   uint64 bytes_transferred = 2;
+  // Error status for this operation.
   ErrorCluster error = 3;
 }
 
 message AXILiteWriteBulkRequest {
+  // Device serial number.
   string serial = 1;
+  // AXI address.
   uint64 address = 2;
+  // Read/write value.
   repeated uint32 values = 3;
+  // Communication timeout in milliseconds.
   optional uint32 timeout_ms = 4;
 }
 
 // Operation statistics returned by bulk AXI operations.
 message AXIOperationStats {
+  // Total bytes transferred in this operation.
   uint64 transfer_byte_count = 1;
+  // Number of AXI transactions performed.
   uint64 transaction_count = 2;
+  // Error status for this operation.
   ErrorCluster error = 3;
 }
 
 // --- AXI Full ---
 
 message DatapathWidthResponse {
+  // Datapath width in bytes.
   uint32 width_bytes = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 message AXIFullReadRequest {
+  // Device serial number.
   string serial = 1;
+  // AXI address.
   uint64 address = 2;
   uint64 length = 3;             // Number of bytes to read
   optional uint32 burst = 4;     // Burst length (if absent, uses default)
+  // Communication timeout in milliseconds.
   optional uint32 timeout_ms = 5;
 }
 
 message AXIFullReadResponse {
+  // Raw binary data payload.
   bytes data = 1;
+  // Number of bytes actually transferred.
   uint64 bytes_transferred = 2;
+  // Error status for this operation.
   ErrorCluster error = 3;
 }
 
 message AXIFullWriteRequest {
+  // Device serial number.
   string serial = 1;
+  // AXI address.
   uint64 address = 2;
+  // Raw binary data payload.
   bytes data = 3;
+  // Optional AXI burst length.
   optional uint32 burst = 4;
+  // Communication timeout in milliseconds.
   optional uint32 timeout_ms = 5;
 }
 
 // --- AXI Stream ---
 
 message AXIStreamDatapathWidthsResponse {
+  // Write datapath width in bytes.
   uint32 write_width_bytes = 1;
+  // Read datapath width in bytes.
   uint32 read_width_bytes = 2;
+  // Error status for this operation.
   ErrorCluster error = 3;
 }
 
 message AXIStreamReadRequest {
+  // Device serial number.
   string serial = 1;
   uint64 length = 2;            // Number of bytes to read
+  // Communication timeout in milliseconds.
   optional uint32 timeout_ms = 3;
 }
 
 message AXIStreamReadResponse {
+  // Raw binary data payload.
   bytes data = 1;
+  // Number of bytes actually transferred.
   uint64 bytes_transferred = 2;
+  // Error status for this operation.
   ErrorCluster error = 3;
 }
 
 message AXIStreamWriteRequest {
+  // Device serial number.
   string serial = 1;
+  // Raw binary data payload.
   bytes data = 2;
+  // Communication timeout in milliseconds.
   optional uint32 timeout_ms = 3;
 }
 
 message AXIStreamWriteResponse {
+  // Number of bytes actually transferred.
   uint64 bytes_transferred = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
@@ -649,27 +840,37 @@ message AXIStreamWriteResponse {
 message ListResourcesRequest {}
 
 message ListResourcesResponse {
+  // List of resources.
   repeated Resource resources = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 message ResourceRequest {
+  // Resource identifier.
   string resource_id = 1;
 }
 
 message ResourceResponse {
+  // Resource details.
   Resource resource = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 message AcquireResourceRequest {
+  // Resource identifier.
   string resource_id = 1;
+  // User identifier.
   string user_id = 2;
+  // Access mode (shared or exclusive).
   AccessMode mode = 3;
 }
 
 message ReleaseResourceRequest {
+  // Resource identifier.
   string resource_id = 1;
+  // User identifier.
   string user_id = 2;
 }
 
@@ -680,16 +881,21 @@ message ReleaseResourceRequest {
 message ListUsersRequest {}
 
 message ListUsersResponse {
+  // List of user sessions.
   repeated UserSession users = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
 message UserRequest {
+  // User identifier.
   string user_id = 1;
 }
 
 message UserResponse {
+  // User session details.
   UserSession user = 1;
+  // Error status for this operation.
   ErrorCluster error = 2;
 }
 
