@@ -282,7 +282,7 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 ## Phase 4: Core Domain Layer (`ok-fpga-core`)
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Complete  
 **Depends on**: Phase 3  
 **ADR references**: [ADR-002](architecture/adr/ADR-002-device-lifecycle.md), [ADR-003](architecture/adr/ADR-003-data-port-abstraction.md), [ADR-006](architecture/adr/ADR-006-resource-management.md), [ADR-009](architecture/adr/ADR-009-board-syzygy.md)
 
@@ -331,10 +331,10 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 ### Verification
 
-- [ ] `cargo build -p ok-fpga-core` succeeds
-- [ ] `cargo test -p ok-fpga-core` succeeds (unit tests with mocked FFI)
-- [ ] `cargo doc -p ok-fpga-core --no-deps` shows clean documentation
-- [ ] Commit per sub-phase
+- [x] `cargo build -p ok-fpga-core` succeeds — ✅ 0 warnings
+- [x] `cargo test -p ok-fpga-core` succeeds — ✅ 46/46 passed (40 unit + 6 doc-tests)
+- [x] `cargo doc -p ok-fpga-core --no-deps` shows clean documentation — ✅ 0 warnings
+- [x] Commit: `5762395` — `feat(core): implement Phase 4 — Core Domain Layer`
 
 ---
 
