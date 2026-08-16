@@ -1,0 +1,553 @@
+# ok-FPGA-Server — Development Roadmap
+
+**Version**: 1.0  
+**Date**: 2026-08-16  
+**Purpose**: Step-by-step development plan that any AI assistant can follow to build this project from scratch. Each phase has explicit inputs, outputs, verification steps, and acceptance criteria.
+
+---
+
+## How to Use This Roadmap
+
+1. **Work one phase at a time**, in order. Do not skip ahead.
+2. **Each phase must pass its verification steps** before moving to the next.
+3. **Read the referenced ADR** before starting each phase — it contains the design decisions.
+4. **Follow the commenting rules** in `.agents/rules/ai-collaboration.md` §8.
+5. **Commit after each successful build** per `.agents/rules/ai-collaboration.md` §7.
+6. **Update this roadmap** when a phase is completed (change `[ ]` to `[x]` and add the completion date).
+
+---
+
+## Phase 0: Project Scaffolding
+
+**Status**: `[ ]` Not started  
+**Depends on**: Nothing  
+**ADR reference**: [Architecture Overview](architecture/overview.md)
+
+### What to do
+
+1. Initialize a Cargo workspace at the project root with three crates:
+   ```
+   ok-fpga-server/
+   ├── Cargo.toml              ← workspace root
+   ├── crates/
+   │   ├── ok-fpga-ffi/        ← FFI bindings to okFrontPanel.dll/.so
+   │   │   ├── Cargo.toml
+   │   │   ├── build.rs        ← rust-bindgen build script (empty stub for now)
+   │   │   └── src/
+   │   │       └── lib.rs
+   │   ├── ok-fpga-core/       ← safe Rust domain logic
+   │   │   ├── Cargo.toml
+   │   │   └── src/
+   │   │       └── lib.rs
+   │   └── ok-fpga-server/     ← binary: REST + gRPC + web dashboard
+   │       ├── Cargo.toml
+   │       └── src/
+   │           └── main.rs
+   ├── proto/                   ← gRPC proto3 definitions
+   │   └── okfpga/
+   │       └── v1/
+   │           └── okfpga.proto
+   ├── api/                     ← OpenAPI spec
+   │   └── openapi.yaml
+   ├── FrontPanel-6.1.0/        ← existing SDK files (already present)
+   ├── docs/                    ← existing architecture docs (already present)
+   └── .agents/                 ← existing AI rules (already present)
+   ```
+
+2. In the workspace `Cargo.toml`:
+   - Set `resolver = "2"`
+   - List all three crates as workspace members
+   - Define shared workspace dependencies (versions pinned)
+
+3. In each crate's `lib.rs` or `main.rs`:
+   - Add a `//!` crate-level doc comment explaining the crate's purpose
+   - Add a placeholder `pub fn hello() -> &'static str { "ok-fpga-ffi" }` or equivalent
+   - The server `main.rs` should print a startup banner and exit
+
+4. Create a `.gitignore` that excludes `target/`, `*.pdb`, and IDE files.
+
+### Verification
+
+- [ ] `cargo build` succeeds with no errors from the workspace root
+- [ ] `cargo test` succeeds (even if there are no real tests yet)
+- [ ] `cargo doc --no-deps` succeeds and shows all three crates with doc comments
+- [ ] Directory structure matches the layout above
+- [ ] Commit: `chore: initialize Cargo workspace with three crates`
+
+---
+
+## Phase 1: OpenAPI 3.0 Specification
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 0  
+**ADR reference**: [ADR-004 REST API Design](architecture/adr/ADR-004-rest-api-design.md)
+
+### What to do
+
+Create `api/openapi.yaml` — a complete OpenAPI 3.0.0 specification.
+
+**The file must define ALL of the following** (refer to ADR-004 for the full URL hierarchy):
+
+1. **Info block**: title "ok-FPGA-Server API", version "1.0.0", description, license
+2. **Servers**: `http://localhost:8080/api/v1` (configurable)
+3. **Paths** — every endpoint from ADR-004:
+   - `/server/status` (GET)
+   - `/server/restart` (POST)
+   - `/server/logs` (GET, SSE stream)
+   - `/devices` (GET — list all)
+   - `/devices/{serial}` (GET — device info)
+   - `/devices/{serial}/sensors` (GET)
+   - `/devices/{serial}/settings` (GET — list all settings)
+   - `/devices/{serial}/settings/{key}` (GET, PUT)
+   - `/devices/{serial}/syzygy` (GET)
+   - `/devices/{serial}/configure` (POST — upload bitfile, DELETE — clear)
+   - `/devices/{serial}/bitfile` (GET)
+   - `/devices/{serial}/dataport` (GET)
+   - `/devices/{serial}/classic/wires/in` (POST)
+   - `/devices/{serial}/classic/wires/out` (GET)
+   - `/devices/{serial}/classic/triggers/in` (POST)
+   - `/devices/{serial}/classic/triggers/out` (GET)
+   - `/devices/{serial}/classic/pipes/in` (POST)
+   - `/devices/{serial}/classic/pipes/out` (GET)
+   - `/devices/{serial}/classic/pipes/block-in` (POST)
+   - `/devices/{serial}/classic/pipes/block-out` (GET)
+   - `/devices/{serial}/classic/registers/read` (POST)
+   - `/devices/{serial}/classic/registers/write` (POST)
+   - `/devices/{serial}/classic/reset` (POST)
+   - `/devices/{serial}/axi/lite/read` (POST)
+   - `/devices/{serial}/axi/lite/write` (POST)
+   - `/devices/{serial}/axi/lite/reset` (POST)
+   - `/devices/{serial}/axi/full/read` (POST)
+   - `/devices/{serial}/axi/full/write` (POST)
+   - `/devices/{serial}/axi/full/datapath-width` (GET)
+   - `/devices/{serial}/axi/full/reset` (POST)
+   - `/devices/{serial}/axi/stream/read` (POST)
+   - `/devices/{serial}/axi/stream/write` (POST)
+   - `/devices/{serial}/axi/stream/datapath-width` (GET)
+   - `/devices/{serial}/axi/stream/reset` (POST)
+   - `/resources` (GET)
+   - `/resources/{resource_id}` (GET)
+   - `/resources/{resource_id}/acquire` (POST)
+   - `/resources/{resource_id}/release` (POST)
+   - `/users` (GET)
+   - `/users/{user_id}` (GET)
+   - `/events/stream` (GET, SSE)
+
+4. **Schemas** (in `components/schemas`):
+   - `DeviceInfo` — maps every field of `okTDeviceInfo` to JSON
+   - `DeviceSensor` — maps `okTDeviceSensor`
+   - `DeviceSetting` — key-value with type
+   - `SyzygyPort` — all SYZYGY DNA fields
+   - `BitfileInfo` — filename, description, timestamp, user
+   - `Resource` — id, name, state, holders, device_serial
+   - `ResourceState` — enum: unavailable, initializing, available, in_use_shared, in_use_locked
+   - `UserSession` — user_id, connected_at, held_resources
+   - `ServerStatus` — uptime, api_version, frontpanel_version, platform
+   - `ErrorResponse` — RFC 7807 Problem Details (type, title, status, detail)
+   - `WireInRequest`, `WireOutResponse`, `TriggerInRequest`, `TriggerOutResponse`
+   - `PipeInRequest`, `PipeOutResponse`, `RegisterReadRequest`, `RegisterWriteRequest`
+   - `RegisterEntry` — address + data (maps `okTRegisterEntry`)
+   - `AXILiteReadRequest/Response`, `AXILiteWriteRequest`
+   - `AXIFullReadRequest/Response`, `AXIFullWriteRequest`
+   - `AXIStreamReadRequest/Response`, `AXIStreamWriteRequest`
+   - `ConfigureFPGARequest` — multipart file upload
+   - `DeviceEvent` — discriminated union for SSE events
+   - All request/response bodies for acquire/release
+
+5. **Parameters**: `serial` (path, string, 10 chars), `key` (path, string), `resource_id` (path, string)
+
+6. **Security schemes** (placeholder): HTTP Basic (for future auth stubs)
+
+### Verification
+
+- [ ] YAML is valid (parse with any YAML validator)
+- [ ] OpenAPI is valid: run `npx @redocly/cli lint api/openapi.yaml` or equivalent
+- [ ] Every endpoint from ADR-004 is present
+- [ ] Every schema has a `description` field explaining what it represents
+- [ ] Commit: `docs: add OpenAPI 3.0 specification`
+
+---
+
+## Phase 2: Proto3 gRPC Specification
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 0  
+**ADR reference**: [ADR-005 gRPC API Design](architecture/adr/ADR-005-grpc-api-design.md)
+
+### What to do
+
+Create `proto/okfpga/v1/okfpga.proto` — a complete proto3 service definition.
+
+**The file must define ALL of the following** (refer to ADR-005):
+
+1. **Package**: `okfpga.v1`
+2. **Options**: java_multiple_files, java_package, objc_class_prefix (from project goals)
+3. **Three services**:
+   - `DeviceService` — all RPCs from ADR-005 §1
+   - `ClassicDataPortService` — all RPCs from ADR-005 §2
+   - `AXIDataPortService` — all RPCs from ADR-005 §3
+4. **All message types** from ADR-005:
+   - Common: `DeviceRequest`, `StatusResponse`, `ErrorCode`, `ErrorCluster`
+   - Device: `DeviceInfoResponse`, `DeviceSensorsResponse`, `DeviceSettingsResponse`
+   - Events: `DeviceEvent` (oneof), `DeviceAdded`, `DeviceRemoved`, `BitfileProgrammed`, `ResourceStateChanged`
+   - Classic: all wire/trigger/pipe/register request/response messages
+   - AXI: all lite/full/stream request/response messages
+   - Resources: acquire/release messages
+   - Config: `ConfigureFPGARequest`, `ConfigureFPGAChunk` (for client streaming)
+5. **Enums**: `DeviceInterface`, `USBSpeed`, `FPGAVendor`, `DataportType`, `ResourceState`, `SensorType`
+6. **Comments**: Every message, field, enum, service, and RPC must have a proto comment explaining its purpose.
+
+### Verification
+
+- [ ] Proto file compiles: `protoc --proto_path=proto proto/okfpga/v1/okfpga.proto --descriptor_set_out=/dev/null` (or Windows equivalent)
+- [ ] Every RPC from ADR-005 is present
+- [ ] Every message field has a comment
+- [ ] Commit: `docs: add proto3 gRPC service definition`
+
+---
+
+## Phase 3: FFI Layer (`ok-fpga-ffi`)
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 0  
+**ADR reference**: [ADR-001 FFI Strategy](architecture/adr/ADR-001-ffi-strategy.md), [FP6 API Surface Catalog](architecture/fp6-api-surface.md)
+
+### What to do
+
+This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
+
+#### 3A: Build Script & Bindgen Setup
+
+1. Add `bindgen` as a build dependency in `ok-fpga-ffi/Cargo.toml`
+2. Create `ok-fpga-ffi/build.rs` that:
+   - Points `bindgen` at `FrontPanel-6.1.0/okFrontPanel.h`
+   - Defines `okNO_LUA` (exclude Lua scripting API)
+   - Defines `OPALKELLY_NO_CXX_TYPES` (exclude C++ class wrappers)
+   - Blocklists: `okFrontPanel_WriteI2C`, `okFrontPanel_ReadI2C`, `okFrontPanel_ConstructFromFD`, all `okBuffer_*`, `okScriptValue_*`, `okScriptValues_*`, `okScriptEngine_*`, all `okFrontPanelDLL_*`
+   - Generates output to `$OUT_DIR/okfrontpanel_bindings.rs`
+3. In `ok-fpga-ffi/src/lib.rs`, include the generated bindings:
+   ```rust
+   #![allow(non_upper_case_globals, non_camel_case_types, non_snake_case)]
+   include!(concat!(env!("OUT_DIR"), "/okfrontpanel_bindings.rs"));
+   ```
+
+**Verification 3A**:
+- [ ] `cargo build -p ok-fpga-ffi` succeeds
+- [ ] Generated bindings contain `okFrontPanel_Construct`, `okTDeviceInfo`, `ok_ErrorCode`
+- [ ] Generated bindings do NOT contain `okFrontPanel_WriteI2C` or any Lua/DLL functions
+- [ ] Commit: `feat(ffi): add rust-bindgen build script for okFrontPanel.h`
+
+#### 3B: Runtime DLL Loading with `libloading`
+
+1. Add `libloading` as a dependency in `ok-fpga-ffi/Cargo.toml`
+2. Create `ok-fpga-ffi/src/api.rs` — the function dispatch table:
+   - Define a `FrontPanelApi` struct that holds a `libloading::Library` and `Symbol` for every C function listed in the [FP6 API Surface Catalog](architecture/fp6-api-surface.md) (sections 1-15, ~160 functions)
+   - Implement `FrontPanelApi::load(dll_path: &Path) -> Result<Self, LoadError>` that:
+     - Opens the library with `Library::new()`
+     - Resolves every symbol, returning a clear error if any are missing
+     - Verifies API version ≥ 6.1.0
+   - Implement one Rust method per C function, delegating to the loaded symbol
+   - Group methods by subsystem (version, device, config, classic_port, axi_port, settings, sensors, pll, flash, manager, devices)
+3. Create `ok-fpga-ffi/src/error.rs` — error types:
+   - `FfiError` enum wrapping `ok_ErrorCode` values
+   - `impl From<ok_ErrorCode> for FfiError`
+   - Human-readable display for each error variant
+
+**Verification 3B**:
+- [ ] `cargo build -p ok-fpga-ffi` succeeds
+- [ ] `cargo doc -p ok-fpga-ffi --no-deps` shows all public API with doc comments
+- [ ] Commit: `feat(ffi): add libloading runtime DLL dispatch table`
+
+#### 3C: Safe RAII Handle Wrappers
+
+1. Create `ok-fpga-ffi/src/handles.rs` — RAII wrappers:
+   - `FrontPanelHandle` — wraps `okFrontPanel_HANDLE`, calls `Destruct` on drop
+   - `PLL22150Handle` — wraps `okPLL22150_HANDLE`
+   - `PLL22393Handle` — wraps `okPLL22393_HANDLE`
+   - `DeviceSensorsHandle` — wraps `okDeviceSensors_HANDLE`
+   - `DeviceSettingsHandle` — wraps `okDeviceSettings_HANDLE`
+   - `DeviceSettingNamesHandle` — wraps `okDeviceSettingNames_HANDLE`
+   - Each wrapper stores a reference to `FrontPanelApi` (so it can call destruct)
+   - Each wrapper implements `Drop`
+   - Non-owning handles (data ports) use a different pattern — they store a raw handle with a lifetime or `PhantomData` marker
+2. Write unit tests using `okREALM_TEST` (if possible at this stage) or mock tests
+
+**Verification 3C**:
+- [ ] `cargo build -p ok-fpga-ffi` succeeds
+- [ ] `cargo test -p ok-fpga-ffi` succeeds
+- [ ] Every `unsafe` block has a comment explaining why it is sound
+- [ ] Commit: `feat(ffi): add RAII handle wrappers for all FrontPanel handles`
+
+---
+
+## Phase 4: Core Domain Layer (`ok-fpga-core`)
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 3  
+**ADR references**: [ADR-002](architecture/adr/ADR-002-device-lifecycle.md), [ADR-003](architecture/adr/ADR-003-data-port-abstraction.md), [ADR-006](architecture/adr/ADR-006-resource-management.md), [ADR-009](architecture/adr/ADR-009-board-syzygy.md)
+
+### What to do (sub-phases)
+
+#### 4A: Device Types & Board Recognition
+
+1. Create `ok-fpga-core/src/device.rs`:
+   - `FpgaDevice` struct: serial, product_name, product_id, device_interface, device info, bitfile record
+   - `DeviceState` enum: `Connected`, `Programmed { bitfile: BitfileRecord }`
+   - `BitfileRecord` struct: filename, description, programmed_at, programmed_by
+   - `SupportedBoard` — recognition logic from ADR-009 (the `SUPPORTED_PRODUCTS` list and `is_supported_device()`)
+2. Create `ok-fpga-core/src/syzygy.rs`:
+   - `SyzygyPort` struct
+   - `discover_syzygy_ports()` function implementing the algorithm from ADR-009
+3. Create `ok-fpga-core/src/sensors.rs`:
+   - `DeviceSensor` struct (Rust-friendly version of `okTDeviceSensor`)
+   - `SensorType` enum
+   - `read_sensors()` function
+
+#### 4B: Data Port Abstractions
+
+1. Create `ok-fpga-core/src/dataport.rs`:
+   - `DataPort` trait
+   - `ClassicDataPort` struct with all 19 methods from ADR-003
+   - `AXIDataPort` struct with sub-interfaces
+   - `ActiveDataPort` enum
+
+#### 4C: Device Manager & Hot-Plug
+
+1. Create `ok-fpga-core/src/manager.rs`:
+   - `DeviceManager` struct wrapping `FrontPanelManager`
+   - `DeviceRegistry` (thread-safe HashMap of serial → DeviceState)
+   - Event channel (tokio broadcast)
+   - `DeviceEvent` enum: `Added`, `Removed`, `Programmed`, `ResourceChanged`
+   - USB 2.0 filtering in the `on_device_added` handler
+
+#### 4D: Resource Management
+
+1. Create `ok-fpga-core/src/resource.rs`:
+   - `Resource` struct, `ResourceId`, `ResourceState` enum from ADR-006
+   - `ResourceAccessPolicy` trait with default implementation
+   - `ResourceRegistry` (thread-safe)
+   - Acquire/release logic
+   - Invalidation on device disconnect/reprogram
+
+### Verification
+
+- [ ] `cargo build -p ok-fpga-core` succeeds
+- [ ] `cargo test -p ok-fpga-core` succeeds (unit tests with mocked FFI)
+- [ ] `cargo doc -p ok-fpga-core --no-deps` shows clean documentation
+- [ ] Commit per sub-phase
+
+---
+
+## Phase 5: gRPC Server (`ok-fpga-server`)
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 2, Phase 4  
+**ADR reference**: [ADR-005](architecture/adr/ADR-005-grpc-api-design.md)
+
+### What to do
+
+1. Add `tonic`, `tonic-build`, `prost` dependencies
+2. Create `ok-fpga-server/build.rs` that compiles `proto/okfpga/v1/okfpga.proto`
+3. Implement all three services:
+   - `DeviceServiceImpl` — delegates to `DeviceManager` and `FpgaDevice`
+   - `ClassicDataPortServiceImpl` — delegates to `ClassicDataPort`
+   - `AXIDataPortServiceImpl` — delegates to `AXIDataPort`
+4. Implement `WatchDeviceEvents` server streaming
+5. Wire services into a `tonic::transport::Server`
+
+### Verification
+
+- [ ] `cargo build -p ok-fpga-server` succeeds
+- [ ] gRPC reflection or `grpcurl` can list services
+- [ ] Commit: `feat(server): implement gRPC services`
+
+---
+
+## Phase 6: REST Server (`ok-fpga-server`)
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 1, Phase 4  
+**ADR reference**: [ADR-004](architecture/adr/ADR-004-rest-api-design.md)
+
+### What to do
+
+1. Add `axum`, `serde`, `serde_json`, `tower`, `tower-http` dependencies
+2. Create route modules matching the URL hierarchy from ADR-004:
+   - `src/routes/server.rs` — status, restart, logs
+   - `src/routes/devices.rs` — device CRUD, sensors, settings, SYZYGY, configure
+   - `src/routes/classic.rs` — wire/trigger/pipe/register operations
+   - `src/routes/axi.rs` — AXI lite/full/stream operations
+   - `src/routes/resources.rs` — resource list, acquire, release
+   - `src/routes/users.rs` — user list
+   - `src/routes/events.rs` — SSE event stream
+3. Each route handler delegates to `ok-fpga-core` domain types
+4. Implement RFC 7807 error responses
+5. Wire all routes into an Axum `Router`
+
+### Verification
+
+- [ ] `cargo build -p ok-fpga-server` succeeds
+- [ ] `curl http://localhost:8080/api/v1/server/status` returns valid JSON
+- [ ] Commit: `feat(server): implement REST API routes`
+
+---
+
+## Phase 7: Configuration & Logging
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 5, Phase 6  
+**ADR reference**: [Architecture Overview](architecture/overview.md)
+
+### What to do
+
+1. Add `toml`, `config`, `tracing`, `tracing-subscriber` dependencies
+2. Create `src/config.rs`:
+   - TOML config struct: listen addresses (REST port, gRPC port), DLL path, log level, auth settings
+   - Environment variable overrides
+   - Default config file path
+3. Create a sample `config.toml` at the project root
+4. Set up `tracing` with:
+   - Console output (stdout)
+   - Log level from config
+   - Broadcast channel for web dashboard log streaming
+5. Wire config loading into `main.rs`
+
+### Verification
+
+- [ ] Server starts with default config
+- [ ] Server starts with custom config file path via CLI arg or env var
+- [ ] Log output appears on stdout with timestamps and levels
+- [ ] Commit: `feat(server): add TOML configuration and tracing`
+
+---
+
+## Phase 8: Web Dashboard
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 6, Phase 7  
+**ADR reference**: [ADR-007](architecture/adr/ADR-007-web-dashboard.md)
+
+### What to do
+
+1. Create `web/` directory with static HTML/CSS/JS files
+2. Build the SPA pages from ADR-007:
+   - Server overview
+   - Device list and detail
+   - Resource list
+   - User list
+   - Log viewer (real-time via WebSocket)
+   - API traffic dashboard
+3. Set up Axum static file serving for `web/` directory
+4. Implement WebSocket endpoint (`/ws/events`)
+5. Connect the log broadcast channel to WebSocket
+
+### Verification
+
+- [ ] `http://localhost:8080/` serves the dashboard
+- [ ] Dashboard shows server status
+- [ ] Log viewer shows real-time logs
+- [ ] Commit: `feat(web): add dashboard SPA`
+
+---
+
+## Phase 9: Authentication Stubs
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 6  
+**ADR reference**: [ADR-008](architecture/adr/ADR-008-authentication.md)
+
+### What to do
+
+1. Create `ok-fpga-core/src/auth.rs`:
+   - `AuthProvider` trait
+   - `NoAuthProvider` (default)
+   - `LocalAuthProvider` stub
+   - `LdapAuthProvider` stub with `LdapConfig`
+2. Add auth config section to TOML config
+3. Create Axum middleware layer for auth checking
+4. Add login/logout endpoints for web dashboard
+
+### Verification
+
+- [ ] Server starts in no-auth mode by default
+- [ ] Setting `auth.provider = "local"` in config activates local auth (stub returns success)
+- [ ] Commit: `feat(auth): add pluggable authentication stubs`
+
+---
+
+## Phase 10: Integration Testing
+
+**Status**: `[ ]` Not started  
+**Depends on**: All previous phases
+
+### What to do
+
+1. Create `tests/` directory at workspace root
+2. Write integration tests using `okREALM_TEST`:
+   - Emulate device connection → verify REST `/devices` returns it
+   - Emulate device disconnection → verify SSE event fires
+   - Test resource acquire/release via REST
+   - Test gRPC `WatchDeviceEvents` streaming
+3. Write API contract tests:
+   - Validate REST responses against the OpenAPI spec
+   - Validate gRPC responses against proto definitions
+4. Cross-platform CI setup:
+   - GitHub Actions with Windows and Ubuntu runners
+   - Test matrix: Ubuntu 22.04, Ubuntu 24.04, Windows 11
+
+### Verification
+
+- [ ] `cargo test` passes all integration tests
+- [ ] CI pipeline is green on both Linux and Windows
+- [ ] Commit: `test: add integration tests with okREALM_TEST`
+
+---
+
+## Phase 11: Documentation & Polish
+
+**Status**: `[ ]` Not started  
+**Depends on**: All previous phases
+
+### What to do
+
+1. Run `cargo doc --no-deps --open` and review all generated documentation
+2. Add a top-level `README.md` with:
+   - Project description
+   - Quick start guide
+   - Build instructions for Windows and Ubuntu
+   - Configuration reference
+   - API documentation links
+3. Update `docs/architecture/overview.md` with final architecture
+4. Ensure all ADRs have correct status
+5. Create `CONTRIBUTING.md` with development setup instructions
+6. Final `cargo clippy` and `cargo fmt` pass
+
+### Verification
+
+- [ ] `cargo clippy -- -D warnings` passes
+- [ ] `cargo fmt -- --check` passes
+- [ ] `README.md` is complete and accurate
+- [ ] All doc comments render correctly in `cargo doc`
+- [ ] Commit: `docs: finalize project documentation`
+
+---
+
+## Summary of Dependencies
+
+```
+Phase 0: Scaffolding
+  ├── Phase 1: OpenAPI spec
+  ├── Phase 2: Proto3 spec
+  └── Phase 3: FFI layer (3A → 3B → 3C)
+       └── Phase 4: Core domain (4A → 4B → 4C → 4D)
+            ├── Phase 5: gRPC server (needs Phase 2 + 4)
+            ├── Phase 6: REST server (needs Phase 1 + 4)
+            │    ├── Phase 7: Config & logging (needs 5 + 6)
+            │    │    └── Phase 8: Web dashboard (needs 6 + 7)
+            │    └── Phase 9: Auth stubs (needs 6)
+            └── Phase 10: Integration testing (needs all)
+                 └── Phase 11: Documentation & polish (needs all)
+```
+
+Phases 1 and 2 can be done **in parallel** with each other (both depend only on Phase 0).  
+Phases 5 and 6 can be done **in parallel** with each other (both depend on Phase 4).

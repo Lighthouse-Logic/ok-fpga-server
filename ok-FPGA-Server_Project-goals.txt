@@ -1,0 +1,144 @@
+This Project will define a server written in RUST that will detect Opal Kelly's Front Panel API version and confirm it is 6.1.0 or higher, detect connected Opal Kelly FPGA(s) (via FrontPanelManager) that are currently connected, connected while the server is running, and properly handle devices that are disconnected (OkDeviceRemoved).  For detected FPGAs, it will interrogate their information (Get device count, Get board Serial numbers (GetSerial), get all Device Settings and Device Sensors, discover the number of SYZYGY ports and what (if anything) populates them.
+
+The ok-FPGA-Server will expose these connected FPGAs via REST and gRPC. The FrontPanel API 6.1.0 interface will be used as a template in these interfaces.  The server will also allow users to discover what FPGAs are connected, get updated when a new FPGA is connected or disconnected (or have a REST call that can be polled to effect the same result).  The server will also allow multiple users to access 1 or more connected FPGAs. One FPGA might be usable by more than one user, the server should not presume whether that is, or is not possible,  however, the server should have stub code that a developer using this project could use to extend if the specific FPGA HDL only allows some functionality to be shared, or, if once one user has locked the functionality, then others cannot use it.  The server should allow a view of what resources are available to the server (a 'resource' being a generic term that a user of this project can define, which may be the entire FPGA, or just functionality from 1 or more FPGAs).  A 'resource' can be "Available", "In use (shared)", "In use (locked for sole use)", or "Unavailable", or "Initializing".  For any discovered FPGA, the server should keep track of whether it has been programmed with a bitfile, and if it has, what the last bitfile was that it was programmed with (filename and description and when it was programmed and by which user).  If the FPGA is not "In use", then any user can program a different bitfile to the FPGA.
+The server will expose an web page (as it must support REST, it already must support a web server). That web page should show the status of the server, discovered FPGAs, what the FPGAs are programmed with, what 'resources' are available from those FPGAs (as Stub code at least) and what users are connected and using what (if any) resource. The traffic on the REST and gRPC interfaces should also be shown.  Reasonable RUST logging should occur and those logs should be available through the web interface.  The server should also be restartable via the rest interface. 
+For this version of the server, there should be no login required, but simple stub code should be provided to enable local user definition on the web server, Similarly there should be code for using LDAP  for given LDAP URL, with SSL encrpytion and stub code for domain components as well as organizational units and User IDs (basically, the ability to use a configured LDAP server to authenticate a user logged into the web page.)
+
+
+Use okREALM_TEST for debug and unit-test purposes. 
+
+https://library.opalkelly.com/library/FrontPanelAPI/namespaceOpalKelly.html
+
+Refer to FrontPanel-6.1.0 in the project directory and reference the okFrontPanel.h header file
+
+Required support (ignore any functionality that is restricted to USB 2.0 Devices,  all supported devices are USB 3.0 (okDEVICEINTERFACE_USB3 = 3 ) , but PCIe (okDEVICEINTERFACE_PCIE = 2 ) and deviceInterface = okDEVICEINTERFACE_GEN3 = 4 is allowed 
+FPGADataPortClassic - all public member functions, see documentation at: https://library.opalkelly.com/library/FrontPanelAPI/classOpalKelly_1_1FPGADataPortClassic.html
+
+DeviceSensors, see documentation at: https://library.opalkelly.com/library/FrontPanelAPI/classOpalKelly_1_1DeviceSensors.html
+Device Settings, see documentation at: https://library.opalkelly.com/library/FrontPanelAPI/classOpalKelly_1_1DeviceSettings.html
+FPGADataPortAXI, see documentation at: https://library.opalkelly.com/library/FrontPanelAPI/classOpalKelly_1_1FPGADataPortAXI.html
+FrontPanel, see documentation at: https://library.opalkelly.com/library/FrontPanelAPI/classOpalKelly_1_1FrontPanel.html - including all classes, except ReadI2C and Write I2C
+FrontPanelDevices, see documentation at: https://library.opalkelly.com/library/FrontPanelAPI/classOpalKelly_1_1FrontPanelDevices.html
+FrontPanelManager, see documentation at: https://library.opalkelly.com/library/FrontPanelAPI/classOpalKelly_1_1FrontPanelManager.html and at https://library.opalkelly.com/library/FrontPanelAPI/structOpalKelly_1_1FrontPanelManager_1_1CallbackInfo.html
+ProgressCallback, see documentation at: https://library.opalkelly.com/library/FrontPanelAPI/classOpalKelly_1_1ProgressCallback.html
+
+okTDeviceInfo Struct, see documentation at: https://library.opalkelly.com/library/FrontPanelAPI/structokTDeviceInfo.html - especially productName, usbSpeed, deviceMajorVersion and deviceMinorVersion
+okTDeviceSensor Struct, see documentation at: https://library.opalkelly.com/library/FrontPanelAPI/structokTDeviceSensor.html
+okTRegisterEntry, see documentation at: https://library.opalkelly.com/library/FrontPanelAPI/structokTRegisterEntry.html
+okTTriggerEntry, see documentation at: https://library.opalkelly.com/library/FrontPanelAPI/structokTTriggerEntry.html
+
+
+
+Syzygy port discovery:
+========================
+In the Opal Kelly FrontPanel 6.1.0 ecosystem, SYZYGY port discovery is primarily handled through the **Device Settings API** and the **FrontPanel Platform** middleware.
+
+There is not a single `GetSyzygyInfo()` method in the core `FrontPanel` C++ class; instead, you interact with the peripheral's metadata via "DNA" (Device Network Architecture) properties.
+
+### 1. The Concept: SYZYGY DNA
+
+SYZYGY-compliant peripherals report their identity and power requirements via a "DNA" block stored in an EEPROM on the peripheral card. The FPGA carrier board (your Opal Kelly device) reads this and reports it to the FrontPanel host software.
+
+### 2. How to Access it in your Application
+
+If you are building a host-side application (like your Rust crate), you have two primary ways to access this:
+
+* **FrontPanel Platform / Device Manager:** If you are using the newer "Platform" architecture, the SYZYGY DNA is automatically parsed and visualized in the **Device Manager**. The Platform API handles the SmartVIO solution (calculating voltages based on the DNA of all connected peripherals).
+* **Device Settings API:** For direct control within the FrontPanel SDK (the C++ API), you use the **Device Settings API**. The peripheral data is stored as specific keys within the device's persistent settings. You can retrieve these using the `GetSetting` (or `GetSettingInt` / `GetSettingString`) methods:
+* Consult your specific FPGA carrier board's datasheet (e.g., [XEM8350 Device Settings](https://docs.opalkelly.com/xem8350/device-settings/)) for the exact keys used to index the SYZYGY ports.
+* These settings typically follow a pattern like `SZG_PORT_X_DNA` or similar, depending on the carrier board firmware.
+
+
+
+### 3. Documentation Locations
+
+To implement this in your project, refer to these specific sections in the [Opal Kelly Documentation Portal](https://docs.opalkelly.com/):
+
+1. **[Device Settings API](https://docs.opalkelly.com/fpsdk/how-to/device-settings-api/):** This is the "How-To" guide for the C++ calls required to query the board for its current configuration, including peripheral data.
+2. **[Device Manager](https://docs.opalkelly.com/fpplatform/device-manager/):** This documentation explains how the SYZYGY DNA is visualized and how the SmartVIO (Voltage I/O) groups are assigned. Even if you are writing your own host code, this section is vital for understanding how the carrier board handles power-up sequencing for these ports.
+3. **Your Carrier Board Datasheet:** Navigate to the documentation for your specific device (e.g., XEM8320, XEM8350). Every board has a dedicated "Device Settings" page that lists the exact register/setting keys available for that specific hardware layout.
+
+
+
+
+
+The following settings are common to all FrontPanel devices that support SYZYGY either natively or through a compatible breakout board or reference platform.
+
+Auto discover the number of SYZYGY ports the device supports (eg if 3, then n=0...2 and n=3 will return invalid information) SYZYGY port mapping can be found in the Port Summary table below
+| NAME | TYPE | DESCRIPTION |
+| --- | --- | --- |
+| `SYZYGYn_PORT_STATUS` | INT32 | Indicates the selected voltage for this port in 10’s of mV. For example, “330” means that the SmartVIO solution is 3.3V. If a solution was not found, this will read “0” and the port will be unpowered. |
+| `SYZYGYn_MANUFACTURER_NAME` | STRING | The peripheral’s manufacturer name as reported by its SYZYGY DNA. |
+| `SYZYGYn_PRODUCT_NAME` | STRING | The peripheral’s manufacturer name as reported by its SYZYGY DNA. |
+| `SYZYGYn_PRODUCT_MODEL` | STRING | The peripheral’s product model as reported by its SYZYGY DNA. |
+| `SYZYGYn_PRODUCT_VERSION` | STRING | The peripheral’s product version as reported by its SYZYGY DNA. |
+| `SYZYGYn_SERIAL_NUMBER` | STRING | The peripheral’s serial number as reported by its SYZYGY DNA. |
+
+
+**Recommendation for your Rust Crate:**
+Since you are wrapping the C++ API, you should expose a `get_device_settings()` method that maps to `GetSetting` in the FrontPanel C++ API. This will allow your users to query the `SZG_PORT_x_DNA` keys once the FPGA bitfile has successfully read the peripheral's EEPROM.
+
+End Syzygy overview.
+======================
+
+For Settings and Sensor strings used to get device setting via string (https://library.opalkelly.com/library/FrontPanelAPI/classOpalKelly_1_1DeviceSettings.html ) or device sensors via string ( https://library.opalkelly.com/library/FrontPanelAPI/classOpalKelly_1_1DeviceSensors.html ) are defined in the pages below.  Collect this information and make use of it for matching discovered Opal Kelly FPGA boards.
+For the XEM8305, refer to: https://docs.opalkelly.com/szg-hub1450/device-sensors/
+For the XEM8310, refer to: https://docs.opalkelly.com/xem8310/device-settings/ and https://docs.opalkelly.com/xem8310/device-sensors/
+For the XEM7320, refer to:  https://docs.opalkelly.com/xem7320/device-settings/ and https://docs.opalkelly.com/xem7320/device-sensors/
+For the XEM8320, refer to: https://docs.opalkelly.com/xem8320/device-settings/ and https://docs.opalkelly.com/xem8320/device-sensors/
+For the XEM8350, refer to: https://docs.opalkelly.com/xem8350/device-settings/ and https://docs.opalkelly.com/xem8350/device-sensors/
+For the XEM8370, refer to: https://docs.opalkelly.com/xem8370/device-settings/ and https://docs.opalkelly.com/xem8370/device-sensors/
+For the HUB1450, refer to: https://docs.opalkelly.com/szg-hub1450/device-settings/ and https://docs.opalkelly.com/szg-hub1450/device-sensors/
+
+Other boards are not supported.
+
+
+For the REST and gRPC interfaces, first define the openapi and proto definitions before proceeding with any code.
+For REST, first define an openapi YAML file conformant to openapi 3.0.0
+For gPRC, define a proto3 file, somewhat like below (improve on this as needed)
+
+
+
+okFPGAService
+
+gRPC proto3 file example (one message/response shown)
+
+// Copyright 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic.
+//
+
+// This line is required, as it specifies the version of the .proto file format
+syntax = "proto3";
+
+// This option provides namespace scoping for the items in this file
+package okFPGAService.v1;
+
+// These are language-specific directives, optional but common in grpc .proto files.
+// Specifically for java code generation in this case
+option java_multiple_files = true;
+option java_outer_classname = "okFPGAService";
+option java_package = "io.grpc.okFPGAService";
+option objc_class_prefix = "okFS";
+
+// The request message containing the user's name.
+message okFSAXIOneshotWriteRequest {
+  int32 id = 1;
+  int32 addr = 2;
+  int32 data = 3;
+  int32 mask = 4;
+}
+
+message okFSAXIOneshotWriteResponse {
+  repeated int32 function_returns = 1;
+  message ErrorCluster {
+    // Indicates error status: true if an error occurred, false otherwise.
+    bool status = 1;
+    int32 code = 2;
+    string source = 3;
+  }
+}
+
+// The ok FPGA Server gRPC service definition.
+service okFPGAService {
+  // Sends a AXI One Shot Write to the FPGA Server
+  rpc okFSAXIOneshotWrite(okFSAXIOneshotWriteRequest) returns (okFSAXIOneshotWriteResponse) {}
+}

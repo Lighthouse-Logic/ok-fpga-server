@@ -1,0 +1,20 @@
+# Rust build output
+/target/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Windows debug symbols
+*.pdb
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Environment files (may contain secrets)
+.env
+.env.local

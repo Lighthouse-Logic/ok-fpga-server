@@ -1,0 +1,19 @@
+[package]
+name = "ok-fpga-core"
+description = "Safe Rust domain logic for the ok-FPGA-Server: device lifecycle, resource management, data port abstractions"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+# The FFI crate provides low-level bindings to the FrontPanel DLL.
+# The core crate wraps these in safe, idiomatic Rust abstractions.
+ok-fpga-ffi = { path = "../ok-fpga-ffi" }
+
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }

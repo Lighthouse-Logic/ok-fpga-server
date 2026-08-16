@@ -1,0 +1,23 @@
+[package]
+name = "ok-fpga-ffi"
+description = "Low-level FFI bindings to the Opal Kelly FrontPanel 6.1.0 C API (okFrontPanel.dll/.so)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+# libloading provides cross-platform runtime loading of shared libraries
+# (.dll on Windows, .so on Linux). We use it instead of link-time binding
+# so the server can start gracefully even if the FrontPanel DLL is missing.
+libloading = "0.8"
+
+# thiserror gives us a derive macro to create clean error enums that
+# implement std::error::Error automatically.
+thiserror = { workspace = true }
+
+[build-dependencies]
+# bindgen parses C header files and generates Rust FFI type declarations.
+# It requires libclang to be installed on the build machine.
+# This is only used at build time, not at runtime.
+bindgen = "0.71"

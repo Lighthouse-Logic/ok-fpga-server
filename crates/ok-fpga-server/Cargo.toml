@@ -1,0 +1,42 @@
+[package]
+name = "ok-fpga-server"
+description = "REST + gRPC server and web dashboard for Opal Kelly FPGAs, powered by FrontPanel 6.1.0"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+# The core crate contains all domain logic (device management, resources, etc.)
+ok-fpga-core = { path = "../ok-fpga-core" }
+
+# Axum is our HTTP framework — it handles REST API routes and serves the
+# web dashboard's static files. Built on top of tokio and tower.
+axum = "0.8"
+
+# Tower provides middleware (logging, timeouts, CORS, etc.) that works
+# with both Axum (REST) and Tonic (gRPC).
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
+
+# Tonic is the gRPC framework — it generates Rust server code from our
+# .proto file and handles all gRPC transport.
+tonic = "0.13"
+prost = "0.13"
+
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+
+# TOML parsing for server configuration files.
+toml = "0.8"
+
+[build-dependencies]
+# tonic-build compiles .proto files into Rust gRPC server/client code
+# at build time. It uses protoc under the hood.
+tonic-build = "0.13"

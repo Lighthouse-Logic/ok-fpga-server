@@ -1,0 +1,37 @@
+[workspace]
+# The ok-fpga-server workspace contains three crates that together form
+# the FPGA server application. The resolver = "2" setting enables the
+# modern Cargo dependency resolver which handles features more correctly.
+resolver = "2"
+members = [
+    "crates/ok-fpga-ffi",
+    "crates/ok-fpga-core",
+    "crates/ok-fpga-server",
+]
+
+# Shared workspace dependencies — all crates reference these via
+# `workspace = true` in their own Cargo.toml to keep versions consistent.
+[workspace.dependencies]
+# Async runtime — the foundation for all async I/O in the server
+tokio = { version = "1", features = ["full"] }
+
+# Serialization framework — used for JSON, TOML, and config parsing
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Logging / tracing — structured logging with async support
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling — ergonomic error types
+thiserror = "2"
+anyhow = "1"
+
+# Date/time — used for bitfile programming timestamps
+chrono = { version = "0.4", features = ["serde"] }
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Lighthouse Logic"]
+license = "MIT"
