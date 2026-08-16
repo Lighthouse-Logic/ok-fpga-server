@@ -4,39 +4,61 @@
 //! FFI bindings (`ok-fpga-ffi`) and the network-facing API layer
 //! (`ok-fpga-server`). It provides:
 //!
-//! - **Device lifecycle management** (`DeviceManager`): Wraps the FrontPanel
-//!   `FrontPanelManager` to detect when FPGAs are connected or disconnected
-//!   (hot-plug). See ADR-002.
+//! - **Device lifecycle management** ([`manager::DeviceManager`]): Wraps the
+//!   FrontPanel `FrontPanelManager` to detect when FPGAs are connected or
+//!   disconnected (hot-plug). See ADR-002.
 //!
-//! - **Data port abstractions** (`ClassicDataPort`, `AXIDataPort`): Safe Rust
-//!   types that represent the two kinds of FPGA data interfaces. See ADR-003.
+//! - **Data port abstractions** ([`dataport::ClassicPortInfo`],
+//!   [`dataport::AXIPortInfo`]): Safe Rust types that represent the two
+//!   kinds of FPGA data interfaces. See ADR-003.
 //!
-//! - **Resource management** (`Resource`, `ResourceAccessPolicy`): A multi-user
-//!   system where "resources" are user-defined capabilities exposed by a
-//!   programmed FPGA. Resources can be shared or exclusively locked. See ADR-006.
+//! - **Resource management** ([`resource::Resource`],
+//!   [`resource::ResourceAccessPolicy`]): A multi-user system where
+//!   "resources" are user-defined capabilities exposed by a programmed FPGA.
+//!   Resources can be shared or exclusively locked. See ADR-006.
 //!
-//! - **Board recognition & SYZYGY discovery**: Identifies supported Opal Kelly
-//!   boards and auto-discovers SYZYGY peripheral ports. See ADR-009.
+//! - **Board recognition & SYZYGY discovery**
+//!   ([`device::is_supported_device`], [`syzygy::SyzygyPort`]):
+//!   Identifies supported Opal Kelly boards and auto-discovers SYZYGY
+//!   peripheral ports. See ADR-009.
 //!
 //! ## Key Design Principle
 //!
 //! This crate never uses `unsafe` directly. All unsafe FFI calls are made
 //! through the `ok-fpga-ffi` crate's safe wrapper API.
 
-/// Placeholder function to verify the crate compiles and links correctly.
-///
-/// Returns the crate name as a static string. This will be replaced by
-/// real domain types in Phase 4 of the development roadmap.
-pub fn crate_name() -> &'static str {
-    "ok-fpga-core"
-}
+// ============================================================================
+// Module declarations
+// ============================================================================
+
+/// Device types, board recognition, and device info conversion.
+/// Implements ADR-002 (device lifecycle) and ADR-009 (board matrix).
+pub mod device;
+
+/// Device sensor types and conversions from the C API.
+pub mod sensors;
+
+/// SYZYGY port auto-discovery types and constants.
+/// Implements ADR-009 discovery algorithm.
+pub mod syzygy;
+
+/// Data port abstractions — Classic vs AXI.
+/// Implements ADR-003 (data port abstraction).
+pub mod dataport;
+
+/// Multi-user resource management.
+/// Implements ADR-006 (resource model, access policies, registry).
+pub mod resource;
+
+/// Device manager, registry, and hot-plug event system.
+/// Implements ADR-002 (device lifecycle, FrontPanelManager integration).
+pub mod manager;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
-    fn crate_name_is_correct() {
-        assert_eq!(crate_name(), "ok-fpga-core");
+    fn crate_compiles() {
+        // This test simply verifies that the crate compiles and links.
+        assert!(true);
     }
 }
