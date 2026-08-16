@@ -208,7 +208,7 @@ Create `proto/okfpga/v1/okfpga.proto` — a complete proto3 service definition.
 
 ## Phase 3: FFI Layer (`ok-fpga-ffi`)
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Complete  
 **Depends on**: Phase 0  
 **ADR reference**: [ADR-001 FFI Strategy](architecture/adr/ADR-001-ffi-strategy.md), [FP6 API Surface Catalog](architecture/fp6-api-surface.md)
 
@@ -232,10 +232,10 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
    ```
 
 **Verification 3A**:
-- [ ] `cargo build -p ok-fpga-ffi` succeeds
-- [ ] Generated bindings contain `okFrontPanel_Construct`, `okTDeviceInfo`, `ok_ErrorCode`
-- [ ] Generated bindings do NOT contain `okFrontPanel_WriteI2C` or any Lua/DLL functions
-- [ ] Commit: `feat(ffi): add rust-bindgen build script for okFrontPanel.h`
+- [x] `cargo build -p ok-fpga-ffi` succeeds — ✅ 10.34s
+- [x] Generated bindings contain `okFrontPanel_Construct`, `okTDeviceInfo`, `ok_ErrorCode` — ✅ all present (1651 lines)
+- [x] Generated bindings do NOT contain `okFrontPanel_WriteI2C` or any Lua/DLL functions — ✅ all absent
+- [x] Commit: `494a87b` — `feat(ffi): add rust-bindgen build script for okFrontPanel.h`
 
 #### 3B: Runtime DLL Loading with `libloading`
 
@@ -254,9 +254,9 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
    - Human-readable display for each error variant
 
 **Verification 3B**:
-- [ ] `cargo build -p ok-fpga-ffi` succeeds
-- [ ] `cargo doc -p ok-fpga-ffi --no-deps` shows all public API with doc comments
-- [ ] Commit: `feat(ffi): add libloading runtime DLL dispatch table`
+- [x] `cargo build -p ok-fpga-ffi` succeeds — ✅ 0 warnings
+- [x] `cargo doc -p ok-fpga-ffi --no-deps` shows all public API with doc comments — ✅ 0 warnings
+- [x] Commit: `ab650d6` — `feat(ffi): add libloading runtime DLL dispatch table`
 
 #### 3C: Safe RAII Handle Wrappers
 
@@ -273,10 +273,10 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 2. Write unit tests using `okREALM_TEST` (if possible at this stage) or mock tests
 
 **Verification 3C**:
-- [ ] `cargo build -p ok-fpga-ffi` succeeds
-- [ ] `cargo test -p ok-fpga-ffi` succeeds
-- [ ] Every `unsafe` block has a comment explaining why it is sound
-- [ ] Commit: `feat(ffi): add RAII handle wrappers for all FrontPanel handles`
+- [x] `cargo build -p ok-fpga-ffi` succeeds — ✅ 0 warnings
+- [x] `cargo test -p ok-fpga-ffi` succeeds — ✅ 9/9 passed
+- [x] Every `unsafe` block has a comment explaining why it is sound — ✅ 24/24 audited
+- [x] Commit: `b724359` — `feat(ffi): add RAII handle wrappers for all FrontPanel handles`
 
 ---
 
