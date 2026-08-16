@@ -183,3 +183,138 @@ who are new to Rust programming. All AI-generated Rust code must follow these ru
   phases are completed or when plans change.
 
 ---
+
+## 9. Testing Strategy & Test-Driven Development
+
+All code must be developed following a **Test-Driven Development (TDD)** philosophy.
+Tests are not an afterthought — they are written *before or alongside* the code they
+verify. Every commit must pass `cargo test` with zero failures.
+
+### 9.1 Test Organization
+
+- **Unit tests**: Live in `#[cfg(test)] mod tests { ... }` blocks at the bottom of
+  the same file they test. This keeps tests close to the code they verify.
+- **Integration tests**: Live in `tests/` at the workspace root. These test
+  cross-crate interactions (e.g., FFI → core → server).
+- **Hardware tests**: Live in `tests/` with the `#[ignore]` attribute by default.
+  They are run explicitly with `cargo test -- --ignored` when hardware is available.
+
+### 9.2 Three Testing Tiers
+
+This project has three tiers of tests, each serving a different purpose:
+
+#### Tier 1: Emulated Tests (`okREALM_TEST`) — Always Run
+
+These tests use the FrontPanel `okREALM_TEST` realm to simulate device connections
+without any physical hardware. They **must always pass** on every platform (Ubuntu
+22.04, Ubuntu 24.04, Windows 11) and are the primary CI gate.
+
+Use `okREALM_TEST` for:
+- Device manager lifecycle testing (connect, disconnect, re-connect)
+- Event channel verification (DeviceAdded, DeviceRemoved events)
+- USB 2.0 filtering (emulate a USB 2.0 device → verify it is skipped)
+- Resource state machine transitions (acquire, release, invalidate on disconnect)
+- Hot-plug callback thread safety
+
+```rust
+// Example: emulate a device connection in a test
+#[test]
+fn test_device_manager_detects_emulated_device() {
+    // Construct manager with okREALM_TEST
+    // Call okFrontPanelManager_EmulateTestDeviceConnection("TEST0001", true)
+    // Assert DeviceAdded event is received
+    // Call okFrontPanelManager_EmulateTestDeviceConnection("TEST0001", false)
+    // Assert DeviceRemoved event is received
+}
+```
+
+#### Tier 2: Real Hardware Tests — Run When FPGAs Are Connected
+
+These tests use **real, physically connected FPGAs**. They are marked with
+`#[ignore]` so they do not run in CI by default, but **must be run whenever a
+connected FPGA is discovered** during development or manual testing.
+
+**Discovery rule**: Once basic FPGA discovery is confirmed working (Phase 3-4),
+any test session where `cargo test` detects one or more connected supported FPGAs
+should automatically run the hardware test suite. This can be implemented as:
+- A test helper that checks `FrontPanelDevices` for connected devices at the start
+  of each hardware test and skips (rather than fails) if none are found.
+- A `--features hardware-tests` flag that enables the hardware tier.
+
+Use real hardware tests for:
+- Actual device info readback (verify `okTDeviceInfo` fields match the real board)
+- Sensor readings (verify voltage, temperature sensors return plausible values)
+- Device settings read/write round-trip
+- SYZYGY port discovery on boards with SYZYGY peripherals attached
+- Bitfile programming (using a known-good test bitfile)
+- Wire, trigger, and pipe I/O (with a programmed FPGA running a test gateware)
+- PLL configuration read/write
+- Data port type detection (Classic vs AXI)
+
+```rust
+// Example: read real device info
+#[test]
+#[ignore] // Only runs with: cargo test -- --ignored
+fn test_real_device_info_readback() {
+    // Enumerate devices with FrontPanelDevices (okREALM_LOCAL)
+    // Skip if no supported devices found
+    // Open first device
+    // Read okTDeviceInfo
+    // Assert serial is non-empty, productID is in SUPPORTED_PRODUCTS
+    // Assert deviceInterface is NOT USB2
+}
+```
+
+**Important**: Real hardware tests must **never modify persistent device state**
+(e.g., flash writes, EEPROM PLL config changes) without explicit user confirmation.
+Read-only operations (sensors, settings, device info) are always safe.
+
+#### Tier 3: Mock-Based Unit Tests — Always Run
+
+These tests use mock/stub implementations of the FFI layer to test the core domain
+logic and server route handlers in isolation, without any DLL or hardware dependency.
+
+Use mocks for:
+- `ok-fpga-core` domain logic (resource acquisition, state machine, event routing)
+- `ok-fpga-server` route handler logic (request parsing, response formatting, error mapping)
+- Authentication provider logic (NoAuth, Local, LDAP stubs)
+- Configuration parsing and validation
+
+The FFI crate exposes traits that the core crate depends on, enabling mock
+implementations in tests:
+```rust
+// The core crate depends on a trait, not on the concrete FFI struct
+pub trait FrontPanelApi: Send + Sync {
+    fn get_device_info(&self, handle: DeviceHandle) -> Result<DeviceInfo, FfiError>;
+    // ...
+}
+
+// In tests, use a mock:
+struct MockFrontPanelApi { /* ... */ }
+impl FrontPanelApi for MockFrontPanelApi { /* ... */ }
+```
+
+### 9.3 Test Naming Convention
+
+Use descriptive names following the pattern:
+```
+test_{function_or_module}_{scenario}_{expected_outcome}
+```
+
+Examples:
+- `test_device_manager_usb2_device_is_skipped`
+- `test_resource_acquire_when_locked_returns_error`
+- `test_syzygy_discovery_with_no_peripherals_returns_empty_list`
+- `test_real_device_sensors_return_plausible_values`
+
+### 9.4 Rules
+
+- **Tests first**: Write or update tests *before or alongside* production code.
+- **Zero broken tests**: Never bypass, disable, or `#[allow]` a failing test to
+  force a build to pass. Fix the code or fix the test.
+- **Continuous alignment**: When code changes, update all affected tests in the
+  same commit.
+- **`cargo test` before every commit**: Per §7, a commit requires a passing build.
+  `cargo test` (which includes `cargo build`) is the minimum bar.
+
+---

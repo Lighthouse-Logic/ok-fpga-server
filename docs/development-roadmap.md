@@ -19,7 +19,7 @@
 
 ## Phase 0: Project Scaffolding
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed (2026-08-16, `c56145b`)  
 **Depends on**: Nothing  
 **ADR reference**: [Architecture Overview](architecture/overview.md)
 
