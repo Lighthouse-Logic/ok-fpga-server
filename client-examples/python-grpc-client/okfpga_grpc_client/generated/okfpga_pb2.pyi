@@ -942,6 +942,20 @@ class ReleaseResourceRequest(_message.Message):
     user_id: str
     def __init__(self, resource_id: _Optional[str] = ..., user_id: _Optional[str] = ...) -> None: ...
 
+class CreateResourceRequest(_message.Message):
+    __slots__ = ("name", "description", "device_serial", "resource_type", "capabilities")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
+    DEVICE_SERIAL_FIELD_NUMBER: _ClassVar[int]
+    RESOURCE_TYPE_FIELD_NUMBER: _ClassVar[int]
+    CAPABILITIES_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    description: str
+    device_serial: str
+    resource_type: str
+    capabilities: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, name: _Optional[str] = ..., description: _Optional[str] = ..., device_serial: _Optional[str] = ..., resource_type: _Optional[str] = ..., capabilities: _Optional[_Iterable[str]] = ...) -> None: ...
+
 class ListUsersRequest(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...

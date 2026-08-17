@@ -161,6 +161,16 @@ class DeviceServiceStub:
                 request_serializer=okfpga__pb2.ResourceRequest.SerializeToString,
                 response_deserializer=okfpga__pb2.ResourceResponse.FromString,
                 _registered_method=True)
+        self.CreateResource = channel.unary_unary(
+                '/okFPGAService.v1.DeviceService/CreateResource',
+                request_serializer=okfpga__pb2.CreateResourceRequest.SerializeToString,
+                response_deserializer=okfpga__pb2.ResourceResponse.FromString,
+                _registered_method=True)
+        self.DeleteResource = channel.unary_unary(
+                '/okFPGAService.v1.DeviceService/DeleteResource',
+                request_serializer=okfpga__pb2.ResourceRequest.SerializeToString,
+                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                _registered_method=True)
         self.AcquireResource = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/AcquireResource',
                 request_serializer=okfpga__pb2.AcquireResourceRequest.SerializeToString,
@@ -380,6 +390,22 @@ class DeviceServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def CreateResource(self, request, context):
+        """Create a new resource for a programmed FPGA.
+        The client creates resources after programming a bitfile. See ADR-016.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteResource(self, request, context):
+        """Delete a resource definition.
+        Returns an error if the resource is currently held by any user.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def AcquireResource(self, request, context):
         """Acquire a resource in shared or exclusive mode.
         """
@@ -532,6 +558,16 @@ def add_DeviceServiceServicer_to_server(servicer, server):
                     servicer.GetResource,
                     request_deserializer=okfpga__pb2.ResourceRequest.FromString,
                     response_serializer=okfpga__pb2.ResourceResponse.SerializeToString,
+            ),
+            'CreateResource': grpc.unary_unary_rpc_method_handler(
+                    servicer.CreateResource,
+                    request_deserializer=okfpga__pb2.CreateResourceRequest.FromString,
+                    response_serializer=okfpga__pb2.ResourceResponse.SerializeToString,
+            ),
+            'DeleteResource': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteResource,
+                    request_deserializer=okfpga__pb2.ResourceRequest.FromString,
+                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'AcquireResource': grpc.unary_unary_rpc_method_handler(
                     servicer.AcquireResource,
@@ -1220,6 +1256,60 @@ class DeviceService:
             _registered_method=True)
 
     @staticmethod
+    def CreateResource(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/okFPGAService.v1.DeviceService/CreateResource',
+            okfpga__pb2.CreateResourceRequest.SerializeToString,
+            okfpga__pb2.ResourceResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteResource(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/okFPGAService.v1.DeviceService/DeleteResource',
+            okfpga__pb2.ResourceRequest.SerializeToString,
+            okfpga__pb2.StatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def AcquireResource(request,
             target,
             options=(),
@@ -1330,8 +1420,10 @@ class DeviceService:
 
 class ClassicDataPortServiceStub:
     """ClassicDataPortService handles FrontPanel Classic wire, trigger, pipe,
-    and register operations. These are only available on devices with
-    dataport == DATAPORT_LEGACY after FPGA configuration.
+    and register operations using discrete okWireIn/okTriggerIn/etc. HDL modules.
+    These endpoints are available when the loaded bitfile instantiates Classic
+    endpoint modules on the okHost bus. The server does NOT gate access based
+    on okTDeviceInfo.dataport (which describes the physical USB transport).
     """
 
     def __init__(self, channel):
@@ -1439,8 +1531,10 @@ class ClassicDataPortServiceStub:
 
 class ClassicDataPortServiceServicer:
     """ClassicDataPortService handles FrontPanel Classic wire, trigger, pipe,
-    and register operations. These are only available on devices with
-    dataport == DATAPORT_LEGACY after FPGA configuration.
+    and register operations using discrete okWireIn/okTriggerIn/etc. HDL modules.
+    These endpoints are available when the loaded bitfile instantiates Classic
+    endpoint modules on the okHost bus. The server does NOT gate access based
+    on okTDeviceInfo.dataport (which describes the physical USB transport).
     """
 
     def ResetFPGA(self, request, context):
@@ -1692,8 +1786,10 @@ def add_ClassicDataPortServiceServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class ClassicDataPortService:
     """ClassicDataPortService handles FrontPanel Classic wire, trigger, pipe,
-    and register operations. These are only available on devices with
-    dataport == DATAPORT_LEGACY after FPGA configuration.
+    and register operations using discrete okWireIn/okTriggerIn/etc. HDL modules.
+    These endpoints are available when the loaded bitfile instantiates Classic
+    endpoint modules on the okHost bus. The server does NOT gate access based
+    on okTDeviceInfo.dataport (which describes the physical USB transport).
     """
 
     @staticmethod
@@ -2212,8 +2308,9 @@ class ClassicDataPortService:
 
 class AXIDataPortServiceStub:
     """AXIDataPortService handles FrontPanel AXI Lite, Full, and Stream
-    operations. These are only available on devices with
-    dataport == DATAPORT_AXI after FPGA configuration.
+    operations via okRegisterBridge. These endpoints are available when the
+    loaded bitfile instantiates okRegisterBridge on the okHost bus. The server
+    does NOT gate access based on okTDeviceInfo.dataport.
     --- AXI Lite ---
     """
 
@@ -2292,8 +2389,9 @@ class AXIDataPortServiceStub:
 
 class AXIDataPortServiceServicer:
     """AXIDataPortService handles FrontPanel AXI Lite, Full, and Stream
-    operations. These are only available on devices with
-    dataport == DATAPORT_AXI after FPGA configuration.
+    operations via okRegisterBridge. These endpoints are available when the
+    loaded bitfile instantiates okRegisterBridge on the okHost bus. The server
+    does NOT gate access based on okTDeviceInfo.dataport.
     --- AXI Lite ---
     """
 
@@ -2470,8 +2568,9 @@ def add_AXIDataPortServiceServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class AXIDataPortService:
     """AXIDataPortService handles FrontPanel AXI Lite, Full, and Stream
-    operations. These are only available on devices with
-    dataport == DATAPORT_AXI after FPGA configuration.
+    operations via okRegisterBridge. These endpoints are available when the
+    loaded bitfile instantiates okRegisterBridge on the okHost bus. The server
+    does NOT gate access based on okTDeviceInfo.dataport.
     --- AXI Lite ---
     """
 
