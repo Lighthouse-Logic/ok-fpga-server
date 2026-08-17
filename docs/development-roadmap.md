@@ -629,7 +629,7 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 ## Phase 12: Integration Testing
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed (2026-08-16, `b0856c1`)  
 **Depends on**: All previous phases
 
 ### What to do
@@ -658,11 +658,11 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 ### Verification
 
-- [ ] `cargo test` passes all integration tests
-- [ ] `cargo build --features full` compiles all features
-- [ ] `cargo build --no-default-features` compiles minimal binary
-- [ ] CI pipeline is green on both Linux and Windows
-- [ ] Commit: `test: add integration tests with okREALM_TEST`
+- [x] `cargo test` passes all integration tests — ✅ (147 total: 97 unit + 39 integration + 11 doc)
+- [x] `cargo build --features full` compiles all features — ✅
+- [x] `cargo build --no-default-features` compiles minimal binary — ✅
+- [ ] CI pipeline is green on both Linux and Windows — (deferred to Phase 13)
+- [x] Commit: `b0856c1` — `test: add integration tests for core domain, auth, and service lifecycle (Phase 12)`
 
 ---
 
