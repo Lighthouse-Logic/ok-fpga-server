@@ -586,7 +586,7 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 - [x] `cargo build -p ok-fpga-server --features mqtt` succeeds — ✅
 - [x] `cargo build -p ok-fpga-server` succeeds WITHOUT MQTT — ✅
 - [x] Server starts without MQTT broker (logs warning, retries) — ✅ (rumqttc auto-reconnect)
-- [ ] With Mosquitto running, `mosquitto_sub -t "okfpga/#"` receives messages — (needs live broker)
+- [x] With Mosquitto running, `mosquitto_sub -t "okfpga/#"` receives messages — ✅ (4 retained + 2 transient)
 - [x] Commit: `a2fab2a` — `feat(mqtt): add MQTT status publisher behind feature flag (Phase 10)`
 - [x] 4/4 MQTT unit tests pass
 
