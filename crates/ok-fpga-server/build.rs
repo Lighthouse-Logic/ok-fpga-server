@@ -1,16 +1,43 @@
-//! # Build Script for ok-fpga-server
+//! Build script for ok-fpga-server.
 //!
-//! This build script will use `tonic-build` to compile the proto3 gRPC
-//! service definition into Rust server/client code. For now it is a
-//! placeholder that will be implemented in Phase 5 of the development roadmap.
+//! When the `grpc` feature is enabled, this script compiles the proto3
+//! service definition (`proto/okfpga/v1/okfpga.proto`) into Rust types
+//! using `tonic-build`. The generated code is placed in `$OUT_DIR` and
+//! included via `tonic::include_proto!()` in the gRPC module.
 //!
-//! When fully implemented, it will:
-//! 1. Compile `proto/okfpga/v1/okfpga.proto`
-//! 2. Generate Rust types for all proto messages
-//! 3. Generate Rust trait implementations for all gRPC services
+//! When `grpc` is NOT enabled, this script does nothing — the proto file
+//! is not compiled and tonic/prost are not required.
 
-fn main() {
-    // Phase 5 will add the tonic-build invocation here.
-    // For now, the build script is a no-op so the crate compiles.
-    println!("cargo:rerun-if-changed=build.rs");
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Only compile protos when the gRPC feature is enabled.
+    // The `CARGO_FEATURE_GRPC` env var is set by Cargo when `grpc` is active.
+    #[cfg(feature = "grpc")]
+    {
+        // The proto file path is relative to the workspace root, not this crate.
+        // We use `../..` to navigate from `crates/ok-fpga-server/` up to the
+        // workspace root where `proto/` lives.
+        let proto_path = "../../proto/okfpga/v1/okfpga.proto";
+        let proto_dir = "../../proto";
+
+        println!("cargo:rerun-if-changed={}", proto_path);
+
+        tonic_build::configure()
+            // Generate server-side code (service trait implementations).
+            .build_server(true)
+            // Don't generate client code — we're a server, not a client.
+            .build_client(false)
+            // Compile the proto file.
+            .compile_protos(&[proto_path], &[proto_dir])?;
+
+        println!("cargo:warning=Compiled gRPC proto definitions successfully");
+    }
+
+    // When grpc feature is not enabled, do nothing.
+    #[cfg(not(feature = "grpc"))]
+    {
+        // Suppress unused variable warnings in the build script.
+        let _ = "proto compilation skipped — grpc feature not enabled";
+    }
+
+    Ok(())
 }
