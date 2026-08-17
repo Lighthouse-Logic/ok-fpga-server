@@ -80,6 +80,10 @@ mod rest;
 #[cfg(feature = "grpc")]
 mod grpc;
 
+/// MQTT status publisher — only compiled when `mqtt` feature is enabled.
+#[cfg(feature = "mqtt")]
+mod mqtt;
+
 use std::sync::Arc;
 
 use ok_fpga_core::manager::DeviceManager;
@@ -308,9 +312,21 @@ fn register_services(
         );
     }
 
-    // --- MQTT (Phase 10, opt-in feature) ---
-    // #[cfg(feature = "mqtt")]
-    // { ... }
+    // --- MQTT (opt-in feature, ADR-011) ---
+    #[cfg(feature = "mqtt")]
+    {
+        let mqtt_service = Arc::new(mqtt::MqttPublisher::new(
+            cfg.mqtt.clone(),
+            app_state.clone(),
+        ));
+        service_manager.register(mqtt_service, cfg.mqtt.enabled);
+        info!(
+            broker = %cfg.mqtt.broker_url,
+            topic_prefix = %cfg.mqtt.topic_prefix,
+            enabled = cfg.mqtt.enabled,
+            "registered MQTT service"
+        );
+    }
 
     // --- mDNS (Phase 11, opt-in feature) ---
     // #[cfg(feature = "mdns")]

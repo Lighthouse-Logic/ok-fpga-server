@@ -35,7 +35,7 @@ dashboard = []
 grpc = ["dep:tonic", "dep:prost", "dep:tokio-stream"]
 
 # MQTT status publisher. Publishes device/service events to an external broker.
-mqtt = []
+mqtt = ["dep:rumqttc"]
 
 # mDNS/DNS-SD service discovery. Advertises the server on the local network.
 mdns = []
@@ -83,6 +83,12 @@ tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
 tonic = { version = "0.13", optional = true }
 prost = { version = "0.13", optional = true }
 tokio-stream = { version = "0.1", optional = true }
+
+# --- MQTT feature dependencies ---
+
+# rumqttc is a pure-Rust async MQTT v5 client. Used to publish status
+# messages to an external broker (e.g., Mosquitto).
+rumqttc = { version = "0.24", optional = true }
 
 # ============================================================================
 # Build Dependencies
