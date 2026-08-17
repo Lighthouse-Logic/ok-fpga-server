@@ -114,6 +114,17 @@ fn make_resource(device_serial: &str, name: &str) -> Resource {
         name.to_string(),
         None,
         device_serial.to_string(),
+        AccessMode::Shared,
+    )
+}
+
+fn make_exclusive_resource(device_serial: &str, name: &str) -> Resource {
+    Resource::new(
+        format!("{}:{}", device_serial, name),
+        name.to_string(),
+        None,
+        device_serial.to_string(),
+        AccessMode::Exclusive,
     )
 }
 
@@ -136,7 +147,7 @@ fn resource_lifecycle_acquire_release() {
 fn exclusive_resource_blocks_second_user() {
     let rr = ResourceRegistry::new();
 
-    rr.register(make_resource("DEV001", "exclusive_res"));
+    rr.register(make_exclusive_resource("DEV001", "exclusive_res"));
 
     let alice = "alice".to_string();
     let bob = "bob".to_string();
@@ -165,12 +176,12 @@ fn shared_resource_allows_multiple_users() {
 }
 
 #[test]
-fn invalidate_device_clears_all_resources() {
+fn invalidate_device_deletes_all_resources() {
     let rr = ResourceRegistry::new();
 
-    rr.register(make_resource("DEV_CLEAR", "res1"));
+    rr.register(make_exclusive_resource("DEV_CLEAR", "res1"));
     rr.register(make_resource("DEV_CLEAR", "res2"));
-    rr.register(make_resource("DEV_OTHER", "res3"));
+    rr.register(make_exclusive_resource("DEV_OTHER", "res3"));
 
     let alice = "alice".to_string();
     let bob = "bob".to_string();
@@ -180,26 +191,17 @@ fn invalidate_device_clears_all_resources() {
     let _ = rr.acquire("DEV_CLEAR:res2", &bob, AccessMode::Shared);
     let _ = rr.acquire("DEV_OTHER:res3", &carol, AccessMode::Exclusive);
 
-    // invalidate_device sets state to Unavailable and clears holders,
-    // but does NOT remove the resources from the registry.
-    rr.invalidate_device("DEV_CLEAR");
+    // ADR-020 §4: invalidate_device DELETES resources (not just marks unavailable).
+    let deleted = rr.invalidate_device("DEV_CLEAR");
+
+    assert_eq!(deleted.len(), 2, "two resources should be deleted");
 
     let dev_clear_resources = rr.list_for_device("DEV_CLEAR");
     assert_eq!(
         dev_clear_resources.len(),
-        2,
-        "resources should still exist but be invalidated"
+        0,
+        "DEV_CLEAR resources should be deleted, not just unavailable"
     );
-    for res in &dev_clear_resources {
-        assert_eq!(
-            res.state,
-            ok_fpga_core::resource::ResourceState::Unavailable,
-            "resource {} should be Unavailable",
-            res.id
-        );
-        assert!(res.holders.is_empty(), "holders should be cleared");
-        assert!(res.access_mode.is_none(), "access_mode should be None");
-    }
 
     // DEV_OTHER resources should be unaffected (still held).
     let dev_other_resources = rr.list_for_device("DEV_OTHER");

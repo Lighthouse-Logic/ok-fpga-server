@@ -423,6 +423,12 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             }
         }
 
+        // Parse access mode (default to Shared for backward compatibility).
+        let access_mode = match req.resource_type.as_str() {
+            "exclusive" => ok_fpga_core::resource::AccessMode::Exclusive,
+            _ => ok_fpga_core::resource::AccessMode::Shared,
+        };
+
         // Generate resource ID: {serial}:{name}
         let resource_id = format!("{}:{}", req.device_serial, req.name);
 
@@ -435,6 +441,7 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
                 Some(req.description)
             },
             req.device_serial,
+            access_mode,
         );
 
         if self.state.resource_registry.register(resource) {

@@ -92,14 +92,20 @@ impl fmt::Display for ResourceState {
 // Access Mode
 // ============================================================================
 
-/// How a user requests to use a resource.
+/// Design-level access constraint for a resource (ADR-020 §3).
+///
+/// This is set at **registration time** based on the FPGA HDL bitfile design,
+/// not at acquisition time. If the resource's hardware design allows concurrent
+/// access from multiple users, use `Shared`. If concurrent access would cause
+/// interference, use `Exclusive`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AccessMode {
-    /// The user wants shared access. Multiple users can hold the resource
-    /// simultaneously.
+    /// Multiple users can hold the resource simultaneously.
+    /// Holders may temporarily `lock` the resource for uninterrupted access.
     Shared,
 
-    /// The user wants exclusive access. No other users can hold the resource.
+    /// Only one user can hold the resource at a time.
+    /// The resource is always implicitly locked when acquired.
     Exclusive,
 }
 
@@ -113,6 +119,187 @@ impl fmt::Display for AccessMode {
 }
 
 // ============================================================================
+// Interface Declaration (ADR-020 §6)
+// ============================================================================
+
+/// Which data port interfaces a resource uses.
+///
+/// At least one interface must be enabled. The server validates these
+/// declarations against the device's actual capabilities at registration time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InterfaceDeclaration {
+    /// Uses Classic FrontPanel endpoints (wires, triggers, pipes).
+    pub classic: bool,
+    /// Uses AXI4-Lite register access (CSRs, configuration).
+    pub axi_lite: bool,
+    /// Uses AXI4 burst memory-mapped access (BRAM, DDR).
+    pub axi_full: bool,
+    /// Uses AXI4-Stream addressless streaming (DSP, ADC/DAC).
+    pub axi_stream: bool,
+}
+
+impl Default for InterfaceDeclaration {
+    /// Defaults to Classic-only, matching the most common use case.
+    fn default() -> Self {
+        InterfaceDeclaration {
+            classic: true,
+            axi_lite: false,
+            axi_full: false,
+            axi_stream: false,
+        }
+    }
+}
+
+impl InterfaceDeclaration {
+    /// Returns `true` if at least one interface is enabled.
+    pub fn has_any(&self) -> bool {
+        self.classic || self.axi_lite || self.axi_full || self.axi_stream
+    }
+
+    /// Returns `true` if any AXI interface is enabled.
+    pub fn has_axi(&self) -> bool {
+        self.axi_lite || self.axi_full || self.axi_stream
+    }
+}
+
+// ============================================================================
+// Classic Endpoint Types (ADR-020 §7)
+// ============================================================================
+
+/// The type of a Classic FrontPanel endpoint.
+///
+/// Each type has a defined address range. Standard Pipes and Block-Throttled
+/// Pipes share the same address ranges (0x80–0x9F for input, 0xA0–0xBF for
+/// output). See `docs/notes-on-Pipes-and-Block-Throttled-Pipes.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EndpointType {
+    /// WireIn endpoints: addresses 0x00–0x1F.
+    WireIn,
+    /// WireOut endpoints: addresses 0x20–0x3F.
+    WireOut,
+    /// TriggerIn endpoints: addresses 0x40–0x5F.
+    TriggerIn,
+    /// TriggerOut endpoints: addresses 0x60–0x7F.
+    TriggerOut,
+    /// Standard PipeIn endpoints: addresses 0x80–0x9F.
+    PipeIn,
+    /// Standard PipeOut endpoints: addresses 0xA0–0xBF.
+    PipeOut,
+    /// Block-Throttled PipeIn endpoints: addresses 0x80–0x9F (shared with PipeIn).
+    BtPipeIn,
+    /// Block-Throttled PipeOut endpoints: addresses 0xA0–0xBF (shared with PipeOut).
+    BtPipeOut,
+}
+
+impl EndpointType {
+    /// Returns the valid address range (inclusive) for this endpoint type.
+    pub fn address_range(&self) -> (u8, u8) {
+        match self {
+            EndpointType::WireIn => (0x00, 0x1F),
+            EndpointType::WireOut => (0x20, 0x3F),
+            EndpointType::TriggerIn => (0x40, 0x5F),
+            EndpointType::TriggerOut => (0x60, 0x7F),
+            EndpointType::PipeIn | EndpointType::BtPipeIn => (0x80, 0x9F),
+            EndpointType::PipeOut | EndpointType::BtPipeOut => (0xA0, 0xBF),
+        }
+    }
+
+    /// Returns `true` if the given address is valid for this endpoint type.
+    pub fn is_valid_address(&self, addr: u8) -> bool {
+        let (lo, hi) = self.address_range();
+        addr >= lo && addr <= hi
+    }
+
+    /// Infer the endpoint type from a raw address (returns the "default" type
+    /// for the range, preferring standard pipes over BT pipes).
+    pub fn from_address(addr: u8) -> Option<EndpointType> {
+        match addr {
+            0x00..=0x1F => Some(EndpointType::WireIn),
+            0x20..=0x3F => Some(EndpointType::WireOut),
+            0x40..=0x5F => Some(EndpointType::TriggerIn),
+            0x60..=0x7F => Some(EndpointType::TriggerOut),
+            0x80..=0x9F => Some(EndpointType::PipeIn),
+            0xA0..=0xBF => Some(EndpointType::PipeOut),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for EndpointType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EndpointType::WireIn => write!(f, "wire_in"),
+            EndpointType::WireOut => write!(f, "wire_out"),
+            EndpointType::TriggerIn => write!(f, "trigger_in"),
+            EndpointType::TriggerOut => write!(f, "trigger_out"),
+            EndpointType::PipeIn => write!(f, "pipe_in"),
+            EndpointType::PipeOut => write!(f, "pipe_out"),
+            EndpointType::BtPipeIn => write!(f, "bt_pipe_in"),
+            EndpointType::BtPipeOut => write!(f, "bt_pipe_out"),
+        }
+    }
+}
+
+// ============================================================================
+// Endpoint Entry and Declaration (ADR-020 §7)
+// ============================================================================
+
+/// A single Classic endpoint declaration within a resource.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EndpointEntry {
+    /// Endpoint address (0x00–0xBF).
+    pub address: u8,
+    /// The type of endpoint (must match the address range).
+    pub ep_type: EndpointType,
+    /// Whether this endpoint is shared or exclusive.
+    pub access: AccessMode,
+    /// Optional human-readable description.
+    pub description: Option<String>,
+}
+
+/// Declaration of all Classic endpoints used by a resource (ADR-020 §7).
+///
+/// The `default_access` applies to any endpoint NOT explicitly listed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EndpointDeclaration {
+    /// Default access mode for endpoints not listed in `entries`.
+    pub default_access: AccessMode,
+    /// Explicitly declared endpoints with per-EP access modes.
+    pub entries: Vec<EndpointEntry>,
+}
+
+// ============================================================================
+// Address Range Declaration (ADR-020 §8)
+// ============================================================================
+
+/// A 32-bit address range used by a resource (ADR-020 §8).
+///
+/// Represents a memory-mapped region in the FPGA design. Ranges need not
+/// be contiguous; a resource may declare multiple ranges.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddressRange {
+    /// Start of the range (inclusive), e.g. 0x44A6_0000.
+    pub start: u32,
+    /// End of the range (inclusive), e.g. 0x44A8_FFFF.
+    pub end: u32,
+    /// Whether this range is shared or exclusive.
+    pub access: AccessMode,
+}
+
+impl AddressRange {
+    /// Returns `true` if this range overlaps with `other`.
+    pub fn overlaps(&self, other: &AddressRange) -> bool {
+        self.start <= other.end && other.start <= self.end
+    }
+}
+
+impl fmt::Display for AddressRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "0x{:08X}–0x{:08X} ({})", self.start, self.end, self.access)
+    }
+}
+
+// ============================================================================
 // Resource Struct
 // ============================================================================
 
@@ -122,16 +309,27 @@ impl fmt::Display for AccessMode {
 /// Each resource is associated with a specific FPGA serial number and is
 /// only valid while the FPGA is programmed with the expected bitfile.
 ///
+/// ## Enhanced Schema (ADR-020)
+///
+/// Resources now include:
+/// - **`access_mode`**: Design-level constraint (shared vs. exclusive), set at
+///   registration time — not a runtime user choice.
+/// - **`interfaces`**: Which data port interfaces the resource uses.
+/// - **`endpoints`**: Classic endpoint declarations with per-EP sharing.
+/// - **`address_ranges`**: 32-bit memory-mapped address ranges.
+/// - **`metadata`**: Extensible key-value pairs.
+///
 /// ## Example
 ///
 /// ```
-/// use ok_fpga_core::resource::{Resource, ResourceState};
+/// use ok_fpga_core::resource::{Resource, ResourceState, AccessMode};
 ///
 /// let resource = Resource::new(
 ///     "ABC123:dac_ch1".to_string(),
 ///     "dac_ch1".to_string(),
 ///     Some("DAC Channel 1 — 16-bit analog output".to_string()),
 ///     "ABC1234567".to_string(),
+///     AccessMode::Exclusive,
 /// );
 ///
 /// assert_eq!(resource.state, ResourceState::Available);
@@ -158,9 +356,27 @@ pub struct Resource {
     /// Empty if the resource is `Available` or `Unavailable`.
     pub holders: Vec<UserId>,
 
-    /// Access mode when the resource is in use.
-    /// `None` when the resource is not in use.
+    /// Design-level access mode constraint (ADR-020 §3).
+    /// Set at registration time. Determines whether the resource can be shared
+    /// or is always exclusive. `None` for legacy resources created without a mode.
     pub access_mode: Option<AccessMode>,
+
+    /// User ID that currently holds the lock on a shared resource (ADR-020 §3).
+    /// Only set when `access_mode == Some(Shared)` and the resource is locked.
+    pub locked_by: Option<UserId>,
+
+    /// Which data port interfaces this resource uses (ADR-020 §6).
+    pub interfaces: InterfaceDeclaration,
+
+    /// Classic endpoint declarations (ADR-020 §7).
+    /// Required when `interfaces.classic == true`.
+    pub endpoints: Option<EndpointDeclaration>,
+
+    /// 32-bit address ranges used by this resource (ADR-020 §8).
+    pub address_ranges: Vec<AddressRange>,
+
+    /// Extensible key-value metadata (ADR-020 §9).
+    pub metadata: HashMap<String, String>,
 }
 
 impl Resource {
@@ -170,6 +386,7 @@ impl Resource {
         name: String,
         description: Option<String>,
         device_serial: String,
+        access_mode: AccessMode,
     ) -> Self {
         Resource {
             id,
@@ -178,7 +395,12 @@ impl Resource {
             device_serial,
             state: ResourceState::Available,
             holders: Vec::new(),
-            access_mode: None,
+            access_mode: Some(access_mode),
+            locked_by: None,
+            interfaces: InterfaceDeclaration::default(),
+            endpoints: None,
+            address_ranges: Vec::new(),
+            metadata: HashMap::new(),
         }
     }
 
@@ -190,6 +412,7 @@ impl Resource {
         )
     }
 }
+
 
 impl fmt::Display for Resource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -289,10 +512,23 @@ pub trait ResourceAccessPolicy: Send + Sync {
 // Default Access Policy
 // ============================================================================
 
-/// The default resource access policy implementing the rules from ADR-006.
+/// The default resource access policy implementing the rules from ADR-006
+/// and ADR-020.
 ///
 /// This is a **stub** that developers can replace with HDL-specific logic
 /// by implementing the [`ResourceAccessPolicy`] trait.
+///
+/// ## ADR-020 Acquisition Rules
+///
+/// The access mode is now a design-level constraint on the resource, not
+/// a user's runtime choice. The `requested_mode` parameter is used for
+/// backward compatibility but should match the resource's `access_mode`.
+///
+/// - `Available` → allow acquire
+/// - `InUseShared` (resource `access_mode == Shared`) → allow if not locked
+/// - `InUseLocked` → deny unless it's a shared resource temporarily locked
+///   (the lock holder blocks others until unlock)
+/// - `Unavailable` or `Initializing` → deny
 pub struct DefaultAccessPolicy;
 
 impl ResourceAccessPolicy for DefaultAccessPolicy {
@@ -304,7 +540,7 @@ impl ResourceAccessPolicy for DefaultAccessPolicy {
     ) -> Result<(), AcquisitionDenied> {
         match &resource.state {
             ResourceState::Available => {
-                // Available resources can be acquired in any mode.
+                // Available resources can be acquired.
                 Ok(())
             }
             ResourceState::InUseShared => {
@@ -318,11 +554,11 @@ impl ResourceAccessPolicy for DefaultAccessPolicy {
                 }
             }
             ResourceState::InUseLocked => {
-                // Exclusively locked — deny everyone.
+                // Locked — deny everyone.
                 let held_by = resource
-                    .holders
-                    .first()
-                    .cloned()
+                    .locked_by
+                    .clone()
+                    .or_else(|| resource.holders.first().cloned())
                     .unwrap_or_else(|| "unknown".to_string());
                 Err(AcquisitionDenied::ExclusivelyHeld { held_by })
             }
@@ -422,7 +658,12 @@ impl ResourceRegistry {
             .collect()
     }
 
-    /// Attempt to acquire a resource for a user.
+    /// Attempt to acquire a resource for a user (ADR-020 §3).
+    ///
+    /// The access mode is determined by the resource's `access_mode` field
+    /// (set at registration time), not by the caller. The `mode` parameter
+    /// is used for backward compatibility and should match the resource's
+    /// declared mode.
     ///
     /// Returns `Ok(())` if the acquisition succeeded, or
     /// `Err(AcquisitionDenied)` if the policy denied it.
@@ -445,8 +686,11 @@ impl ResourceRegistry {
         // Policy approved — mutate the resource.
         let resource = map.get_mut(resource_id).unwrap();
         resource.holders.push(user_id.clone());
-        resource.access_mode = Some(mode);
-        resource.state = match mode {
+
+        // Use the resource's declared access mode if available,
+        // falling back to the caller-provided mode for compatibility.
+        let effective_mode = resource.access_mode.unwrap_or(mode);
+        resource.state = match effective_mode {
             AccessMode::Shared => ResourceState::InUseShared,
             AccessMode::Exclusive => ResourceState::InUseLocked,
         };
@@ -465,10 +709,21 @@ impl ResourceRegistry {
             resource.holders.retain(|h| h != user_id);
             let removed = resource.holders.len() < before;
 
+            // If the releasing user was the locker, clear the lock.
+            if removed && resource.locked_by.as_deref() == Some(user_id) {
+                resource.locked_by = None;
+            }
+
             if removed && resource.holders.is_empty() {
                 // No more holders — transition back to Available.
                 resource.state = ResourceState::Available;
-                resource.access_mode = None;
+                resource.locked_by = None;
+            } else if removed
+                && resource.locked_by.is_none()
+                && resource.access_mode == Some(AccessMode::Shared)
+            {
+                // Shared resource, locker left, back to InUseShared.
+                resource.state = ResourceState::InUseShared;
             }
 
             removed
@@ -477,24 +732,102 @@ impl ResourceRegistry {
         }
     }
 
-    /// Invalidate all resources for a specific device.
+    /// Lock a shared resource for exclusive use by a holder (ADR-020 §3).
     ///
-    /// This is called when a device is disconnected or reprogrammed.
-    /// All resources for the device are set to `Unavailable` and all
-    /// holders are cleared.
-    pub fn invalidate_device(&self, serial: &str) {
+    /// Preconditions:
+    /// - Resource must exist and be in `InUseShared` state.
+    /// - `user_id` must be a current holder.
+    /// - Resource's `access_mode` must be `Shared` (exclusive resources are
+    ///   always implicitly locked).
+    ///
+    /// Returns `Ok(())` on success, or an error string.
+    pub fn lock(&self, resource_id: &str, user_id: &UserId) -> Result<(), String> {
         let mut map = self.resources.write().unwrap();
-        for resource in map.values_mut() {
-            if resource.device_serial == serial {
-                // Notify the policy before clearing.
-                self.policy
-                    .on_resource_invalidated(resource, &resource.holders);
+        let resource = map.get_mut(resource_id).ok_or_else(|| {
+            format!("Resource '{}' not found", resource_id)
+        })?;
 
-                resource.state = ResourceState::Unavailable;
-                resource.holders.clear();
-                resource.access_mode = None;
+        if resource.access_mode != Some(AccessMode::Shared) {
+            return Err("Cannot lock/unlock an exclusive resource — it is always implicitly locked".to_string());
+        }
+
+        if !resource.holders.contains(user_id) {
+            return Err(format!(
+                "User '{}' is not a holder of resource '{}'",
+                user_id, resource_id
+            ));
+        }
+
+        if resource.locked_by.is_some() {
+            return Err(format!(
+                "Resource '{}' is already locked by '{}'",
+                resource_id,
+                resource.locked_by.as_deref().unwrap_or("unknown")
+            ));
+        }
+
+        resource.locked_by = Some(user_id.clone());
+        resource.state = ResourceState::InUseLocked;
+        Ok(())
+    }
+
+    /// Unlock a previously locked shared resource (ADR-020 §3).
+    ///
+    /// Preconditions:
+    /// - Resource must exist and be in `InUseLocked` state.
+    /// - `user_id` must be the user who locked the resource.
+    ///
+    /// Returns `Ok(())` on success, or an error string.
+    pub fn unlock(&self, resource_id: &str, user_id: &UserId) -> Result<(), String> {
+        let mut map = self.resources.write().unwrap();
+        let resource = map.get_mut(resource_id).ok_or_else(|| {
+            format!("Resource '{}' not found", resource_id)
+        })?;
+
+        if resource.access_mode != Some(AccessMode::Shared) {
+            return Err("Cannot lock/unlock an exclusive resource — it is always implicitly locked".to_string());
+        }
+
+        if resource.locked_by.as_deref() != Some(user_id.as_str()) {
+            return Err(format!(
+                "User '{}' did not lock resource '{}'",
+                user_id, resource_id
+            ));
+        }
+
+        resource.locked_by = None;
+        resource.state = ResourceState::InUseShared;
+        Ok(())
+    }
+
+    /// Delete all resources for a specific device (ADR-020 §4).
+    ///
+    /// Called when a device is disconnected. Resources are **deleted**
+    /// (not just marked Unavailable) because the device state is unknown
+    /// after reconnection — it may have lost power or been reprogrammed.
+    ///
+    /// Returns the list of deleted resources (for event notifications).
+    pub fn invalidate_device(&self, serial: &str) -> Vec<Resource> {
+        let mut map = self.resources.write().unwrap();
+        let mut deleted = Vec::new();
+
+        // Collect resource IDs to delete (can't mutate while iterating).
+        let ids_to_delete: Vec<ResourceId> = map
+            .values()
+            .filter(|r| r.device_serial == serial)
+            .map(|r| r.id.clone())
+            .collect();
+
+        for id in ids_to_delete {
+            if let Some(resource) = map.remove(&id) {
+                // Notify the policy before deleting.
+                self.policy
+                    .on_resource_invalidated(&resource, &resource.holders);
+                deleted.push(resource);
             }
         }
+
+        deleted
     }
 }
 
@@ -508,12 +841,25 @@ impl Default for ResourceRegistry {
 mod tests {
     use super::*;
 
+    /// Create a shared test resource with the given ID.
     fn test_resource(id: &str) -> Resource {
         Resource::new(
             id.to_string(),
             format!("resource_{}", id),
             None,
             "ABC123".to_string(),
+            AccessMode::Shared,
+        )
+    }
+
+    /// Create an exclusive test resource with the given ID.
+    fn test_exclusive_resource(id: &str) -> Resource {
+        Resource::new(
+            id.to_string(),
+            format!("resource_{}", id),
+            None,
+            "ABC123".to_string(),
+            AccessMode::Exclusive,
         )
     }
 
@@ -543,15 +889,16 @@ mod tests {
     }
 
     #[test]
-    fn acquire_exclusive_blocks_others() {
+    fn acquire_exclusive_resource_blocks_others() {
         let registry = ResourceRegistry::new();
-        registry.register(test_resource("r1"));
+        registry.register(test_exclusive_resource("r1"));
 
         registry
             .acquire("r1", &"alice".to_string(), AccessMode::Exclusive)
             .unwrap();
 
-        let result = registry.acquire("r1", &"bob".to_string(), AccessMode::Shared);
+        // Exclusive resource is always locked — second user cannot acquire.
+        let result = registry.acquire("r1", &"bob".to_string(), AccessMode::Exclusive);
         assert!(result.is_err());
     }
 
@@ -587,18 +934,57 @@ mod tests {
     }
 
     #[test]
-    fn invalidate_device_clears_resources() {
+    fn lock_unlock_shared_resource() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource("r1"));
+
+        // Alice and Bob both acquire the shared resource.
+        registry.acquire("r1", &"alice".to_string(), AccessMode::Shared).unwrap();
+        registry.acquire("r1", &"bob".to_string(), AccessMode::Shared).unwrap();
+
+        // Alice locks it.
+        assert!(registry.lock("r1", &"alice".to_string()).is_ok());
+        let r = registry.get("r1").unwrap();
+        assert_eq!(r.state, ResourceState::InUseLocked);
+        assert_eq!(r.locked_by, Some("alice".to_string()));
+
+        // Bob cannot lock it (already locked).
+        assert!(registry.lock("r1", &"bob".to_string()).is_err());
+
+        // Alice unlocks it.
+        assert!(registry.unlock("r1", &"alice".to_string()).is_ok());
+        let r = registry.get("r1").unwrap();
+        assert_eq!(r.state, ResourceState::InUseShared);
+        assert_eq!(r.locked_by, None);
+    }
+
+    #[test]
+    fn lock_exclusive_resource_rejected() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_exclusive_resource("r1"));
+
+        registry.acquire("r1", &"alice".to_string(), AccessMode::Exclusive).unwrap();
+
+        // Attempting to lock/unlock an exclusive resource is an error.
+        assert!(registry.lock("r1", &"alice".to_string()).is_err());
+        assert!(registry.unlock("r1", &"alice".to_string()).is_err());
+    }
+
+    #[test]
+    fn invalidate_device_deletes_resources() {
         let registry = ResourceRegistry::new();
         registry.register(test_resource("r1"));
         registry
             .acquire("r1", &"alice".to_string(), AccessMode::Shared)
             .unwrap();
 
-        registry.invalidate_device("ABC123");
+        let deleted = registry.invalidate_device("ABC123");
 
-        let r = registry.get("r1").unwrap();
-        assert_eq!(r.state, ResourceState::Unavailable);
-        assert!(r.holders.is_empty());
+        // Resource is deleted, not just marked Unavailable.
+        assert_eq!(deleted.len(), 1);
+        assert_eq!(deleted[0].id, "r1");
+        assert!(registry.get("r1").is_none());
+        assert_eq!(registry.count(), 0);
     }
 
     #[test]
@@ -609,16 +995,35 @@ mod tests {
             "res1".to_string(),
             None,
             "DEV_A".to_string(),
+            AccessMode::Shared,
         ));
         registry.register(Resource::new(
             "r2".to_string(),
             "res2".to_string(),
             None,
             "DEV_B".to_string(),
+            AccessMode::Shared,
         ));
 
         let dev_a_resources = registry.list_for_device("DEV_A");
         assert_eq!(dev_a_resources.len(), 1);
         assert_eq!(dev_a_resources[0].device_serial, "DEV_A");
+    }
+
+    #[test]
+    fn release_lock_holder_clears_lock() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource("r1"));
+
+        registry.acquire("r1", &"alice".to_string(), AccessMode::Shared).unwrap();
+        registry.acquire("r1", &"bob".to_string(), AccessMode::Shared).unwrap();
+        registry.lock("r1", &"alice".to_string()).unwrap();
+
+        // Alice releases (was the locker) — resource should go back to InUseShared.
+        assert!(registry.release("r1", &"alice".to_string()));
+        let r = registry.get("r1").unwrap();
+        assert_eq!(r.state, ResourceState::InUseShared);
+        assert_eq!(r.locked_by, None);
+        assert_eq!(r.holders, vec!["bob"]);
     }
 }

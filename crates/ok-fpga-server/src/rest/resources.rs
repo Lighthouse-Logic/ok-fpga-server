@@ -1,14 +1,15 @@
 //! # Resource Routes
 //!
 //! REST endpoints for multi-user resource management.
-//! Implements the `/resources/*` paths from ADR-004 and ADR-016.
+//! Implements the `/resources/*` paths from ADR-004 and ADR-020.
 //!
-//! ## Client-Side Resource Registration (ADR-016)
+//! ## Client-Side Resource Registration (ADR-020)
 //!
 //! Resources are created by clients via `POST /resources` after programming
 //! a bitfile. The server is agnostic to bitfile capabilities — only the
 //! client knows what resources the bitfile exposes.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
@@ -17,7 +18,10 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 
-use ok_fpga_core::resource::Resource;
+use ok_fpga_core::resource::{
+    AccessMode, AddressRange, EndpointDeclaration, EndpointEntry, EndpointType,
+    InterfaceDeclaration, Resource,
+};
 
 use crate::rest::errors::ProblemDetail;
 use crate::state::AppState;
@@ -32,13 +36,15 @@ pub fn routes() -> Router<Arc<AppState>> {
         )
         .route("/resources/{id}/acquire", post(acquire_resource))
         .route("/resources/{id}/release", post(release_resource))
+        .route("/resources/{id}/lock", post(lock_resource))
+        .route("/resources/{id}/unlock", post(unlock_resource))
 }
 
 // ============================================================================
 // Request/Response Types
 // ============================================================================
 
-/// Request body for creating a new resource (POST /resources).
+/// Request body for creating a new resource (POST /resources, ADR-020 §2).
 #[derive(Deserialize)]
 struct CreateResourceRequest {
     /// Human-readable resource name (e.g., "xem7320-classic-counters").
@@ -47,14 +53,74 @@ struct CreateResourceRequest {
     description: Option<String>,
     /// Serial of the FPGA that provides this resource.
     device_serial: String,
-    /// Resource type identifier (e.g., "classic", "axi", "dsp").
+    /// Access mode constraint: "shared" or "exclusive" (ADR-020 §3).
+    access_mode: String,
+    /// Which data port interfaces this resource uses (ADR-020 §6).
     #[serde(default)]
-    #[allow(dead_code)] // Deserialized for future use; stored in resource metadata.
-    resource_type: Option<String>,
-    /// List of capabilities this resource provides.
+    interfaces: Option<InterfacesBody>,
+    /// Classic endpoint declarations (ADR-020 §7).
     #[serde(default)]
-    #[allow(dead_code)] // Deserialized for future use; stored in resource metadata.
-    capabilities: Vec<String>,
+    endpoints: Option<EndpointsBody>,
+    /// 32-bit address ranges (ADR-020 §8).
+    #[serde(default)]
+    address_ranges: Vec<AddressRangeBody>,
+    /// Extensible key-value metadata (ADR-020 §9).
+    #[serde(default)]
+    metadata: HashMap<String, String>,
+}
+
+/// Interfaces sub-object in CreateResourceRequest.
+#[derive(Deserialize)]
+struct InterfacesBody {
+    #[serde(default)]
+    classic: bool,
+    #[serde(default)]
+    axi_lite: bool,
+    #[serde(default)]
+    axi_full: bool,
+    #[serde(default)]
+    axi_stream: bool,
+}
+
+/// Endpoints sub-object in CreateResourceRequest.
+#[derive(Deserialize)]
+struct EndpointsBody {
+    #[serde(default = "default_exclusive")]
+    default_access: String,
+    #[serde(default)]
+    entries: Vec<EndpointEntryBody>,
+}
+
+fn default_exclusive() -> String {
+    "exclusive".to_string()
+}
+
+/// A single endpoint entry in the request body.
+#[derive(Deserialize)]
+struct EndpointEntryBody {
+    /// Hex address string, e.g. "0x00".
+    address: String,
+    /// Endpoint type: "wire_in", "wire_out", "trigger_in", "trigger_out",
+    /// "pipe_in", "pipe_out", "bt_pipe_in", "bt_pipe_out".
+    #[serde(rename = "type")]
+    ep_type: String,
+    /// Access mode: "shared" or "exclusive".
+    #[serde(default = "default_exclusive")]
+    access: String,
+    /// Optional description.
+    description: Option<String>,
+}
+
+/// Address range entry in the request body.
+#[derive(Deserialize)]
+struct AddressRangeBody {
+    /// Hex start address, e.g. "0x44A60000".
+    start: String,
+    /// Hex end address, e.g. "0x44A8FFFF".
+    end: String,
+    /// Access mode: "shared" or "exclusive".
+    #[serde(default = "default_exclusive")]
+    access: String,
 }
 
 /// Request body for acquiring a resource.
@@ -62,13 +128,21 @@ struct CreateResourceRequest {
 struct AcquireResourceRequest {
     /// User identifier.
     user_id: String,
-    /// Access mode: "shared" or "exclusive".
-    mode: String,
+    /// Access mode: "shared" or "exclusive" (optional, defaults to the
+    /// resource's declared access_mode).
+    mode: Option<String>,
 }
 
 /// Request body for releasing a resource.
 #[derive(Deserialize)]
 struct ReleaseResourceRequest {
+    /// User identifier.
+    user_id: String,
+}
+
+/// Request body for lock/unlock operations.
+#[derive(Deserialize)]
+struct LockUnlockRequest {
     /// User identifier.
     user_id: String,
 }
@@ -89,6 +163,12 @@ struct ResourceView {
     device_serial: String,
     state: String,
     holders: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    access_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    locked_by: Option<String>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    metadata: HashMap<String, String>,
 }
 
 impl From<&Resource> for ResourceView {
@@ -100,7 +180,62 @@ impl From<&Resource> for ResourceView {
             device_serial: r.device_serial.clone(),
             state: format!("{}", r.state),
             holders: r.holders.clone(),
+            access_mode: r.access_mode.map(|m| format!("{}", m)),
+            locked_by: r.locked_by.clone(),
+            metadata: r.metadata.clone(),
         }
+    }
+}
+
+// ============================================================================
+// Parsing Helpers
+// ============================================================================
+
+/// Parse an access mode string into an `AccessMode` enum.
+fn parse_access_mode(s: &str) -> Result<AccessMode, ProblemDetail> {
+    match s {
+        "shared" => Ok(AccessMode::Shared),
+        "exclusive" => Ok(AccessMode::Exclusive),
+        _ => Err(ProblemDetail::bad_request(
+            "access_mode must be 'shared' or 'exclusive'",
+        )),
+    }
+}
+
+/// Parse a hex address string (e.g., "0x00" or "0xA0") into a u8.
+fn parse_ep_address(s: &str) -> Result<u8, ProblemDetail> {
+    let stripped = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
+    u8::from_str_radix(stripped, 16).map_err(|_| {
+        ProblemDetail::bad_request(&format!("Invalid endpoint address: '{}' (expected 0x00–0xBF)", s))
+    })
+}
+
+/// Parse a hex address string into a u32 (for address ranges).
+fn parse_u32_hex(s: &str) -> Result<u32, ProblemDetail> {
+    let stripped = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
+    // Remove underscores (allow "0x44A6_0000" formatting).
+    let clean: String = stripped.chars().filter(|c| *c != '_').collect();
+    u32::from_str_radix(&clean, 16).map_err(|_| {
+        ProblemDetail::bad_request(&format!("Invalid hex address: '{}' (expected 32-bit hex)", s))
+    })
+}
+
+/// Parse an endpoint type string into an `EndpointType` enum.
+fn parse_ep_type(s: &str) -> Result<EndpointType, ProblemDetail> {
+    match s {
+        "wire_in" => Ok(EndpointType::WireIn),
+        "wire_out" => Ok(EndpointType::WireOut),
+        "trigger_in" => Ok(EndpointType::TriggerIn),
+        "trigger_out" => Ok(EndpointType::TriggerOut),
+        "pipe_in" => Ok(EndpointType::PipeIn),
+        "pipe_out" => Ok(EndpointType::PipeOut),
+        "bt_pipe_in" => Ok(EndpointType::BtPipeIn),
+        "bt_pipe_out" => Ok(EndpointType::BtPipeOut),
+        _ => Err(ProblemDetail::bad_request(&format!(
+            "Invalid endpoint type: '{}'. Expected one of: wire_in, wire_out, trigger_in, \
+             trigger_out, pipe_in, pipe_out, bt_pipe_in, bt_pipe_out",
+            s
+        ))),
     }
 }
 
@@ -129,16 +264,18 @@ async fn get_resource(
     }
 }
 
-/// `POST /resources` — Create a new resource (client-side registration, ADR-016).
+/// `POST /resources` — Create a new resource (client-side registration, ADR-020).
 ///
 /// The client creates resources after programming a bitfile, since the client
 /// knows what capabilities the bitfile exposes. The server validates that the
-/// referenced device exists and is programmed.
+/// referenced device exists and is programmed, that interfaces are supported,
+/// that EP types match address ranges, and that exclusive EPs/ranges don't
+/// overlap with existing resources.
 async fn create_resource(
     State(state): State<Arc<AppState>>,
     Json(body): Json<CreateResourceRequest>,
 ) -> Result<(StatusCode, Json<ResourceView>), ProblemDetail> {
-    // Validate the device exists and is programmed.
+    // 1. Validate the device exists and is programmed.
     let registry = state.device_manager.registry();
     match registry.get(&body.device_serial) {
         Some(dev) => {
@@ -156,23 +293,147 @@ async fn create_resource(
         }
     }
 
-    // Generate resource ID: {serial}:{name}
+    // 2. Parse access mode.
+    let access_mode = parse_access_mode(&body.access_mode)?;
+
+    // 3. Parse interface declarations.
+    let interfaces = match body.interfaces {
+        Some(ifaces) => InterfaceDeclaration {
+            classic: ifaces.classic,
+            axi_lite: ifaces.axi_lite,
+            axi_full: ifaces.axi_full,
+            axi_stream: ifaces.axi_stream,
+        },
+        None => InterfaceDeclaration::default(),
+    };
+
+    if !interfaces.has_any() {
+        return Err(ProblemDetail::bad_request(
+            "At least one interface must be enabled (classic, axi_lite, axi_full, or axi_stream)",
+        ));
+    }
+
+    // 4. Parse endpoint declarations (if classic is enabled).
+    let endpoints = if let Some(ep_body) = body.endpoints {
+        let default_access = parse_access_mode(&ep_body.default_access)?;
+        let mut entries = Vec::new();
+        for entry in ep_body.entries {
+            let address = parse_ep_address(&entry.address)?;
+            let ep_type = parse_ep_type(&entry.ep_type)?;
+            let ep_access = parse_access_mode(&entry.access)?;
+
+            // Validate type matches address range (ADR-020 §7).
+            if !ep_type.is_valid_address(address) {
+                let (lo, hi) = ep_type.address_range();
+                return Err(ProblemDetail::new(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    format!(
+                        "Endpoint 0x{:02X} is not in the {} range (0x{:02X}–0x{:02X})",
+                        address, ep_type, lo, hi
+                    ),
+                ));
+            }
+
+            entries.push(EndpointEntry {
+                address,
+                ep_type,
+                access: ep_access,
+                description: entry.description,
+            });
+        }
+        Some(EndpointDeclaration {
+            default_access,
+            entries,
+        })
+    } else {
+        None
+    };
+
+    // 5. Parse address ranges.
+    let mut address_ranges = Vec::new();
+    for ar_body in &body.address_ranges {
+        let start = parse_u32_hex(&ar_body.start)?;
+        let end = parse_u32_hex(&ar_body.end)?;
+        let ar_access = parse_access_mode(&ar_body.access)?;
+
+        if start > end {
+            return Err(ProblemDetail::bad_request(&format!(
+                "Address range start (0x{:08X}) must be <= end (0x{:08X})",
+                start, end
+            )));
+        }
+
+        address_ranges.push(AddressRange {
+            start,
+            end,
+            access: ar_access,
+        });
+    }
+
+    // 6. Check for EP overlap with existing resources on the same device.
+    if let Some(ref ep_decl) = endpoints {
+        let existing_resources = state.resource_registry.list_for_device(&body.device_serial);
+        for new_ep in &ep_decl.entries {
+            if new_ep.access == AccessMode::Exclusive {
+                for existing in &existing_resources {
+                    if let Some(ref existing_eps) = existing.endpoints {
+                        for existing_ep in &existing_eps.entries {
+                            if existing_ep.address == new_ep.address
+                                && existing_ep.access == AccessMode::Exclusive
+                            {
+                                return Err(ProblemDetail::conflict(&format!(
+                                    "Endpoint 0x{:02X} is already declared exclusive by resource '{}'",
+                                    new_ep.address, existing.name
+                                )));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 7. Check for address range overlap with existing exclusive ranges.
+    for new_range in &address_ranges {
+        if new_range.access == AccessMode::Exclusive {
+            let existing_resources = state.resource_registry.list_for_device(&body.device_serial);
+            for existing in &existing_resources {
+                for existing_range in &existing.address_ranges {
+                    if existing_range.access == AccessMode::Exclusive
+                        && new_range.overlaps(existing_range)
+                    {
+                        return Err(ProblemDetail::conflict(&format!(
+                            "Address range 0x{:08X}–0x{:08X} overlaps with exclusive range in resource '{}'",
+                            new_range.start, new_range.end, existing.name
+                        )));
+                    }
+                }
+            }
+        }
+    }
+
+    // 8. Generate resource ID: {serial}:{name}
     let resource_id = format!("{}:{}", body.device_serial, body.name);
 
-    let resource = Resource::new(
+    let mut resource = Resource::new(
         resource_id.clone(),
         body.name.clone(),
         body.description.clone(),
         body.device_serial.clone(),
+        access_mode,
     );
+    resource.interfaces = interfaces;
+    resource.endpoints = endpoints;
+    resource.address_ranges = address_ranges;
+    resource.metadata = body.metadata;
 
     if state.resource_registry.register(resource) {
         let created = state.resource_registry.get(&resource_id).unwrap();
         Ok((StatusCode::CREATED, Json(ResourceView::from(&created))))
     } else {
         Err(ProblemDetail::conflict(&format!(
-            "Resource '{}' already exists",
-            resource_id
+            "Resource '{}' already exists for device '{}'",
+            body.name, body.device_serial
         )))
     }
 }
@@ -209,20 +470,31 @@ async fn delete_resource(
 }
 
 /// `POST /resources/{id}/acquire` — Acquire a resource for a user.
+///
+/// The access mode is determined by the resource's `access_mode` field
+/// (set at registration time, ADR-020 §3), not by the caller.
 async fn acquire_resource(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
     Json(body): Json<AcquireResourceRequest>,
 ) -> Result<Json<ResourceView>, ProblemDetail> {
-    let mode = match body.mode.as_str() {
-        "shared" => ok_fpga_core::resource::AccessMode::Shared,
-        "exclusive" => ok_fpga_core::resource::AccessMode::Exclusive,
-        _ => {
-            return Err(ProblemDetail::bad_request(
-                "mode must be 'shared' or 'exclusive'",
-            ))
-        }
-    };
+    // Look up the resource's declared access mode.
+    let resource = state
+        .resource_registry
+        .get(&id)
+        .ok_or_else(|| ProblemDetail::not_found(&format!("Resource '{}' not found", id)))?;
+
+    let mode = resource.access_mode.unwrap_or_else(|| {
+        // Fallback for legacy resources: parse from request body.
+        body.mode
+            .as_deref()
+            .and_then(|m| match m {
+                "shared" => Some(AccessMode::Shared),
+                "exclusive" => Some(AccessMode::Exclusive),
+                _ => None,
+            })
+            .unwrap_or(AccessMode::Shared)
+    });
 
     state
         .resource_registry
@@ -251,4 +523,39 @@ async fn release_resource(
             id, body.user_id
         )))
     }
+}
+
+/// `POST /resources/{id}/lock` — Lock a shared resource (ADR-020 §3).
+///
+/// A holder of a shared resource can temporarily lock it for exclusive use.
+/// Other holders remain in the holders list but cannot operate until unlock.
+async fn lock_resource(
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<LockUnlockRequest>,
+) -> Result<Json<ResourceView>, ProblemDetail> {
+    state
+        .resource_registry
+        .lock(&id, &body.user_id)
+        .map_err(|e| ProblemDetail::conflict(&e))?;
+
+    let resource = state.resource_registry.get(&id).unwrap();
+    Ok(Json(ResourceView::from(&resource)))
+}
+
+/// `POST /resources/{id}/unlock` — Unlock a previously locked resource (ADR-020 §3).
+///
+/// Only the user who locked the resource can unlock it.
+async fn unlock_resource(
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<LockUnlockRequest>,
+) -> Result<Json<ResourceView>, ProblemDetail> {
+    state
+        .resource_registry
+        .unlock(&id, &body.user_id)
+        .map_err(|e| ProblemDetail::conflict(&e))?;
+
+    let resource = state.resource_registry.get(&id).unwrap();
+    Ok(Json(ResourceView::from(&resource)))
 }
