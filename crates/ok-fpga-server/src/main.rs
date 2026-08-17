@@ -122,11 +122,32 @@ async fn main() -> anyhow::Result<()> {
     let resource_registry = Arc::new(ResourceRegistry::new());
     let service_manager = Arc::new(ServiceManager::new());
 
+    // Create the authentication provider from config (ADR-008).
+    let auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider> = Arc::from(
+        ok_fpga_core::auth::create_provider(
+            &cfg.auth.provider,
+            cfg.auth.local.users.clone(),
+            Some(cfg.auth.ldap.clone()),
+        ),
+    );
+    info!(
+        provider = auth_provider.provider_name(),
+        required = auth_provider.is_required(),
+        "authentication provider initialized"
+    );
+
+    // Create the session manager.
+    let session_manager = Arc::new(
+        ok_fpga_core::auth::SessionManager::new(cfg.auth.session_expiry_secs),
+    );
+
     // Create shared application state.
     let app_state = Arc::new(AppState::new(
         device_manager.clone(),
         resource_registry.clone(),
         service_manager.clone(),
+        auth_provider,
+        session_manager,
     ));
 
     // Register available services based on compiled features and config.

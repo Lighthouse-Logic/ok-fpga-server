@@ -65,6 +65,9 @@ pub struct ServerConfig {
 
     /// Web dashboard configuration.
     pub dashboard: DashboardConfig,
+
+    /// Authentication configuration (ADR-008).
+    pub auth: AuthConfig,
 }
 
 impl Default for ServerConfig {
@@ -76,6 +79,7 @@ impl Default for ServerConfig {
             mqtt: MqttConfig::default(),
             mdns: MdnsConfig::default(),
             dashboard: DashboardConfig::default(),
+            auth: AuthConfig::default(),
         }
     }
 }
@@ -217,6 +221,48 @@ pub struct DashboardConfig {
 impl Default for DashboardConfig {
     fn default() -> Self {
         Self { enabled: true }
+    }
+}
+
+/// Authentication configuration (ADR-008).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AuthConfig {
+    /// Authentication provider: `"none"`, `"local"`, or `"ldap"`.
+    pub provider: String,
+
+    /// Session expiry in seconds (default: 8 hours = 28800).
+    pub session_expiry_secs: u64,
+
+    /// Local auth provider settings.
+    pub local: LocalAuthConfig,
+
+    /// LDAP auth provider settings.
+    pub ldap: ok_fpga_core::auth::LdapConfig,
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            provider: "none".to_string(),
+            session_expiry_secs: 28800, // 8 hours
+            local: LocalAuthConfig::default(),
+            ldap: ok_fpga_core::auth::LdapConfig::default(),
+        }
+    }
+}
+
+/// Local auth provider configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LocalAuthConfig {
+    /// List of local user accounts.
+    pub users: Vec<ok_fpga_core::auth::LocalUser>,
+}
+
+impl Default for LocalAuthConfig {
+    fn default() -> Self {
+        Self { users: vec![] }
     }
 }
 

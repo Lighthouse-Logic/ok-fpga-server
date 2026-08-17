@@ -52,6 +52,12 @@ pub struct AppState {
     /// Controls lifecycle of optional services (REST, gRPC, MQTT, mDNS).
     pub service_manager: Arc<ServiceManager>,
 
+    /// Authentication provider (ADR-008).
+    pub auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider>,
+
+    /// In-memory session store for the web dashboard.
+    pub session_manager: Arc<ok_fpga_core::auth::SessionManager>,
+
     /// When the server process started. Used to calculate uptime.
     pub start_time: Instant,
 
@@ -67,11 +73,15 @@ impl AppState {
         device_manager: Arc<DeviceManager>,
         resource_registry: Arc<ResourceRegistry>,
         service_manager: Arc<ServiceManager>,
+        auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider>,
+        session_manager: Arc<ok_fpga_core::auth::SessionManager>,
     ) -> Self {
         Self {
             device_manager,
             resource_registry,
             service_manager,
+            auth_provider,
+            session_manager,
             start_time: Instant::now(),
             api_version: env!("CARGO_PKG_VERSION"),
         }

@@ -70,6 +70,11 @@ pub mod service;
 /// Implements ADR-010 (service manager, shutdown ordering, event broadcasting).
 pub mod service_manager;
 
+/// Authentication — pluggable auth provider system.
+/// Supports no-auth (default), local user store, and LDAP/LDAPS.
+/// Implements ADR-008 (authentication stubs).
+pub mod auth;
+
 #[cfg(test)]
 mod tests {
     #[test]

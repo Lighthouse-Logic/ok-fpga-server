@@ -108,3 +108,41 @@ instance_name = "okfpga-server"
 # Serve the web dashboard on the management port.
 # Requires the 'dashboard' feature.
 enabled = true
+
+# -----------------------------------------------------------------------------
+# Authentication (ADR-008)
+# -----------------------------------------------------------------------------
+[auth]
+# Provider: "none" (default), "local", or "ldap"
+# - "none"  — No login required, all users are anonymous
+# - "local" — Users defined below with bcrypt password hashes
+# - "ldap"  — LDAP/LDAPS authentication
+provider = "none"
+
+# Session expiry in seconds (default: 8 hours).
+# Only applies when provider is "local" or "ldap".
+session_expiry_secs = 28800
+
+# --- Local auth users (only used when provider = "local") ---
+# [[auth.local.users]]
+# username = "admin"
+# password_hash = "$2b$12$..."   # bcrypt hash
+# display_name = "Administrator"
+# groups = ["admin"]
+#
+# [[auth.local.users]]
+# username = "user1"
+# password_hash = "$2b$12$..."
+# display_name = "Test User"
+# groups = ["users"]
+
+# --- LDAP auth settings (only used when provider = "ldap") ---
+# [auth.ldap]
+# url = "ldaps://ldap.example.com:636"
+# use_ssl = true
+# domain_components = ["example", "com"]
+# organizational_units = ["Users"]
+# uid_attribute = "uid"
+# bind_dn = "cn=service,DC=example,DC=com"   # optional service account
+# bind_password = "..."                       # optional
+# group_attribute = "memberOf"                # optional
