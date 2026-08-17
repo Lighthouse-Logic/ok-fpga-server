@@ -675,31 +675,47 @@ cargo test -p ok-fpga-ffi --test hardware -- --ignored --test-threads=1 --nocapt
 
 ## Phase 13: Documentation & Polish
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed (2026-08-16, `5791a99`)  
 **Depends on**: All previous phases
 
-### What to do
+### What was done
 
-1. Run `cargo doc --no-deps --open` and review all generated documentation
-2. Add a top-level `README.md` with:
-   - Project description
-   - Quick start guide
-   - Build instructions for Windows and Ubuntu
-   - Feature flag reference (what each flag enables)
-   - Configuration reference (all TOML sections)
-   - API documentation links
-3. Update `docs/architecture/overview.md` with final architecture
-4. Ensure all ADRs have correct status
-5. Create `CONTRIBUTING.md` with development setup instructions
-6. Final `cargo clippy` and `cargo fmt` pass
+1. ✅ Created top-level `README.md` with:
+   - Project description and feature list
+   - Supported hardware table
+   - Quick start guide (prerequisites, build, run)
+   - Environment variable reference
+   - Feature flag reference table with build examples
+   - Full TOML configuration reference
+   - Architecture diagram and crate structure
+   - API documentation links (OpenAPI, gRPC, cargo doc)
+   - ADR index (all 12 ADRs)
+2. ✅ Created `CONTRIBUTING.md` with:
+   - Development setup for Windows and Ubuntu
+   - FrontPanel SDK placement guide
+   - Build, test, and lint commands
+   - Test categories (unit, integration, hardware)
+   - Project directory structure
+   - ADR and commit conventions
+3. ✅ Updated `docs/architecture/overview.md`:
+   - Added ADR-010, 011, 012 to ADR table
+   - Added MQTT, mDNS, ServiceManager to infrastructure layer
+   - Added rumqttc, mdns-sd to technology stack
+   - Updated version: 0.1.0-draft → 0.1.0
+4. ✅ Verified all 12 ADRs have status "Accepted"
+5. ✅ `cargo fmt --all` — fixed formatting across 36 files
+6. ✅ `cargo clippy --features full` — zero warnings (was 6)
+7. ✅ `cargo doc --no-deps --features full` — generates successfully (minor intra-doc link warnings in module docs)
 
 ### Verification
 
-- [ ] `cargo clippy -- -D warnings` passes
-- [ ] `cargo fmt -- --check` passes
-- [ ] `README.md` is complete and accurate
-- [ ] All doc comments render correctly in `cargo doc`
-- [ ] Commit: `docs: finalize project documentation`
+- [x] `cargo clippy --features full --all-targets` passes with zero warnings
+- [x] `cargo fmt --all -- --check` passes
+- [x] `README.md` is complete and accurate
+- [x] `CONTRIBUTING.md` covers Windows and Ubuntu setup
+- [x] `docs/architecture/overview.md` updated with all 12 ADRs
+- [x] All 147 tests pass
+- [x] Commit: `5791a99` — `docs: Phase 13 — Documentation & Polish`
 
 ---
 
