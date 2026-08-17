@@ -491,7 +491,7 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 ## Phase 8: Web Dashboard
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed (2026-08-16, `6edd186`)  
 **Depends on**: Phase 7  
 **ADR references**: [ADR-007](architecture/adr/ADR-007-web-dashboard.md), [ADR-010](architecture/adr/ADR-010-service-manager.md)  
 **Feature flag**: `dashboard` (default feature)
@@ -520,12 +520,12 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 ### Verification
 
-- [ ] `http://localhost:9090/` serves the dashboard
-- [ ] Dashboard shows server status and service states
-- [ ] Dashboard can start/stop/restart services
-- [ ] Log viewer shows real-time logs
-- [ ] `cargo build --no-default-features` succeeds without dashboard
-- [ ] Commit: `feat(web): add dashboard SPA on management port`
+- [x] `http://localhost:9090/` serves the dashboard — ✅ (static file serving via tower-http ServeDir)
+- [x] Dashboard shows server status and service states — ✅ (overview + services pages)
+- [x] Dashboard can start/stop/restart services — ✅ (via /mgmt/services/{name}/*)
+- [x] Log viewer shows real-time logs — ✅ (WebSocket /ws/events)
+- [x] `cargo build --no-default-features` succeeds without dashboard — ✅
+- [x] Commit: `6edd186` — `feat(web): add dashboard SPA and management server (Phase 8)`
 
 ---
 
