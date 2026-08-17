@@ -1,0 +1,221 @@
+//! # ok-FPGA-Server gRPC Client Library
+//!
+//! This module provides typed Rust client wrappers for all 4 gRPC services
+//! defined in the [proto3 spec](../../proto/okfpga/v1/okfpga.proto):
+//!
+//! - `DeviceService` — device discovery, sensors, settings, configuration
+//! - `ClassicDataPortService` — wires, triggers, pipes, registers
+//! - `AXIDataPortService` — AXI lite, full, stream operations
+//! - `ServerService` — server status, service lifecycle
+//!
+//! ## Usage
+//!
+//! ```rust,no_run
+//! use rust_grpc_client::OkFpgaGrpcClient;
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let mut client = OkFpgaGrpcClient::connect("http://localhost:50051").await.unwrap();
+//!     let status = client.get_server_status().await.unwrap();
+//!     println!("Server: {:?}", status);
+//! }
+//! ```
+
+pub mod discovery;
+pub mod mqtt;
+
+// Include the generated protobuf/gRPC code.
+// tonic-build generates this in $OUT_DIR during `cargo build`.
+pub mod okfpga {
+    pub mod v1 {
+        tonic::include_proto!("ok_fpga_service.v1");
+    }
+}
+
+use tonic::transport::Channel;
+
+use okfpga::v1::{
+    device_service_client::DeviceServiceClient,
+    classic_data_port_service_client::ClassicDataPortServiceClient,
+    axi_data_port_service_client::AxiDataPortServiceClient,
+    server_service_client::ServerServiceClient,
+};
+
+/// Combined gRPC client wrapping all 4 ok-FPGA-Server services.
+///
+/// Each service client shares the same gRPC channel (connection).
+/// Methods are grouped by service for clarity.
+pub struct OkFpgaGrpcClient {
+    /// Client for device operations (discovery, sensors, config, resources, etc.)
+    pub device: DeviceServiceClient<Channel>,
+    /// Client for classic data port operations (wires, triggers, pipes, registers)
+    pub classic: ClassicDataPortServiceClient<Channel>,
+    /// Client for AXI data port operations (lite, full, stream)
+    pub axi: AxiDataPortServiceClient<Channel>,
+    /// Client for server management (status, services, restart)
+    pub server: ServerServiceClient<Channel>,
+}
+
+impl OkFpgaGrpcClient {
+    /// Connect to an ok-FPGA-Server gRPC endpoint.
+    ///
+    /// # Arguments
+    /// * `addr` — The gRPC server address (e.g., "http://localhost:50051")
+    pub async fn connect(addr: &str) -> Result<Self, tonic::transport::Error> {
+        // Create a shared channel — all service clients will multiplex over it.
+        let channel = Channel::from_shared(addr.to_string())
+            .expect("valid URI")
+            .connect()
+            .await?;
+
+        Ok(Self {
+            device: DeviceServiceClient::new(channel.clone()),
+            classic: ClassicDataPortServiceClient::new(channel.clone()),
+            axi: AxiDataPortServiceClient::new(channel.clone()),
+            server: ServerServiceClient::new(channel),
+        })
+    }
+
+    // ========================================================================
+    // DeviceService RPCs
+    // ========================================================================
+
+    /// List all connected FPGA devices.
+    pub async fn list_devices(
+        &mut self,
+    ) -> Result<tonic::Response<okfpga::v1::ListDevicesResponse>, tonic::Status> {
+        self.device
+            .list_devices(okfpga::v1::ListDevicesRequest {})
+            .await
+    }
+
+    /// Get detailed info for a specific device.
+    pub async fn get_device_info(
+        &mut self,
+        serial: &str,
+    ) -> Result<tonic::Response<okfpga::v1::DeviceInfoResponse>, tonic::Status> {
+        self.device
+            .get_device_info(okfpga::v1::DeviceRequest {
+                serial: serial.to_string(),
+            })
+            .await
+    }
+
+    /// Get server status via DeviceService.
+    pub async fn get_server_status_device(
+        &mut self,
+    ) -> Result<tonic::Response<okfpga::v1::ServerStatus>, tonic::Status> {
+        self.device
+            .get_server_status(okfpga::v1::ServerStatusRequest {})
+            .await
+    }
+
+    // ========================================================================
+    // ServerService RPCs
+    // ========================================================================
+
+    /// Get server status via ServerService.
+    pub async fn get_server_status(
+        &mut self,
+    ) -> Result<tonic::Response<okfpga::v1::ServerStatusResponse>, tonic::Status> {
+        self.server
+            .get_server_status(okfpga::v1::StatusResponse { error: None })
+            .await
+    }
+
+    /// List all manageable services.
+    pub async fn list_services(
+        &mut self,
+    ) -> Result<tonic::Response<okfpga::v1::ListServicesResponse>, tonic::Status> {
+        self.server
+            .list_services(okfpga::v1::StatusResponse { error: None })
+            .await
+    }
+
+    // ========================================================================
+    // ClassicDataPortService RPCs (stub wrappers)
+    // ========================================================================
+
+    /// Set a WireIn value.
+    pub async fn set_wire_in_value(
+        &mut self,
+        serial: &str,
+        endpoint: i32,
+        value: u32,
+        mask: u32,
+    ) -> Result<tonic::Response<okfpga::v1::StatusResponse>, tonic::Status> {
+        self.classic
+            .set_wire_in_value(okfpga::v1::SetWireInValueRequest {
+                serial: serial.to_string(),
+                endpoint,
+                value,
+                mask,
+                auto_update: false,
+            })
+            .await
+    }
+
+    /// Update WireIns (transfer pending values to FPGA).
+    pub async fn update_wire_ins(
+        &mut self,
+        serial: &str,
+    ) -> Result<tonic::Response<okfpga::v1::StatusResponse>, tonic::Status> {
+        self.classic
+            .update_wire_ins(okfpga::v1::DeviceRequest {
+                serial: serial.to_string(),
+            })
+            .await
+    }
+
+    /// Activate a TriggerIn.
+    pub async fn activate_trigger_in(
+        &mut self,
+        serial: &str,
+        endpoint: i32,
+        bit: i32,
+    ) -> Result<tonic::Response<okfpga::v1::StatusResponse>, tonic::Status> {
+        self.classic
+            .activate_trigger_in(okfpga::v1::ActivateTriggerInRequest {
+                serial: serial.to_string(),
+                endpoint,
+                bit,
+            })
+            .await
+    }
+
+    // ========================================================================
+    // AXIDataPortService RPCs (stub wrappers)
+    // ========================================================================
+
+    /// AXI Lite read.
+    pub async fn axi_lite_read(
+        &mut self,
+        serial: &str,
+        address: u64,
+    ) -> Result<tonic::Response<okfpga::v1::AxiLiteReadResponse>, tonic::Status> {
+        self.axi
+            .axi_lite_read(okfpga::v1::AxiLiteReadRequest {
+                serial: serial.to_string(),
+                address,
+                timeout_ms: None,
+            })
+            .await
+    }
+
+    /// AXI Lite write.
+    pub async fn axi_lite_write(
+        &mut self,
+        serial: &str,
+        address: u64,
+        value: u32,
+    ) -> Result<tonic::Response<okfpga::v1::StatusResponse>, tonic::Status> {
+        self.axi
+            .axi_lite_write(okfpga::v1::AxiLiteWriteRequest {
+                serial: serial.to_string(),
+                address,
+                value,
+                timeout_ms: None,
+            })
+            .await
+    }
+}

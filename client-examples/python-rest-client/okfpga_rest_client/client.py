@@ -1,0 +1,324 @@
+"""ok-FPGA-Server REST Client.
+
+Async REST client for every endpoint defined in the OpenAPI 3.0 spec
+(/api/openapi.yaml). Uses httpx for async HTTP and returns parsed JSON.
+
+Usage:
+    async with OkFpgaRestClient("http://localhost:8088") as client:
+        status = await client.get_server_status()
+        devices = await client.list_devices()
+"""
+
+from __future__ import annotations
+
+from typing import Any, Optional
+
+import httpx
+
+
+class OkFpgaRestClient:
+    """Async REST client for the ok-FPGA-Server.
+
+    Methods are grouped by API category matching the OpenAPI spec:
+    - server_* — Server status, services, restart
+    - list_devices, get_device_* — Device discovery and info
+    - configure_fpga, get_bitfile_info, get_dataport_type — FPGA config
+    - classic_* — Classic data port (wires, triggers, pipes, registers)
+    - axi_* — AXI data port (lite, full, stream)
+    - resource_* — Resource management
+    - user_* — User management
+    - watch_events — SSE event stream
+    """
+
+    def __init__(self, base_url: str, timeout: float = 10.0) -> None:
+        """Create a new REST client.
+
+        Args:
+            base_url: Server REST API base URL (e.g., "http://localhost:8088").
+            timeout: Default request timeout in seconds.
+        """
+        self.base_url = base_url.rstrip("/")
+        self._client = httpx.AsyncClient(
+            base_url=self.base_url,
+            timeout=timeout,
+        )
+
+    async def __aenter__(self) -> "OkFpgaRestClient":
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        await self._client.aclose()
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client."""
+        await self._client.aclose()
+
+    async def _get(self, path: str) -> Any:
+        """GET request, return parsed JSON."""
+        resp = await self._client.get(path)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def _post(self, path: str, json: Any = None) -> Any:
+        """POST request with optional JSON body, return parsed JSON."""
+        resp = await self._client.post(path, json=json)
+        resp.raise_for_status()
+        # Some endpoints return 202 with no body.
+        if resp.status_code == 202 or not resp.content:
+            return {"status": "accepted"}
+        return resp.json()
+
+    async def _put(self, path: str, json: Any = None) -> Any:
+        """PUT request with JSON body, return parsed JSON."""
+        resp = await self._client.put(path, json=json)
+        resp.raise_for_status()
+        return resp.json()
+
+    # ========================================================================
+    # Server Endpoints (/server/*)
+    # ========================================================================
+
+    async def get_server_status(self) -> dict:
+        """GET /server/status — Server status, uptime, services."""
+        return await self._get("/server/status")
+
+    async def restart_server(self) -> dict:
+        """POST /server/restart — Restart the server."""
+        return await self._post("/server/restart")
+
+    async def list_services(self) -> dict:
+        """GET /server/services — List manageable services."""
+        return await self._get("/server/services")
+
+    async def start_service(self, name: str) -> dict:
+        """POST /server/services/{name}/start — Start a service."""
+        return await self._post(f"/server/services/{name}/start")
+
+    async def stop_service(self, name: str) -> dict:
+        """POST /server/services/{name}/stop — Stop a service."""
+        return await self._post(f"/server/services/{name}/stop")
+
+    async def restart_service(self, name: str) -> dict:
+        """POST /server/services/{name}/restart — Restart a service."""
+        return await self._post(f"/server/services/{name}/restart")
+
+    # ========================================================================
+    # Device Endpoints (/devices/*)
+    # ========================================================================
+
+    async def list_devices(self) -> dict:
+        """GET /devices — List all connected FPGA devices."""
+        return await self._get("/devices")
+
+    async def get_device_info(self, serial: str) -> dict:
+        """GET /devices/{serial} — Get detailed device info."""
+        return await self._get(f"/devices/{serial}")
+
+    async def get_device_sensors(self, serial: str) -> dict:
+        """GET /devices/{serial}/sensors — Read sensor values."""
+        return await self._get(f"/devices/{serial}/sensors")
+
+    async def get_device_settings(self, serial: str) -> dict:
+        """GET /devices/{serial}/settings — List all settings."""
+        return await self._get(f"/devices/{serial}/settings")
+
+    async def get_device_setting(self, serial: str, key: str) -> dict:
+        """GET /devices/{serial}/settings/{key} — Get a single setting."""
+        return await self._get(f"/devices/{serial}/settings/{key}")
+
+    async def set_device_setting(self, serial: str, key: str, value: Any) -> dict:
+        """PUT /devices/{serial}/settings/{key} — Set a setting value."""
+        return await self._put(f"/devices/{serial}/settings/{key}", json={"value": value})
+
+    async def get_syzygy_ports(self, serial: str) -> dict:
+        """GET /devices/{serial}/syzygy — Get SYZYGY port info."""
+        return await self._get(f"/devices/{serial}/syzygy")
+
+    # ========================================================================
+    # FPGA Configuration
+    # ========================================================================
+
+    async def configure_fpga(self, serial: str, bitfile_path: str) -> dict:
+        """POST /devices/{serial}/configure — Program the FPGA."""
+        return await self._post(
+            f"/devices/{serial}/configure",
+            json={"bitfile_path": bitfile_path},
+        )
+
+    async def get_bitfile_info(self, serial: str) -> dict:
+        """GET /devices/{serial}/bitfile — Get loaded bitfile info."""
+        return await self._get(f"/devices/{serial}/bitfile")
+
+    async def get_dataport_type(self, serial: str) -> dict:
+        """GET /devices/{serial}/dataport — Get data port type."""
+        return await self._get(f"/devices/{serial}/dataport")
+
+    # ========================================================================
+    # Classic Data Port (/devices/{serial}/classic/*)
+    # ========================================================================
+
+    async def set_wire_in(self, serial: str, endpoint: int, value: int,
+                          mask: Optional[int] = None) -> dict:
+        """POST /devices/{serial}/classic/wires/in — Set WireIn value."""
+        body: dict[str, Any] = {"endpoint": endpoint, "value": value}
+        if mask is not None:
+            body["mask"] = mask
+        return await self._post(f"/devices/{serial}/classic/wires/in", json=body)
+
+    async def get_wire_out(self, serial: str) -> dict:
+        """GET /devices/{serial}/classic/wires/out — Read WireOut values."""
+        return await self._get(f"/devices/{serial}/classic/wires/out")
+
+    async def activate_trigger_in(self, serial: str, endpoint: int, bit: int) -> dict:
+        """POST /devices/{serial}/classic/triggers/in — Activate TriggerIn."""
+        return await self._post(
+            f"/devices/{serial}/classic/triggers/in",
+            json={"endpoint": endpoint, "bit": bit},
+        )
+
+    async def get_trigger_out(self, serial: str) -> dict:
+        """GET /devices/{serial}/classic/triggers/out — Read TriggerOut."""
+        return await self._get(f"/devices/{serial}/classic/triggers/out")
+
+    async def write_pipe_in(self, serial: str, endpoint: int, data: bytes) -> dict:
+        """POST /devices/{serial}/classic/pipes/in — Write to PipeIn."""
+        return await self._post(
+            f"/devices/{serial}/classic/pipes/in",
+            json={"endpoint": endpoint, "data": list(data)},
+        )
+
+    async def read_pipe_out(self, serial: str, endpoint: int, length: int) -> dict:
+        """POST /devices/{serial}/classic/pipes/out — Read from PipeOut."""
+        return await self._post(
+            f"/devices/{serial}/classic/pipes/out",
+            json={"endpoint": endpoint, "length": length},
+        )
+
+    async def write_block_pipe_in(self, serial: str, endpoint: int,
+                                   data: bytes, block_size: int) -> dict:
+        """POST /devices/{serial}/classic/pipes/block-in — Write to BlockPipeIn."""
+        return await self._post(
+            f"/devices/{serial}/classic/pipes/block-in",
+            json={"endpoint": endpoint, "data": list(data), "block_size": block_size},
+        )
+
+    async def read_block_pipe_out(self, serial: str, endpoint: int,
+                                   length: int, block_size: int) -> dict:
+        """POST /devices/{serial}/classic/pipes/block-out — Read from BlockPipeOut."""
+        return await self._post(
+            f"/devices/{serial}/classic/pipes/block-out",
+            json={"endpoint": endpoint, "length": length, "block_size": block_size},
+        )
+
+    async def read_register(self, serial: str, address: int) -> dict:
+        """POST /devices/{serial}/classic/registers/read — Read register."""
+        return await self._post(
+            f"/devices/{serial}/classic/registers/read",
+            json={"address": address},
+        )
+
+    async def write_register(self, serial: str, address: int, value: int) -> dict:
+        """POST /devices/{serial}/classic/registers/write — Write register."""
+        return await self._post(
+            f"/devices/{serial}/classic/registers/write",
+            json={"address": address, "value": value},
+        )
+
+    async def classic_reset(self, serial: str) -> dict:
+        """POST /devices/{serial}/classic/reset — Reset FPGA."""
+        return await self._post(f"/devices/{serial}/classic/reset")
+
+    # ========================================================================
+    # AXI Data Port (/devices/{serial}/axi/*)
+    # ========================================================================
+
+    async def axi_lite_read(self, serial: str, address: int) -> dict:
+        """POST /devices/{serial}/axi/lite/read."""
+        return await self._post(f"/devices/{serial}/axi/lite/read", json={"address": address})
+
+    async def axi_lite_write(self, serial: str, address: int, value: int) -> dict:
+        """POST /devices/{serial}/axi/lite/write."""
+        return await self._post(
+            f"/devices/{serial}/axi/lite/write",
+            json={"address": address, "value": value},
+        )
+
+    async def axi_lite_reset(self, serial: str) -> dict:
+        """POST /devices/{serial}/axi/lite/reset."""
+        return await self._post(f"/devices/{serial}/axi/lite/reset")
+
+    async def axi_full_read(self, serial: str, address: int, length: int) -> dict:
+        """POST /devices/{serial}/axi/full/read."""
+        return await self._post(
+            f"/devices/{serial}/axi/full/read",
+            json={"address": address, "length": length},
+        )
+
+    async def axi_full_write(self, serial: str, address: int, data: bytes) -> dict:
+        """POST /devices/{serial}/axi/full/write."""
+        return await self._post(
+            f"/devices/{serial}/axi/full/write",
+            json={"address": address, "data": list(data)},
+        )
+
+    async def axi_full_datapath_width(self, serial: str) -> dict:
+        """GET /devices/{serial}/axi/full/datapath-width."""
+        return await self._get(f"/devices/{serial}/axi/full/datapath-width")
+
+    async def axi_full_reset(self, serial: str) -> dict:
+        """POST /devices/{serial}/axi/full/reset."""
+        return await self._post(f"/devices/{serial}/axi/full/reset")
+
+    async def axi_stream_read(self, serial: str, length: int) -> dict:
+        """POST /devices/{serial}/axi/stream/read."""
+        return await self._post(f"/devices/{serial}/axi/stream/read", json={"length": length})
+
+    async def axi_stream_write(self, serial: str, data: bytes) -> dict:
+        """POST /devices/{serial}/axi/stream/write."""
+        return await self._post(f"/devices/{serial}/axi/stream/write", json={"data": list(data)})
+
+    async def axi_stream_datapath_width(self, serial: str) -> dict:
+        """GET /devices/{serial}/axi/stream/datapath-width."""
+        return await self._get(f"/devices/{serial}/axi/stream/datapath-width")
+
+    async def axi_stream_reset(self, serial: str) -> dict:
+        """POST /devices/{serial}/axi/stream/reset."""
+        return await self._post(f"/devices/{serial}/axi/stream/reset")
+
+    # ========================================================================
+    # Resources (/resources/*)
+    # ========================================================================
+
+    async def list_resources(self) -> dict:
+        """GET /resources — List all resources."""
+        return await self._get("/resources")
+
+    async def get_resource(self, resource_id: str) -> dict:
+        """GET /resources/{resource_id} — Get resource details."""
+        return await self._get(f"/resources/{resource_id}")
+
+    async def acquire_resource(self, resource_id: str, mode: str, user_id: str) -> dict:
+        """POST /resources/{resource_id}/acquire — Acquire a resource."""
+        return await self._post(
+            f"/resources/{resource_id}/acquire",
+            json={"mode": mode, "user_id": user_id},
+        )
+
+    async def release_resource(self, resource_id: str, user_id: str) -> dict:
+        """POST /resources/{resource_id}/release — Release a resource."""
+        return await self._post(
+            f"/resources/{resource_id}/release",
+            json={"user_id": user_id},
+        )
+
+    # ========================================================================
+    # Users (/users/*)
+    # ========================================================================
+
+    async def list_users(self) -> dict:
+        """GET /users — List connected users."""
+        return await self._get("/users")
+
+    async def get_user(self, user_id: str) -> dict:
+        """GET /users/{user_id} — Get user details."""
+        return await self._get(f"/users/{user_id}")

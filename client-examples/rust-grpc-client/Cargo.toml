@@ -1,0 +1,40 @@
+[package]
+name = "rust-grpc-client"
+version = "0.1.0"
+edition = "2021"
+description = "Example Rust gRPC client for ok-FPGA-Server"
+authors = ["Lighthouse Logic"]
+license = "MIT"
+
+[dependencies]
+# gRPC client framework — generates Rust client stubs from .proto
+tonic = "0.13"
+prost = "0.13"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+
+# Serialization for MQTT payloads
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# mDNS/DNS-SD discovery — browse for _okfpga._tcp.local.
+mdns-sd = "0.11"
+
+# MQTT client — publish connection status to broker
+rumqttc = "0.24"
+
+# CLI argument parsing
+clap = { version = "4", features = ["derive"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Config file support
+toml = "0.8"
+
+[build-dependencies]
+# Compiles .proto files into Rust gRPC client/server code at build time.
+tonic-build = "0.13"

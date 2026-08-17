@@ -8,6 +8,12 @@ members = [
     "crates/ok-fpga-core",
     "crates/ok-fpga-server",
 ]
+# Example clients are standalone projects with their own Cargo.toml files.
+# They are excluded from the workspace so they can be built independently.
+exclude = [
+    "client-examples/rust-rest-client",
+    "client-examples/rust-grpc-client",
+]
 
 # Shared workspace dependencies — all crates reference these via
 # `workspace = true` in their own Cargo.toml to keep versions consistent.
