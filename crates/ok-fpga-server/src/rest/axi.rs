@@ -1,17 +1,19 @@
-//! # AXI Data Port Routes (Phase 19D)
+//! # AXI Data Port Routes (Phase 19D — ADR-019)
 //!
 //! REST endpoints for AXI data port operations (Lite, Full, Stream).
 //! Implements the `/devices/{serial}/axi/*` paths from ADR-004.
 //!
-//! ## FFI Integration
+//! ## AXI Sub-Interface Independence (ADR-019)
 //!
-//! AXI register read/write tries **AXI Lite first**, then falls back to
-//! **AXI Full** (reading/writing 4-byte buffers). The Counters.bit bitfile
-//! on the XEM7320 may use AXI Full rather than AXI Lite.
+//! AXI Lite, Full, and Stream are independent, non-polymorphic sub-interfaces.
+//! Each handler uses only its own sub-handle — there is NO fallback between them.
 //!
-//! Some devices (FP-Gen1/Gen2-USB, i.e. `okDATAPORT_LEGACY`) do not support
-//! AXI at all. `GetFPGADataPortAXI()` returns `UnsupportedFeature` on those
-//! devices, and all AXI handlers will return 409/501 accordingly.
+//! ## AXI Stream (Addressless)
+//!
+//! Unlike Lite and Full, AXI Stream is addressless — it operates as a FIFO.
+//! REST endpoints accept/return raw byte payloads via JSON-encoded base64 or
+//! length-specified buffers. For high-throughput streaming, gRPC bidirectional
+//! streaming is recommended (see notes-on-AXI.md).
 
 use std::sync::Arc;
 
@@ -315,37 +317,162 @@ async fn axi_full_reset(
 }
 
 // ============================================================================
-// AXI Stream — Stubs
+// AXI Stream Handlers (ADR-019: uses ONLY the AXI Stream sub-handle)
+//
+// AXI Stream is ADDRESSLESS — it operates as a FIFO. Read/Write transfer
+// byte buffers without specifying an address. Each sub-interface is
+// independent per ADR-019.
 // ============================================================================
 
+/// Request body for AXI Stream read (addressless).
+#[derive(Deserialize)]
+struct AXIStreamReadRequest {
+    /// Number of bytes to read from the stream FIFO.
+    length: u64,
+}
+
+/// Request body for AXI Stream write (addressless).
+#[derive(Deserialize)]
+struct AXIStreamWriteRequest {
+    /// Base64-encoded data to write to the stream FIFO.
+    data_base64: String,
+}
+
+/// `GET /devices/{serial}/axi/stream/widths` — Get AXI Stream datapath widths.
+///
+/// Returns both read and write datapath widths (they may differ).
 async fn axi_stream_widths(
-    Path(_serial): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Path(serial): Path<String>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented(
-        "AXIStreamGetDatapathWidths requires FFI integration",
-    ))
+    let device_arc = get_device!(state, &serial);
+    let device = device_arc.lock().await;
+
+    let axi_stream = device
+        .axi_stream()
+        .ok_or_else(|| ProblemDetail::conflict(
+            "AXI Stream not available. Either the device does not support AXI \
+             (okDATAPORT_LEGACY), the FPGA is not programmed, or the bitfile \
+             does not implement an AXI Stream interface.",
+        ))?;
+    let dll = device.dll();
+
+    let write_width = unsafe { (dll.axi_stream_get_write_datapath_width)(axi_stream) };
+    let read_width = unsafe { (dll.axi_stream_get_read_datapath_width)(axi_stream) };
+
+    Ok(Json(serde_json::json!({
+        "write_datapath_width_bytes": write_width,
+        "read_datapath_width_bytes": read_width,
+    })))
 }
 
+/// `POST /devices/{serial}/axi/stream/read` — Read bytes from AXI Stream FIFO.
+///
+/// AXI Stream is addressless — reads the next `length` bytes from the FIFO.
+/// Returns the data as base64-encoded JSON.
 async fn axi_stream_read(
-    Path(_serial): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Path(serial): Path<String>,
+    Json(req): Json<AXIStreamReadRequest>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented(
-        "AXIStreamRead requires FFI integration",
-    ))
+    let device_arc = get_device!(state, &serial);
+    let device = device_arc.lock().await;
+
+    let axi_stream = device
+        .axi_stream()
+        .ok_or_else(|| ProblemDetail::conflict(
+            "AXI Stream not available on this device or bitfile.",
+        ))?;
+    let dll = device.dll();
+
+    // Allocate buffer for the requested read length.
+    let mut buffer = vec![0u8; req.length as usize];
+    let mut transferred: u64 = 0;
+
+    // SAFETY: axi_stream handle is valid (from pool), buffer is valid allocation.
+    unsafe {
+        let rc = (dll.axi_stream_read)(
+            axi_stream,
+            buffer.as_mut_ptr(),
+            req.length,
+            &mut transferred,
+        );
+        FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
+    }
+
+    // Truncate buffer to actual bytes transferred.
+    buffer.truncate(transferred as usize);
+
+    use base64::Engine;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&buffer);
+
+    Ok(Json(serde_json::json!({
+        "bytes_transferred": transferred,
+        "data_base64": encoded,
+    })))
 }
 
+/// `POST /devices/{serial}/axi/stream/write` — Write bytes to AXI Stream FIFO.
+///
+/// AXI Stream is addressless — writes the provided bytes into the FIFO.
+/// Accepts base64-encoded data in the request body.
 async fn axi_stream_write(
-    Path(_serial): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Path(serial): Path<String>,
+    Json(req): Json<AXIStreamWriteRequest>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented(
-        "AXIStreamWrite requires FFI integration",
-    ))
+    let device_arc = get_device!(state, &serial);
+    let device = device_arc.lock().await;
+
+    let axi_stream = device
+        .axi_stream()
+        .ok_or_else(|| ProblemDetail::conflict(
+            "AXI Stream not available on this device or bitfile.",
+        ))?;
+    let dll = device.dll();
+
+    use base64::Engine;
+    let data = base64::engine::general_purpose::STANDARD
+        .decode(&req.data_base64)
+        .map_err(|e| ProblemDetail::bad_request(format!("Invalid base64: {}", e)))?;
+
+    let mut transferred: u64 = 0;
+
+    // SAFETY: axi_stream handle is valid, data buffer is valid.
+    unsafe {
+        let rc = (dll.axi_stream_write)(
+            axi_stream,
+            data.as_ptr(),
+            data.len() as u64,
+            &mut transferred,
+        );
+        FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
+    }
+
+    Ok(Json(serde_json::json!({
+        "bytes_written": transferred,
+    })))
 }
 
+/// `POST /devices/{serial}/axi/stream/reset` — Reset the AXI Stream interface.
 async fn axi_stream_reset(
-    Path(_serial): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Path(serial): Path<String>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented(
-        "AXIStreamReset requires FFI integration",
-    ))
+    let device_arc = get_device!(state, &serial);
+    let device = device_arc.lock().await;
+
+    let axi_stream = device
+        .axi_stream()
+        .ok_or_else(|| ProblemDetail::conflict(
+            "AXI Stream not available on this device or bitfile.",
+        ))?;
+    let dll = device.dll();
+
+    unsafe {
+        let rc = (dll.axi_stream_reset)(axi_stream);
+        FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
+    }
+
+    Ok(Json(serde_json::json!({"status": "ok", "message": "AXI Stream reset"})))
 }
