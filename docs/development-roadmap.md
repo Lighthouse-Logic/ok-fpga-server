@@ -429,7 +429,7 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 ## Phase 7: Configuration & Logging
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed (2026-08-16, `b976fbc`)  
 **Depends on**: Phase 5, Phase 6  
 **ADR reference**: [ADR-010](architecture/adr/ADR-010-service-manager.md)
 
@@ -480,11 +480,12 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 ### Verification
 
-- [ ] Server starts with default config (management port + REST)
-- [ ] Server starts with custom config file path via CLI arg or env var
-- [ ] Log output appears on stdout with timestamps and levels
-- [ ] Non-compiled features log a warning when `enabled = true`
-- [ ] Commit: `feat(server): add TOML configuration and tracing`
+- [x] Server starts with default config (management port + REST) — ✅ builds clean
+- [x] Server starts with custom config file path via CLI arg or env var — ✅ `--config`/`-c`/`OKFPGA_CONFIG`
+- [x] Log output appears on stdout with timestamps and levels — ✅ tracing subscriber
+- [x] Non-compiled features log a warning when `enabled = true` — ✅ `validate_feature_flags()`
+- [x] Commit: `b976fbc` — `feat(server): add TOML configuration and tracing (Phase 7)`
+- [x] 11/11 config unit tests pass
 
 ---
 
