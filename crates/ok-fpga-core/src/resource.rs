@@ -506,6 +506,137 @@ pub trait ResourceAccessPolicy: Send + Sync {
     fn on_resource_invalidated(&self, _resource: &Resource, _holders: &[UserId]) {
         // Default: no-op. Subclasses can override for custom behavior.
     }
+
+    // ========================================================================
+    // Phase 22B Stubs — Override these for HDL-specific access control
+    // ========================================================================
+
+    /// Validate whether a user can access a specific AXI address.
+    ///
+    /// Called by the REST/gRPC AXI handlers before issuing an AXI read/write.
+    /// The default implementation **always allows access** (`Ok(())`).
+    ///
+    /// Override this to implement HDL-specific address range protection. For
+    /// example, you could check the resource's `address_ranges` declarations
+    /// and deny access if the user doesn't hold an address range that contains
+    /// the requested address.
+    ///
+    /// ## Example
+    ///
+    /// ```rust,ignore
+    /// impl ResourceAccessPolicy for MyHdlPolicy {
+    ///     fn validate_address_access(
+    ///         &self,
+    ///         resource: &Resource,
+    ///         user: &UserId,
+    ///         address: u64,
+    ///     ) -> Result<(), AcquisitionDenied> {
+    ///         // Check if the requested address falls within any of the
+    ///         // resource's declared address ranges.
+    ///         for range in &resource.address_ranges {
+    ///             if address >= range.start && address <= range.end {
+    ///                 return Ok(());
+    ///             }
+    ///         }
+    ///         Err(AcquisitionDenied::Custom {
+    ///             reason: format!("Address 0x{:08X} not in declared ranges", address),
+    ///         })
+    ///     }
+    /// }
+    /// ```
+    fn validate_address_access(
+        &self,
+        _resource: &Resource,
+        _user: &UserId,
+        _address: u64,
+    ) -> Result<(), AcquisitionDenied> {
+        Ok(()) // Stub: allow all addresses by default
+    }
+
+    /// Validate whether a user can access a specific Classic endpoint.
+    ///
+    /// Called by the REST/gRPC Classic handlers before WireIn/WireOut/
+    /// TriggerIn/TriggerOut/PipeIn/PipeOut operations. The default
+    /// implementation **always allows access** (`Ok(())`).
+    ///
+    /// Override this to enforce per-endpoint access rules declared in the
+    /// resource's `EndpointDeclaration`. For example, deny access if an
+    /// endpoint is declared `exclusive` and is held by another user.
+    ///
+    /// ## Example
+    ///
+    /// ```rust,ignore
+    /// impl ResourceAccessPolicy for MyHdlPolicy {
+    ///     fn validate_endpoint_access(
+    ///         &self,
+    ///         resource: &Resource,
+    ///         user: &UserId,
+    ///         endpoint: u8,
+    ///         ep_type: &EndpointType,
+    ///     ) -> Result<(), AcquisitionDenied> {
+    ///         if let Some(ref ep_decl) = resource.endpoints {
+    ///             for entry in &ep_decl.entries {
+    ///                 if entry.address == endpoint {
+    ///                     // Found the endpoint — check access mode
+    ///                     // ... your HDL-specific logic here ...
+    ///                 }
+    ///             }
+    ///         }
+    ///         Ok(())
+    ///     }
+    /// }
+    /// ```
+    fn validate_endpoint_access(
+        &self,
+        _resource: &Resource,
+        _user: &UserId,
+        _endpoint: u8,
+        _ep_type: &EndpointType,
+    ) -> Result<(), AcquisitionDenied> {
+        Ok(()) // Stub: allow all endpoints by default
+    }
+
+    /// Process a custom metadata key during resource registration.
+    ///
+    /// Called once during `create_resource` for each key in the resource's
+    /// `metadata` map. The default implementation **accepts all keys**
+    /// without validation (`Ok(())`).
+    ///
+    /// Override this to validate or act on HDL-specific metadata. For
+    /// example, you could require certain metadata keys to be present
+    /// or reject unknown keys.
+    ///
+    /// ## Example
+    ///
+    /// ```rust,ignore
+    /// impl ResourceAccessPolicy for MyHdlPolicy {
+    ///     fn on_metadata_key(
+    ///         &self,
+    ///         resource: &Resource,
+    ///         key: &str,
+    ///         value: &str,
+    ///     ) -> Result<(), String> {
+    ///         match key {
+    ///             "bitfile_version" => {
+    ///                 // Validate version format
+    ///                 if !value.starts_with("v") {
+    ///                     return Err("bitfile_version must start with 'v'".into());
+    ///                 }
+    ///                 Ok(())
+    ///             }
+    ///             _ => Ok(()), // Accept unknown keys
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    fn on_metadata_key(
+        &self,
+        _resource: &Resource,
+        _key: &str,
+        _value: &str,
+    ) -> Result<(), String> {
+        Ok(()) // Stub: accept all metadata by default
+    }
 }
 
 // ============================================================================
@@ -1026,4 +1157,42 @@ mod tests {
         assert_eq!(r.locked_by, None);
         assert_eq!(r.holders, vec!["bob"]);
     }
+
+    // ====================================================================
+    // Phase 22B: ResourceAccessPolicy stub method tests
+    // ====================================================================
+
+    #[test]
+    fn default_policy_validate_address_access_allows_all() {
+        let policy = DefaultAccessPolicy;
+        let resource = test_resource("r1");
+        let user = "alice".to_string();
+        // Any address should be allowed by default.
+        assert!(policy.validate_address_access(&resource, &user, 0x0000_0000).is_ok());
+        assert!(policy.validate_address_access(&resource, &user, 0xFFFF_FFFF).is_ok());
+        assert!(policy.validate_address_access(&resource, &user, 0xDEAD_BEEF).is_ok());
+    }
+
+    #[test]
+    fn default_policy_validate_endpoint_access_allows_all() {
+        let policy = DefaultAccessPolicy;
+        let resource = test_resource("r1");
+        let user = "alice".to_string();
+        // Any endpoint/type should be allowed by default.
+        assert!(policy.validate_endpoint_access(&resource, &user, 0x00, &EndpointType::WireIn).is_ok());
+        assert!(policy.validate_endpoint_access(&resource, &user, 0x20, &EndpointType::WireOut).is_ok());
+        assert!(policy.validate_endpoint_access(&resource, &user, 0x40, &EndpointType::TriggerIn).is_ok());
+        assert!(policy.validate_endpoint_access(&resource, &user, 0x80, &EndpointType::PipeIn).is_ok());
+    }
+
+    #[test]
+    fn default_policy_on_metadata_key_accepts_all() {
+        let policy = DefaultAccessPolicy;
+        let resource = test_resource("r1");
+        // Any metadata key/value should be accepted by default.
+        assert!(policy.on_metadata_key(&resource, "bitfile_version", "v1.0").is_ok());
+        assert!(policy.on_metadata_key(&resource, "custom_key", "any_value").is_ok());
+        assert!(policy.on_metadata_key(&resource, "", "").is_ok());
+    }
 }
+

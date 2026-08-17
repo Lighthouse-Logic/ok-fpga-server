@@ -32,7 +32,7 @@ rest = []
 dashboard = []
 
 # gRPC API server (Tonic). Serves the proto-defined services on port 50051.
-grpc = ["dep:tonic", "dep:prost", "dep:tokio-stream"]
+grpc = ["dep:tonic", "dep:prost"]
 
 # MQTT status publisher. Publishes device/service events to an external broker.
 mqtt = ["dep:rumqttc"]
@@ -68,6 +68,9 @@ anyhow = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
 
+# Async stream utilities — used by both SSE (REST events) and gRPC streaming.
+tokio-stream = { version = "0.1", features = ["sync"] }
+
 # Base64 encoding/decoding for pipe data transfer in REST handlers.
 base64 = "0.22"
 
@@ -92,7 +95,6 @@ tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
 # .proto file and handles all gRPC transport.
 tonic = { version = "0.13", optional = true }
 prost = { version = "0.13", optional = true }
-tokio-stream = { version = "0.1", optional = true }
 
 # --- MQTT feature dependencies ---
 

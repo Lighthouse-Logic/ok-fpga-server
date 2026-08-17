@@ -505,6 +505,16 @@ async fn acquire_resource(
     state.user_sessions.touch(&body.user_id);
 
     let resource = state.resource_registry.get(&id).unwrap();
+
+    // Broadcast ResourceChanged event (Option B — handlers broadcast).
+    let _ = state.device_manager.broadcast(
+        ok_fpga_core::manager::DeviceEvent::ResourceChanged {
+            resource_id: id.clone(),
+            new_state: format!("{:?}", resource.state),
+            timestamp: chrono::Utc::now(),
+        },
+    );
+
     Ok(Json(ResourceView::from(&resource)))
 }
 
@@ -517,6 +527,22 @@ async fn release_resource(
     if state.resource_registry.release(&id, &body.user_id) {
         // Track the user session (implicit heartbeat on release).
         state.user_sessions.touch(&body.user_id);
+
+        // Determine new state after release.
+        let new_state = state
+            .resource_registry
+            .get(&id)
+            .map(|r| format!("{:?}", r.state))
+            .unwrap_or_else(|| "Available".to_string());
+
+        // Broadcast ResourceChanged event (Option B).
+        let _ = state.device_manager.broadcast(
+            ok_fpga_core::manager::DeviceEvent::ResourceChanged {
+                resource_id: id.clone(),
+                new_state,
+                timestamp: chrono::Utc::now(),
+            },
+        );
 
         Ok(Json(serde_json::json!({
             "status": "released",
@@ -546,6 +572,16 @@ async fn lock_resource(
         .map_err(|e| ProblemDetail::conflict(&e))?;
 
     let resource = state.resource_registry.get(&id).unwrap();
+
+    // Broadcast ResourceChanged event (Option B).
+    let _ = state.device_manager.broadcast(
+        ok_fpga_core::manager::DeviceEvent::ResourceChanged {
+            resource_id: id.clone(),
+            new_state: "In Use (Locked)".to_string(),
+            timestamp: chrono::Utc::now(),
+        },
+    );
+
     Ok(Json(ResourceView::from(&resource)))
 }
 
@@ -563,5 +599,15 @@ async fn unlock_resource(
         .map_err(|e| ProblemDetail::conflict(&e))?;
 
     let resource = state.resource_registry.get(&id).unwrap();
+
+    // Broadcast ResourceChanged event (Option B).
+    let _ = state.device_manager.broadcast(
+        ok_fpga_core::manager::DeviceEvent::ResourceChanged {
+            resource_id: id.clone(),
+            new_state: "In Use (Shared)".to_string(),
+            timestamp: chrono::Utc::now(),
+        },
+    );
+
     Ok(Json(ResourceView::from(&resource)))
 }
