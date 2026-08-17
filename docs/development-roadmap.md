@@ -1131,6 +1131,7 @@ Wired 4 device-level endpoints:
 2. ✅ `GET /devices/{serial}/bitfile` → return stored `BitfileRecord`
 3. ✅ `GET /devices/{serial}/dataport` → return cached `okTDeviceInfo.dataport`
 4. ⏭️ `GET /devices/{serial}/sensors` → skipped (XEM7320 has no sensors)
+5. ⏭️ `GET /devices/{serial}/settings` → deferred to Phase 19G (ADR-021)
 
 #### Phase 19C: Classic Data Port Endpoints
 
@@ -1256,6 +1257,36 @@ pytest tests/test_hardware.py -v -s
 cd client-examples/python-grpc-client
 pytest tests/test_hardware.py -v -s
 ```
+
+---
+
+#### Phase 19G: Device Settings FFI Wiring
+
+**Status**: `[ ]` Planned  
+**ADR reference**: [ADR-021 — Device Settings FFI Wiring](architecture/adr/ADR-021-settings-ffi-wiring.md)
+
+Wire the three settings REST endpoints and three gRPC RPCs from 501 stubs
+to real FFI calls via the `DeviceHandlePool`. Settings are device-level
+metadata (not bitfile-dependent) and do not require FPGA programming.
+
+**REST endpoints:**
+
+| Endpoint | FFI Calls | Status |
+|----------|----------|--------|
+| `GET /devices/{serial}/settings` | `settings_construct` → `fp_get_device_settings` → `settings_list` → iterate keys → `settings_get_int`/`settings_get_string` → `settings_destruct` | `[ ]` Planned |
+| `GET /devices/{serial}/settings/{key}` | Same populate + single-key read | `[ ]` Planned |
+| `PUT /devices/{serial}/settings/{key}` | Same populate + `settings_set_int`/`settings_set_string` + `settings_save` | `[ ]` Planned |
+
+**gRPC RPCs:**
+
+| RPC | Status |
+|-----|--------|
+| `GetDeviceSettings` | `[ ]` Planned |
+| `GetDeviceSetting` | `[ ]` Planned |
+| `SetDeviceSetting` | `[ ]` Planned |
+
+**Client updates:**
+- `[ ]` Move "Settings" out of "Stub Endpoints (expected 501)" in Rust REST client demo
 
 ---
 
