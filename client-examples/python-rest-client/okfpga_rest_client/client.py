@@ -33,13 +33,16 @@ class OkFpgaRestClient:
     def __init__(self, base_url: str, timeout: float = 10.0) -> None:
         """Create a new REST client.
 
+        The ``/api/v1`` prefix is appended automatically — pass the bare
+        server URL (e.g., ``"http://localhost:8088"``).
+
         Args:
             base_url: Server REST API base URL (e.g., "http://localhost:8088").
             timeout: Default request timeout in seconds.
         """
         self.base_url = base_url.rstrip("/")
         self._client = httpx.AsyncClient(
-            base_url=self.base_url,
+            base_url=f"{self.base_url}/api/v1",
             timeout=timeout,
         )
 

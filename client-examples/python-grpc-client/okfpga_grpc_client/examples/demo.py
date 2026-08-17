@@ -52,26 +52,26 @@ async def main() -> None:
 
     # Step 3: Connect and exercise gRPC RPCs.
     print()
-    print("╔══════════════════════════════════════════════════╗")
-    print("║    ok-FPGA-Server Python gRPC Client Demo       ║")
-    print(f"║  Connecting to: {target:<33}║")
-    print("╚══════════════════════════════════════════════════╝")
+    print("+" + "=" * 50 + "+")
+    print("|    ok-FPGA-Server Python gRPC Client Demo       |")
+    print(f"|  Connecting to: {target:<33}|")
+    print("+" + "=" * 50 + "+")
     print()
 
     async with OkFpgaGrpcClient(target) as client:
         # --- List Devices ---
-        print("━━━ Devices ━━━")
+        print("--- Devices ---")
         try:
             resp = await client.list_devices()
             if not resp.devices:
                 print("  No devices connected")
             for dev in resp.devices:
-                print(f"  {dev.serial} — {dev.product_name} ({dev.product_id})")
+                print(f"  {dev.serial} - {dev.product_name} ({dev.product_id})")
         except Exception as e:
             print(f"  Error: {e}")
 
         # --- Server Status ---
-        print("\n━━━ Server Status ━━━")
+        print("\n--- Server Status ---")
         try:
             status = await client.get_server_status()
             print(f"  Response: {status}")
@@ -82,14 +82,14 @@ async def main() -> None:
     if mqtt:
         mqtt.publish_heartbeat(0)
         mqtt.publish_connection_status("localhost", True, target)
-        print("\n━━━ MQTT ━━━")
+        print("\n--- MQTT ---")
         print("  Published heartbeat and connection status")
         mqtt.publish_offline()
     else:
-        print("\n━━━ MQTT ━━━")
+        print("\n--- MQTT ---")
         print("  Skipped (broker unavailable)")
 
-    print("\n✅ Demo complete.")
+    print("\nOK: Demo complete.")
 
 
 if __name__ == "__main__":

@@ -53,6 +53,19 @@ def main() -> None:
         print(f"ERROR: protoc failed:\n{result.stderr}")
         sys.exit(1)
 
+    # Post-process: fix absolute imports to relative imports.
+    # grpcio-tools generates `import okfpga_pb2 as ...` but we need
+    # `from . import okfpga_pb2 as ...` for package-relative imports.
+    grpc_file = output_dir / "okfpga_pb2_grpc.py"
+    if grpc_file.exists():
+        content = grpc_file.read_text()
+        content = content.replace(
+            "import okfpga_pb2 as okfpga__pb2",
+            "from . import okfpga_pb2 as okfpga__pb2",
+        )
+        grpc_file.write_text(content)
+        print("  Fixed relative imports in okfpga_pb2_grpc.py")
+
     print("OK: Proto compilation complete.")
     print(f"Generated files in {output_dir}/:")
     for f in sorted(output_dir.iterdir()):

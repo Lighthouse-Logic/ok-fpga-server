@@ -50,15 +50,15 @@ async def main() -> None:
 
     # Step 3: Exercise REST endpoints.
     print()
-    print("╔══════════════════════════════════════════════════╗")
-    print("║     ok-FPGA-Server Python REST Client Demo      ║")
-    print(f"║  Connecting to: {base_url:<33}║")
-    print("╚══════════════════════════════════════════════════╝")
+    print("+" + "=" * 50 + "+")
+    print("|     ok-FPGA-Server Python REST Client Demo      |")
+    print(f"|  Connecting to: {base_url:<33}|")
+    print("+" + "=" * 50 + "+")
     print()
 
     async with OkFpgaRestClient(base_url) as client:
         # --- Server Status ---
-        print("━━━ Server Status ━━━")
+        print("--- Server Status ---")
         try:
             status = await client.get_server_status()
             print(f"  API Version:  {status.get('api_version', 'N/A')}")
@@ -68,7 +68,7 @@ async def main() -> None:
             print(f"  Error: {e}")
 
         # --- Services ---
-        print("\n━━━ Services ━━━")
+        print("\n--- Services ---")
         try:
             svc_resp = await client.list_services()
             for svc in svc_resp.get("services", []):
@@ -77,7 +77,7 @@ async def main() -> None:
             print(f"  Error: {e}")
 
         # --- Devices ---
-        print("\n━━━ Devices ━━━")
+        print("\n--- Devices ---")
         devices = []
         try:
             dev_resp = await client.list_devices()
@@ -93,7 +93,7 @@ async def main() -> None:
         # --- Device Detail ---
         if devices:
             serial = devices[0]["serial"]
-            print(f"\n━━━ Device Detail: {serial} ━━━")
+            print(f"\n--- Device Detail: {serial} ---")
             try:
                 info = await client.get_device_info(serial)
                 print(f"  Info: {info}")
@@ -101,7 +101,7 @@ async def main() -> None:
                 print(f"  Device info: {e}")
 
             # Stub endpoints (expect 501)
-            print("\n━━━ Stub Endpoints (expect 501) ━━━")
+            print("\n--- Stub Endpoints (expect 501) ---")
             for name, coro in [
                 ("Sensors", client.get_device_sensors(serial)),
                 ("Settings", client.get_device_settings(serial)),
@@ -113,10 +113,10 @@ async def main() -> None:
                     result = await coro
                     print(f"  {name}: {result}")
                 except Exception as e:
-                    print(f"  {name}: {e} ✓ (stub)")
+                    print(f"  {name}: {e} [OK] (stub)")
 
         # --- Resources ---
-        print("\n━━━ Resources ━━━")
+        print("\n--- Resources ---")
         try:
             res = await client.list_resources()
             print(f"  {res}")
@@ -124,7 +124,7 @@ async def main() -> None:
             print(f"  Resources: {e}")
 
         # --- Users ---
-        print("\n━━━ Users ━━━")
+        print("\n--- Users ---")
         try:
             users = await client.list_users()
             print(f"  {users}")
@@ -135,14 +135,14 @@ async def main() -> None:
     if mqtt:
         mqtt.publish_heartbeat(0)
         mqtt.publish_connection_status("localhost", True, base_url, 8088)
-        print("\n━━━ MQTT ━━━")
+        print("\n--- MQTT ---")
         print("  Published heartbeat and connection status")
         mqtt.publish_offline()
     else:
-        print("\n━━━ MQTT ━━━")
+        print("\n--- MQTT ---")
         print("  Skipped (broker unavailable)")
 
-    print("\n✅ Demo complete.")
+    print("\nOK: Demo complete.")
 
 
 if __name__ == "__main__":

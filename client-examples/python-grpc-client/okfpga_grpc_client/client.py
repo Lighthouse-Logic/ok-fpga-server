@@ -139,13 +139,13 @@ class OkFpgaGrpcClient:
     async def axi_lite_read(self, serial: str, address: int):
         """AXI Lite read."""
         return await self._axi.AXILiteRead(
-            okfpga_pb2.AxiLiteReadRequest(serial=serial, address=address)
+            okfpga_pb2.AXILiteReadRequest(serial=serial, address=address)
         )
 
     async def axi_lite_write(self, serial: str, address: int, value: int):
         """AXI Lite write."""
         return await self._axi.AXILiteWrite(
-            okfpga_pb2.AxiLiteWriteRequest(
+            okfpga_pb2.AXILiteWriteRequest(
                 serial=serial, address=address, value=value
             )
         )

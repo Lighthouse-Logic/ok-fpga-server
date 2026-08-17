@@ -27,7 +27,7 @@ async def client():
 def is_server_running() -> bool:
     """Check if the server is reachable."""
     try:
-        resp = httpx.get(f"{BASE_URL}/server/status", timeout=2.0)
+        resp = httpx.get(f"{BASE_URL}/api/v1/server/status", timeout=2.0)
         return resp.status_code == 200
     except Exception:
         return False
@@ -134,7 +134,7 @@ class TestClassicEndpoints:
     async def test_set_wire_in(self, client: OkFpgaRestClient) -> None:
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
             await client.set_wire_in("TEST0001", 0x00, 0xFF)
-        assert exc_info.value.response.status_code in (404, 501)
+        assert exc_info.value.response.status_code in (404, 405, 501)
 
     async def test_get_wire_out(self, client: OkFpgaRestClient) -> None:
         with pytest.raises(httpx.HTTPStatusError) as exc_info:

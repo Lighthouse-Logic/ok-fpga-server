@@ -70,12 +70,15 @@ pub struct OkFpgaRestClient {
 impl OkFpgaRestClient {
     /// Create a new REST client pointing at the given base URL.
     ///
+    /// The `/api/v1` prefix is appended automatically — pass the bare server
+    /// URL (e.g., "http://localhost:8088").
+    ///
     /// # Arguments
     /// * `base_url` — The server's REST API base URL (e.g., "http://localhost:8088")
     pub fn new(base_url: &str) -> Self {
         Self {
             client: Client::new(),
-            base_url: base_url.trim_end_matches('/').to_string(),
+            base_url: format!("{}/api/v1", base_url.trim_end_matches('/')),
         }
     }
 
