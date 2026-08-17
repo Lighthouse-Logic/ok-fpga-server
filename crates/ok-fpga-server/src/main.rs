@@ -3,32 +3,30 @@
 //! This is the main binary crate for the ok-FPGA-Server. When you run it,
 //! it starts a server that:
 //!
-//! 1. **Loads the FrontPanel DLL** (`okFrontPanel.dll` on Windows,
-//!    `libokFrontPanel.so` on Linux) at runtime.
-//! 2. **Detects connected Opal Kelly FPGAs** via the FrontPanelManager
-//!    hot-plug callback system.
-//! 3. **Exposes FPGAs over REST** (Axum, OpenAPI 3.0) and **gRPC** (Tonic, proto3)
-//!    depending on which Cargo features are enabled.
-//! 4. **Serves a web dashboard** showing device status, resources, logs, and
-//!    API traffic in real time.
+//! 1. **Loads configuration** from a TOML file (default: `./config.toml`)
+//! 2. **Initializes structured logging** via `tracing` with the configured level
+//! 3. **Detects connected Opal Kelly FPGAs** via the FrontPanelManager
+//!    hot-plug callback system
+//! 4. **Starts configured services** (REST, gRPC, MQTT, mDNS) via the
+//!    ServiceManager
+//! 5. **Serves a web dashboard** on the management port (default 9090)
+//!
+//! ## Configuration
+//!
+//! See [`config`] module and the sample `config.toml` at the project root.
 //!
 //! ## Feature Flags (ADR-010)
 //!
 //! ```text
 //! default = ["rest", "dashboard"]
 //!
-//! rest      — REST API on port 8080 (Axum)
-//! dashboard — Web dashboard on management port 9090
-//! grpc      — gRPC API on port 50051 (Tonic)
-//! mqtt      — MQTT status publisher (Phase 10)
-//! mdns      — mDNS service discovery (Phase 11)
+//! rest      — REST API (Axum)
+//! dashboard — Web dashboard on management port
+//! grpc      — gRPC API (Tonic)
+//! mqtt      — MQTT status publisher
+//! mdns      — mDNS service discovery
 //! full      — All features enabled
 //! ```
-//!
-//! ## Configuration
-//!
-//! The server reads its configuration from a TOML file (default: `config.toml`
-//! in the working directory). See Phase 7 of the development roadmap.
 //!
 //! ## Architecture
 //!
@@ -65,6 +63,9 @@
 // Module declarations
 // ============================================================================
 
+/// Server configuration (TOML loading, env overrides, validation).
+mod config;
+
 /// Shared application state (device manager, service manager, etc.)
 mod state;
 
@@ -83,6 +84,7 @@ use ok_fpga_core::resource::ResourceRegistry;
 use ok_fpga_core::service_manager::ServiceManager;
 use tracing::{info, warn};
 
+use config::ServerConfig;
 use state::AppState;
 
 /// The server version, derived from the workspace Cargo.toml.
@@ -90,21 +92,27 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Entry point for the ok-FPGA-Server.
 ///
-/// Initializes the core domain components, registers services with the
-/// ServiceManager based on compiled features and configuration, then
-/// starts the management server and enabled services.
+/// 1. Loads configuration from TOML file + env overrides
+/// 2. Initializes tracing with the configured log level
+/// 3. Creates core domain components
+/// 4. Registers and starts services based on config and compiled features
+/// 5. Waits for Ctrl+C, then gracefully shuts down
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing (structured logging).
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    // Load configuration (TOML file + env overrides + feature validation).
+    let cfg = config::load_config();
+
+    // Initialize tracing (structured logging) with the configured log level.
+    init_tracing(&cfg);
 
     // Print startup banner.
-    print_banner();
+    print_banner(&cfg);
+
+    info!(
+        config_log_level = %cfg.server.log_level,
+        management_port = cfg.server.management_port,
+        "configuration loaded"
+    );
 
     // Initialize core domain components.
     let device_manager = Arc::new(DeviceManager::new());
@@ -118,8 +126,8 @@ async fn main() -> anyhow::Result<()> {
         service_manager.clone(),
     ));
 
-    // Register available services based on compiled features.
-    register_services(&service_manager, &app_state);
+    // Register available services based on compiled features and config.
+    register_services(&service_manager, &app_state, &cfg);
 
     // Log the feature flag status.
     log_feature_status();
@@ -128,12 +136,12 @@ async fn main() -> anyhow::Result<()> {
     service_manager.start_enabled().await;
 
     // Log the active services.
-    for info in service_manager.list() {
+    for svc_info in service_manager.list() {
         info!(
-            service = %info.name,
-            status = %info.status,
-            compiled = info.compiled,
-            enabled = info.enabled,
+            service = %svc_info.name,
+            status = %svc_info.status,
+            compiled = svc_info.compiled,
+            enabled = svc_info.enabled,
             "service state"
         );
     }
@@ -151,37 +159,78 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Register compiled services with the ServiceManager.
+/// Initialize the `tracing` subscriber with the configured log level.
 ///
-/// Services whose Cargo features are enabled are registered. Services whose
-/// features are NOT compiled are NOT registered (they can't run in this binary).
-/// The `enabled` flag comes from TOML config (Phase 7); for now, all compiled
-/// services default to enabled.
-fn register_services(service_manager: &Arc<ServiceManager>, app_state: &Arc<AppState>) {
+/// The log level can come from (in priority order):
+/// 1. `RUST_LOG` environment variable (standard tracing behavior)
+/// 2. `OKFPGA_LOG_LEVEL` environment variable (via config)
+/// 3. `server.log_level` in the TOML config
+/// 4. Built-in default: `"info"`
+fn init_tracing(cfg: &ServerConfig) {
+    // If RUST_LOG is set, use it directly (standard tracing convention).
+    // Otherwise, use the config's log_level.
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| {
+            tracing_subscriber::EnvFilter::new(&cfg.server.log_level)
+        });
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(true)
+        .with_thread_ids(false)
+        .with_file(false)
+        .with_line_number(false)
+        .init();
+}
+
+/// Register compiled services with the ServiceManager using config values.
+///
+/// Each service is registered with:
+/// - Its bind address and port from config
+/// - Its `enabled` flag from config (only matters if the feature is compiled)
+///
+/// Services whose Cargo features are NOT compiled cannot be registered.
+fn register_services(
+    service_manager: &Arc<ServiceManager>,
+    app_state: &Arc<AppState>,
+    cfg: &ServerConfig,
+) {
     // --- REST (default feature) ---
     #[cfg(feature = "rest")]
     {
-        let rest_addr: std::net::SocketAddr = "0.0.0.0:8080"
+        let rest_addr: std::net::SocketAddr = format!("{}:{}", cfg.rest.bind, cfg.rest.port)
             .parse()
-            .expect("valid REST bind address");
+            .expect("valid REST bind address from config");
         let rest_service = Arc::new(rest::managed::RestManagedService::new(
             rest_addr,
             app_state.clone(),
         ));
-        service_manager.register(rest_service, true); // enabled by default
+        service_manager.register(rest_service, cfg.rest.enabled);
+        info!(
+            bind = %cfg.rest.bind,
+            port = cfg.rest.port,
+            enabled = cfg.rest.enabled,
+            "registered REST service"
+        );
     }
 
     // --- gRPC (opt-in feature) ---
     #[cfg(feature = "grpc")]
     {
-        let grpc_addr: std::net::SocketAddr = "0.0.0.0:50051"
+        let grpc_addr: std::net::SocketAddr = format!("{}:{}", cfg.grpc.bind, cfg.grpc.port)
             .parse()
-            .expect("valid gRPC bind address");
+            .expect("valid gRPC bind address from config");
         let grpc_service = Arc::new(grpc::managed::GrpcManagedService::new(
             grpc_addr,
             app_state.clone(),
         ));
-        service_manager.register(grpc_service, true); // enabled when compiled
+        service_manager.register(grpc_service, cfg.grpc.enabled);
+        info!(
+            bind = %cfg.grpc.bind,
+            port = cfg.grpc.port,
+            enabled = cfg.grpc.enabled,
+            "registered gRPC service"
+        );
     }
 
     // --- MQTT (Phase 10, opt-in feature) ---
@@ -216,7 +265,7 @@ fn log_feature_status() {
 }
 
 /// Print the startup banner to stdout.
-fn print_banner() {
+fn print_banner(cfg: &ServerConfig) {
     println!("╔══════════════════════════════════════════════════╗");
     println!(
         "║           ok-FPGA-Server v{}                 ║",
@@ -226,14 +275,42 @@ fn print_banner() {
     println!("╠══════════════════════════════════════════════════╣");
 
     #[cfg(feature = "rest")]
-    println!("║  REST API:  http://localhost:8080/api/v1         ║");
+    if cfg.rest.enabled {
+        println!(
+            "║  REST API:  http://{}:{}/api/v1{} ║",
+            cfg.rest.bind,
+            cfg.rest.port,
+            " ".repeat(49_usize.saturating_sub(
+                14 + cfg.rest.bind.len() + format!("{}", cfg.rest.port).len() + 7
+            ))
+        );
+    }
 
     #[cfg(feature = "grpc")]
-    println!("║  gRPC:      http://localhost:50051               ║");
+    if cfg.grpc.enabled {
+        println!(
+            "║  gRPC:      http://{}:{}{}║",
+            cfg.grpc.bind,
+            cfg.grpc.port,
+            " ".repeat(49_usize.saturating_sub(
+                14 + cfg.grpc.bind.len() + format!("{}", cfg.grpc.port).len()
+            ))
+        );
+    }
 
-    #[cfg(feature = "dashboard")]
-    println!("║  Dashboard: http://localhost:9090                ║");
+    println!(
+        "║  Mgmt:      http://{}:{}{}║",
+        cfg.server.management_bind,
+        cfg.server.management_port,
+        " ".repeat(49_usize.saturating_sub(
+            14 + cfg.server.management_bind.len()
+                + format!("{}", cfg.server.management_port).len()
+        ))
+    );
 
     println!("╚══════════════════════════════════════════════════╝");
     println!();
+
+    // Suppress unused warning when features are disabled.
+    let _ = cfg;
 }

@@ -1,0 +1,110 @@
+# =============================================================================
+# ok-FPGA-Server Configuration
+# =============================================================================
+#
+# This file configures the ok-FPGA-Server. All values shown below are the
+# built-in defaults — you only need to include sections you want to change.
+#
+# Configuration priority (highest to lowest):
+#   1. Environment variables (OKFPGA_* prefix)
+#   2. This config file
+#   3. Built-in defaults
+#
+# Config file resolution:
+#   --config <path>  or  -c <path>     (CLI argument)
+#   OKFPGA_CONFIG=<path>               (environment variable)
+#   ./config.toml                      (default, working directory)
+#
+# Environment variable overrides:
+#   OKFPGA_LOG_LEVEL          → server.log_level
+#   OKFPGA_MANAGEMENT_PORT    → server.management_port
+#   OKFPGA_REST_PORT          → rest.port
+#   OKFPGA_REST_ENABLED       → rest.enabled
+#   OKFPGA_GRPC_PORT          → grpc.port
+#   OKFPGA_GRPC_ENABLED       → grpc.enabled
+#   OKFPGA_MQTT_BROKER_URL    → mqtt.broker_url
+#   OKFPGA_MQTT_ENABLED       → mqtt.enabled
+#   OKFPGA_MDNS_ENABLED       → mdns.enabled
+
+# -----------------------------------------------------------------------------
+# Core Server Settings
+# -----------------------------------------------------------------------------
+[server]
+# Port for the management server (always-on). Serves the web dashboard
+# and the management API (service start/stop/restart, config, shutdown).
+management_port = 9090
+
+# Bind address for the management server.
+management_bind = "0.0.0.0"
+
+# Log level filter. Supports tracing filter syntax:
+#   "trace", "debug", "info", "warn", "error"
+#   Per-module: "ok_fpga_server=debug,ok_fpga_core=info"
+log_level = "info"
+
+# -----------------------------------------------------------------------------
+# REST API Server (feature: rest)
+# -----------------------------------------------------------------------------
+[rest]
+# Start the REST API server on launch. Requires the 'rest' feature to be
+# compiled. If enabled but not compiled, a warning is logged.
+enabled = true
+
+# Bind address and port for the REST API.
+bind = "0.0.0.0"
+port = 8080
+
+# -----------------------------------------------------------------------------
+# gRPC API Server (feature: grpc)
+# -----------------------------------------------------------------------------
+[grpc]
+# Start the gRPC server on launch. Requires the 'grpc' feature to be
+# compiled. If enabled but not compiled, a warning is logged.
+enabled = true
+
+# Bind address and port for the gRPC API.
+bind = "0.0.0.0"
+port = 50051
+
+# -----------------------------------------------------------------------------
+# MQTT Status Publisher (feature: mqtt)
+# -----------------------------------------------------------------------------
+[mqtt]
+# Enable MQTT status publishing. Requires the 'mqtt' feature and an
+# external MQTT broker (e.g., Mosquitto).
+enabled = false
+
+# MQTT broker connection URL.
+broker_url = "mqtt://localhost:1883"
+
+# Client ID for this server instance. Must be unique per broker.
+client_id = "okfpga-server-01"
+
+# Topic prefix. All messages are published under this prefix:
+#   {topic_prefix}/status     — periodic server status
+#   {topic_prefix}/devices    — device connect/disconnect events
+#   {topic_prefix}/services   — service state changes
+topic_prefix = "okfpga/server01"
+
+# How often to publish periodic status messages (seconds).
+publish_interval_secs = 5
+
+# -----------------------------------------------------------------------------
+# mDNS/DNS-SD Discovery (feature: mdns)
+# -----------------------------------------------------------------------------
+[mdns]
+# Advertise the server on the local network via mDNS/DNS-SD.
+# Requires the 'mdns' feature.
+enabled = false
+
+# Human-readable instance name for mDNS service records.
+# This appears in service browsers (e.g., Bonjour, Avahi).
+instance_name = "okfpga-server"
+
+# -----------------------------------------------------------------------------
+# Web Dashboard (feature: dashboard)
+# -----------------------------------------------------------------------------
+[dashboard]
+# Serve the web dashboard on the management port.
+# Requires the 'dashboard' feature.
+enabled = true
