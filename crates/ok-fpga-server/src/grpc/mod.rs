@@ -50,6 +50,10 @@ pub mod proto {
 /// to a `tonic::transport::Server`, and begins serving. It blocks until
 /// the server is shut down.
 ///
+/// The server includes an implicit heartbeat interceptor that extracts
+/// the `x-user-id` metadata key from every request and calls
+/// `user_sessions.touch()` for liveness tracking (ADR-020 §5).
+///
 /// # Arguments
 ///
 /// * `addr` — The socket address to bind (e.g., `"0.0.0.0:50051"`)
@@ -70,10 +74,24 @@ pub async fn start_grpc_server(
     let axi_svc = axi_service::AXIDataPortServiceImpl::new(state.clone());
     let server_svc = server_service::ServerServiceImpl::new(state.clone());
 
+    // Build the heartbeat interceptor that touches user sessions on every
+    // gRPC request that includes the `x-user-id` metadata key.
+    let heartbeat_state = state.clone();
+    let heartbeat_interceptor = move |req: tonic::Request<()>| -> Result<tonic::Request<()>, tonic::Status> {
+        if let Some(user_id) = req.metadata().get("x-user-id") {
+            if let Ok(user_id_str) = user_id.to_str() {
+                if !user_id_str.is_empty() {
+                    heartbeat_state.user_sessions.touch(user_id_str);
+                }
+            }
+        }
+        Ok(req)
+    };
+
     info!(address = %addr, "starting gRPC server");
 
     Server::builder()
-        .add_service(DeviceServiceServer::new(device_svc))
+        .add_service(DeviceServiceServer::with_interceptor(device_svc, heartbeat_interceptor.clone()))
         .add_service(ClassicDataPortServiceServer::new(classic_svc))
         .add_service(AxiDataPortServiceServer::new(axi_svc))
         .add_service(ServerServiceServer::new(server_svc))
@@ -83,3 +101,4 @@ pub async fn start_grpc_server(
     info!("gRPC server stopped");
     Ok(())
 }
+
