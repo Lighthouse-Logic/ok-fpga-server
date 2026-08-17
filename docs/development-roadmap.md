@@ -663,6 +663,13 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 - [x] `cargo build --no-default-features` compiles minimal binary — ✅
 - [ ] CI pipeline is green on both Linux and Windows — (deferred to Phase 13)
 - [x] Commit: `b0856c1` — `test: add integration tests for core domain, auth, and service lifecycle (Phase 12)`
+- [x] **Phase 12B — Real Hardware Tests** (`91eb51c`):
+  - 8 `#[ignore]` tests in `crates/ok-fpga-ffi/tests/hardware.rs`
+  - Validated against XEM7320-A75T (serial 22520013CC):
+    - DLL loading, device discovery, DeviceInfo, Device Settings
+    - SYZYGY discovery (3 ports: 2× SZG-ENET1G, 1× SZG-DUAL-SFP)
+    - Bitfile programming (Counters.bit) + counter verification
+  - Run: `cargo test -p ok-fpga-ffi --test hardware -- --ignored --test-threads=1`
 
 ---
 
