@@ -1133,3 +1133,87 @@ service AXIDataPortService {
   // Reset the AXI Stream interface.
   rpc AXIStreamReset(DeviceRequest) returns (StatusResponse);
 }
+
+// ============================================================================
+// Server Management Service (ADR-010)
+// ============================================================================
+
+// Information about a single manageable service.
+message ServiceInfo {
+  // Service name (e.g., "rest", "grpc", "mqtt", "mdns").
+  string name = 1;
+  // Current status: "running", "stopped", "starting", "stopping", "failed", "not_compiled".
+  string status = 2;
+  // Whether the feature flag was enabled at compile time.
+  bool compiled = 3;
+  // Whether the service is enabled in the TOML configuration.
+  bool enabled = 4;
+}
+
+// Request to operate on a specific service by name.
+message ServiceRequest {
+  // Service name (e.g., "rest", "grpc", "mqtt", "mdns").
+  string name = 1;
+}
+
+// Response after a service lifecycle operation (start/stop/restart).
+message ServiceOperationResponse {
+  // Error status for this operation.
+  ErrorCluster error = 1;
+  // Updated service info after the operation.
+  ServiceInfo service = 2;
+}
+
+// Response listing all manageable services.
+message ListServicesResponse {
+  // Error status for this operation.
+  ErrorCluster error = 1;
+  // List of all services and their current status.
+  repeated ServiceInfo services = 2;
+}
+
+// Full server status including service states.
+message ServerStatusResponse {
+  // Error status for this operation.
+  ErrorCluster error = 1;
+  // Server API version string (e.g., "1.0.0").
+  string api_version = 2;
+  // Server uptime in seconds.
+  uint64 uptime_secs = 3;
+  // Number of currently connected FPGA devices.
+  int32 device_count = 4;
+  // Status of all manageable services.
+  repeated ServiceInfo services = 5;
+}
+
+// Server and service lifecycle management.
+//
+// This service provides RPCs for querying server status, managing
+// optional services (REST, gRPC, MQTT, mDNS), and restarting the server.
+// See ADR-010 for the ServiceManager architecture.
+service ServerService {
+  // Get detailed server status including uptime and service states.
+  rpc GetServerStatus(StatusResponse) returns (ServerStatusResponse);
+
+  // Restart the entire server process.
+  // Returns 202 Accepted; the server restarts after sending the response.
+  rpc RestartServer(StatusResponse) returns (StatusResponse);
+
+  // List all manageable services and their current status.
+  rpc ListServices(StatusResponse) returns (ListServicesResponse);
+
+  // Start a stopped service.
+  // Returns an error if the service is already running or not compiled.
+  rpc StartService(ServiceRequest) returns (ServiceOperationResponse);
+
+  // Stop a running service.
+  // Returns an error if the service is not running.
+  // Note: Stopping a service via its own RPC uses the respond-then-stop pattern.
+  rpc StopService(ServiceRequest) returns (ServiceOperationResponse);
+
+  // Restart a running service.
+  // Equivalent to Stop followed by Start.
+  // If the caller is restarting its own service (e.g., gRPC calling RestartService("grpc")),
+  // the response is sent before the restart begins (202 pattern).
+  rpc RestartService(ServiceRequest) returns (ServiceOperationResponse);
+}

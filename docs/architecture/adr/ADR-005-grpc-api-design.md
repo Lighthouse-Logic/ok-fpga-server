@@ -13,7 +13,7 @@ The ok-FPGA-Server must expose FPGAs over gRPC using proto3. The gRPC API must:
 3. Handle binary data (pipes, bitfiles) efficiently via native bytes type
 4. Be spec-first: the `.proto` file is defined before implementation
 
-The gRPC server will be built with **Tonic** and can share the same tokio runtime as Axum.
+The gRPC server will be built with **Tonic**, gated behind the `grpc` Cargo feature flag (ADR-010), and can share the same tokio runtime as the management server and REST API.
 
 ## Decision
 
@@ -24,7 +24,7 @@ syntax = "proto3";
 package okfpga.v1;
 ```
 
-Three services, organized by concern:
+Three data services, organized by concern, plus a server management service:
 
 #### 1. `DeviceService` — Device lifecycle and configuration
 
@@ -127,6 +127,50 @@ service AXIDataPortService {
 }
 ```
 
+#### 4. `ServerService` — Server and service lifecycle management
+
+```protobuf
+service ServerService {
+  // Server status
+  rpc GetServerStatus(google.protobuf.Empty) returns (ServerStatusResponse);
+  rpc RestartServer(google.protobuf.Empty) returns (StatusResponse);
+
+  // Service lifecycle (ADR-010)
+  rpc ListServices(google.protobuf.Empty) returns (ListServicesResponse);
+  rpc StartService(ServiceRequest) returns (ServiceResponse);
+  rpc StopService(ServiceRequest) returns (ServiceResponse);
+  rpc RestartService(ServiceRequest) returns (ServiceResponse);
+}
+
+message ServiceRequest {
+  string name = 1;  // e.g., "rest", "grpc", "mqtt", "mdns"
+}
+
+message ServiceResponse {
+  string name = 1;
+  string status = 2;  // "running", "stopped", "starting", etc.
+  string message = 3;
+}
+
+message ListServicesResponse {
+  repeated ServiceInfo services = 1;
+}
+
+message ServiceInfo {
+  string name = 1;
+  string status = 2;
+  bool compiled = 3;   // whether the feature flag was enabled
+  bool enabled = 4;    // whether enabled in TOML config
+}
+
+message ServerStatusResponse {
+  string api_version = 1;
+  uint64 uptime_secs = 2;
+  int32 device_count = 3;
+  repeated ServiceInfo services = 4;
+}
+```
+
 ### Key Message Types
 
 ```protobuf
@@ -220,3 +264,4 @@ The proto file will be created at `proto/okfpga/v1/okfpga.proto` before any impl
 - [Tonic gRPC framework](https://docs.rs/tonic)
 - [Proto3 Language Guide](https://protobuf.dev/programming-guides/proto3/)
 - [Project goals proto example](../../ok-FPGA-Server_Project-goals.txt) — lines 104-144
+- [ADR-010 Service Manager](ADR-010-service-manager.md) — feature flags and service lifecycle

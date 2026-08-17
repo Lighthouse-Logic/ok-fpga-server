@@ -338,42 +338,74 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 ---
 
-## Phase 5: gRPC Server (`ok-fpga-server`)
+## Phase 4E: Service Manager
 
 **Status**: `[ ]` Not started  
-**Depends on**: Phase 2, Phase 4  
-**ADR reference**: [ADR-005](architecture/adr/ADR-005-grpc-api-design.md)
+**Depends on**: Phase 4  
+**ADR reference**: [ADR-010](architecture/adr/ADR-010-service-manager.md)
 
 ### What to do
 
-1. Add `tonic`, `tonic-build`, `prost` dependencies
-2. Create `ok-fpga-server/build.rs` that compiles `proto/okfpga/v1/okfpga.proto`
-3. Implement all three services:
-   - `DeviceServiceImpl` — delegates to `DeviceManager` and `FpgaDevice`
-   - `ClassicDataPortServiceImpl` — delegates to `ClassicDataPort`
-   - `AXIDataPortServiceImpl` — delegates to `AXIDataPort`
-4. Implement `WatchDeviceEvents` server streaming
-5. Wire services into a `tonic::transport::Server`
+1. Create `ok-fpga-core/src/service.rs`:
+   - `ManagedService` trait (`name()`, `status()`, `start()`, `stop()`, `restart()`)
+   - `ServiceStatus` enum: `Running`, `Stopped`, `Starting`, `Stopping`, `Failed`, `NotCompiled`
+   - `ServiceError` error type
+   - `ServiceEvent` enum: `Started`, `Stopped`, `Failed`
+2. Create `ok-fpga-core/src/service_manager.rs`:
+   - `ServiceManager` struct with `HashMap<String, Arc<dyn ManagedService>>`
+   - `register()`, `start()`, `stop()`, `restart()`, `list()` methods
+   - `tokio::broadcast` channel for `ServiceEvent`
+   - Shutdown ordering: stop services in reverse-registration order, MQTT last (before management server)
 
 ### Verification
 
-- [ ] `cargo build -p ok-fpga-server` succeeds
+- [ ] `cargo build -p ok-fpga-core` succeeds
+- [ ] `cargo test -p ok-fpga-core` succeeds (unit tests for ServiceManager)
+- [ ] Commit: `feat(core): add ServiceManager and ManagedService trait`
+
+---
+
+## Phase 5: gRPC Server (`ok-fpga-server`)
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 2, Phase 4E  
+**ADR references**: [ADR-005](architecture/adr/ADR-005-grpc-api-design.md), [ADR-010](architecture/adr/ADR-010-service-manager.md)  
+**Feature flag**: `grpc` (NOT a default feature)
+
+### What to do
+
+1. Add `tonic`, `tonic-build`, `prost` as optional dependencies behind the `grpc` feature flag
+2. Create `ok-fpga-server/build.rs` that compiles `proto/okfpga/v1/okfpga.proto`
+3. Implement all four services:
+   - `DeviceServiceImpl` — delegates to `DeviceManager` and `FpgaDevice`
+   - `ClassicDataPortServiceImpl` — delegates to `ClassicDataPort`
+   - `AXIDataPortServiceImpl` — delegates to `AXIDataPort`
+   - `ServerServiceImpl` — delegates to `ServiceManager` for lifecycle RPCs
+4. Implement `WatchDeviceEvents` server streaming
+5. Implement the `ManagedService` trait for the gRPC server (start/stop/restart)
+6. Gate all gRPC code with `#[cfg(feature = "grpc")]`
+
+### Verification
+
+- [ ] `cargo build -p ok-fpga-server --features grpc` succeeds
+- [ ] `cargo build -p ok-fpga-server` succeeds WITHOUT gRPC
 - [ ] gRPC reflection or `grpcurl` can list services
-- [ ] Commit: `feat(server): implement gRPC services`
+- [ ] Commit: `feat(server): implement gRPC services behind feature flag`
 
 ---
 
 ## Phase 6: REST Server (`ok-fpga-server`)
 
 **Status**: `[ ]` Not started  
-**Depends on**: Phase 1, Phase 4  
-**ADR reference**: [ADR-004](architecture/adr/ADR-004-rest-api-design.md)
+**Depends on**: Phase 1, Phase 4E  
+**ADR references**: [ADR-004](architecture/adr/ADR-004-rest-api-design.md), [ADR-010](architecture/adr/ADR-010-service-manager.md)  
+**Feature flag**: `rest` (default feature)
 
 ### What to do
 
-1. Add `axum`, `serde`, `serde_json`, `tower`, `tower-http` dependencies
+1. Add `axum`, `serde`, `serde_json`, `tower`, `tower-http` as optional dependencies behind the `rest` feature flag
 2. Create route modules matching the URL hierarchy from ADR-004:
-   - `src/routes/server.rs` — status, restart, logs
+   - `src/routes/server.rs` — status, restart, logs, **service lifecycle endpoints**
    - `src/routes/devices.rs` — device CRUD, sensors, settings, SYZYGY, configure
    - `src/routes/classic.rs` — wire/trigger/pipe/register operations
    - `src/routes/axi.rs` — AXI lite/full/stream operations
@@ -382,13 +414,16 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
    - `src/routes/events.rs` — SSE event stream
 3. Each route handler delegates to `ok-fpga-core` domain types
 4. Implement RFC 7807 error responses
-5. Wire all routes into an Axum `Router`
+5. Implement `ManagedService` trait for the REST server
+6. Gate all REST code with `#[cfg(feature = "rest")]`
 
 ### Verification
 
-- [ ] `cargo build -p ok-fpga-server` succeeds
+- [ ] `cargo build -p ok-fpga-server --features rest` succeeds
+- [ ] `cargo build -p ok-fpga-server --no-default-features` succeeds WITHOUT REST
 - [ ] `curl http://localhost:8080/api/v1/server/status` returns valid JSON
-- [ ] Commit: `feat(server): implement REST API routes`
+- [ ] `curl http://localhost:8080/api/v1/server/services` returns service list
+- [ ] Commit: `feat(server): implement REST API routes behind feature flag`
 
 ---
 
@@ -396,27 +431,59 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 **Status**: `[ ]` Not started  
 **Depends on**: Phase 5, Phase 6  
-**ADR reference**: [Architecture Overview](architecture/overview.md)
+**ADR reference**: [ADR-010](architecture/adr/ADR-010-service-manager.md)
 
 ### What to do
 
 1. Add `toml`, `config`, `tracing`, `tracing-subscriber` dependencies
 2. Create `src/config.rs`:
-   - TOML config struct: listen addresses (REST port, gRPC port), DLL path, log level, auth settings
+   - Top-level config struct with per-service sections:
+     ```toml
+     [server]
+     management_port = 9090
+     
+     [rest]
+     enabled = true
+     bind = "0.0.0.0"
+     port = 8080
+     
+     [grpc]
+     enabled = true
+     bind = "0.0.0.0"
+     port = 50051
+     
+     [mqtt]
+     enabled = false
+     broker_url = "mqtt://localhost:1883"
+     client_id = "okfpga-server-01"
+     topic_prefix = "okfpga/server01"
+     publish_interval_secs = 5
+     
+     [mdns]
+     enabled = false
+     instance_name = "okfpga-lab-bench-1"
+     
+     [dashboard]
+     enabled = true
+     ```
    - Environment variable overrides
    - Default config file path
+   - Validation: log warning (don't panic) if feature not compiled but `enabled = true`
 3. Create a sample `config.toml` at the project root
 4. Set up `tracing` with:
    - Console output (stdout)
    - Log level from config
    - Broadcast channel for web dashboard log streaming
 5. Wire config loading into `main.rs`
+6. Start management server on `management_port` (always on)
+7. Register and start enabled services via `ServiceManager`
 
 ### Verification
 
-- [ ] Server starts with default config
+- [ ] Server starts with default config (management port + REST)
 - [ ] Server starts with custom config file path via CLI arg or env var
 - [ ] Log output appears on stdout with timestamps and levels
+- [ ] Non-compiled features log a warning when `enabled = true`
 - [ ] Commit: `feat(server): add TOML configuration and tracing`
 
 ---
@@ -424,29 +491,40 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 ## Phase 8: Web Dashboard
 
 **Status**: `[ ]` Not started  
-**Depends on**: Phase 6, Phase 7  
-**ADR reference**: [ADR-007](architecture/adr/ADR-007-web-dashboard.md)
+**Depends on**: Phase 7  
+**ADR references**: [ADR-007](architecture/adr/ADR-007-web-dashboard.md), [ADR-010](architecture/adr/ADR-010-service-manager.md)  
+**Feature flag**: `dashboard` (default feature)
 
 ### What to do
 
 1. Create `web/` directory with static HTML/CSS/JS files
 2. Build the SPA pages from ADR-007:
-   - Server overview
+   - Server overview (uptime, version, device count)
    - Device list and detail
    - Resource list
    - User list
    - Log viewer (real-time via WebSocket)
-   - API traffic dashboard
-3. Set up Axum static file serving for `web/` directory
-4. Implement WebSocket endpoint (`/ws/events`)
-5. Connect the log broadcast channel to WebSocket
+   - **Service management panel** (start/stop/restart services via `/mgmt/services/*`)
+3. Serve dashboard on the **management port** (9090), NOT the REST port
+4. Create management API routes on the management server:
+   - `GET /mgmt/services` — list service status
+   - `POST /mgmt/services/{name}/start` — start service
+   - `POST /mgmt/services/{name}/stop` — stop service
+   - `POST /mgmt/services/{name}/restart` — restart service
+   - `GET /mgmt/config` — current config (sanitized)
+   - `POST /mgmt/shutdown` — graceful server shutdown
+5. Implement WebSocket endpoint (`/ws/events`) on management port
+6. Connect the log broadcast channel to WebSocket
+7. Gate dashboard static file serving with `#[cfg(feature = "dashboard")]`
 
 ### Verification
 
-- [ ] `http://localhost:8080/` serves the dashboard
-- [ ] Dashboard shows server status
+- [ ] `http://localhost:9090/` serves the dashboard
+- [ ] Dashboard shows server status and service states
+- [ ] Dashboard can start/stop/restart services
 - [ ] Log viewer shows real-time logs
-- [ ] Commit: `feat(web): add dashboard SPA`
+- [ ] `cargo build --no-default-features` succeeds without dashboard
+- [ ] Commit: `feat(web): add dashboard SPA on management port`
 
 ---
 
@@ -475,7 +553,78 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 ---
 
-## Phase 10: Integration Testing
+## Phase 10: MQTT Publisher
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 4E, Phase 7  
+**ADR reference**: [ADR-011](architecture/adr/ADR-011-mqtt-publishing.md)  
+**Feature flag**: `mqtt` (NOT a default feature)
+
+### What to do
+
+1. Add `rumqttc` as an optional dependency behind the `mqtt` feature flag
+2. Create `ok-fpga-server/src/mqtt.rs`:
+   - `MqttPublisher` struct implementing `ManagedService`
+   - Connect to external MQTT broker from TOML config
+   - Retry with exponential backoff if broker unavailable
+3. Subscribe to `DeviceManager` event channel and publish:
+   - `{prefix}/status` — periodic heartbeat (QoS 0)
+   - `{prefix}/services/status` — on service state change (QoS 1, retained)
+   - `{prefix}/devices/inventory` — on device add/remove (QoS 1, retained)
+   - `{prefix}/devices/{serial}/state` — on state change (QoS 1, retained)
+   - `{prefix}/devices/{serial}/sensors` — periodic readings (QoS 0)
+   - `{prefix}/devices/{serial}/events` — on device events (QoS 1)
+   - `{prefix}/resources/inventory` — on resource change (QoS 1, retained)
+4. All messages use versioned JSON format from ADR-011
+5. Gate all MQTT code with `#[cfg(feature = "mqtt")]`
+6. MQTT stops last during shutdown (so it can publish shutdown events)
+
+### Verification
+
+- [ ] `cargo build -p ok-fpga-server --features mqtt` succeeds
+- [ ] `cargo build -p ok-fpga-server` succeeds WITHOUT MQTT
+- [ ] Server starts without MQTT broker (logs warning, retries)
+- [ ] With Mosquitto running, `mosquitto_sub -t "okfpga/#"` receives messages
+- [ ] Commit: `feat(mqtt): add MQTT status publisher behind feature flag`
+
+---
+
+## Phase 11: mDNS Service Discovery
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 4E, Phase 7  
+**ADR reference**: [ADR-012](architecture/adr/ADR-012-mdns-discovery.md)  
+**Feature flag**: `mdns` (NOT a default feature)
+
+### What to do
+
+1. Add `mdns-sd` as an optional dependency behind the `mdns` feature flag
+2. Create `ok-fpga-server/src/mdns.rs`:
+   - `MdnsService` struct implementing `ManagedService`
+   - Register `_okfpga._tcp` service with TXT records:
+     - `version` — API version
+     - `rest` — REST port (if enabled)
+     - `grpc` — gRPC port (if enabled)
+     - `mqtt` — MQTT topic prefix (if enabled)
+     - `dashboard` — management port (if enabled)
+     - `devices` — connected device count (updated dynamically)
+   - Instance name from TOML config (default: `okfpga-{hostname}`)
+3. Update TXT records when:
+   - Services start/stop (add/remove port keys)
+   - Devices connect/disconnect (update `devices` count)
+4. Gate all mDNS code with `#[cfg(feature = "mdns")]`
+
+### Verification
+
+- [ ] `cargo build -p ok-fpga-server --features mdns` succeeds
+- [ ] `cargo build -p ok-fpga-server` succeeds WITHOUT mDNS
+- [ ] `dns-sd -B _okfpga._tcp` (macOS) or `avahi-browse _okfpga._tcp` (Linux) discovers the server
+- [ ] TXT records include correct port numbers for enabled services
+- [ ] Commit: `feat(mdns): add mDNS service discovery behind feature flag`
+
+---
+
+## Phase 12: Integration Testing
 
 **Status**: `[ ]` Not started  
 **Depends on**: All previous phases
@@ -491,19 +640,30 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 3. Write API contract tests:
    - Validate REST responses against the OpenAPI spec
    - Validate gRPC responses against proto definitions
-4. Cross-platform CI setup:
+4. Write service lifecycle tests:
+   - Start/stop REST via management API
+   - Start/stop gRPC via management API
+   - Verify mDNS TXT records update on service start/stop
+   - Verify MQTT publishes service state changes
+5. Write feature flag combination tests:
+   - Build with each individual feature
+   - Build with `--features full`
+   - Build with `--no-default-features`
+6. Cross-platform CI setup:
    - GitHub Actions with Windows and Ubuntu runners
    - Test matrix: Ubuntu 22.04, Ubuntu 24.04, Windows 11
 
 ### Verification
 
 - [ ] `cargo test` passes all integration tests
+- [ ] `cargo build --features full` compiles all features
+- [ ] `cargo build --no-default-features` compiles minimal binary
 - [ ] CI pipeline is green on both Linux and Windows
 - [ ] Commit: `test: add integration tests with okREALM_TEST`
 
 ---
 
-## Phase 11: Documentation & Polish
+## Phase 13: Documentation & Polish
 
 **Status**: `[ ]` Not started  
 **Depends on**: All previous phases
@@ -515,7 +675,8 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
    - Project description
    - Quick start guide
    - Build instructions for Windows and Ubuntu
-   - Configuration reference
+   - Feature flag reference (what each flag enables)
+   - Configuration reference (all TOML sections)
    - API documentation links
 3. Update `docs/architecture/overview.md` with final architecture
 4. Ensure all ADRs have correct status
@@ -540,14 +701,29 @@ Phase 0: Scaffolding
   ├── Phase 2: Proto3 spec
   └── Phase 3: FFI layer (3A → 3B → 3C)
        └── Phase 4: Core domain (4A → 4B → 4C → 4D)
-            ├── Phase 5: gRPC server (needs Phase 2 + 4)
-            ├── Phase 6: REST server (needs Phase 1 + 4)
-            │    ├── Phase 7: Config & logging (needs 5 + 6)
-            │    │    └── Phase 8: Web dashboard (needs 6 + 7)
-            │    └── Phase 9: Auth stubs (needs 6)
-            └── Phase 10: Integration testing (needs all)
-                 └── Phase 11: Documentation & polish (needs all)
+            └── Phase 4E: ServiceManager
+                 ├── Phase 5: gRPC server (needs 2 + 4E) [feature: grpc]
+                 ├── Phase 6: REST server (needs 1 + 4E) [feature: rest]
+                 │    ├── Phase 7: Config & logging (needs 5 + 6)
+                 │    │    ├── Phase 8: Web dashboard (needs 7) [feature: dashboard]
+                 │    │    ├── Phase 10: MQTT publisher (needs 4E + 7) [feature: mqtt]
+                 │    │    └── Phase 11: mDNS discovery (needs 4E + 7) [feature: mdns]
+                 │    └── Phase 9: Auth stubs (needs 6)
+                 └── Phase 12: Integration testing (needs all)
+                      └── Phase 13: Documentation & polish (needs all)
 ```
 
-Phases 1 and 2 can be done **in parallel** with each other (both depend only on Phase 0).  
-Phases 5 and 6 can be done **in parallel** with each other (both depend on Phase 4).
+Phases 1 and 2 can be done **in parallel** (both depend only on Phase 0).  
+Phases 5 and 6 can be done **in parallel** (both depend on Phase 4E).  
+Phases 10 and 11 can be done **in parallel** (both depend on Phase 4E + Phase 7).
+
+### Feature Flag Summary
+
+| Feature | Default | Dependencies Added | Phase |
+|---------|---------|-------------------|-------|
+| `rest` | ✅ Yes | axum, tower-http | 6 |
+| `dashboard` | ✅ Yes | (static files only) | 8 |
+| `grpc` | ❌ No | tonic, prost, tonic-build | 5 |
+| `mqtt` | ❌ No | rumqttc | 10 |
+| `mdns` | ❌ No | mdns-sd | 11 |
+| `full` | ❌ No | all of the above | — |

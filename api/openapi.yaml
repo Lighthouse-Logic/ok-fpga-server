@@ -98,6 +98,115 @@ paths:
               schema:
                 $ref: '#/components/schemas/LogEntry'
 
+  /server/services:
+    get:
+      tags: [Server]
+      summary: List all manageable services
+      description: |
+        Returns the status of all manageable services (REST, gRPC, MQTT, mDNS).
+        Each service entry includes whether it is compiled, enabled, and running.
+        See ADR-010 for the ServiceManager architecture.
+      operationId: listServices
+      responses:
+        '200':
+          description: List of services
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  services:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServiceInfo'
+
+  /server/services/{name}/start:
+    post:
+      tags: [Server]
+      summary: Start a stopped service
+      description: |
+        Start a service that is currently stopped. Returns an error if the
+        service is already running, not compiled (feature flag not enabled),
+        or the service name is not recognized.
+      operationId: startService
+      parameters:
+        - $ref: '#/components/parameters/serviceName'
+      responses:
+        '200':
+          description: Service started successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceInfo'
+        '400':
+          description: Service not compiled or invalid name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '409':
+          description: Service is already running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /server/services/{name}/stop:
+    post:
+      tags: [Server]
+      summary: Stop a running service
+      description: |
+        Gracefully stop a running service. Returns an error if the service
+        is not currently running. If the REST service stops itself via this
+        endpoint, the response is sent before the service shuts down.
+      operationId: stopService
+      parameters:
+        - $ref: '#/components/parameters/serviceName'
+      responses:
+        '200':
+          description: Service stopped successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceInfo'
+        '400':
+          description: Service not compiled or invalid name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '409':
+          description: Service is not running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /server/services/{name}/restart:
+    post:
+      tags: [Server]
+      summary: Restart a service
+      description: |
+        Restart a service (stop then start). If the REST service restarts
+        itself via this endpoint, a 202 Accepted is returned and the restart
+        occurs after the response is sent.
+      operationId: restartService
+      parameters:
+        - $ref: '#/components/parameters/serviceName'
+      responses:
+        '202':
+          description: Restart initiated (self-restart) or completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceInfo'
+        '400':
+          description: Service not compiled or invalid name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
   # ---- Devices ----
 
   /devices:
@@ -1165,6 +1274,15 @@ components:
         type: string
       description: User identifier
 
+    serviceName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [rest, grpc, mqtt, mdns]
+      description: Service name to operate on
+
   schemas:
 
     # ---- Common ----
@@ -1177,6 +1295,28 @@ components:
           type: boolean
         message:
           type: string
+
+    ServiceInfo:
+      type: object
+      description: Status information for a manageable service (ADR-010).
+      properties:
+        name:
+          type: string
+          description: Service name (e.g., "rest", "grpc", "mqtt", "mdns")
+          example: "rest"
+        status:
+          type: string
+          description: Current service status
+          enum: [running, stopped, starting, stopping, failed, not_compiled]
+          example: "running"
+        compiled:
+          type: boolean
+          description: Whether this service was compiled (feature flag enabled)
+          example: true
+        enabled:
+          type: boolean
+          description: Whether this service is enabled in the TOML config
+          example: true
 
     ProblemDetail:
       type: object

@@ -14,7 +14,7 @@ The ok-FPGA-Server must expose FPGAs over a REST API conformant to OpenAPI 3.0.0
 4. Allow bitfile programming and tracking
 5. Be spec-first: the OpenAPI YAML is defined before any implementation code
 
-The REST server will be built with **Axum** and served alongside the web dashboard.
+The REST server will be built with **Axum**, gated behind the `rest` Cargo feature flag (ADR-010), and served on a configurable port separate from the management/dashboard port.
 
 ## Decision
 
@@ -25,7 +25,11 @@ The REST server will be built with **Axum** and served alongside the web dashboa
 ├── server/
 │   ├── GET    /status              — server status, uptime, API version
 │   ├── POST   /restart             — restart the server
-│   └── GET    /logs                — SSE stream of server log entries
+│   ├── GET    /logs                — SSE stream of server log entries
+│   ├── GET    /services            — list all services and their status
+│   ├── POST   /services/{name}/start   — start a stopped service
+│   ├── POST   /services/{name}/stop    — stop a running service
+│   └── POST   /services/{name}/restart — restart a service (202 Accepted)
 │
 ├── devices/
 │   ├── GET    /                    — list all connected FPGAs
@@ -167,3 +171,4 @@ The full OpenAPI 3.0.0 YAML will be created at `api/openapi.yaml` before any imp
 - [OpenAPI 3.0.0 Specification](https://spec.openapis.org/oas/v3.0.0)
 - [RFC 7807 — Problem Details for HTTP APIs](https://tools.ietf.org/html/rfc7807)
 - [Server-Sent Events (SSE)](https://html.spec.whatwg.org/multipage/server-sent-events.html)
+- [ADR-010 Service Manager](ADR-010-service-manager.md) — feature flags and service lifecycle
