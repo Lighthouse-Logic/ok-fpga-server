@@ -254,19 +254,29 @@ impl DeviceMonitor {
             }
         };
 
-        // Clone the DLL Arc for the monitor loop thread.
+        // Step 1: Start monitoring — registers for USB device events and
+        // fires OnDeviceAdded for every already-connected device (initial
+        // enumeration).
+        let result = unsafe { (self.dll.manager_start_monitoring)(self.manager_handle) };
+        if result as i32 != ok_ErrorCode::ok_NoError as i32 {
+            error!(
+                error_code = result as i32,
+                "FrontPanelManager_StartMonitoring failed"
+            );
+            return false;
+        }
+        info!("FrontPanelManager_StartMonitoring succeeded - initial enumeration done");
+
+        // Step 2: Spawn a dedicated OS thread for the monitor event loop.
+        //
+        // On Windows, USB device change notifications are delivered via
+        // WM_DEVICECHANGE messages that require a window message pump.
+        // EnterMonitorLoop creates a hidden window and pumps messages,
+        // enabling real-time hot-plug/unplug detection AFTER the initial
+        // enumeration from StartMonitoring.
         let loop_dll = self.dll.clone();
         let loop_handle = SendableManagerHandle(self.manager_handle);
 
-        // Spawn a dedicated OS thread for the monitor loop.
-        //
-        // EnterMonitorLoop blocks the calling thread while processing USB
-        // device events. On Windows, it internally creates a hidden window
-        // and pumps messages — this is required for RegisterDeviceNotification
-        // to deliver USB device change events.
-        //
-        // When a device is connected/disconnected, the DLL fires our
-        // on_device_added_cb / on_device_removed_cb callbacks from this thread.
         std::thread::Builder::new()
             .name("fp-monitor-loop".into())
             .spawn(move || {
@@ -279,13 +289,12 @@ impl DeviceMonitor {
             })
             .expect("failed to spawn fp-monitor-loop thread");
 
-        info!("FrontPanelManager monitoring started via EnterMonitorLoop - hot-plug active");
+        info!("FrontPanelManager hot-plug monitoring fully active (StartMonitoring + EnterMonitorLoop)");
 
-        // Clone the DLL Arc for the event processor task.
+        // Step 3: Spawn the async event processor task.
         let dll = self.dll.clone();
         let mgr_handle = SendableManagerHandle(self.manager_handle);
 
-        // Spawn the async event processor task.
         tokio::spawn(async move {
             event_processor(rx, dll, mgr_handle, device_manager, event_tx).await;
         });
