@@ -44,6 +44,26 @@ impl DeviceServiceImpl {
             bitfile: None,
         }
     }
+
+    /// Convert a core Resource into a proto Resource message.
+    fn resource_to_proto(r: &ok_fpga_core::resource::Resource) -> proto::Resource {
+        use ok_fpga_core::resource::ResourceState;
+        let state = match r.state {
+            ResourceState::Unavailable => proto::ResourceState::Unavailable as i32,
+            ResourceState::Initializing => proto::ResourceState::Initializing as i32,
+            ResourceState::Available => proto::ResourceState::Available as i32,
+            ResourceState::InUseShared => proto::ResourceState::InUseShared as i32,
+            ResourceState::InUseLocked => proto::ResourceState::InUseLocked as i32,
+        };
+        proto::Resource {
+            id: r.id.clone(),
+            name: r.name.clone(),
+            description: r.description.clone().unwrap_or_default(),
+            device_serial: r.device_serial.clone(),
+            state,
+            holders: r.holders.clone(),
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -373,20 +393,102 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
 
     async fn create_resource(
         &self,
-        _request: Request<proto::CreateResourceRequest>,
+        request: Request<proto::CreateResourceRequest>,
     ) -> Result<Response<proto::ResourceResponse>, Status> {
-        Err(Status::unimplemented(
-            "CreateResource requires resource registry integration (ADR-016)",
-        ))
+        let req = request.into_inner();
+
+        // Validate required fields.
+        if req.name.is_empty() {
+            return Err(Status::invalid_argument("name is required"));
+        }
+        if req.device_serial.is_empty() {
+            return Err(Status::invalid_argument("device_serial is required"));
+        }
+
+        // Validate the device exists and is programmed.
+        let registry = self.state.device_manager.registry();
+        match registry.get(&req.device_serial) {
+            Some(dev) => {
+                if !dev.is_programmed() {
+                    return Err(Status::failed_precondition(
+                        "FPGA is not programmed — configure it first",
+                    ));
+                }
+            }
+            None => {
+                return Err(Status::not_found(format!(
+                    "Device '{}' not found",
+                    req.device_serial
+                )));
+            }
+        }
+
+        // Generate resource ID: {serial}:{name}
+        let resource_id = format!("{}:{}", req.device_serial, req.name);
+
+        let resource = ok_fpga_core::resource::Resource::new(
+            resource_id.clone(),
+            req.name,
+            if req.description.is_empty() {
+                None
+            } else {
+                Some(req.description)
+            },
+            req.device_serial,
+        );
+
+        if self.state.resource_registry.register(resource) {
+            let created = self.state.resource_registry.get(&resource_id).unwrap();
+            Ok(Response::new(proto::ResourceResponse {
+                resource: Some(Self::resource_to_proto(&created)),
+                error: Some(proto::ErrorCluster {
+                    status: false,
+                    code: 0,
+                    source: String::new(),
+                }),
+            }))
+        } else {
+            Err(Status::already_exists(format!(
+                "Resource '{}' already exists",
+                resource_id
+            )))
+        }
     }
 
     async fn delete_resource(
         &self,
-        _request: Request<proto::ResourceRequest>,
+        request: Request<proto::ResourceRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
-        Err(Status::unimplemented(
-            "DeleteResource requires resource registry integration (ADR-016)",
-        ))
+        let req = request.into_inner();
+
+        // Check if resource exists and is not currently held.
+        match self.state.resource_registry.get(&req.resource_id) {
+            Some(resource) => {
+                if !resource.holders.is_empty() {
+                    return Err(Status::failed_precondition(format!(
+                        "Resource '{}' is currently held by {} user(s) — release it first",
+                        req.resource_id,
+                        resource.holders.len()
+                    )));
+                }
+            }
+            None => {
+                return Err(Status::not_found(format!(
+                    "Resource '{}' not found",
+                    req.resource_id
+                )));
+            }
+        }
+
+        self.state.resource_registry.remove(&req.resource_id);
+
+        Ok(Response::new(proto::StatusResponse {
+            error: Some(proto::ErrorCluster {
+                status: false,
+                code: 0,
+                source: String::new(),
+            }),
+        }))
     }
 
     // ========================================================================
