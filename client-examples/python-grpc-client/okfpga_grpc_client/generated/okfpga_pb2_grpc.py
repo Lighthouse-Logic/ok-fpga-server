@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from . import okfpga_pb2 as okfpga__pb2
+from . import okfpga_pb2 as okfpga_dot_v1_dot_okfpga__pb2
 
 GRPC_GENERATED_VERSION = '1.83.0'
 GRPC_VERSION = grpc.__version__
@@ -18,7 +18,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + ' but the generated code in okfpga_pb2_grpc.py depends on'
+        + ' but the generated code in okfpga/v1/okfpga_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
@@ -43,153 +43,168 @@ class DeviceServiceStub:
         """
         self.ListDevices = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/ListDevices',
-                request_serializer=okfpga__pb2.ListDevicesRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.ListDevicesResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.ListDevicesRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ListDevicesResponse.FromString,
                 _registered_method=True)
         self.GetDeviceInfo = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/GetDeviceInfo',
-                request_serializer=okfpga__pb2.DeviceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.DeviceInfoResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceInfoResponse.FromString,
                 _registered_method=True)
         self.GetDeviceSensors = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/GetDeviceSensors',
-                request_serializer=okfpga__pb2.DeviceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.DeviceSensorsResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceSensorsResponse.FromString,
                 _registered_method=True)
         self.GetDeviceSettings = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/GetDeviceSettings',
-                request_serializer=okfpga__pb2.DeviceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.DeviceSettingsResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceSettingsResponse.FromString,
                 _registered_method=True)
         self.GetDeviceSetting = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/GetDeviceSetting',
-                request_serializer=okfpga__pb2.GetDeviceSettingRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.DeviceSettingResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.GetDeviceSettingRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceSettingResponse.FromString,
                 _registered_method=True)
         self.SetDeviceSetting = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/SetDeviceSetting',
-                request_serializer=okfpga__pb2.SetDeviceSettingRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.SetDeviceSettingRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.GetSyzygyPorts = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/GetSyzygyPorts',
-                request_serializer=okfpga__pb2.DeviceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.SyzygyPortsResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.SyzygyPortsResponse.FromString,
                 _registered_method=True)
         self.ConfigureFPGA = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/ConfigureFPGA',
-                request_serializer=okfpga__pb2.ConfigureFPGARequest.SerializeToString,
-                response_deserializer=okfpga__pb2.ConfigureFPGAResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.ConfigureFPGARequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ConfigureFPGAResponse.FromString,
                 _registered_method=True)
         self.ConfigureFPGAFromMemory = channel.stream_unary(
                 '/okFPGAService.v1.DeviceService/ConfigureFPGAFromMemory',
-                request_serializer=okfpga__pb2.ConfigureFPGAChunk.SerializeToString,
-                response_deserializer=okfpga__pb2.ConfigureFPGAResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.ConfigureFPGAChunk.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ConfigureFPGAResponse.FromString,
                 _registered_method=True)
         self.ClearFPGAConfiguration = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/ClearFPGAConfiguration',
-                request_serializer=okfpga__pb2.DeviceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.GetBitfileInfo = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/GetBitfileInfo',
-                request_serializer=okfpga__pb2.DeviceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.BitfileInfoResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.BitfileInfoResponse.FromString,
                 _registered_method=True)
         self.GetDataportType = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/GetDataportType',
-                request_serializer=okfpga__pb2.DeviceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.DataportTypeResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DataportTypeResponse.FromString,
                 _registered_method=True)
         self.GetPLLConfiguration = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/GetPLLConfiguration',
-                request_serializer=okfpga__pb2.GetPLLRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.PLLConfigurationResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.GetPLLRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.PLLConfigurationResponse.FromString,
                 _registered_method=True)
         self.SetPLLConfiguration = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/SetPLLConfiguration',
-                request_serializer=okfpga__pb2.SetPLLRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.SetPLLRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.LoadDefaultPLLConfiguration = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/LoadDefaultPLLConfiguration',
-                request_serializer=okfpga__pb2.DeviceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.FlashRead = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/FlashRead',
-                request_serializer=okfpga__pb2.FlashReadRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.FlashDataResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.FlashReadRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.FlashDataResponse.FromString,
                 _registered_method=True)
         self.FlashWrite = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/FlashWrite',
-                request_serializer=okfpga__pb2.FlashWriteRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.FlashWriteRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.FlashEraseSector = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/FlashEraseSector',
-                request_serializer=okfpga__pb2.FlashEraseSectorRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.FlashEraseSectorRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.SetDeviceID = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/SetDeviceID',
-                request_serializer=okfpga__pb2.SetDeviceIDRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.SetDeviceIDRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.SetTimeout = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/SetTimeout',
-                request_serializer=okfpga__pb2.SetTimeoutRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.SetTimeoutRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.GetServerStatus = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/GetServerStatus',
-                request_serializer=okfpga__pb2.ServerStatusRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.ServerStatus.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.ServerStatusRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ServerStatus.FromString,
                 _registered_method=True)
         self.WatchDeviceEvents = channel.unary_stream(
                 '/okFPGAService.v1.DeviceService/WatchDeviceEvents',
-                request_serializer=okfpga__pb2.WatchDeviceEventsRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.DeviceEvent.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.WatchDeviceEventsRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceEvent.FromString,
                 _registered_method=True)
         self.ListResources = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/ListResources',
-                request_serializer=okfpga__pb2.ListResourcesRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.ListResourcesResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.ListResourcesRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ListResourcesResponse.FromString,
                 _registered_method=True)
         self.GetResource = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/GetResource',
-                request_serializer=okfpga__pb2.ResourceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.ResourceResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.ResourceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ResourceResponse.FromString,
                 _registered_method=True)
         self.CreateResource = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/CreateResource',
-                request_serializer=okfpga__pb2.CreateResourceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.ResourceResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.CreateResourceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ResourceResponse.FromString,
                 _registered_method=True)
         self.DeleteResource = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/DeleteResource',
-                request_serializer=okfpga__pb2.ResourceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.ResourceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.AcquireResource = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/AcquireResource',
-                request_serializer=okfpga__pb2.AcquireResourceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.ResourceResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.AcquireResourceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ResourceResponse.FromString,
                 _registered_method=True)
         self.ReleaseResource = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/ReleaseResource',
-                request_serializer=okfpga__pb2.ReleaseResourceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.ReleaseResourceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
+                _registered_method=True)
+        self.LockResource = channel.unary_unary(
+                '/okFPGAService.v1.DeviceService/LockResource',
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.LockResourceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ResourceResponse.FromString,
+                _registered_method=True)
+        self.UnlockResource = channel.unary_unary(
+                '/okFPGAService.v1.DeviceService/UnlockResource',
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.LockResourceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ResourceResponse.FromString,
                 _registered_method=True)
         self.ListUsers = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/ListUsers',
-                request_serializer=okfpga__pb2.ListUsersRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.ListUsersResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.ListUsersRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ListUsersResponse.FromString,
                 _registered_method=True)
         self.GetUser = channel.unary_unary(
                 '/okFPGAService.v1.DeviceService/GetUser',
-                request_serializer=okfpga__pb2.UserRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.UserResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.UserRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.UserResponse.FromString,
+                _registered_method=True)
+        self.Ping = channel.unary_unary(
+                '/okFPGAService.v1.DeviceService/Ping',
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.PingRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.PingResponse.FromString,
                 _registered_method=True)
 
 
@@ -420,6 +435,20 @@ class DeviceServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def LockResource(self, request, context):
+        """Lock a shared resource for exclusive use by a holder (ADR-020 §3).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UnlockResource(self, request, context):
+        """Unlock a previously locked shared resource (ADR-020 §3).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def ListUsers(self, request, context):
         """--- Users ---
 
@@ -436,158 +465,183 @@ class DeviceServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Ping(self, request, context):
+        """--- Heartbeat ---
+
+        Heartbeat / liveness ping (ADR-020 §5).
+        Clients should call this periodically to keep their session alive.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_DeviceServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'ListDevices': grpc.unary_unary_rpc_method_handler(
                     servicer.ListDevices,
-                    request_deserializer=okfpga__pb2.ListDevicesRequest.FromString,
-                    response_serializer=okfpga__pb2.ListDevicesResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ListDevicesRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.ListDevicesResponse.SerializeToString,
             ),
             'GetDeviceInfo': grpc.unary_unary_rpc_method_handler(
                     servicer.GetDeviceInfo,
-                    request_deserializer=okfpga__pb2.DeviceRequest.FromString,
-                    response_serializer=okfpga__pb2.DeviceInfoResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceInfoResponse.SerializeToString,
             ),
             'GetDeviceSensors': grpc.unary_unary_rpc_method_handler(
                     servicer.GetDeviceSensors,
-                    request_deserializer=okfpga__pb2.DeviceRequest.FromString,
-                    response_serializer=okfpga__pb2.DeviceSensorsResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceSensorsResponse.SerializeToString,
             ),
             'GetDeviceSettings': grpc.unary_unary_rpc_method_handler(
                     servicer.GetDeviceSettings,
-                    request_deserializer=okfpga__pb2.DeviceRequest.FromString,
-                    response_serializer=okfpga__pb2.DeviceSettingsResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceSettingsResponse.SerializeToString,
             ),
             'GetDeviceSetting': grpc.unary_unary_rpc_method_handler(
                     servicer.GetDeviceSetting,
-                    request_deserializer=okfpga__pb2.GetDeviceSettingRequest.FromString,
-                    response_serializer=okfpga__pb2.DeviceSettingResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.GetDeviceSettingRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceSettingResponse.SerializeToString,
             ),
             'SetDeviceSetting': grpc.unary_unary_rpc_method_handler(
                     servicer.SetDeviceSetting,
-                    request_deserializer=okfpga__pb2.SetDeviceSettingRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.SetDeviceSettingRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'GetSyzygyPorts': grpc.unary_unary_rpc_method_handler(
                     servicer.GetSyzygyPorts,
-                    request_deserializer=okfpga__pb2.DeviceRequest.FromString,
-                    response_serializer=okfpga__pb2.SyzygyPortsResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.SyzygyPortsResponse.SerializeToString,
             ),
             'ConfigureFPGA': grpc.unary_unary_rpc_method_handler(
                     servicer.ConfigureFPGA,
-                    request_deserializer=okfpga__pb2.ConfigureFPGARequest.FromString,
-                    response_serializer=okfpga__pb2.ConfigureFPGAResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ConfigureFPGARequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.ConfigureFPGAResponse.SerializeToString,
             ),
             'ConfigureFPGAFromMemory': grpc.stream_unary_rpc_method_handler(
                     servicer.ConfigureFPGAFromMemory,
-                    request_deserializer=okfpga__pb2.ConfigureFPGAChunk.FromString,
-                    response_serializer=okfpga__pb2.ConfigureFPGAResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ConfigureFPGAChunk.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.ConfigureFPGAResponse.SerializeToString,
             ),
             'ClearFPGAConfiguration': grpc.unary_unary_rpc_method_handler(
                     servicer.ClearFPGAConfiguration,
-                    request_deserializer=okfpga__pb2.DeviceRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'GetBitfileInfo': grpc.unary_unary_rpc_method_handler(
                     servicer.GetBitfileInfo,
-                    request_deserializer=okfpga__pb2.DeviceRequest.FromString,
-                    response_serializer=okfpga__pb2.BitfileInfoResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.BitfileInfoResponse.SerializeToString,
             ),
             'GetDataportType': grpc.unary_unary_rpc_method_handler(
                     servicer.GetDataportType,
-                    request_deserializer=okfpga__pb2.DeviceRequest.FromString,
-                    response_serializer=okfpga__pb2.DataportTypeResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.DataportTypeResponse.SerializeToString,
             ),
             'GetPLLConfiguration': grpc.unary_unary_rpc_method_handler(
                     servicer.GetPLLConfiguration,
-                    request_deserializer=okfpga__pb2.GetPLLRequest.FromString,
-                    response_serializer=okfpga__pb2.PLLConfigurationResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.GetPLLRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.PLLConfigurationResponse.SerializeToString,
             ),
             'SetPLLConfiguration': grpc.unary_unary_rpc_method_handler(
                     servicer.SetPLLConfiguration,
-                    request_deserializer=okfpga__pb2.SetPLLRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.SetPLLRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'LoadDefaultPLLConfiguration': grpc.unary_unary_rpc_method_handler(
                     servicer.LoadDefaultPLLConfiguration,
-                    request_deserializer=okfpga__pb2.DeviceRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'FlashRead': grpc.unary_unary_rpc_method_handler(
                     servicer.FlashRead,
-                    request_deserializer=okfpga__pb2.FlashReadRequest.FromString,
-                    response_serializer=okfpga__pb2.FlashDataResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.FlashReadRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.FlashDataResponse.SerializeToString,
             ),
             'FlashWrite': grpc.unary_unary_rpc_method_handler(
                     servicer.FlashWrite,
-                    request_deserializer=okfpga__pb2.FlashWriteRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.FlashWriteRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'FlashEraseSector': grpc.unary_unary_rpc_method_handler(
                     servicer.FlashEraseSector,
-                    request_deserializer=okfpga__pb2.FlashEraseSectorRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.FlashEraseSectorRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'SetDeviceID': grpc.unary_unary_rpc_method_handler(
                     servicer.SetDeviceID,
-                    request_deserializer=okfpga__pb2.SetDeviceIDRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.SetDeviceIDRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'SetTimeout': grpc.unary_unary_rpc_method_handler(
                     servicer.SetTimeout,
-                    request_deserializer=okfpga__pb2.SetTimeoutRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.SetTimeoutRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'GetServerStatus': grpc.unary_unary_rpc_method_handler(
                     servicer.GetServerStatus,
-                    request_deserializer=okfpga__pb2.ServerStatusRequest.FromString,
-                    response_serializer=okfpga__pb2.ServerStatus.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ServerStatusRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.ServerStatus.SerializeToString,
             ),
             'WatchDeviceEvents': grpc.unary_stream_rpc_method_handler(
                     servicer.WatchDeviceEvents,
-                    request_deserializer=okfpga__pb2.WatchDeviceEventsRequest.FromString,
-                    response_serializer=okfpga__pb2.DeviceEvent.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.WatchDeviceEventsRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceEvent.SerializeToString,
             ),
             'ListResources': grpc.unary_unary_rpc_method_handler(
                     servicer.ListResources,
-                    request_deserializer=okfpga__pb2.ListResourcesRequest.FromString,
-                    response_serializer=okfpga__pb2.ListResourcesResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ListResourcesRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.ListResourcesResponse.SerializeToString,
             ),
             'GetResource': grpc.unary_unary_rpc_method_handler(
                     servicer.GetResource,
-                    request_deserializer=okfpga__pb2.ResourceRequest.FromString,
-                    response_serializer=okfpga__pb2.ResourceResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ResourceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.ResourceResponse.SerializeToString,
             ),
             'CreateResource': grpc.unary_unary_rpc_method_handler(
                     servicer.CreateResource,
-                    request_deserializer=okfpga__pb2.CreateResourceRequest.FromString,
-                    response_serializer=okfpga__pb2.ResourceResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.CreateResourceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.ResourceResponse.SerializeToString,
             ),
             'DeleteResource': grpc.unary_unary_rpc_method_handler(
                     servicer.DeleteResource,
-                    request_deserializer=okfpga__pb2.ResourceRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ResourceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'AcquireResource': grpc.unary_unary_rpc_method_handler(
                     servicer.AcquireResource,
-                    request_deserializer=okfpga__pb2.AcquireResourceRequest.FromString,
-                    response_serializer=okfpga__pb2.ResourceResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.AcquireResourceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.ResourceResponse.SerializeToString,
             ),
             'ReleaseResource': grpc.unary_unary_rpc_method_handler(
                     servicer.ReleaseResource,
-                    request_deserializer=okfpga__pb2.ReleaseResourceRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ReleaseResourceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
+            ),
+            'LockResource': grpc.unary_unary_rpc_method_handler(
+                    servicer.LockResource,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.LockResourceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.ResourceResponse.SerializeToString,
+            ),
+            'UnlockResource': grpc.unary_unary_rpc_method_handler(
+                    servicer.UnlockResource,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.LockResourceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.ResourceResponse.SerializeToString,
             ),
             'ListUsers': grpc.unary_unary_rpc_method_handler(
                     servicer.ListUsers,
-                    request_deserializer=okfpga__pb2.ListUsersRequest.FromString,
-                    response_serializer=okfpga__pb2.ListUsersResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ListUsersRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.ListUsersResponse.SerializeToString,
             ),
             'GetUser': grpc.unary_unary_rpc_method_handler(
                     servicer.GetUser,
-                    request_deserializer=okfpga__pb2.UserRequest.FromString,
-                    response_serializer=okfpga__pb2.UserResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.UserRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.UserResponse.SerializeToString,
+            ),
+            'Ping': grpc.unary_unary_rpc_method_handler(
+                    servicer.Ping,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.PingRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.PingResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -622,8 +676,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/ListDevices',
-            okfpga__pb2.ListDevicesRequest.SerializeToString,
-            okfpga__pb2.ListDevicesResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.ListDevicesRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.ListDevicesResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -649,8 +703,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/GetDeviceInfo',
-            okfpga__pb2.DeviceRequest.SerializeToString,
-            okfpga__pb2.DeviceInfoResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceInfoResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -676,8 +730,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/GetDeviceSensors',
-            okfpga__pb2.DeviceRequest.SerializeToString,
-            okfpga__pb2.DeviceSensorsResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceSensorsResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -703,8 +757,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/GetDeviceSettings',
-            okfpga__pb2.DeviceRequest.SerializeToString,
-            okfpga__pb2.DeviceSettingsResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceSettingsResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -730,8 +784,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/GetDeviceSetting',
-            okfpga__pb2.GetDeviceSettingRequest.SerializeToString,
-            okfpga__pb2.DeviceSettingResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.GetDeviceSettingRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceSettingResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -757,8 +811,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/SetDeviceSetting',
-            okfpga__pb2.SetDeviceSettingRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.SetDeviceSettingRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -784,8 +838,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/GetSyzygyPorts',
-            okfpga__pb2.DeviceRequest.SerializeToString,
-            okfpga__pb2.SyzygyPortsResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.SyzygyPortsResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -811,8 +865,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/ConfigureFPGA',
-            okfpga__pb2.ConfigureFPGARequest.SerializeToString,
-            okfpga__pb2.ConfigureFPGAResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.ConfigureFPGARequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.ConfigureFPGAResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -838,8 +892,8 @@ class DeviceService:
             request_iterator,
             target,
             '/okFPGAService.v1.DeviceService/ConfigureFPGAFromMemory',
-            okfpga__pb2.ConfigureFPGAChunk.SerializeToString,
-            okfpga__pb2.ConfigureFPGAResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.ConfigureFPGAChunk.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.ConfigureFPGAResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -865,8 +919,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/ClearFPGAConfiguration',
-            okfpga__pb2.DeviceRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -892,8 +946,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/GetBitfileInfo',
-            okfpga__pb2.DeviceRequest.SerializeToString,
-            okfpga__pb2.BitfileInfoResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.BitfileInfoResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -919,8 +973,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/GetDataportType',
-            okfpga__pb2.DeviceRequest.SerializeToString,
-            okfpga__pb2.DataportTypeResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.DataportTypeResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -946,8 +1000,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/GetPLLConfiguration',
-            okfpga__pb2.GetPLLRequest.SerializeToString,
-            okfpga__pb2.PLLConfigurationResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.GetPLLRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.PLLConfigurationResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -973,8 +1027,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/SetPLLConfiguration',
-            okfpga__pb2.SetPLLRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.SetPLLRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1000,8 +1054,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/LoadDefaultPLLConfiguration',
-            okfpga__pb2.DeviceRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1027,8 +1081,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/FlashRead',
-            okfpga__pb2.FlashReadRequest.SerializeToString,
-            okfpga__pb2.FlashDataResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.FlashReadRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.FlashDataResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1054,8 +1108,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/FlashWrite',
-            okfpga__pb2.FlashWriteRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.FlashWriteRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1081,8 +1135,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/FlashEraseSector',
-            okfpga__pb2.FlashEraseSectorRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.FlashEraseSectorRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1108,8 +1162,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/SetDeviceID',
-            okfpga__pb2.SetDeviceIDRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.SetDeviceIDRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1135,8 +1189,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/SetTimeout',
-            okfpga__pb2.SetTimeoutRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.SetTimeoutRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1162,8 +1216,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/GetServerStatus',
-            okfpga__pb2.ServerStatusRequest.SerializeToString,
-            okfpga__pb2.ServerStatus.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.ServerStatusRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.ServerStatus.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1189,8 +1243,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/WatchDeviceEvents',
-            okfpga__pb2.WatchDeviceEventsRequest.SerializeToString,
-            okfpga__pb2.DeviceEvent.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.WatchDeviceEventsRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceEvent.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1216,8 +1270,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/ListResources',
-            okfpga__pb2.ListResourcesRequest.SerializeToString,
-            okfpga__pb2.ListResourcesResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.ListResourcesRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.ListResourcesResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1243,8 +1297,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/GetResource',
-            okfpga__pb2.ResourceRequest.SerializeToString,
-            okfpga__pb2.ResourceResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.ResourceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.ResourceResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1270,8 +1324,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/CreateResource',
-            okfpga__pb2.CreateResourceRequest.SerializeToString,
-            okfpga__pb2.ResourceResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.CreateResourceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.ResourceResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1297,8 +1351,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/DeleteResource',
-            okfpga__pb2.ResourceRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.ResourceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1324,8 +1378,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/AcquireResource',
-            okfpga__pb2.AcquireResourceRequest.SerializeToString,
-            okfpga__pb2.ResourceResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.AcquireResourceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.ResourceResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1351,8 +1405,62 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/ReleaseResource',
-            okfpga__pb2.ReleaseResourceRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.ReleaseResourceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def LockResource(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/okFPGAService.v1.DeviceService/LockResource',
+            okfpga_dot_v1_dot_okfpga__pb2.LockResourceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.ResourceResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UnlockResource(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/okFPGAService.v1.DeviceService/UnlockResource',
+            okfpga_dot_v1_dot_okfpga__pb2.LockResourceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.ResourceResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1378,8 +1486,8 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/ListUsers',
-            okfpga__pb2.ListUsersRequest.SerializeToString,
-            okfpga__pb2.ListUsersResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.ListUsersRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.ListUsersResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1405,8 +1513,35 @@ class DeviceService:
             request,
             target,
             '/okFPGAService.v1.DeviceService/GetUser',
-            okfpga__pb2.UserRequest.SerializeToString,
-            okfpga__pb2.UserResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.UserRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.UserResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Ping(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/okFPGAService.v1.DeviceService/Ping',
+            okfpga_dot_v1_dot_okfpga__pb2.PingRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.PingResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1434,98 +1569,98 @@ class ClassicDataPortServiceStub:
         """
         self.ResetFPGA = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/ResetFPGA',
-                request_serializer=okfpga__pb2.DeviceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.SetWireInValue = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/SetWireInValue',
-                request_serializer=okfpga__pb2.SetWireInValueRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.SetWireInValueRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.GetWireInValue = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/GetWireInValue',
-                request_serializer=okfpga__pb2.GetWireValueRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.WireValueResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.GetWireValueRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.WireValueResponse.FromString,
                 _registered_method=True)
         self.UpdateWireIns = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/UpdateWireIns',
-                request_serializer=okfpga__pb2.DeviceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.GetWireOutValue = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/GetWireOutValue',
-                request_serializer=okfpga__pb2.GetWireValueRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.WireValueResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.GetWireValueRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.WireValueResponse.FromString,
                 _registered_method=True)
         self.UpdateWireOuts = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/UpdateWireOuts',
-                request_serializer=okfpga__pb2.DeviceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.ActivateTriggerIn = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/ActivateTriggerIn',
-                request_serializer=okfpga__pb2.ActivateTriggerInRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.ActivateTriggerInRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.UpdateTriggerOuts = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/UpdateTriggerOuts',
-                request_serializer=okfpga__pb2.DeviceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.IsTriggered = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/IsTriggered',
-                request_serializer=okfpga__pb2.IsTriggeredRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.IsTriggeredResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.IsTriggeredRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.IsTriggeredResponse.FromString,
                 _registered_method=True)
         self.GetTriggerOutVector = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/GetTriggerOutVector',
-                request_serializer=okfpga__pb2.TriggerOutVectorRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.TriggerOutVectorResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.TriggerOutVectorRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.TriggerOutVectorResponse.FromString,
                 _registered_method=True)
         self.WriteToPipeIn = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/WriteToPipeIn',
-                request_serializer=okfpga__pb2.WriteToPipeInRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.PipeTransferResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.WriteToPipeInRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.PipeTransferResponse.FromString,
                 _registered_method=True)
         self.ReadFromPipeOut = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/ReadFromPipeOut',
-                request_serializer=okfpga__pb2.ReadFromPipeOutRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.PipeDataResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.ReadFromPipeOutRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.PipeDataResponse.FromString,
                 _registered_method=True)
         self.WriteToBlockPipeIn = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/WriteToBlockPipeIn',
-                request_serializer=okfpga__pb2.WriteToBlockPipeInRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.PipeTransferResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.WriteToBlockPipeInRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.PipeTransferResponse.FromString,
                 _registered_method=True)
         self.ReadFromBlockPipeOut = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/ReadFromBlockPipeOut',
-                request_serializer=okfpga__pb2.ReadFromBlockPipeOutRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.PipeDataResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.ReadFromBlockPipeOutRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.PipeDataResponse.FromString,
                 _registered_method=True)
         self.SetBTPipePollingInterval = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/SetBTPipePollingInterval',
-                request_serializer=okfpga__pb2.SetBTPipePollingIntervalRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.SetBTPipePollingIntervalRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.ReadRegister = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/ReadRegister',
-                request_serializer=okfpga__pb2.ReadRegisterRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.RegisterValueResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.ReadRegisterRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.RegisterValueResponse.FromString,
                 _registered_method=True)
         self.WriteRegister = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/WriteRegister',
-                request_serializer=okfpga__pb2.WriteRegisterRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.WriteRegisterRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.ReadRegisters = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/ReadRegisters',
-                request_serializer=okfpga__pb2.ReadRegistersRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.RegisterEntriesResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.ReadRegistersRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.RegisterEntriesResponse.FromString,
                 _registered_method=True)
         self.WriteRegisters = channel.unary_unary(
                 '/okFPGAService.v1.ClassicDataPortService/WriteRegisters',
-                request_serializer=okfpga__pb2.WriteRegistersRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.WriteRegistersRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
 
 
@@ -1683,98 +1818,98 @@ def add_ClassicDataPortServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'ResetFPGA': grpc.unary_unary_rpc_method_handler(
                     servicer.ResetFPGA,
-                    request_deserializer=okfpga__pb2.DeviceRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'SetWireInValue': grpc.unary_unary_rpc_method_handler(
                     servicer.SetWireInValue,
-                    request_deserializer=okfpga__pb2.SetWireInValueRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.SetWireInValueRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'GetWireInValue': grpc.unary_unary_rpc_method_handler(
                     servicer.GetWireInValue,
-                    request_deserializer=okfpga__pb2.GetWireValueRequest.FromString,
-                    response_serializer=okfpga__pb2.WireValueResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.GetWireValueRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.WireValueResponse.SerializeToString,
             ),
             'UpdateWireIns': grpc.unary_unary_rpc_method_handler(
                     servicer.UpdateWireIns,
-                    request_deserializer=okfpga__pb2.DeviceRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'GetWireOutValue': grpc.unary_unary_rpc_method_handler(
                     servicer.GetWireOutValue,
-                    request_deserializer=okfpga__pb2.GetWireValueRequest.FromString,
-                    response_serializer=okfpga__pb2.WireValueResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.GetWireValueRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.WireValueResponse.SerializeToString,
             ),
             'UpdateWireOuts': grpc.unary_unary_rpc_method_handler(
                     servicer.UpdateWireOuts,
-                    request_deserializer=okfpga__pb2.DeviceRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'ActivateTriggerIn': grpc.unary_unary_rpc_method_handler(
                     servicer.ActivateTriggerIn,
-                    request_deserializer=okfpga__pb2.ActivateTriggerInRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ActivateTriggerInRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'UpdateTriggerOuts': grpc.unary_unary_rpc_method_handler(
                     servicer.UpdateTriggerOuts,
-                    request_deserializer=okfpga__pb2.DeviceRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'IsTriggered': grpc.unary_unary_rpc_method_handler(
                     servicer.IsTriggered,
-                    request_deserializer=okfpga__pb2.IsTriggeredRequest.FromString,
-                    response_serializer=okfpga__pb2.IsTriggeredResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.IsTriggeredRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.IsTriggeredResponse.SerializeToString,
             ),
             'GetTriggerOutVector': grpc.unary_unary_rpc_method_handler(
                     servicer.GetTriggerOutVector,
-                    request_deserializer=okfpga__pb2.TriggerOutVectorRequest.FromString,
-                    response_serializer=okfpga__pb2.TriggerOutVectorResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.TriggerOutVectorRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.TriggerOutVectorResponse.SerializeToString,
             ),
             'WriteToPipeIn': grpc.unary_unary_rpc_method_handler(
                     servicer.WriteToPipeIn,
-                    request_deserializer=okfpga__pb2.WriteToPipeInRequest.FromString,
-                    response_serializer=okfpga__pb2.PipeTransferResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.WriteToPipeInRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.PipeTransferResponse.SerializeToString,
             ),
             'ReadFromPipeOut': grpc.unary_unary_rpc_method_handler(
                     servicer.ReadFromPipeOut,
-                    request_deserializer=okfpga__pb2.ReadFromPipeOutRequest.FromString,
-                    response_serializer=okfpga__pb2.PipeDataResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ReadFromPipeOutRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.PipeDataResponse.SerializeToString,
             ),
             'WriteToBlockPipeIn': grpc.unary_unary_rpc_method_handler(
                     servicer.WriteToBlockPipeIn,
-                    request_deserializer=okfpga__pb2.WriteToBlockPipeInRequest.FromString,
-                    response_serializer=okfpga__pb2.PipeTransferResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.WriteToBlockPipeInRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.PipeTransferResponse.SerializeToString,
             ),
             'ReadFromBlockPipeOut': grpc.unary_unary_rpc_method_handler(
                     servicer.ReadFromBlockPipeOut,
-                    request_deserializer=okfpga__pb2.ReadFromBlockPipeOutRequest.FromString,
-                    response_serializer=okfpga__pb2.PipeDataResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ReadFromBlockPipeOutRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.PipeDataResponse.SerializeToString,
             ),
             'SetBTPipePollingInterval': grpc.unary_unary_rpc_method_handler(
                     servicer.SetBTPipePollingInterval,
-                    request_deserializer=okfpga__pb2.SetBTPipePollingIntervalRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.SetBTPipePollingIntervalRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'ReadRegister': grpc.unary_unary_rpc_method_handler(
                     servicer.ReadRegister,
-                    request_deserializer=okfpga__pb2.ReadRegisterRequest.FromString,
-                    response_serializer=okfpga__pb2.RegisterValueResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ReadRegisterRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.RegisterValueResponse.SerializeToString,
             ),
             'WriteRegister': grpc.unary_unary_rpc_method_handler(
                     servicer.WriteRegister,
-                    request_deserializer=okfpga__pb2.WriteRegisterRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.WriteRegisterRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'ReadRegisters': grpc.unary_unary_rpc_method_handler(
                     servicer.ReadRegisters,
-                    request_deserializer=okfpga__pb2.ReadRegistersRequest.FromString,
-                    response_serializer=okfpga__pb2.RegisterEntriesResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ReadRegistersRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.RegisterEntriesResponse.SerializeToString,
             ),
             'WriteRegisters': grpc.unary_unary_rpc_method_handler(
                     servicer.WriteRegisters,
-                    request_deserializer=okfpga__pb2.WriteRegistersRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.WriteRegistersRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -1807,8 +1942,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/ResetFPGA',
-            okfpga__pb2.DeviceRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1834,8 +1969,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/SetWireInValue',
-            okfpga__pb2.SetWireInValueRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.SetWireInValueRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1861,8 +1996,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/GetWireInValue',
-            okfpga__pb2.GetWireValueRequest.SerializeToString,
-            okfpga__pb2.WireValueResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.GetWireValueRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.WireValueResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1888,8 +2023,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/UpdateWireIns',
-            okfpga__pb2.DeviceRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1915,8 +2050,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/GetWireOutValue',
-            okfpga__pb2.GetWireValueRequest.SerializeToString,
-            okfpga__pb2.WireValueResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.GetWireValueRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.WireValueResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1942,8 +2077,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/UpdateWireOuts',
-            okfpga__pb2.DeviceRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1969,8 +2104,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/ActivateTriggerIn',
-            okfpga__pb2.ActivateTriggerInRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.ActivateTriggerInRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1996,8 +2131,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/UpdateTriggerOuts',
-            okfpga__pb2.DeviceRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2023,8 +2158,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/IsTriggered',
-            okfpga__pb2.IsTriggeredRequest.SerializeToString,
-            okfpga__pb2.IsTriggeredResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.IsTriggeredRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.IsTriggeredResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2050,8 +2185,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/GetTriggerOutVector',
-            okfpga__pb2.TriggerOutVectorRequest.SerializeToString,
-            okfpga__pb2.TriggerOutVectorResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.TriggerOutVectorRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.TriggerOutVectorResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2077,8 +2212,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/WriteToPipeIn',
-            okfpga__pb2.WriteToPipeInRequest.SerializeToString,
-            okfpga__pb2.PipeTransferResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.WriteToPipeInRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.PipeTransferResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2104,8 +2239,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/ReadFromPipeOut',
-            okfpga__pb2.ReadFromPipeOutRequest.SerializeToString,
-            okfpga__pb2.PipeDataResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.ReadFromPipeOutRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.PipeDataResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2131,8 +2266,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/WriteToBlockPipeIn',
-            okfpga__pb2.WriteToBlockPipeInRequest.SerializeToString,
-            okfpga__pb2.PipeTransferResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.WriteToBlockPipeInRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.PipeTransferResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2158,8 +2293,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/ReadFromBlockPipeOut',
-            okfpga__pb2.ReadFromBlockPipeOutRequest.SerializeToString,
-            okfpga__pb2.PipeDataResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.ReadFromBlockPipeOutRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.PipeDataResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2185,8 +2320,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/SetBTPipePollingInterval',
-            okfpga__pb2.SetBTPipePollingIntervalRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.SetBTPipePollingIntervalRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2212,8 +2347,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/ReadRegister',
-            okfpga__pb2.ReadRegisterRequest.SerializeToString,
-            okfpga__pb2.RegisterValueResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.ReadRegisterRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.RegisterValueResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2239,8 +2374,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/WriteRegister',
-            okfpga__pb2.WriteRegisterRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.WriteRegisterRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2266,8 +2401,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/ReadRegisters',
-            okfpga__pb2.ReadRegistersRequest.SerializeToString,
-            okfpga__pb2.RegisterEntriesResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.ReadRegistersRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.RegisterEntriesResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2293,8 +2428,8 @@ class ClassicDataPortService:
             request,
             target,
             '/okFPGAService.v1.ClassicDataPortService/WriteRegisters',
-            okfpga__pb2.WriteRegistersRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.WriteRegistersRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2322,68 +2457,68 @@ class AXIDataPortServiceStub:
         """
         self.AXILiteRead = channel.unary_unary(
                 '/okFPGAService.v1.AXIDataPortService/AXILiteRead',
-                request_serializer=okfpga__pb2.AXILiteReadRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.AXILiteReadResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.AXILiteReadRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.AXILiteReadResponse.FromString,
                 _registered_method=True)
         self.AXILiteWrite = channel.unary_unary(
                 '/okFPGAService.v1.AXIDataPortService/AXILiteWrite',
-                request_serializer=okfpga__pb2.AXILiteWriteRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.AXILiteWriteRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.AXILiteReadBulk = channel.unary_unary(
                 '/okFPGAService.v1.AXIDataPortService/AXILiteReadBulk',
-                request_serializer=okfpga__pb2.AXILiteReadBulkRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.AXILiteReadBulkResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.AXILiteReadBulkRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.AXILiteReadBulkResponse.FromString,
                 _registered_method=True)
         self.AXILiteWriteBulk = channel.unary_unary(
                 '/okFPGAService.v1.AXIDataPortService/AXILiteWriteBulk',
-                request_serializer=okfpga__pb2.AXILiteWriteBulkRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.AXIOperationStats.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.AXILiteWriteBulkRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.AXIOperationStats.FromString,
                 _registered_method=True)
         self.AXILiteReset = channel.unary_unary(
                 '/okFPGAService.v1.AXIDataPortService/AXILiteReset',
-                request_serializer=okfpga__pb2.DeviceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.AXIFullGetDatapathWidth = channel.unary_unary(
                 '/okFPGAService.v1.AXIDataPortService/AXIFullGetDatapathWidth',
-                request_serializer=okfpga__pb2.DeviceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.DatapathWidthResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DatapathWidthResponse.FromString,
                 _registered_method=True)
         self.AXIFullRead = channel.unary_unary(
                 '/okFPGAService.v1.AXIDataPortService/AXIFullRead',
-                request_serializer=okfpga__pb2.AXIFullReadRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.AXIFullReadResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.AXIFullReadRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.AXIFullReadResponse.FromString,
                 _registered_method=True)
         self.AXIFullWrite = channel.unary_unary(
                 '/okFPGAService.v1.AXIDataPortService/AXIFullWrite',
-                request_serializer=okfpga__pb2.AXIFullWriteRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.AXIOperationStats.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.AXIFullWriteRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.AXIOperationStats.FromString,
                 _registered_method=True)
         self.AXIFullReset = channel.unary_unary(
                 '/okFPGAService.v1.AXIDataPortService/AXIFullReset',
-                request_serializer=okfpga__pb2.DeviceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.AXIStreamGetDatapathWidths = channel.unary_unary(
                 '/okFPGAService.v1.AXIDataPortService/AXIStreamGetDatapathWidths',
-                request_serializer=okfpga__pb2.DeviceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.AXIStreamDatapathWidthsResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.AXIStreamDatapathWidthsResponse.FromString,
                 _registered_method=True)
         self.AXIStreamRead = channel.unary_unary(
                 '/okFPGAService.v1.AXIDataPortService/AXIStreamRead',
-                request_serializer=okfpga__pb2.AXIStreamReadRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.AXIStreamReadResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.AXIStreamReadRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.AXIStreamReadResponse.FromString,
                 _registered_method=True)
         self.AXIStreamWrite = channel.unary_unary(
                 '/okFPGAService.v1.AXIDataPortService/AXIStreamWrite',
-                request_serializer=okfpga__pb2.AXIStreamWriteRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.AXIStreamWriteResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.AXIStreamWriteRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.AXIStreamWriteResponse.FromString,
                 _registered_method=True)
         self.AXIStreamReset = channel.unary_unary(
                 '/okFPGAService.v1.AXIDataPortService/AXIStreamReset',
-                request_serializer=okfpga__pb2.DeviceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
 
 
@@ -2495,68 +2630,68 @@ def add_AXIDataPortServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'AXILiteRead': grpc.unary_unary_rpc_method_handler(
                     servicer.AXILiteRead,
-                    request_deserializer=okfpga__pb2.AXILiteReadRequest.FromString,
-                    response_serializer=okfpga__pb2.AXILiteReadResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.AXILiteReadRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.AXILiteReadResponse.SerializeToString,
             ),
             'AXILiteWrite': grpc.unary_unary_rpc_method_handler(
                     servicer.AXILiteWrite,
-                    request_deserializer=okfpga__pb2.AXILiteWriteRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.AXILiteWriteRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'AXILiteReadBulk': grpc.unary_unary_rpc_method_handler(
                     servicer.AXILiteReadBulk,
-                    request_deserializer=okfpga__pb2.AXILiteReadBulkRequest.FromString,
-                    response_serializer=okfpga__pb2.AXILiteReadBulkResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.AXILiteReadBulkRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.AXILiteReadBulkResponse.SerializeToString,
             ),
             'AXILiteWriteBulk': grpc.unary_unary_rpc_method_handler(
                     servicer.AXILiteWriteBulk,
-                    request_deserializer=okfpga__pb2.AXILiteWriteBulkRequest.FromString,
-                    response_serializer=okfpga__pb2.AXIOperationStats.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.AXILiteWriteBulkRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.AXIOperationStats.SerializeToString,
             ),
             'AXILiteReset': grpc.unary_unary_rpc_method_handler(
                     servicer.AXILiteReset,
-                    request_deserializer=okfpga__pb2.DeviceRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'AXIFullGetDatapathWidth': grpc.unary_unary_rpc_method_handler(
                     servicer.AXIFullGetDatapathWidth,
-                    request_deserializer=okfpga__pb2.DeviceRequest.FromString,
-                    response_serializer=okfpga__pb2.DatapathWidthResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.DatapathWidthResponse.SerializeToString,
             ),
             'AXIFullRead': grpc.unary_unary_rpc_method_handler(
                     servicer.AXIFullRead,
-                    request_deserializer=okfpga__pb2.AXIFullReadRequest.FromString,
-                    response_serializer=okfpga__pb2.AXIFullReadResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.AXIFullReadRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.AXIFullReadResponse.SerializeToString,
             ),
             'AXIFullWrite': grpc.unary_unary_rpc_method_handler(
                     servicer.AXIFullWrite,
-                    request_deserializer=okfpga__pb2.AXIFullWriteRequest.FromString,
-                    response_serializer=okfpga__pb2.AXIOperationStats.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.AXIFullWriteRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.AXIOperationStats.SerializeToString,
             ),
             'AXIFullReset': grpc.unary_unary_rpc_method_handler(
                     servicer.AXIFullReset,
-                    request_deserializer=okfpga__pb2.DeviceRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'AXIStreamGetDatapathWidths': grpc.unary_unary_rpc_method_handler(
                     servicer.AXIStreamGetDatapathWidths,
-                    request_deserializer=okfpga__pb2.DeviceRequest.FromString,
-                    response_serializer=okfpga__pb2.AXIStreamDatapathWidthsResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.AXIStreamDatapathWidthsResponse.SerializeToString,
             ),
             'AXIStreamRead': grpc.unary_unary_rpc_method_handler(
                     servicer.AXIStreamRead,
-                    request_deserializer=okfpga__pb2.AXIStreamReadRequest.FromString,
-                    response_serializer=okfpga__pb2.AXIStreamReadResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.AXIStreamReadRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.AXIStreamReadResponse.SerializeToString,
             ),
             'AXIStreamWrite': grpc.unary_unary_rpc_method_handler(
                     servicer.AXIStreamWrite,
-                    request_deserializer=okfpga__pb2.AXIStreamWriteRequest.FromString,
-                    response_serializer=okfpga__pb2.AXIStreamWriteResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.AXIStreamWriteRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.AXIStreamWriteResponse.SerializeToString,
             ),
             'AXIStreamReset': grpc.unary_unary_rpc_method_handler(
                     servicer.AXIStreamReset,
-                    request_deserializer=okfpga__pb2.DeviceRequest.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -2589,8 +2724,8 @@ class AXIDataPortService:
             request,
             target,
             '/okFPGAService.v1.AXIDataPortService/AXILiteRead',
-            okfpga__pb2.AXILiteReadRequest.SerializeToString,
-            okfpga__pb2.AXILiteReadResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.AXILiteReadRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.AXILiteReadResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2616,8 +2751,8 @@ class AXIDataPortService:
             request,
             target,
             '/okFPGAService.v1.AXIDataPortService/AXILiteWrite',
-            okfpga__pb2.AXILiteWriteRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.AXILiteWriteRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2643,8 +2778,8 @@ class AXIDataPortService:
             request,
             target,
             '/okFPGAService.v1.AXIDataPortService/AXILiteReadBulk',
-            okfpga__pb2.AXILiteReadBulkRequest.SerializeToString,
-            okfpga__pb2.AXILiteReadBulkResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.AXILiteReadBulkRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.AXILiteReadBulkResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2670,8 +2805,8 @@ class AXIDataPortService:
             request,
             target,
             '/okFPGAService.v1.AXIDataPortService/AXILiteWriteBulk',
-            okfpga__pb2.AXILiteWriteBulkRequest.SerializeToString,
-            okfpga__pb2.AXIOperationStats.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.AXILiteWriteBulkRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.AXIOperationStats.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2697,8 +2832,8 @@ class AXIDataPortService:
             request,
             target,
             '/okFPGAService.v1.AXIDataPortService/AXILiteReset',
-            okfpga__pb2.DeviceRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2724,8 +2859,8 @@ class AXIDataPortService:
             request,
             target,
             '/okFPGAService.v1.AXIDataPortService/AXIFullGetDatapathWidth',
-            okfpga__pb2.DeviceRequest.SerializeToString,
-            okfpga__pb2.DatapathWidthResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.DatapathWidthResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2751,8 +2886,8 @@ class AXIDataPortService:
             request,
             target,
             '/okFPGAService.v1.AXIDataPortService/AXIFullRead',
-            okfpga__pb2.AXIFullReadRequest.SerializeToString,
-            okfpga__pb2.AXIFullReadResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.AXIFullReadRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.AXIFullReadResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2778,8 +2913,8 @@ class AXIDataPortService:
             request,
             target,
             '/okFPGAService.v1.AXIDataPortService/AXIFullWrite',
-            okfpga__pb2.AXIFullWriteRequest.SerializeToString,
-            okfpga__pb2.AXIOperationStats.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.AXIFullWriteRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.AXIOperationStats.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2805,8 +2940,8 @@ class AXIDataPortService:
             request,
             target,
             '/okFPGAService.v1.AXIDataPortService/AXIFullReset',
-            okfpga__pb2.DeviceRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2832,8 +2967,8 @@ class AXIDataPortService:
             request,
             target,
             '/okFPGAService.v1.AXIDataPortService/AXIStreamGetDatapathWidths',
-            okfpga__pb2.DeviceRequest.SerializeToString,
-            okfpga__pb2.AXIStreamDatapathWidthsResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.AXIStreamDatapathWidthsResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2859,8 +2994,8 @@ class AXIDataPortService:
             request,
             target,
             '/okFPGAService.v1.AXIDataPortService/AXIStreamRead',
-            okfpga__pb2.AXIStreamReadRequest.SerializeToString,
-            okfpga__pb2.AXIStreamReadResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.AXIStreamReadRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.AXIStreamReadResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2886,8 +3021,8 @@ class AXIDataPortService:
             request,
             target,
             '/okFPGAService.v1.AXIDataPortService/AXIStreamWrite',
-            okfpga__pb2.AXIStreamWriteRequest.SerializeToString,
-            okfpga__pb2.AXIStreamWriteResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.AXIStreamWriteRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.AXIStreamWriteResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2913,8 +3048,8 @@ class AXIDataPortService:
             request,
             target,
             '/okFPGAService.v1.AXIDataPortService/AXIStreamReset',
-            okfpga__pb2.DeviceRequest.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.DeviceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -2942,33 +3077,33 @@ class ServerServiceStub:
         """
         self.GetServerStatus = channel.unary_unary(
                 '/okFPGAService.v1.ServerService/GetServerStatus',
-                request_serializer=okfpga__pb2.StatusResponse.SerializeToString,
-                response_deserializer=okfpga__pb2.ServerStatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ServerStatusResponse.FromString,
                 _registered_method=True)
         self.RestartServer = channel.unary_unary(
                 '/okFPGAService.v1.ServerService/RestartServer',
-                request_serializer=okfpga__pb2.StatusResponse.SerializeToString,
-                response_deserializer=okfpga__pb2.StatusResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
                 _registered_method=True)
         self.ListServices = channel.unary_unary(
                 '/okFPGAService.v1.ServerService/ListServices',
-                request_serializer=okfpga__pb2.StatusResponse.SerializeToString,
-                response_deserializer=okfpga__pb2.ListServicesResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ListServicesResponse.FromString,
                 _registered_method=True)
         self.StartService = channel.unary_unary(
                 '/okFPGAService.v1.ServerService/StartService',
-                request_serializer=okfpga__pb2.ServiceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.ServiceOperationResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.ServiceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ServiceOperationResponse.FromString,
                 _registered_method=True)
         self.StopService = channel.unary_unary(
                 '/okFPGAService.v1.ServerService/StopService',
-                request_serializer=okfpga__pb2.ServiceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.ServiceOperationResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.ServiceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ServiceOperationResponse.FromString,
                 _registered_method=True)
         self.RestartService = channel.unary_unary(
                 '/okFPGAService.v1.ServerService/RestartService',
-                request_serializer=okfpga__pb2.ServiceRequest.SerializeToString,
-                response_deserializer=okfpga__pb2.ServiceOperationResponse.FromString,
+                request_serializer=okfpga_dot_v1_dot_okfpga__pb2.ServiceRequest.SerializeToString,
+                response_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ServiceOperationResponse.FromString,
                 _registered_method=True)
 
 
@@ -3034,33 +3169,33 @@ def add_ServerServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'GetServerStatus': grpc.unary_unary_rpc_method_handler(
                     servicer.GetServerStatus,
-                    request_deserializer=okfpga__pb2.StatusResponse.FromString,
-                    response_serializer=okfpga__pb2.ServerStatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.ServerStatusResponse.SerializeToString,
             ),
             'RestartServer': grpc.unary_unary_rpc_method_handler(
                     servicer.RestartServer,
-                    request_deserializer=okfpga__pb2.StatusResponse.FromString,
-                    response_serializer=okfpga__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
             ),
             'ListServices': grpc.unary_unary_rpc_method_handler(
                     servicer.ListServices,
-                    request_deserializer=okfpga__pb2.StatusResponse.FromString,
-                    response_serializer=okfpga__pb2.ListServicesResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.ListServicesResponse.SerializeToString,
             ),
             'StartService': grpc.unary_unary_rpc_method_handler(
                     servicer.StartService,
-                    request_deserializer=okfpga__pb2.ServiceRequest.FromString,
-                    response_serializer=okfpga__pb2.ServiceOperationResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ServiceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.ServiceOperationResponse.SerializeToString,
             ),
             'StopService': grpc.unary_unary_rpc_method_handler(
                     servicer.StopService,
-                    request_deserializer=okfpga__pb2.ServiceRequest.FromString,
-                    response_serializer=okfpga__pb2.ServiceOperationResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ServiceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.ServiceOperationResponse.SerializeToString,
             ),
             'RestartService': grpc.unary_unary_rpc_method_handler(
                     servicer.RestartService,
-                    request_deserializer=okfpga__pb2.ServiceRequest.FromString,
-                    response_serializer=okfpga__pb2.ServiceOperationResponse.SerializeToString,
+                    request_deserializer=okfpga_dot_v1_dot_okfpga__pb2.ServiceRequest.FromString,
+                    response_serializer=okfpga_dot_v1_dot_okfpga__pb2.ServiceOperationResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -3093,8 +3228,8 @@ class ServerService:
             request,
             target,
             '/okFPGAService.v1.ServerService/GetServerStatus',
-            okfpga__pb2.StatusResponse.SerializeToString,
-            okfpga__pb2.ServerStatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.ServerStatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -3120,8 +3255,8 @@ class ServerService:
             request,
             target,
             '/okFPGAService.v1.ServerService/RestartServer',
-            okfpga__pb2.StatusResponse.SerializeToString,
-            okfpga__pb2.StatusResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -3147,8 +3282,8 @@ class ServerService:
             request,
             target,
             '/okFPGAService.v1.ServerService/ListServices',
-            okfpga__pb2.StatusResponse.SerializeToString,
-            okfpga__pb2.ListServicesResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.StatusResponse.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.ListServicesResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -3174,8 +3309,8 @@ class ServerService:
             request,
             target,
             '/okFPGAService.v1.ServerService/StartService',
-            okfpga__pb2.ServiceRequest.SerializeToString,
-            okfpga__pb2.ServiceOperationResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.ServiceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.ServiceOperationResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -3201,8 +3336,8 @@ class ServerService:
             request,
             target,
             '/okFPGAService.v1.ServerService/StopService',
-            okfpga__pb2.ServiceRequest.SerializeToString,
-            okfpga__pb2.ServiceOperationResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.ServiceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.ServiceOperationResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -3228,8 +3363,8 @@ class ServerService:
             request,
             target,
             '/okFPGAService.v1.ServerService/RestartService',
-            okfpga__pb2.ServiceRequest.SerializeToString,
-            okfpga__pb2.ServiceOperationResponse.FromString,
+            okfpga_dot_v1_dot_okfpga__pb2.ServiceRequest.SerializeToString,
+            okfpga_dot_v1_dot_okfpga__pb2.ServiceOperationResponse.FromString,
             options,
             channel_credentials,
             insecure,

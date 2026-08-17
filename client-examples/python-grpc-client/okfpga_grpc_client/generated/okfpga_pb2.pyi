@@ -982,6 +982,28 @@ class UserResponse(_message.Message):
     error: ErrorCluster
     def __init__(self, user: _Optional[_Union[UserSession, _Mapping]] = ..., error: _Optional[_Union[ErrorCluster, _Mapping]] = ...) -> None: ...
 
+class PingRequest(_message.Message):
+    __slots__ = ("user_id",)
+    USER_ID_FIELD_NUMBER: _ClassVar[int]
+    user_id: str
+    def __init__(self, user_id: _Optional[str] = ...) -> None: ...
+
+class PingResponse(_message.Message):
+    __slots__ = ("server_time", "error")
+    SERVER_TIME_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    server_time: str
+    error: ErrorCluster
+    def __init__(self, server_time: _Optional[str] = ..., error: _Optional[_Union[ErrorCluster, _Mapping]] = ...) -> None: ...
+
+class LockResourceRequest(_message.Message):
+    __slots__ = ("resource_id", "user_id")
+    RESOURCE_ID_FIELD_NUMBER: _ClassVar[int]
+    USER_ID_FIELD_NUMBER: _ClassVar[int]
+    resource_id: str
+    user_id: str
+    def __init__(self, resource_id: _Optional[str] = ..., user_id: _Optional[str] = ...) -> None: ...
+
 class ServiceInfo(_message.Message):
     __slots__ = ("name", "status", "compiled", "enabled")
     NAME_FIELD_NUMBER: _ClassVar[int]
