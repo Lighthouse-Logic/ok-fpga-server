@@ -629,47 +629,47 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 ## Phase 12: Integration Testing
 
-**Status**: `[x]` Completed (2026-08-16, `b0856c1`)  
+**Status**: `[x]` Completed (2026-08-16)  
 **Depends on**: All previous phases
 
-### What to do
+### Phase 12A — Domain & Service Tests (`b0856c1`)
 
-1. Create `tests/` directory at workspace root
-2. Write integration tests using `okREALM_TEST`:
-   - Emulate device connection → verify REST `/devices` returns it
-   - Emulate device disconnection → verify SSE event fires
-   - Test resource acquire/release via REST
-   - Test gRPC `WatchDeviceEvents` streaming
-3. Write API contract tests:
-   - Validate REST responses against the OpenAPI spec
-   - Validate gRPC responses against proto definitions
-4. Write service lifecycle tests:
-   - Start/stop REST via management API
-   - Start/stop gRPC via management API
-   - Verify mDNS TXT records update on service start/stop
-   - Verify MQTT publishes service state changes
-5. Write feature flag combination tests:
-   - Build with each individual feature
-   - Build with `--features full`
-   - Build with `--no-default-features`
-6. Cross-platform CI setup:
-   - GitHub Actions with Windows and Ubuntu runners
-   - Test matrix: Ubuntu 22.04, Ubuntu 24.04, Windows 11
+Integration tests for the core domain layer, auth system, and service lifecycle:
+
+- `crates/ok-fpga-core/tests/auth_integration.rs` (11 tests) — provider factory, auth flows, session lifecycle
+- `crates/ok-fpga-core/tests/device_resource_integration.rs` (9 tests) — device add/remove/events, resource acquire/release/invalidate
+- `crates/ok-fpga-core/tests/service_lifecycle.rs` (5 tests) — full lifecycle, restart, events, failure handling
+- `crates/ok-fpga-server/tests/build_matrix.rs` (4 tests) — core types, auth providers, concurrent sessions, LDAP DN
+
+### Phase 12B — Real Hardware Tests (`91eb51c`)
+
+8 `#[ignore]` tests in `crates/ok-fpga-ffi/tests/hardware.rs` — skipped by default, run only when hardware is connected.
+
+Validated against XEM7320-A75T (serial `22520013CC`) with 3 SYZYGY peripherals:
+
+| Test | Result |
+|------|--------|
+| DLL loading & API version | ✅ FrontPanel 6.1.0 |
+| Device discovery | ✅ 1 device enumerated |
+| DeviceInfo readout | ✅ Product ID 45, USB3, FW 1.63 |
+| Device sensors | ✅ Graceful skip (`ok_UnsupportedFeature` without FPGA config) |
+| Device settings | ✅ 18 keys enumerated |
+| SYZYGY port discovery | ✅ 3 ports (2× SZG-ENET1G @ 1.8V, 1× SZG-DUAL-SFP @ 3.3V) |
+| Bitfile programming | ✅ Counters.bit programmed, counter verified running |
+| Thread safety reminder | ✅ |
+
+```bash
+# Run hardware tests (board must be connected):
+cargo test -p ok-fpga-ffi --test hardware -- --ignored --test-threads=1 --nocapture
+```
 
 ### Verification
 
-- [x] `cargo test` passes all integration tests — ✅ (147 total: 97 unit + 39 integration + 11 doc)
-- [x] `cargo build --features full` compiles all features — ✅
-- [x] `cargo build --no-default-features` compiles minimal binary — ✅
+- [x] `cargo test` passes all integration tests — 147 total (97 unit + 39 integration + 11 doc)
+- [x] `cargo build --features full` compiles all features
+- [x] `cargo build --no-default-features` compiles minimal binary
+- [x] Hardware tests pass with connected XEM7320 (8/8)
 - [ ] CI pipeline is green on both Linux and Windows — (deferred to Phase 13)
-- [x] Commit: `b0856c1` — `test: add integration tests for core domain, auth, and service lifecycle (Phase 12)`
-- [x] **Phase 12B — Real Hardware Tests** (`91eb51c`):
-  - 8 `#[ignore]` tests in `crates/ok-fpga-ffi/tests/hardware.rs`
-  - Validated against XEM7320-A75T (serial 22520013CC):
-    - DLL loading, device discovery, DeviceInfo, Device Settings
-    - SYZYGY discovery (3 ports: 2× SZG-ENET1G, 1× SZG-DUAL-SFP)
-    - Bitfile programming (Counters.bit) + counter verification
-  - Run: `cargo test -p ok-fpga-ffi --test hardware -- --ignored --test-threads=1`
 
 ---
 
