@@ -531,7 +531,7 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 ## Phase 9: Authentication Stubs
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed (2026-08-16, `e3314d9`)  
 **Depends on**: Phase 6  
 **ADR reference**: [ADR-008](architecture/adr/ADR-008-authentication.md)
 
@@ -548,9 +548,10 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 ### Verification
 
-- [ ] Server starts in no-auth mode by default
-- [ ] Setting `auth.provider = "local"` in config activates local auth (stub returns success)
-- [ ] Commit: `feat(auth): add pluggable authentication stubs`
+- [x] Server starts in no-auth mode by default — ✅ `provider = "none"` is default
+- [x] Setting `auth.provider = "local"` in config activates local auth (stub returns success) — ✅
+- [x] Commit: `e3314d9` — `feat(auth): add pluggable authentication stubs (Phase 9)`
+- [x] 13/13 auth unit tests pass
 
 ---
 
