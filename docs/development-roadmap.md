@@ -1261,7 +1261,7 @@ pytest tests/test_hardware.py -v -s
 
 ## Phase 20: Enhanced Resource Registration
 
-**Status**: `[/]` Partially complete (2026-08-17)  
+**Status**: `[x]` Completed (2026-08-17)  
 **Depends on**: Phase 19  
 **ADR reference**: [ADR-020 — Client-Side Resource Registration](architecture/adr/ADR-020-client-side-resource-registration.md)
 
@@ -1407,7 +1407,7 @@ curl -X POST http://localhost:8088/api/v1/heartbeat -d '{"user_id": "alice"}'
 
 ## Phase 21: User Session Tracking & Liveness
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed (2026-08-17)  
 **Depends on**: Phase 20  
 **ADR reference**: ADR-020 §5 (Heartbeat / Liveness)
 
@@ -1428,7 +1428,7 @@ resources held by expired users.
 
 #### Phase 21A: User Session Registry
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (2026-08-17, `e7a1808`)
 
 1. Create a `UserSession` struct with `user_id: String`,
    `last_seen_at: DateTime<Utc>`, and `held_resource_ids: Vec<String>`.
@@ -1450,7 +1450,7 @@ resources held by expired users.
 
 #### Phase 21B: Implicit Heartbeat Middleware
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (2026-08-17, `228e055`)
 
 1. Create an Axum middleware layer wrapping all `/api/v1/*` routes that:
    - Extracts `user_id` from the `X-User-Id` request header (when `auth.provider = "none"`)
@@ -1465,7 +1465,7 @@ resources held by expired users.
 
 #### Phase 21C: Server Sweep Task
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (2026-08-17, `a3cf276`)
 
 1. Add two new fields to `CoreConfig` in `config.rs`:
    ```toml
@@ -1501,7 +1501,7 @@ curl -X POST http://localhost:8088/api/v1/heartbeat \
 
 ## Phase 22: Event System & Policy Stubs
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed (2026-08-17)  
 **Depends on**: Phase 20 (Phase 21 is NOT a dependency)  
 **ADR reference**: ADR-020 §3 (Lock/Unlock events), ADR-004 (SSE), ADR-007 (WebSocket)
 
@@ -1516,7 +1516,7 @@ stub methods to `ResourceAccessPolicy` for future HDL-specific validation.
 
 #### Phase 22A: Event Notifications
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (2026-08-17, `7ba1e38`)
 
 1. **SSE endpoint** — Replace the `501 Not Implemented` stub in `rest/events.rs`
    with a real SSE implementation using `axum::response::sse::Sse` and
@@ -1540,7 +1540,7 @@ stub methods to `ResourceAccessPolicy` for future HDL-specific validation.
 
 #### Phase 22B: ResourceAccessPolicy Trait Stubs
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed (2026-08-17, `7ba1e38`)  
 (Moved from Phase 20G)
 
 1. Add three new **default-implemented** methods to the `ResourceAccessPolicy`
@@ -1597,27 +1597,26 @@ Phase 0: Scaffolding
                                           └── Phase 17: HTTP Method Audit ✅
                                                └── Phase 18: Hardware Integration Tests ✅
                                                     └── Phase 19: FFI Endpoint Wiring ✅
-                                                         └── Phase 20: Enhanced Resource Registration (ADR-020) ✅*
+                                                         └── Phase 20: Enhanced Resource Registration (ADR-020) ✅
                                                               ├── 20A: Enhanced resource schema ✅
                                                               ├── 20B: Registration-time validation ✅
                                                               ├── 20C: Access mode & lock/unlock ✅
-                                                              ├── 20D: Heartbeat / liveness ✅*
-                                                              ├── 20E: Resource persistence rules ✅*
+                                                              ├── 20D: Heartbeat / liveness ✅
+                                                              ├── 20E: Resource persistence rules ✅
                                                               ├── 20F: Client updates & documentation ✅
-                                                              └── 20G: Stub code → Phase 22B
+                                                              └── 20G: Stub code → Phase 22B ✅
                                                               │
-                                                              ├── Phase 21: User Session Tracking & Liveness
-                                                              │    ├── 21A: UserSessionRegistry
-                                                              │    ├── 21B: Implicit heartbeat middleware
-                                                              │    └── 21C: Server sweep task
+                                                              ├── Phase 21: User Session Tracking & Liveness ✅
+                                                              │    ├── 21A: UserSessionRegistry ✅
+                                                              │    ├── 21B: Implicit heartbeat middleware ✅
+                                                              │    └── 21C: Server sweep task ✅
                                                               │
-                                                              └── Phase 22: Event System & Policy Stubs
-                                                                   ├── 22A: SSE + WebSocket event wiring
-                                                                   └── 22B: ResourceAccessPolicy stubs
+                                                              └── Phase 22: Event System & Policy Stubs ✅
+                                                                   ├── 22A: SSE + WebSocket event wiring ✅
+                                                                   └── 22B: ResourceAccessPolicy stubs ✅
 ```
 
-`✅*` = core implementation complete; remaining items deferred to Phase 21/22.  
-Phases 21 and 22 can be done **in parallel** — they have no cross-dependency.
+Phases 21 and 22 completed in parallel — no cross-dependency.
 
 ### Feature Flag Summary
 
