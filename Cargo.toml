@@ -27,6 +27,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 thiserror = "2"
 anyhow = "1"
 
+# Async trait support — needed for the ManagedService trait (ADR-010)
+async-trait = "0.1"
+
 # Date/time — used for bitfile programming timestamps
 chrono = { version = "0.4", features = ["serde"] }
 

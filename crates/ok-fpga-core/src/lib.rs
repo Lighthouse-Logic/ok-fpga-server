@@ -22,6 +22,11 @@
 //!   Identifies supported Opal Kelly boards and auto-discovers SYZYGY
 //!   peripheral ports. See ADR-009.
 //!
+//! - **Service lifecycle management** ([`service::ManagedService`],
+//!   [`service_manager::ServiceManager`]): Centralized start/stop/restart
+//!   control for optional server services (REST, gRPC, MQTT, mDNS).
+//!   See ADR-010.
+//!
 //! ## Key Design Principle
 //!
 //! This crate never uses `unsafe` directly. All unsafe FFI calls are made
@@ -53,6 +58,17 @@ pub mod resource;
 /// Device manager, registry, and hot-plug event system.
 /// Implements ADR-002 (device lifecycle, FrontPanelManager integration).
 pub mod manager;
+
+/// Service lifecycle types: [`ManagedService`](service::ManagedService) trait,
+/// [`ServiceStatus`](service::ServiceStatus), [`ServiceEvent`](service::ServiceEvent),
+/// and [`ServiceError`](service::ServiceError).
+/// Implements ADR-010 (service manager abstraction).
+pub mod service;
+
+/// Centralized service lifecycle controller.
+/// Manages start/stop/restart for all optional server services.
+/// Implements ADR-010 (service manager, shutdown ordering, event broadcasting).
+pub mod service_manager;
 
 #[cfg(test)]
 mod tests {
