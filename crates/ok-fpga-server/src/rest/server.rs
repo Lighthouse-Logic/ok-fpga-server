@@ -176,15 +176,15 @@ struct HeartbeatResponse {
 /// The server responds with the current server time. In the future, this
 /// will update the user session's `last_seen_at` timestamp.
 async fn heartbeat(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Json(body): Json<HeartbeatRequest>,
 ) -> Result<Json<HeartbeatResponse>, ProblemDetail> {
     if body.user_id.is_empty() {
         return Err(ProblemDetail::bad_request("user_id is required"));
     }
 
-    // TODO(ADR-020 §5): Update user session's `last_seen_at` here
-    // when user session tracking is implemented.
+    // Update the user session's last_seen_at timestamp (ADR-020 §5).
+    state.user_sessions.touch(&body.user_id);
 
     let server_time = chrono::Utc::now().to_rfc3339();
 

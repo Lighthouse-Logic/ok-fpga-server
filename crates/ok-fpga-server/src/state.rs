@@ -17,6 +17,7 @@ use std::time::Instant;
 use ok_fpga_core::manager::DeviceManager;
 use ok_fpga_core::resource::ResourceRegistry;
 use ok_fpga_core::service_manager::ServiceManager;
+use ok_fpga_core::user::UserSessionRegistry;
 
 use crate::handle_pool::DeviceHandlePool;
 
@@ -67,6 +68,10 @@ pub struct AppState {
     #[allow(dead_code)] // Used when auth middleware is wired.
     pub session_manager: Arc<ok_fpga_core::auth::SessionManager>,
 
+    /// Tracks active user sessions with last-seen timestamps (ADR-020 §5).
+    /// Used by the heartbeat middleware and sweep task for liveness tracking.
+    pub user_sessions: Arc<UserSessionRegistry>,
+
     /// When the server process started. Used to calculate uptime.
     pub start_time: Instant,
 
@@ -85,6 +90,7 @@ impl AppState {
         handle_pool: Option<Arc<DeviceHandlePool>>,
         auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider>,
         session_manager: Arc<ok_fpga_core::auth::SessionManager>,
+        user_sessions: Arc<UserSessionRegistry>,
     ) -> Self {
         Self {
             device_manager,
@@ -93,6 +99,7 @@ impl AppState {
             handle_pool,
             auth_provider,
             session_manager,
+            user_sessions,
             start_time: Instant::now(),
             api_version: env!("CARGO_PKG_VERSION"),
         }

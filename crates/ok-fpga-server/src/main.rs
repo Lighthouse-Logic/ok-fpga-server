@@ -187,6 +187,9 @@ async fn main() -> anyhow::Result<()> {
         cfg.auth.session_expiry_secs,
     ));
 
+    // Create the user session registry for liveness tracking (ADR-020 §5).
+    let user_sessions = Arc::new(ok_fpga_core::user::UserSessionRegistry::new());
+
     // Create shared application state.
     let app_state = Arc::new(AppState::new(
         device_manager.clone(),
@@ -195,6 +198,7 @@ async fn main() -> anyhow::Result<()> {
         handle_pool,
         auth_provider,
         session_manager,
+        user_sessions,
     ));
 
     // Wrap config in Arc (needed by management server and mDNS service).

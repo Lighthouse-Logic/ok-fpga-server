@@ -611,8 +611,8 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             return Err(Status::invalid_argument("user_id is required"));
         }
 
-        // TODO(ADR-020 §5): Update user session's `last_seen_at` here
-        // when user session tracking is implemented.
+        // Update the user session's last_seen_at timestamp (ADR-020 §5).
+        self.state.user_sessions.touch(&req.user_id);
 
         let server_time = chrono::Utc::now().to_rfc3339();
 

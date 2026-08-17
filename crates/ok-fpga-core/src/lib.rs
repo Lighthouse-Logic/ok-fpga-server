@@ -75,6 +75,11 @@ pub mod service_manager;
 /// Implements ADR-008 (authentication stubs).
 pub mod auth;
 
+/// User session tracking and liveness.
+/// Tracks active users with `last_seen_at` timestamps for heartbeat / sweep.
+/// Implements ADR-020 §5 (heartbeat / liveness).
+pub mod user;
+
 #[cfg(test)]
 mod tests {
     #[test]

@@ -515,6 +515,7 @@ mod tests {
             None,
             auth_provider,
             session_manager,
+            Arc::new(ok_fpga_core::user::UserSessionRegistry::new()),
         ));
 
         let config = Arc::new(ServerConfig::default());
@@ -564,6 +565,7 @@ mod tests {
             None,
             auth_provider,
             session_manager,
+            Arc::new(ok_fpga_core::user::UserSessionRegistry::new()),
         ));
 
         let config = Arc::new(ServerConfig::default());

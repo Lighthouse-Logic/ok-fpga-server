@@ -501,6 +501,9 @@ async fn acquire_resource(
         .acquire(&id, &body.user_id, mode)
         .map_err(|e| ProblemDetail::conflict(&format!("{}", e)))?;
 
+    // Track the user session (implicit heartbeat on acquire).
+    state.user_sessions.touch(&body.user_id);
+
     let resource = state.resource_registry.get(&id).unwrap();
     Ok(Json(ResourceView::from(&resource)))
 }
@@ -512,6 +515,9 @@ async fn release_resource(
     Json(body): Json<ReleaseResourceRequest>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
     if state.resource_registry.release(&id, &body.user_id) {
+        // Track the user session (implicit heartbeat on release).
+        state.user_sessions.touch(&body.user_id);
+
         Ok(Json(serde_json::json!({
             "status": "released",
             "resource_id": id,
