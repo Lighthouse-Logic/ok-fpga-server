@@ -29,7 +29,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use ok_fpga_core::device::{
     DataportType, DeviceInfo, DeviceInterface, FpgaVendor, UsbSpeed,
@@ -65,19 +65,9 @@ enum MonitorEvent {
     DeviceRemoved(String),
 }
 
-/// Context passed as the `void* context` parameter to the C callbacks.
-///
-/// This struct is heap-allocated (boxed) so its address is stable for the
-/// lifetime of the monitor. The DLL's internal thread receives this pointer
-/// and uses it to send events to the async runtime.
-struct CallbackContext {
-    /// Channel sender for bridging DLL thread → tokio task.
-    tx: mpsc::Sender<MonitorEvent>,
-}
-
 /// A persistent device monitor using FrontPanelManager hot-plug callbacks.
 ///
-/// The monitor owns the DLL, the Manager handle, and the callback context.
+/// The monitor owns the DLL and the Manager handle.
 /// When started, it spawns a tokio task that processes device events and
 /// updates the `DeviceManager` registry.
 ///
@@ -95,17 +85,31 @@ pub struct DeviceMonitor {
     manager_handle: okCFrontPanelManager_HANDLE,
     /// Receive side of the callback channel (consumed by `start()`).
     rx: Option<mpsc::Receiver<MonitorEvent>>,
-    /// Stable context pointer for the C callbacks (must outlive the manager).
-    /// Stored as a raw pointer because the DLL holds a reference to it.
-    _callback_ctx: *mut CallbackContext,
 }
 
 // SAFETY: The DeviceMonitor can be sent between threads. The inner
 // okCFrontPanelManager_HANDLE is an opaque pointer used only through the DLL's
-// thread-safe API (StartMonitoring/StopMonitoring/Destruct). The raw
-// callback context pointer is only read by the DLL's internal callback thread
-// and is valid for the lifetime of the DeviceMonitor.
+// thread-safe API (StartMonitoring/StopMonitoring/Destruct).
 unsafe impl Send for DeviceMonitor {}
+
+// ============================================================================
+// Global Callback Channel
+// ============================================================================
+//
+// The FrontPanelManager C API's `ConstructWithCallbacks` takes a `self`
+// parameter that is a C++ `this` pointer for virtual dispatch — NOT a
+// user-data/context pointer. We MUST pass NULL for new construction.
+//
+// The `void* context` in the callback signature is whatever the DLL decides
+// to pass (typically the manager handle). Since we can't control it, we use
+// a process-global `OnceLock` to store the channel sender. This is safe
+// because there is only ever ONE DeviceMonitor per server process.
+
+/// Global sender for the DLL callback thread → async bridge.
+///
+/// Set once during `DeviceMonitor::try_new()`. The callbacks read from this
+/// to send events without needing the `context` pointer.
+static CALLBACK_SENDER: OnceLock<mpsc::Sender<MonitorEvent>> = OnceLock::new();
 
 // ============================================================================
 // C Callback Functions
@@ -116,17 +120,18 @@ unsafe impl Send for DeviceMonitor {}
 ///
 /// # Safety
 ///
-/// This function is called from a foreign thread with a `void*` context
-/// that must point to a valid `CallbackContext`. The `serial` parameter is
-/// a null-terminated C string owned by the DLL.
-unsafe extern "C" fn on_device_added_cb(context: *mut c_void, serial: *const c_char) {
-    if context.is_null() || serial.is_null() {
+/// This function is called from a foreign thread. The `serial` parameter is
+/// a null-terminated C string owned by the DLL. We ignore the `context`
+/// parameter and use the global `CALLBACK_SENDER` instead.
+unsafe extern "C" fn on_device_added_cb(_context: *mut c_void, serial: *const c_char) {
+    if serial.is_null() {
         return;
     }
-    let ctx = &*(context as *const CallbackContext);
-    let serial_str = CStr::from_ptr(serial).to_string_lossy().to_string();
-    debug!(serial = %serial_str, "DLL callback: device added");
-    let _ = ctx.tx.send(MonitorEvent::DeviceAdded(serial_str));
+    if let Some(tx) = CALLBACK_SENDER.get() {
+        let serial_str = CStr::from_ptr(serial).to_string_lossy().to_string();
+        debug!(serial = %serial_str, "DLL callback: device added");
+        let _ = tx.send(MonitorEvent::DeviceAdded(serial_str));
+    }
 }
 
 /// `extern "C"` callback invoked by the DLL's internal thread when a device
@@ -135,14 +140,15 @@ unsafe extern "C" fn on_device_added_cb(context: *mut c_void, serial: *const c_c
 /// # Safety
 ///
 /// Same safety requirements as [`on_device_added_cb`].
-unsafe extern "C" fn on_device_removed_cb(context: *mut c_void, serial: *const c_char) {
-    if context.is_null() || serial.is_null() {
+unsafe extern "C" fn on_device_removed_cb(_context: *mut c_void, serial: *const c_char) {
+    if serial.is_null() {
         return;
     }
-    let ctx = &*(context as *const CallbackContext);
-    let serial_str = CStr::from_ptr(serial).to_string_lossy().to_string();
-    debug!(serial = %serial_str, "DLL callback: device removed");
-    let _ = ctx.tx.send(MonitorEvent::DeviceRemoved(serial_str));
+    if let Some(tx) = CALLBACK_SENDER.get() {
+        let serial_str = CStr::from_ptr(serial).to_string_lossy().to_string();
+        debug!(serial = %serial_str, "DLL callback: device removed");
+        let _ = tx.send(MonitorEvent::DeviceRemoved(serial_str));
+    }
 }
 
 // ============================================================================
@@ -183,22 +189,22 @@ impl DeviceMonitor {
             }
         };
 
-        // Create the callback channel.
+        // Create the callback channel and store sender in global.
         let (tx, rx) = mpsc::channel();
-
-        // Allocate callback context on the heap (stable address for C pointer).
-        let ctx = Box::new(CallbackContext { tx });
-        let ctx_ptr = Box::into_raw(ctx);
+        if CALLBACK_SENDER.set(tx).is_err() {
+            error!("DeviceMonitor can only be created once per process");
+            return None;
+        }
 
         // Construct the manager with callbacks.
         //
-        // SAFETY: We pass the context pointer as `self` — the DLL stores it and
-        // passes it back as the `void* context` parameter in both callbacks.
-        // The context is valid for the lifetime of the DeviceMonitor (freed in Drop).
+        // SAFETY: `self` (first param) is a C++ this-pointer for virtual dispatch.
+        // We pass NULL because we are NOT subclassing — we use the C function
+        // pointer callbacks instead. The DLL allocates the object internally.
         let realm_cstr = CString::new(realm).unwrap_or_default();
         let handle = unsafe {
             (dll.manager_construct_with_callbacks)(
-                ctx_ptr as okFrontPanelManager_HANDLE,
+                std::ptr::null_mut(),  // self = NULL (new construction, no subclass)
                 realm_cstr.as_ptr(),
                 on_device_added_cb,
                 on_device_removed_cb,
@@ -207,8 +213,6 @@ impl DeviceMonitor {
 
         if handle.is_null() {
             error!("FrontPanelManager construction failed - returned null handle");
-            // Reclaim the context box to avoid leaking.
-            unsafe { drop(Box::from_raw(ctx_ptr)); }
             return None;
         }
 
@@ -218,7 +222,6 @@ impl DeviceMonitor {
             dll,
             manager_handle: handle,
             rx: Some(rx),
-            _callback_ctx: ctx_ptr,
         })
     }
 
@@ -294,15 +297,6 @@ impl Drop for DeviceMonitor {
         // Destruct the manager handle.
         unsafe {
             (self.dll.manager_destruct)(self.manager_handle);
-        }
-
-        // Reclaim the callback context box.
-        if !self._callback_ctx.is_null() {
-            unsafe {
-                drop(Box::from_raw(self._callback_ctx));
-            }
-            // Don't double-free.
-            self._callback_ctx = std::ptr::null_mut();
         }
 
         debug!("DeviceMonitor dropped - FrontPanelManager destructed");
