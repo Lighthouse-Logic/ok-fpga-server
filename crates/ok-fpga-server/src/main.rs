@@ -76,6 +76,10 @@ mod management;
 /// Used for both initial scan and periodic polling (ADR-013).
 mod scanner;
 
+/// Device handle pool — persistent per-device FFI handles (ADR-018).
+/// Provides `DeviceHandlePool` for REST/gRPC handlers to perform FFI calls.
+mod handle_pool;
+
 /// Device monitor — FrontPanelManager hot-plug callbacks (ADR-002 Phase 2).
 /// NOTE: FrontPanelManager callbacks only fire during initial enumeration on
 /// Windows, not for subsequent hot-plug events. The polling approach in
@@ -146,20 +150,21 @@ async fn main() -> anyhow::Result<()> {
     // device polling and management server).
     let (event_tx, _) = tokio::sync::broadcast::channel::<String>(256);
 
-    // Device discovery: initial scan + periodic polling (Phase 15).
+    // Device discovery: initial scan + persistent handle pool (Phase 19).
     //
     // The FrontPanelManager callback API only fires OnDeviceAdded during
     // initial enumeration (StartMonitoring), not for subsequent hot-plug
     // events on Windows. Instead, we use the reliable DeviceScanner with
     // periodic polling to detect connect/disconnect.
-    run_scanner_fallback(&device_manager);
+    let handle_pool = run_scanner_with_pool(&device_manager).await;
 
     // Spawn periodic device polling task (every 2 seconds).
     {
         let poll_dm = device_manager.clone();
         let poll_tx = event_tx.clone();
+        let poll_pool = handle_pool.clone();
         tokio::spawn(async move {
-            device_poll_loop(poll_dm, poll_tx).await;
+            device_poll_loop(poll_dm, poll_tx, poll_pool).await;
         });
         info!("device polling task started (2s interval)");
     }
@@ -187,6 +192,7 @@ async fn main() -> anyhow::Result<()> {
         device_manager.clone(),
         resource_registry.clone(),
         service_manager.clone(),
+        handle_pool,
         auth_provider,
         session_manager,
     ));
@@ -230,24 +236,48 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Perform the initial one-shot device scan using the `FrontPanelDevices`
-/// snapshot API. This populates the registry at startup.
-fn run_scanner_fallback(device_manager: &Arc<DeviceManager>) {
-    if let Some(scanner) = scanner::DeviceScanner::try_new() {
-        let scanned = scanner.scan_devices();
-        info!(count = scanned.len(), "initial device scan complete");
-        for device_info in scanned {
-            info!(
-                serial = %device_info.serial,
-                product = %device_info.product_name,
-                interface = %device_info.device_interface,
-                "discovered FPGA device (initial scan)"
-            );
-            device_manager.on_device_added(device_info);
+/// Perform the initial one-shot device scan AND create the DeviceHandlePool.
+///
+/// This replaces the old `run_scanner_fallback` — it not only populates the
+/// registry but also opens persistent FFI handles for each discovered device.
+async fn run_scanner_with_pool(
+    device_manager: &Arc<DeviceManager>,
+) -> Option<Arc<handle_pool::DeviceHandlePool>> {
+    let scanner = match scanner::DeviceScanner::try_new() {
+        Some(s) => s,
+        None => {
+            warn!("FrontPanel DLL not available - running without hardware access");
+            return None;
         }
-    } else {
-        warn!("FrontPanel DLL not available - running without hardware access");
+    };
+
+    // Create the handle pool with the same DLL instance the scanner loaded.
+    let pool = Arc::new(handle_pool::DeviceHandlePool::new(scanner.dll()));
+
+    let scanned = scanner.scan_devices();
+    info!(count = scanned.len(), "initial device scan complete");
+
+    for device_info in scanned {
+        let serial = device_info.serial.clone();
+        info!(
+            serial = %device_info.serial,
+            product = %device_info.product_name,
+            interface = %device_info.device_interface,
+            "discovered FPGA device (initial scan)"
+        );
+        device_manager.on_device_added(device_info);
+
+        // Open a persistent handle for this device in the pool.
+        if let Err(e) = pool.open(&serial).await {
+            warn!(
+                serial = %serial,
+                error = %e,
+                "could not open persistent handle — device may have disconnected"
+            );
+        }
     }
+
+    Some(pool)
 }
 
 /// Periodic device polling loop — scans for connected devices every 2 seconds
@@ -266,6 +296,7 @@ fn run_scanner_fallback(device_manager: &Arc<DeviceManager>) {
 async fn device_poll_loop(
     device_manager: Arc<DeviceManager>,
     event_tx: tokio::sync::broadcast::Sender<String>,
+    handle_pool: Option<Arc<handle_pool::DeviceHandlePool>>,
 ) {
     let scanner = match scanner::DeviceScanner::try_new() {
         Some(s) => s,
@@ -297,6 +328,17 @@ async fn device_poll_loop(
                 );
                 device_manager.on_device_added(device_info.clone());
 
+                // Open a persistent handle for this device in the pool.
+                if let Some(ref pool) = handle_pool {
+                    if let Err(e) = pool.open(&device_info.serial).await {
+                        warn!(
+                            serial = %device_info.serial,
+                            error = %e,
+                            "could not open persistent handle for hot-plugged device"
+                        );
+                    }
+                }
+
                 // Broadcast WebSocket event.
                 let event = serde_json::json!({
                     "type": "device_connected",
@@ -309,14 +351,37 @@ async fn device_poll_loop(
         }
 
         // Detect gone devices (in registry but not in scan).
+        //
+        // IMPORTANT: When a device is opened by the handle pool, the
+        // FrontPanelDevices snapshot won't list it (the device is already
+        // exclusively opened). We must NOT treat pool-opened devices as
+        // "gone" — they're still connected, just busy.
         let current_devices = device_manager.registry().list();
         for device in &current_devices {
             if !scanned_serials.contains(&device.info.serial) {
+                // Check if the device is in the handle pool — if so, it's
+                // still connected but not visible to the scanner.
+                let in_pool = if let Some(ref pool) = handle_pool {
+                    pool.get(&device.info.serial).await.is_some()
+                } else {
+                    false
+                };
+
+                if in_pool {
+                    // Device is opened by the pool — not actually disconnected.
+                    continue;
+                }
+
                 info!(
                     serial = %device.info.serial,
                     "FPGA device disconnected (hot-unplug detected by polling)"
                 );
                 device_manager.on_device_removed(&device.info.serial);
+
+                // Close the persistent handle for this device.
+                if let Some(ref pool) = handle_pool {
+                    pool.close(&device.info.serial).await;
+                }
 
                 // Broadcast WebSocket event.
                 let event = serde_json::json!({
