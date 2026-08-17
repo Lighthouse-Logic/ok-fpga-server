@@ -35,14 +35,20 @@ The AXI data port is only available on **FP-Gen3-USB** devices. Such devices rep
 
 **Known device classification:**
 
-| Device | Generation | AXI Support |
-|--------|-----------|-------------|
-| XEM7320 | Gen2-USB | ❌ `okDATAPORT_LEGACY` — AXI unsupported |
-| XEM8320 | Gen3-USB | ✅ `okDATAPORT_AXI` |
-| XEM8350 | Gen3-USB | ✅ `okDATAPORT_AXI` |
-| XEM8305 | Gen3-USB | ✅ `okDATAPORT_AXI` |
-| XEM8310 | Gen3-USB | ✅ `okDATAPORT_AXI` |
-| XEM8370 | Gen3-USB | ✅ `okDATAPORT_AXI` |
+| Device | Interface | Generation | AXI Support |
+|--------|----------|-----------|-------------|
+| XEM7320 | USB 3.0 | Gen2-USB | ❌ `okDATAPORT_LEGACY` — confirmed |
+| XEM8305 | USB 3.0 | Gen2-USB | ❌ `okDATAPORT_LEGACY` — believed |
+| XEM8310 | USB 3.0 | Gen2-USB | ❌ `okDATAPORT_LEGACY` — believed |
+| XEM8320 | USB 3.0 | Gen2-USB | ❌ `okDATAPORT_LEGACY` — believed |
+| XEM8350 | USB 3.0 / PCIe | Gen2-USB | ❌ `okDATAPORT_LEGACY` — believed |
+| XEM8370 | USB 3.0 | Gen2-USB | ❌ `okDATAPORT_LEGACY` — believed |
+| SZG-HUB1450 | USB 3.2 (10 Gbps) | **Gen3-USB** | ✅ `okDATAPORT_AXI` — believed (not yet released) |
+
+> **Note**: FP-Gen3-USB requires USB 3.2 at 10 Gbps transfer rates. Standard
+> USB 3.0 devices (5 Gbps) use the Gen2-USB transport and report
+> `okDATAPORT_LEGACY`. At this time, only the SZG-HUB1450 (not yet released)
+> is believed to support the AXI native interface from FrontPanel API v6.1.
 
 ### Problem: Incorrect Polymorphic Fallback
 

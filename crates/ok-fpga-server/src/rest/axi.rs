@@ -111,18 +111,18 @@ macro_rules! get_device {
 }
 
 // ============================================================================
-// AXI Lite Handlers
+// AXI Lite Handlers (ADR-019: uses ONLY the AXI Lite sub-handle)
 //
-// These try AXI Lite first. If the device doesn't have AXI Lite but has
-// AXI Full, we fall back to AXI Full (reading/writing 4 bytes).
-// If neither is available (e.g., device is Legacy-only), we return 409.
+// AXI Lite, Full, and Stream are independent sub-interfaces.
+// There is NO fallback between them. If the AXI Lite handle is not
+// available (device doesn't support AXI, or bitfile doesn't use Lite),
+// we return 409 Conflict.
 // ============================================================================
 
-/// `POST /devices/{serial}/axi/lite/read` — Read a 32-bit register.
+/// `POST /devices/{serial}/axi/lite/read` — Read a 32-bit AXI Lite register.
 ///
-/// Tries AXI Lite first, then falls back to AXI Full (4-byte read).
-/// If the device doesn't support AXI at all (e.g., okDATAPORT_LEGACY),
-/// returns 409 Conflict.
+/// Uses only the AXI Lite sub-handle. Returns 409 if AXI Lite is not
+/// available on this device or bitfile (per ADR-019).
 async fn axi_lite_read(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
@@ -130,51 +130,33 @@ async fn axi_lite_read(
 ) -> Result<Json<AXILiteReadResponse>, ProblemDetail> {
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
+
+    let axi_lite = device
+        .axi_lite()
+        .ok_or_else(|| ProblemDetail::conflict(
+            "AXI Lite not available. Either the device does not support AXI \
+             (okDATAPORT_LEGACY), the FPGA is not programmed, or the bitfile \
+             does not implement an AXI Lite interface.",
+        ))?;
     let dll = device.dll();
 
-    // Try AXI Lite first.
-    if let Some(axi_lite) = device.axi_lite() {
-        let mut value: u32 = 0;
-        unsafe {
-            let rc = (dll.axi_lite_read)(axi_lite, req.address, &mut value);
-            FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
-        }
-        return Ok(Json(AXILiteReadResponse {
-            address: req.address,
-            value,
-        }));
+    let mut value: u32 = 0;
+    // SAFETY: axi_lite handle is valid (from pool after configure), address
+    // and value pointer are valid stack allocations.
+    unsafe {
+        let rc = (dll.axi_lite_read)(axi_lite, req.address, &mut value);
+        FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
     }
 
-    // Fall back to AXI Full (read 4 bytes).
-    if let Some(axi_full) = device.axi_full() {
-        let mut buffer = [0u8; 4];
-        let mut transferred: u64 = 0;
-        unsafe {
-            let rc = (dll.axi_full_read)(
-                axi_full,
-                req.address,
-                buffer.as_mut_ptr(),
-                4,
-                &mut transferred,
-            );
-            FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
-        }
-        let value = u32::from_le_bytes(buffer);
-        return Ok(Json(AXILiteReadResponse {
-            address: req.address,
-            value,
-        }));
-    }
-
-    Err(ProblemDetail::conflict(
-        "FPGA not programmed or device does not support AXI (okDATAPORT_LEGACY). \
-         Neither AXI Lite nor AXI Full handles are available.",
-    ))
+    Ok(Json(AXILiteReadResponse {
+        address: req.address,
+        value,
+    }))
 }
 
-/// `PUT /devices/{serial}/axi/lite/write` — Write a 32-bit register.
+/// `PUT /devices/{serial}/axi/lite/write` — Write a 32-bit AXI Lite register.
 ///
-/// Tries AXI Lite first, then falls back to AXI Full (4-byte write).
+/// Uses only the AXI Lite sub-handle. Returns 409 if not available.
 async fn axi_lite_write(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
@@ -182,70 +164,48 @@ async fn axi_lite_write(
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
+
+    let axi_lite = device
+        .axi_lite()
+        .ok_or_else(|| ProblemDetail::conflict(
+            "AXI Lite not available. Either the device does not support AXI \
+             (okDATAPORT_LEGACY), the FPGA is not programmed, or the bitfile \
+             does not implement an AXI Lite interface.",
+        ))?;
     let dll = device.dll();
 
-    // Try AXI Lite first.
-    if let Some(axi_lite) = device.axi_lite() {
-        unsafe {
-            let rc = (dll.axi_lite_write)(axi_lite, req.address, req.value);
-            FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
-        }
-        return Ok(Json(serde_json::json!({"status": "ok", "address": req.address, "value": req.value})));
+    // SAFETY: axi_lite handle valid, address and value are plain values.
+    unsafe {
+        let rc = (dll.axi_lite_write)(axi_lite, req.address, req.value);
+        FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
     }
 
-    // Fall back to AXI Full (write 4 bytes).
-    if let Some(axi_full) = device.axi_full() {
-        let bytes = req.value.to_le_bytes();
-        let mut stats: ok_fpga_ffi::okTOperationStatistics = unsafe { std::mem::zeroed() };
-        unsafe {
-            let rc = (dll.axi_full_write)(
-                axi_full,
-                req.address,
-                bytes.as_ptr(),
-                4,
-                &mut stats,
-            );
-            FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
-        }
-        return Ok(Json(serde_json::json!({"status": "ok", "address": req.address, "value": req.value})));
-    }
-
-    Err(ProblemDetail::conflict(
-        "FPGA not programmed or device does not support AXI (okDATAPORT_LEGACY). \
-         Neither AXI Lite nor AXI Full handles are available.",
-    ))
+    Ok(Json(serde_json::json!({"status": "ok", "address": req.address, "value": req.value})))
 }
 
-/// `POST /devices/{serial}/axi/lite/reset` — Reset AXI interface.
+/// `POST /devices/{serial}/axi/lite/reset` — Reset the AXI Lite interface.
+///
+/// Uses only the AXI Lite sub-handle. Returns 409 if not available.
 async fn axi_lite_reset(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
+
+    let axi_lite = device
+        .axi_lite()
+        .ok_or_else(|| ProblemDetail::conflict(
+            "AXI Lite not available on this device or bitfile.",
+        ))?;
     let dll = device.dll();
 
-    // Try AXI Lite reset.
-    if let Some(axi_lite) = device.axi_lite() {
-        unsafe {
-            let rc = (dll.axi_lite_reset)(axi_lite);
-            FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
-        }
-        return Ok(Json(serde_json::json!({"status": "ok", "message": "AXI Lite reset"})));
+    unsafe {
+        let rc = (dll.axi_lite_reset)(axi_lite);
+        FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
     }
 
-    // Fall back to AXI Full reset.
-    if let Some(axi_full) = device.axi_full() {
-        unsafe {
-            let rc = (dll.axi_full_reset)(axi_full);
-            FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
-        }
-        return Ok(Json(serde_json::json!({"status": "ok", "message": "AXI Full reset"})));
-    }
-
-    Err(ProblemDetail::conflict(
-        "FPGA not programmed or device does not support AXI.",
-    ))
+    Ok(Json(serde_json::json!({"status": "ok", "message": "AXI Lite reset"})))
 }
 
 // ============================================================================

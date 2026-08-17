@@ -213,7 +213,7 @@ corrected:
    independent protocols with different semantics. See ADR-019 §1 for details.
 
 3. **AXI cannot be tested on the XEM7320** (Legacy data port device). AXI testing
-   requires a Gen3-USB device such as the XEM8320 or XEM8350.
+   requires a Gen3-USB device such as the SZG-HUB1450.
 
 ## References
 
