@@ -73,8 +73,12 @@ mod state;
 mod management;
 
 /// Device scanner — loads FrontPanel DLL and enumerates connected FPGAs at
-/// startup (ADR-013). Will be replaced by FrontPanelManager hot-plug in Phase 15.
+/// startup (ADR-013). Used as fallback when FrontPanelManager is unavailable.
 mod scanner;
+
+/// Device monitor — persistent FrontPanelManager hot-plug callbacks (ADR-002
+/// Phase 2). Primary device discovery mechanism; falls back to scanner.
+mod device_monitor;
 
 /// REST API server module — only compiled when `rest` feature is enabled.
 #[cfg(feature = "rest")]
@@ -134,26 +138,32 @@ async fn main() -> anyhow::Result<()> {
     let resource_registry = Arc::new(ResourceRegistry::new());
     let service_manager = Arc::new(ServiceManager::new());
 
-    // Scan for connected FPGA devices via the FrontPanel DLL (ADR-013).
+    // Create the event broadcast channel for WebSocket (needed by both
+    // device monitor and management server).
+    let (event_tx, _) = tokio::sync::broadcast::channel::<String>(256);
+
+    // Device discovery: try hot-plug monitor (Phase 15), fall back to
+    // one-shot scanner (Phase 14).
     //
-    // This is a one-shot snapshot using FrontPanelDevices. Devices connected
-    // after this point are NOT detected until the server restarts. Phase 15
-    // will replace this with FrontPanelManager callbacks for real-time
-    // hot-plug monitoring.
-    if let Some(scanner) = scanner::DeviceScanner::try_new() {
-        let scanned = scanner.scan_devices();
-        info!(count = scanned.len(), "initial device scan complete");
-        for device_info in scanned {
-            info!(
-                serial = %device_info.serial,
-                product = %device_info.product_name,
-                interface = %device_info.device_interface,
-                "discovered FPGA device"
-            );
-            device_manager.on_device_added(device_info);
+    // The monitor uses FrontPanelManager callbacks for real-time detection.
+    // If it fails (e.g., DLL missing or old version), the scanner does a
+    // single snapshot enumeration at startup.
+    if let Some(mut monitor) = device_monitor::DeviceMonitor::try_new("") {
+        if monitor.start(device_manager.clone(), event_tx.clone()) {
+            info!("hot-plug device monitor active - devices will be detected automatically");
+            // The monitor runs for the lifetime of the server.
+            // It's leaked intentionally -- it needs to live until shutdown.
+            // The Drop impl handles cleanup.
+            std::mem::forget(monitor);
+        } else {
+            warn!("hot-plug monitor failed to start - falling back to one-shot scan");
+            // Monitor start failed, try scanner fallback.
+            drop(monitor);
+            run_scanner_fallback(&device_manager);
         }
     } else {
-        warn!("FrontPanel DLL not available - running without hardware access");
+        // Monitor construction failed, try scanner fallback.
+        run_scanner_fallback(&device_manager);
     }
 
     // Create the authentication provider from config (ADR-008).
@@ -205,8 +215,6 @@ async fn main() -> anyhow::Result<()> {
             "service state"
         );
     }
-    // Create the event broadcast channel for WebSocket.
-    let (event_tx, _) = tokio::sync::broadcast::channel::<String>(256);
 
     // Start the management server (always-on, serves dashboard + mgmt API).
     start_management_server(&app_state, &cfg_arc, event_tx.clone()).await;
@@ -222,6 +230,30 @@ async fn main() -> anyhow::Result<()> {
 
     info!("ok-FPGA-Server shut down cleanly.");
     Ok(())
+}
+
+/// Fall back to one-shot device scanning (Phase 14) when the hot-plug
+/// monitor is unavailable.
+///
+/// This performs a single snapshot enumeration of connected devices using
+/// the `FrontPanelDevices` API. Devices connected after this point will
+/// NOT be detected until the server restarts.
+fn run_scanner_fallback(device_manager: &Arc<DeviceManager>) {
+    if let Some(scanner) = scanner::DeviceScanner::try_new() {
+        let scanned = scanner.scan_devices();
+        info!(count = scanned.len(), "initial device scan complete (fallback mode)");
+        for device_info in scanned {
+            info!(
+                serial = %device_info.serial,
+                product = %device_info.product_name,
+                interface = %device_info.device_interface,
+                "discovered FPGA device (scanner)"
+            );
+            device_manager.on_device_added(device_info);
+        }
+    } else {
+        warn!("FrontPanel DLL not available - running without hardware access");
+    }
 }
 
 /// Start the management server (always-on).

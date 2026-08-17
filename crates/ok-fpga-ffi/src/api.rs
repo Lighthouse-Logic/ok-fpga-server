@@ -542,6 +542,16 @@ pub struct FrontPanelDll {
         okFrontPanelManager_HANDLE,
         *const ::std::os::raw::c_char,
     ) -> okCFrontPanelManager_HANDLE,
+    /// Construct a FrontPanelManager with device-added/removed callbacks.
+    ///
+    /// Callback signature: `void (*)(void* context, const char* serial)`
+    /// where `context` is the `self` (first) parameter passed to this function.
+    pub manager_construct_with_callbacks: unsafe extern "C" fn(
+        okFrontPanelManager_HANDLE,                // self (context for callbacks)
+        *const ::std::os::raw::c_char,             // realm
+        unsafe extern "C" fn(*mut ::std::os::raw::c_void, *const ::std::os::raw::c_char), // onAdded
+        unsafe extern "C" fn(*mut ::std::os::raw::c_void, *const ::std::os::raw::c_char), // onRemoved
+    ) -> okCFrontPanelManager_HANDLE,
     pub manager_destruct: unsafe extern "C" fn(okCFrontPanelManager_HANDLE),
     pub manager_start_monitoring: unsafe extern "C" fn(okCFrontPanelManager_HANDLE) -> ok_ErrorCode,
     pub manager_start_monitoring_with_cb_info:
@@ -947,6 +957,10 @@ impl FrontPanelDll {
 
                 // ---- FrontPanelManager (§14) ----
                 manager_construct: *load_symbol!(library, "okFrontPanelManager_Construct")?,
+                manager_construct_with_callbacks: *load_symbol!(
+                    library,
+                    "okFrontPanelManager_ConstructWithCallbacks"
+                )?,
                 manager_destruct: *load_symbol!(library, "okFrontPanelManager_Destruct")?,
                 manager_start_monitoring: *load_symbol!(
                     library,

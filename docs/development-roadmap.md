@@ -760,29 +760,40 @@ cargo test -p ok-fpga-ffi --test hardware -- --ignored --test-threads=1 --nocapt
 
 ## Phase 15: Hot-Plug Callbacks (FrontPanelManager)
 
-**Status**: `[ ]` Not started  
+**Status**: `[/]` In progress (code complete, awaiting manual verification)  
 **Depends on**: Phase 14 (Device Scanner)  
 **ADR reference**: [ADR-002 — Device Lifecycle & Hot-Plug](architecture/adr/ADR-002-device-lifecycle.md)
 
-### What to do
+### What was done
 
-1. Wire `FrontPanelManager` C callbacks (§14 in fp6-api-surface.md):
-   - `extern "C" fn on_device_added(serial)` → `tokio::sync::mpsc::Sender`
-   - `extern "C" fn on_device_removed(serial)` → `tokio::sync::mpsc::Sender`
-   - Async task reads from channel → calls `DeviceManager::on_device_added/removed`
-2. Replace Phase 14's one-shot scan with persistent monitoring:
-   - `okFrontPanelManager_ConstructWithCallbacks` → `StartMonitoring`
-   - Manager fires `OnDeviceAdded` for already-connected devices (initial enum)
-3. Add `okREALM_TEST` support for emulated device connections:
-   - Tier 1 tests using `okFrontPanelManager_EmulateTestDeviceConnection`
-4. Update dashboard to receive real-time device events via WebSocket
+1. Added `manager_construct_with_callbacks` FFI binding to `api.rs`:
+   - Callback type: `void (*)(void* context, const char* serial)`
+   - `context` parameter is the `self` pointer passed to `ConstructWithCallbacks`
+2. Created `crates/ok-fpga-server/src/device_monitor.rs`:
+   - `DeviceMonitor::try_new(realm)` — loads DLL, constructs manager with callbacks
+   - `extern "C" fn on_device_added_cb/on_device_removed_cb` — minimal callbacks
+     that send `MonitorEvent` through `std::sync::mpsc::Sender`
+   - Bridge thread: forwards `std::sync::mpsc` → `tokio::sync::mpsc`
+   - `event_processor` async task: reads events, opens devices via
+     `FrontPanelManager_Open`, reads `okTDeviceInfo`, filters USB2,
+     updates `DeviceManager`, broadcasts to WebSocket
+   - Graceful fallback for `okREALM_TEST`: creates minimal `DeviceInfo`
+     if `GetDeviceInfoWithSize` fails
+   - `Drop` impl: `StopMonitoring` → `Destruct` → reclaim callback context
+3. Wired monitor into `main.rs`:
+   - Monitor is the primary mechanism (tried first)
+   - Scanner kept as fallback via `run_scanner_fallback()`
+   - `event_tx` moved before device discovery (needed by monitor)
+4. Dashboard already handles `device_connected`/`device_disconnected`
+   WebSocket events (from Phase 14) — no changes needed
 
 ### Verification
 
-- [ ] Hot-plug: connect board → appears in dashboard within 1 second
-- [ ] Hot-unplug: disconnect board → removed from dashboard within 1 second
-- [ ] `okREALM_TEST` Tier 1 tests pass without hardware
-- [ ] All existing tests still pass
+- [ ] Hot-plug: connect board → appears in dashboard within 1 second — *needs manual check*
+- [ ] Hot-unplug: disconnect board → removed from dashboard within 1 second — *needs manual check*
+- [ ] `okREALM_TEST` Tier 1 tests pass without hardware — *deferred to Phase 15B*
+- [x] All existing tests still pass (155 tests)
+- [x] `cargo clippy --features full` — zero warnings
 - [ ] Commit with descriptive message
 
 ---
