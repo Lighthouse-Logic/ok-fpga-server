@@ -79,9 +79,28 @@ async def skip_if_not_implemented(coro, label: str):
         raise
 
 
+@pytest.fixture(scope="session")
+def event_loop():
+    """Session-scoped event loop for async fixtures.
+
+    Required by pytest-asyncio when using session-scoped async fixtures.
+    """
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
+
+
 @pytest_asyncio.fixture
 async def client() -> AsyncGenerator[OkFpgaRestClient, None]:
-    """Create and close an async REST client."""
+    """Per-test async REST client (for tests that don't need programming)."""
+    c = OkFpgaRestClient(SERVER_URL)
+    yield c
+    await c.close()
+
+
+@pytest_asyncio.fixture(scope="session")
+async def session_client() -> AsyncGenerator[OkFpgaRestClient, None]:
+    """Session-scoped async REST client for configure caching."""
     c = OkFpgaRestClient(SERVER_URL)
     yield c
     await c.close()
@@ -110,25 +129,41 @@ async def device_serial(client: OkFpgaRestClient) -> str:
     return serial
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(scope="session")
 async def programmed_device(
-    client: OkFpgaRestClient, device_serial: str, bitfile_path: str
+    session_client: OkFpgaRestClient, bitfile_path: str
 ) -> str:
-    """Program the FPGA with Counters.bit and return the serial.
+    """Program the FPGA with Counters.bit ONCE per test session.
+
+    This fixture is session-scoped: the bitfile is configured once at the
+    start of the test session and reused for all tests. This avoids the
+    ~1s overhead of re-programming the FPGA before every test.
 
     If the configure endpoint returns 501 (not yet implemented in FFI),
     this fixture skips the test rather than failing.
     """
+    # First, discover the device serial.
     try:
-        result = await client.configure_fpga(device_serial, bitfile_path)
+        result = await session_client.list_devices()
+    except Exception:
+        pytest.skip("Server not reachable")
+    devices = result.get("devices", [])
+    if not devices:
+        pytest.skip("No FPGA devices connected")
+    serial = devices[0]["serial"]
+    logger.info(f"Session-scoped programming: device {serial}")
+
+    # Program the FPGA once for the entire session.
+    try:
+        result = await session_client.configure_fpga(serial, bitfile_path)
         logger.info(f"Configure result: {result}")
     except Exception as e:
         if "501" in str(e):
             pytest.skip("POST /configure returns 501 (FFI stub)")
         raise
-    # Small delay for hardware to stabilize after programming
+    # Small delay for hardware to stabilize after programming.
     await asyncio.sleep(0.5)
-    return device_serial
+    return serial
 
 
 # ---------------------------------------------------------------------------
