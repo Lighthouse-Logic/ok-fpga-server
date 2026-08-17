@@ -72,12 +72,16 @@ mod state;
 /// Management server (always-on, serves dashboard + mgmt API on port 9090).
 mod management;
 
-/// Device scanner — loads FrontPanel DLL and enumerates connected FPGAs at
-/// startup (ADR-013). Used as fallback when FrontPanelManager is unavailable.
+/// Device scanner — loads FrontPanel DLL and enumerates connected FPGAs.
+/// Used for both initial scan and periodic polling (ADR-013).
 mod scanner;
 
-/// Device monitor — persistent FrontPanelManager hot-plug callbacks (ADR-002
-/// Phase 2). Primary device discovery mechanism; falls back to scanner.
+/// Device monitor — FrontPanelManager hot-plug callbacks (ADR-002 Phase 2).
+/// NOTE: FrontPanelManager callbacks only fire during initial enumeration on
+/// Windows, not for subsequent hot-plug events. The polling approach in
+/// `device_poll_loop` is used instead. This module is retained for future
+/// investigation and potential cross-platform use.
+#[allow(dead_code)]
 mod device_monitor;
 
 /// REST API server module — only compiled when `rest` feature is enabled.
@@ -139,31 +143,25 @@ async fn main() -> anyhow::Result<()> {
     let service_manager = Arc::new(ServiceManager::new());
 
     // Create the event broadcast channel for WebSocket (needed by both
-    // device monitor and management server).
+    // device polling and management server).
     let (event_tx, _) = tokio::sync::broadcast::channel::<String>(256);
 
-    // Device discovery: try hot-plug monitor (Phase 15), fall back to
-    // one-shot scanner (Phase 14).
+    // Device discovery: initial scan + periodic polling (Phase 15).
     //
-    // The monitor uses FrontPanelManager callbacks for real-time detection.
-    // If it fails (e.g., DLL missing or old version), the scanner does a
-    // single snapshot enumeration at startup.
-    if let Some(mut monitor) = device_monitor::DeviceMonitor::try_new("") {
-        if monitor.start(device_manager.clone(), event_tx.clone()) {
-            info!("hot-plug device monitor active - devices will be detected automatically");
-            // The monitor runs for the lifetime of the server.
-            // It's leaked intentionally -- it needs to live until shutdown.
-            // The Drop impl handles cleanup.
-            std::mem::forget(monitor);
-        } else {
-            warn!("hot-plug monitor failed to start - falling back to one-shot scan");
-            // Monitor start failed, try scanner fallback.
-            drop(monitor);
-            run_scanner_fallback(&device_manager);
-        }
-    } else {
-        // Monitor construction failed, try scanner fallback.
-        run_scanner_fallback(&device_manager);
+    // The FrontPanelManager callback API only fires OnDeviceAdded during
+    // initial enumeration (StartMonitoring), not for subsequent hot-plug
+    // events on Windows. Instead, we use the reliable DeviceScanner with
+    // periodic polling to detect connect/disconnect.
+    run_scanner_fallback(&device_manager);
+
+    // Spawn periodic device polling task (every 2 seconds).
+    {
+        let poll_dm = device_manager.clone();
+        let poll_tx = event_tx.clone();
+        tokio::spawn(async move {
+            device_poll_loop(poll_dm, poll_tx).await;
+        });
+        info!("device polling task started (2s interval)");
     }
 
     // Create the authentication provider from config (ADR-008).
@@ -232,27 +230,102 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Fall back to one-shot device scanning (Phase 14) when the hot-plug
-/// monitor is unavailable.
-///
-/// This performs a single snapshot enumeration of connected devices using
-/// the `FrontPanelDevices` API. Devices connected after this point will
-/// NOT be detected until the server restarts.
+/// Perform the initial one-shot device scan using the `FrontPanelDevices`
+/// snapshot API. This populates the registry at startup.
 fn run_scanner_fallback(device_manager: &Arc<DeviceManager>) {
     if let Some(scanner) = scanner::DeviceScanner::try_new() {
         let scanned = scanner.scan_devices();
-        info!(count = scanned.len(), "initial device scan complete (fallback mode)");
+        info!(count = scanned.len(), "initial device scan complete");
         for device_info in scanned {
             info!(
                 serial = %device_info.serial,
                 product = %device_info.product_name,
                 interface = %device_info.device_interface,
-                "discovered FPGA device (scanner)"
+                "discovered FPGA device (initial scan)"
             );
             device_manager.on_device_added(device_info);
         }
     } else {
         warn!("FrontPanel DLL not available - running without hardware access");
+    }
+}
+
+/// Periodic device polling loop — scans for connected devices every 2 seconds
+/// and synchronizes the `DeviceManager` registry with reality.
+///
+/// ## How it works
+///
+/// 1. Loads the FrontPanel DLL once
+/// 2. Every 2 seconds, calls `scan_devices()` for a fresh snapshot
+/// 3. **New devices**: any serial in the scan but NOT in the registry → add
+/// 4. **Gone devices**: any serial in the registry but NOT in the scan → remove
+/// 5. Broadcasts `device_connected` / `device_disconnected` WebSocket events
+///
+/// This approach is simple, reliable, and doesn't depend on the
+/// FrontPanelManager callback API (which doesn't fire for hot-plug on Windows).
+async fn device_poll_loop(
+    device_manager: Arc<DeviceManager>,
+    event_tx: tokio::sync::broadcast::Sender<String>,
+) {
+    let scanner = match scanner::DeviceScanner::try_new() {
+        Some(s) => s,
+        None => {
+            warn!("device polling: FrontPanel DLL not available, polling disabled");
+            return;
+        }
+    };
+
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
+    // Don't fire immediately — the initial scan already ran.
+    interval.tick().await;
+
+    loop {
+        interval.tick().await;
+
+        let scanned = scanner.scan_devices();
+        let scanned_serials: std::collections::HashSet<String> =
+            scanned.iter().map(|d| d.serial.clone()).collect();
+
+        // Detect new devices (in scan but not in registry).
+        for device_info in &scanned {
+            if !device_manager.registry().contains(&device_info.serial) {
+                info!(
+                    serial = %device_info.serial,
+                    product = %device_info.product_name,
+                    interface = %device_info.device_interface,
+                    "FPGA device connected (hot-plug detected by polling)"
+                );
+                device_manager.on_device_added(device_info.clone());
+
+                // Broadcast WebSocket event.
+                let event = serde_json::json!({
+                    "type": "device_connected",
+                    "serial": device_info.serial,
+                    "product": device_info.product_name,
+                    "interface": device_info.device_interface.to_string(),
+                });
+                let _ = event_tx.send(event.to_string());
+            }
+        }
+
+        // Detect gone devices (in registry but not in scan).
+        let current_devices = device_manager.registry().list();
+        for device in &current_devices {
+            if !scanned_serials.contains(&device.info.serial) {
+                info!(
+                    serial = %device.info.serial,
+                    "FPGA device disconnected (hot-unplug detected by polling)"
+                );
+                device_manager.on_device_removed(&device.info.serial);
+
+                // Broadcast WebSocket event.
+                let event = serde_json::json!({
+                    "type": "device_disconnected",
+                    "serial": device.info.serial,
+                });
+                let _ = event_tx.send(event.to_string());
+            }
+        }
     }
 }
 
