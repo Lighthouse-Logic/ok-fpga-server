@@ -512,6 +512,7 @@ mod tests {
             device_manager,
             resource_registry,
             service_manager,
+            None,
             auth_provider,
             session_manager,
         ));
@@ -560,6 +561,7 @@ mod tests {
             device_manager,
             resource_registry,
             service_manager,
+            None,
             auth_provider,
             session_manager,
         ));

@@ -18,6 +18,8 @@ use ok_fpga_core::manager::DeviceManager;
 use ok_fpga_core::resource::ResourceRegistry;
 use ok_fpga_core::service_manager::ServiceManager;
 
+use crate::handle_pool::DeviceHandlePool;
+
 /// Shared application state passed to all request handlers.
 ///
 /// This struct is the "glue" between the network-facing API layers (REST,
@@ -52,6 +54,11 @@ pub struct AppState {
     /// Controls lifecycle of optional services (REST, gRPC, MQTT, mDNS).
     pub service_manager: Arc<ServiceManager>,
 
+    /// Pool of open FrontPanel device handles for FFI operations (ADR-018).
+    /// REST and gRPC handlers use this to perform hardware operations.
+    /// `None` if the FrontPanel DLL is not available.
+    pub handle_pool: Option<Arc<DeviceHandlePool>>,
+
     /// Authentication provider (ADR-008).
     #[allow(dead_code)] // Used when auth middleware is wired.
     pub auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider>,
@@ -75,6 +82,7 @@ impl AppState {
         device_manager: Arc<DeviceManager>,
         resource_registry: Arc<ResourceRegistry>,
         service_manager: Arc<ServiceManager>,
+        handle_pool: Option<Arc<DeviceHandlePool>>,
         auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider>,
         session_manager: Arc<ok_fpga_core::auth::SessionManager>,
     ) -> Self {
@@ -82,6 +90,7 @@ impl AppState {
             device_manager,
             resource_registry,
             service_manager,
+            handle_pool,
             auth_provider,
             session_manager,
             start_time: Instant::now(),

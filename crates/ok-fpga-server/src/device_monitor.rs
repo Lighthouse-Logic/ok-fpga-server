@@ -125,13 +125,18 @@ static CALLBACK_SENDER: OnceLock<mpsc::Sender<MonitorEvent>> = OnceLock::new();
 /// a null-terminated C string owned by the DLL. We ignore the `context`
 /// parameter and use the global `CALLBACK_SENDER` instead.
 unsafe extern "C" fn on_device_added_cb(_context: *mut c_void, serial: *const c_char) {
+    // Raw println! bypasses tracing — guaranteed visible for diagnostics.
+    println!("[DIAG] on_device_added_cb fired! context={:?} serial={:?}", _context, serial);
     if serial.is_null() {
         return;
     }
     if let Some(tx) = CALLBACK_SENDER.get() {
         let serial_str = CStr::from_ptr(serial).to_string_lossy().to_string();
-        debug!(serial = %serial_str, "DLL callback: device added");
+        println!("[DIAG] device added: serial={}", serial_str);
+        info!(serial = %serial_str, "DLL callback: device added");
         let _ = tx.send(MonitorEvent::DeviceAdded(serial_str));
+    } else {
+        println!("[DIAG] on_device_added_cb: CALLBACK_SENDER not set!");
     }
 }
 
@@ -142,13 +147,18 @@ unsafe extern "C" fn on_device_added_cb(_context: *mut c_void, serial: *const c_
 ///
 /// Same safety requirements as [`on_device_added_cb`].
 unsafe extern "C" fn on_device_removed_cb(_context: *mut c_void, serial: *const c_char) {
+    // Raw println! bypasses tracing — guaranteed visible for diagnostics.
+    println!("[DIAG] on_device_removed_cb fired! context={:?} serial={:?}", _context, serial);
     if serial.is_null() {
         return;
     }
     if let Some(tx) = CALLBACK_SENDER.get() {
         let serial_str = CStr::from_ptr(serial).to_string_lossy().to_string();
-        debug!(serial = %serial_str, "DLL callback: device removed");
+        println!("[DIAG] device removed: serial={}", serial_str);
+        info!(serial = %serial_str, "DLL callback: device removed");
         let _ = tx.send(MonitorEvent::DeviceRemoved(serial_str));
+    } else {
+        println!("[DIAG] on_device_removed_cb: CALLBACK_SENDER not set!");
     }
 }
 

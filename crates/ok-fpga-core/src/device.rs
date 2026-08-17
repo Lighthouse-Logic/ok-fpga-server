@@ -147,17 +147,21 @@ impl fmt::Display for UsbSpeed {
     }
 }
 
-/// Data port type for a device.
+/// Physical host interface (transport layer) for a device.
 ///
-/// After FPGA configuration, the device exposes either a Classic or AXI
-/// data port depending on the gateware and device family.
+/// This describes the USB host-side data transport, NOT which HDL endpoint
+/// families (Classic wires/triggers vs AXI register bridge) the loaded
+/// bitfile implements. See ADR-003 Addendum A for details.
+///
+/// - `Legacy` = FrontPanel Gen1/Gen2 USB interface
+/// - `Axi` = FrontPanel Gen3 USB interface
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DataportType {
     /// Unknown or not yet determined.
     Unknown,
-    /// Classic FrontPanel data port (wires, triggers, pipes, registers).
+    /// FrontPanel Gen1/Gen2 USB host interface (legacy transport).
     Legacy,
-    /// AXI data port (AXI-Lite, AXI-Full, AXI-Stream).
+    /// FrontPanel Gen3 USB host interface (AXI transport).
     Axi,
 }
 

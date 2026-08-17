@@ -77,6 +77,11 @@ class OkFpgaRestClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def _delete(self, path: str) -> None:
+        """DELETE request, returns None on success (204)."""
+        resp = await self._client.delete(path)
+        resp.raise_for_status()
+
     # ========================================================================
     # Server Endpoints (/server/*)
     # ========================================================================
@@ -162,11 +167,14 @@ class OkFpgaRestClient:
 
     async def set_wire_in(self, serial: str, endpoint: int, value: int,
                           mask: Optional[int] = None) -> dict:
-        """POST /devices/{serial}/classic/wires/in — Set WireIn value."""
+        """PUT /devices/{serial}/classic/wires/in — Set WireIn value.
+
+        This is a PUT (idempotent state assignment per ADR-015).
+        """
         body: dict[str, Any] = {"endpoint": endpoint, "value": value}
         if mask is not None:
             body["mask"] = mask
-        return await self._post(f"/devices/{serial}/classic/wires/in", json=body)
+        return await self._put(f"/devices/{serial}/classic/wires/in", json=body)
 
     async def get_wire_out(self, serial: str) -> dict:
         """GET /devices/{serial}/classic/wires/out — Read WireOut values."""
@@ -221,8 +229,11 @@ class OkFpgaRestClient:
         )
 
     async def write_register(self, serial: str, address: int, value: int) -> dict:
-        """POST /devices/{serial}/classic/registers/write — Write register."""
-        return await self._post(
+        """PUT /devices/{serial}/classic/registers/write — Write register.
+
+        This is a PUT (idempotent state assignment per ADR-015).
+        """
+        return await self._put(
             f"/devices/{serial}/classic/registers/write",
             json={"address": address, "value": value},
         )
@@ -240,8 +251,11 @@ class OkFpgaRestClient:
         return await self._post(f"/devices/{serial}/axi/lite/read", json={"address": address})
 
     async def axi_lite_write(self, serial: str, address: int, value: int) -> dict:
-        """POST /devices/{serial}/axi/lite/write."""
-        return await self._post(
+        """PUT /devices/{serial}/axi/lite/write.
+
+        This is a PUT (idempotent state assignment per ADR-015).
+        """
+        return await self._put(
             f"/devices/{serial}/axi/lite/write",
             json={"address": address, "value": value},
         )
@@ -313,6 +327,39 @@ class OkFpgaRestClient:
             f"/resources/{resource_id}/release",
             json={"user_id": user_id},
         )
+
+    async def create_resource(
+        self,
+        name: str,
+        device_serial: str,
+        description: Optional[str] = None,
+        resource_type: Optional[str] = None,
+        capabilities: Optional[list[str]] = None,
+    ) -> dict:
+        """POST /resources — Create a new resource (ADR-016).
+
+        Args:
+            name: Human-readable resource name (e.g., "xem7320-classic-counters").
+            device_serial: Serial of the FPGA providing this resource.
+            description: Optional description of the resource.
+            resource_type: Optional type identifier (e.g., "classic", "axi").
+            capabilities: Optional list of capabilities this resource provides.
+        """
+        body: dict[str, Any] = {"name": name, "device_serial": device_serial}
+        if description is not None:
+            body["description"] = description
+        if resource_type is not None:
+            body["resource_type"] = resource_type
+        if capabilities is not None:
+            body["capabilities"] = capabilities
+        return await self._post("/resources", json=body)
+
+    async def delete_resource(self, resource_id: str) -> None:
+        """DELETE /resources/{resource_id} — Delete a resource (ADR-016).
+
+        Returns 409 if the resource is currently held by any user.
+        """
+        await self._delete(f"/resources/{resource_id}")
 
     # ========================================================================
     # Users (/users/*)

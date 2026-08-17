@@ -45,7 +45,7 @@ The REST server will be built with **Axum**, gated behind the `rest` Cargo featu
 │   └── GET    /{serial}/dataport   — data port type (classic/axi/none)
 │
 ├── devices/{serial}/classic/       — Classic data port operations
-│   ├── POST   /wires/in            — SetWireInValue + UpdateWireIns
+│   ├── PUT    /wires/in            — SetWireInValue (idempotent state assignment)
 │   ├── GET    /wires/out           — UpdateWireOuts + GetWireOutValue
 │   ├── POST   /triggers/in         — ActivateTriggerIn
 │   ├── GET    /triggers/out        — UpdateTriggerOuts + IsTriggered/GetVector
@@ -54,13 +54,13 @@ The REST server will be built with **Axum**, gated behind the `rest` Cargo featu
 │   ├── POST   /pipes/block-in      — WriteToBlockPipeIn
 │   ├── GET    /pipes/block-out     — ReadFromBlockPipeOut
 │   ├── POST   /registers/read      — ReadRegister(s)
-│   ├── POST   /registers/write     — WriteRegister(s)
+│   ├── PUT    /registers/write     — WriteRegister(s) (idempotent state assignment)
 │   └── POST   /reset               — ResetFPGA
 │
 ├── devices/{serial}/axi/           — AXI data port operations
 │   ├── lite/
 │   │   ├── POST /read              — AXILite Read (single or bulk)
-│   │   ├── POST /write             — AXILite Write (single or bulk)
+│   │   ├── PUT  /write             — AXILite Write (idempotent state assignment)
 │   │   └── POST /reset             — AXILite Reset
 │   ├── full/
 │   │   ├── POST /read              — AXIFull Read
@@ -75,7 +75,9 @@ The REST server will be built with **Axum**, gated behind the `rest` Cargo featu
 │
 ├── resources/
 │   ├── GET    /                    — list all resources across all FPGAs
+│   ├── POST   /                    — create a resource (client-defined, ADR-016)
 │   ├── GET    /{resource_id}       — resource detail and current state
+│   ├── DELETE /{resource_id}       — delete a resource definition (ADR-016)
 │   ├── POST   /{resource_id}/acquire  — acquire resource (shared or locked)
 │   └── POST   /{resource_id}/release  — release resource
 │
@@ -166,9 +168,32 @@ The full OpenAPI 3.0.0 YAML will be created at `api/openapi.yaml` before any imp
 - **Large API surface** — ~40+ endpoints reflecting the FrontPanel API breadth
 - **Binary data handling** — pipe/block transfers over REST are inherently less efficient than gRPC streaming
 
+## Addendum A: HTTP Method Corrections (2026-08-17)
+
+See [ADR-015](ADR-015-http-method-semantics.md) for full rationale.
+
+Three endpoints changed from POST to PUT based on RFC 9110 idempotency analysis:
+- `/classic/wires/in` — POST → **PUT** (idempotent wire state assignment)
+- `/classic/registers/write` — POST → **PUT** (idempotent register write)
+- `/axi/lite/write` — POST → **PUT** (idempotent AXI Lite register write)
+
+URL hierarchy above has been updated to reflect these changes.
+
+## Addendum B: Client-Side Resource CRUD (2026-08-17)
+
+See [ADR-016](ADR-016-hardware-integration-testing.md) for full rationale.
+
+Two new resource endpoints added:
+- `POST /resources` — client creates a resource after programming a bitfile
+- `DELETE /resources/{resource_id}` — client removes a resource definition
+
+URL hierarchy above has been updated to reflect these additions.
+
 ## References
 
 - [OpenAPI 3.0.0 Specification](https://spec.openapis.org/oas/v3.0.0)
 - [RFC 7807 — Problem Details for HTTP APIs](https://tools.ietf.org/html/rfc7807)
 - [Server-Sent Events (SSE)](https://html.spec.whatwg.org/multipage/server-sent-events.html)
 - [ADR-010 Service Manager](ADR-010-service-manager.md) — feature flags and service lifecycle
+- [ADR-015 HTTP Method Semantics](ADR-015-http-method-semantics.md) — POST vs PUT audit
+- [ADR-016 Hardware Integration Testing](ADR-016-hardware-integration-testing.md) — resource creation and test matrix

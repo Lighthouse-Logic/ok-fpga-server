@@ -6,19 +6,39 @@
 
 ## Context
 
-FrontPanel 6.1.0 splits FPGA data operations into two distinct "data port" subsystems:
+FrontPanel 6.1.0 provides two distinct HDL endpoint families for FPGA data
+operations:
 
-1. **Classic Data Port** (`FPGADataPortClassic`) — traditional FrontPanel wire/trigger/pipe/register operations
-2. **AXI Data Port** (`FPGADataPortAXI`) — AXI-based operations with three sub-interfaces:
+1. **Classic Endpoints** (`FPGADataPortClassic`) — traditional FrontPanel wire/trigger/pipe/register operations using discrete `okWireIn`, `okWireOut`, `okTriggerIn`, `okTriggerOut`, `okPipeIn`, `okPipeOut` HDL modules.
+2. **AXI Endpoints** (`FPGADataPortAXI`) — memory-mapped and streaming operations via `okRegisterBridge` with three sub-interfaces:
    - `AXILite` — single/bulk register read/write
    - `AXIFull` — bulk memory-mapped read/write
    - `AXIStream` — streaming data transfers
 
 Device-level operations (configure FPGA, get device info, get sensors/settings, PLL, flash) remain on the `FrontPanel` device handle. Data operations (wires, triggers, pipes, registers) are accessed through a data port obtained *after* FPGA configuration via `GetFPGADataPortClassic()` or `GetFPGADataPortAXI()`.
 
-The data port type depends on the FPGA's gateware and the device family:
-- `okTDeviceInfo.dataport == OK_DATAPORT_LEGACY (1)` → Classic
-- `okTDeviceInfo.dataport == OK_DATAPORT_AXI (2)` → AXI
+### Important: `okTDeviceInfo.dataport` vs HDL Endpoint Availability
+
+The field `okTDeviceInfo.dataport` (`okEDataport`) describes the **physical host
+interface** (transport layer), NOT which HDL endpoint families are available:
+
+| Value | Name | Meaning |
+|-------|------|---------|
+| 0 | `OK_DATAPORT_UNKNOWN` | Unknown or not yet determined |
+| 1 | `OK_DATAPORT_LEGACY` | FrontPanel Gen1/Gen2 USB host interface |
+| 2 | `OK_DATAPORT_AXI` | FrontPanel Gen3 USB host interface |
+
+This value does **NOT** determine whether Classic or AXI API calls can be used.
+A single bitfile can implement **both** Classic endpoints and AXI-mapped endpoints
+simultaneously. For example, Opal Kelly's `Counters.bit` uses:
+
+- **Classic path**: `okWireIn` (0x00), `okTriggerIn` (0x40), `okWireOut` (0x20-0x22),
+  `okTriggerOut` (0x60-0x61) wired directly to counter control/readback logic.
+- **AXI path**: `okRegisterBridge` decodes 32-bit addresses (0x0000, 0x0020, 0x0040,
+  0x0060) to read/write the same counter registers via memory-mapped semantics.
+
+Both paths run in parallel inside the FPGA fabric on the shared `okHost` bus,
+manipulating the same underlying counter signals.
 
 ## Decision
 
@@ -55,10 +75,13 @@ pub struct AXIDataPort { /* wraps okFPGADataPortAXI_HANDLE */ }
 impl DataPort for ClassicDataPort {}
 impl DataPort for AXIDataPort {}
 
-// The device knows which data port type it has
+// The device tracks which data port handles have been obtained.
+// Note: A device can have BOTH Classic and AXI ports active simultaneously
+// if the loaded bitfile implements both endpoint families.
 pub enum ActiveDataPort {
     Classic(ClassicDataPort),
     AXI(AXIDataPort),
+    Both(ClassicDataPort, AXIDataPort), // Bitfile implements both
     None, // FPGA not yet configured
 }
 ```
@@ -112,18 +135,51 @@ Obtained via:
 
 ### API exposure
 
-Both REST and gRPC APIs will provide operations for both Classic and AXI data ports. The API layer will route to the correct data port based on the device's `dataport` field from `okTDeviceInfo`. If a client attempts a Classic operation on an AXI-only device (or vice versa), the server returns a clear error.
+Both REST and gRPC APIs expose operations for **both** Classic and AXI endpoint
+families unconditionally. The server does **not** gate API routes based on the
+`okTDeviceInfo.dataport` field (which describes the physical host interface, not
+HDL endpoint availability).
+
+The server attempts the requested FFI call regardless of the reported dataport type.
+If the loaded bitfile does not implement the requested endpoint family, the
+FrontPanel API returns an error code (e.g., `ok_UnsupportedFeature`), which the
+server maps to an appropriate HTTP/gRPC error response.
 
 ## Consequences
 
 ### Positive
-- **Type safety** — Rust's type system prevents calling Classic operations on an AXI device at compile time within the core layer
-- **Clean API** — clients see a unified device with the correct operations for its data port type
+- **No artificial restrictions** — clients can use both Classic and AXI endpoints
+  when the loaded bitfile supports both (e.g., Counters.bit)
+- **Clean API** — clients see a unified device with all data port operations
+  available; the FrontPanel API returns clear errors for unsupported operations
 - **Correct ownership** — data port lifetime tied to device lifetime
 
 ### Negative
-- **Dual API surface** — both Classic and AXI methods must be exposed in REST and gRPC, roughly doubling the data-path endpoint count
-- **Runtime dispatch** — the `ActiveDataPort` enum requires runtime checks when routing from the API layer
+- **Dual API surface** — both Classic and AXI methods are always exposed in REST
+  and gRPC, roughly doubling the data-path endpoint count
+- **Runtime errors** — unsupported operations fail at runtime (FFI error) rather
+  than at compile time or route-registration time
+
+## Addendum A: Dataport Field Clarification (2026-08-17)
+
+The original ADR incorrectly stated that `okTDeviceInfo.dataport` determines whether
+Classic or AXI API calls can be used. This has been corrected above.
+
+**Key clarification**: `okTDeviceInfo.dataport` (`okEDataport`) describes the
+**physical host interface** type:
+- `OK_DATAPORT_LEGACY (1)` = FP-Gen1/Gen2-USB transport
+- `OK_DATAPORT_AXI (2)` = FP-Gen3-USB transport
+
+This is a **transport layer** property, independent of which HDL endpoint families
+(Classic wires/triggers vs AXI register bridge) are instantiated in the loaded
+bitfile. Inside the FPGA:
+
+1. The **okHost** bus connects to the physical interface
+2. Classic endpoints (`okWireIn`, `okTriggerIn`, etc.) and `okRegisterBridge`
+   (AXI path) attach to the **same** okHost bus in parallel
+3. Both endpoint families can coexist in a single bitfile
+
+The server therefore does not restrict API access based on this field.
 
 ## References
 

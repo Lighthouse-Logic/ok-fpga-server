@@ -130,6 +130,10 @@ All decisions are recorded as ADRs in `docs/architecture/adr/`:
 | [ADR-012](adr/ADR-012-mdns-discovery.md) | mDNS/DNS-SD Service Discovery | Accepted |
 | [ADR-013](adr/ADR-013-device-scanner.md) | Device Scanner — FFI→DeviceManager Bridge | Accepted |
 | [ADR-014](adr/ADR-014-example-clients.md) | Example Client Architecture & E2E Testing | Accepted |
+| [ADR-015](adr/ADR-015-http-method-semantics.md) | HTTP Method Semantics — POST vs PUT | Accepted |
+| [ADR-016](adr/ADR-016-hardware-integration-testing.md) | Hardware Integration Testing & Client-Side Resource Registration | Accepted |
+| [ADR-017](adr/ADR-017-ffi-endpoint-wiring.md) | FFI Endpoint Wiring Strategy | Accepted |
+| [ADR-018](adr/ADR-018-device-handle-pool.md) | Device Handle Pool — Persistent Per-Device FFI Access | Accepted |
 
 ## 6. Technology Stack
 

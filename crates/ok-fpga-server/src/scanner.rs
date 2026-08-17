@@ -84,6 +84,14 @@ impl DeviceScanner {
         }
     }
 
+    /// Returns a clone of the `Arc<FrontPanelDll>` held by this scanner.
+    ///
+    /// This allows the `DeviceHandlePool` to share the same loaded DLL
+    /// instance rather than loading it a second time.
+    pub fn dll(&self) -> Arc<FrontPanelDll> {
+        self.dll.clone()
+    }
+
     /// Enumerate all connected FPGA devices and return their info.
     ///
     /// This performs a **point-in-time snapshot** using the `FrontPanelDevices`

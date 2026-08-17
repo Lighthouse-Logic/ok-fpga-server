@@ -198,6 +198,25 @@ An FPGA can only be reprogrammed if it is not `InUse` (no resources currently he
 - **Resource auto-discovery** — if bitfiles include metadata describing their resources
 - **Fine-grained locking** — per-endpoint or per-register locking rather than whole-resource
 
+## Addendum A: Client-Side Resource Registration (2026-08-17)
+
+See [ADR-016](ADR-016-hardware-integration-testing.md) for full design.
+
+The original ADR stated resources are "defined by the developer/integrator" but did
+not specify the creation mechanism. ADR-016 resolves this:
+
+- **The client creates resources** via `POST /api/v1/resources` after programming a
+  bitfile. The server remains agnostic to bitfile capabilities.
+- **The client deletes resources** via `DELETE /api/v1/resources/{resource_id}` when
+  cleaning up before reprogramming or disconnecting.
+- **Server auto-transitions**: On FPGA disconnect, resources transition to
+  `Unavailable` (but are not deleted). On reprogramming, old resources transition to
+  `Unavailable` and the client is expected to delete/recreate them.
+
+This approach aligns with the original design principle that the server does not
+know what a bitfile is capable of — only the integrator/client has that knowledge.
+
 ## References
 
 - [Project Goals — Resource Model](../../ok-FPGA-Server_Project-goals.txt) — lines 3-4
+- [ADR-016 — Hardware Integration Testing & Resource Registration](ADR-016-hardware-integration-testing.md)

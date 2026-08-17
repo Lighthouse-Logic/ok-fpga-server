@@ -1,16 +1,19 @@
 //! # Data Port Abstractions — Classic vs AXI
 //!
 //! This module defines the data port types from ADR-003. After an FPGA is
-//! configured with a bitfile, it exposes one of two data port types:
+//! configured with a bitfile, it may expose one or both of two HDL endpoint
+//! families:
 //!
 //! - **Classic Data Port** — traditional FrontPanel wire/trigger/pipe/register
-//!   operations (19 methods).
-//! - **AXI Data Port** — AXI-based operations with three sub-interfaces:
-//!   AXI-Lite, AXI-Full, and AXI-Stream.
+//!   operations (19 methods) via `okWireIn`, `okTriggerIn`, etc.
+//! - **AXI Data Port** — memory-mapped and streaming operations via
+//!   `okRegisterBridge` with sub-interfaces: AXI-Lite, AXI-Full, AXI-Stream.
 //!
-//! The data port type is determined by `okTDeviceInfo.dataport`:
-//! - `OK_DATAPORT_LEGACY (1)` → Classic
-//! - `OK_DATAPORT_AXI (2)` → AXI
+//! **Important**: The `okTDeviceInfo.dataport` field describes the **physical
+//! host interface** (FP-Gen1/2 USB vs FP-Gen3 USB), NOT which endpoint
+//! families the bitfile implements. A single bitfile can implement both
+//! Classic and AXI endpoints simultaneously on the shared `okHost` bus.
+//! See ADR-003 Addendum A for details.
 //!
 //! ## Ownership
 //!
@@ -34,21 +37,31 @@ pub trait DataPort: Send {}
 // ActiveDataPort Enum
 // ============================================================================
 
-/// Represents which data port a device currently exposes.
+/// Represents which data port endpoint families a device currently exposes.
 ///
-/// A device has exactly one active data port type (or none if not yet
-/// configured). This enum is used by `FpgaDevice` to track the current
-/// data port after FPGA configuration.
+/// A device may expose Classic endpoints, AXI endpoints, both, or neither
+/// (if not yet configured). The available families depend on the loaded
+/// bitfile's HDL design, NOT on the `okTDeviceInfo.dataport` field.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ActiveDataPort {
     /// No data port — FPGA is not yet configured.
     None,
 
-    /// Classic FrontPanel data port.
+    /// Only Classic FrontPanel endpoints are available.
     Classic(ClassicPortInfo),
 
-    /// AXI data port.
+    /// Only AXI endpoints are available.
     Axi(AXIPortInfo),
+
+    /// Both Classic and AXI endpoints are available simultaneously.
+    /// This is the case for bitfiles that implement both `okWireIn`/etc.
+    /// and `okRegisterBridge` on the shared `okHost` bus.
+    Both {
+        /// Classic endpoint metadata.
+        classic: ClassicPortInfo,
+        /// AXI endpoint metadata.
+        axi: AXIPortInfo,
+    },
 }
 
 impl ActiveDataPort {

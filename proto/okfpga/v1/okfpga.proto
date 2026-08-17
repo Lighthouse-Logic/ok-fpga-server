@@ -77,11 +77,15 @@ enum FPGAVendor {
   FPGA_VENDOR_INTEL = 2;
 }
 
-// The type of data port available after FPGA configuration.
+// Physical host interface (transport layer) for a device.
+// This describes the USB host-side data transport, NOT which HDL endpoint
+// families (Classic wires/triggers vs AXI register bridge) the bitfile implements.
+// A bitfile can implement both Classic and AXI endpoints simultaneously.
+// See ADR-003 Addendum A.
 enum DataportType {
   DATAPORT_UNKNOWN = 0;
-  DATAPORT_LEGACY = 1;   // Classic wire/trigger/pipe/register
-  DATAPORT_AXI = 2;      // AXI Lite/Full/Stream
+  DATAPORT_LEGACY = 1;   // FP-Gen1/Gen2 USB host interface
+  DATAPORT_AXI = 2;      // FP-Gen3 USB host interface
 }
 
 // State of a user-defined resource exposed by a programmed FPGA.
@@ -874,6 +878,22 @@ message ReleaseResourceRequest {
   string user_id = 2;
 }
 
+// Request to create a new resource for a programmed FPGA.
+// The client creates resources after programming a bitfile, since the client
+// knows what capabilities the bitfile exposes. See ADR-016.
+message CreateResourceRequest {
+  // Human-readable resource name (e.g., "xem7320-classic-counters").
+  string name = 1;
+  // Optional description of the resource.
+  string description = 2;
+  // Serial of the FPGA that provides this resource.
+  string device_serial = 3;
+  // Resource type identifier (e.g., "classic", "axi", "dsp").
+  string resource_type = 4;
+  // List of capabilities this resource provides.
+  repeated string capabilities = 5;
+}
+
 // ============================================================================
 // Request/Response Messages — Users
 // ============================================================================
@@ -999,6 +1019,14 @@ service DeviceService {
   // Get details for a specific resource.
   rpc GetResource(ResourceRequest) returns (ResourceResponse);
 
+  // Create a new resource for a programmed FPGA.
+  // The client creates resources after programming a bitfile. See ADR-016.
+  rpc CreateResource(CreateResourceRequest) returns (ResourceResponse);
+
+  // Delete a resource definition.
+  // Returns an error if the resource is currently held by any user.
+  rpc DeleteResource(ResourceRequest) returns (StatusResponse);
+
   // Acquire a resource in shared or exclusive mode.
   rpc AcquireResource(AcquireResourceRequest) returns (ResourceResponse);
 
@@ -1015,8 +1043,10 @@ service DeviceService {
 }
 
 // ClassicDataPortService handles FrontPanel Classic wire, trigger, pipe,
-// and register operations. These are only available on devices with
-// dataport == DATAPORT_LEGACY after FPGA configuration.
+// and register operations using discrete okWireIn/okTriggerIn/etc. HDL modules.
+// These endpoints are available when the loaded bitfile instantiates Classic
+// endpoint modules on the okHost bus. The server does NOT gate access based
+// on okTDeviceInfo.dataport (which describes the physical USB transport).
 service ClassicDataPortService {
   // Reset the FPGA (equivalent to pressing the reset button).
   rpc ResetFPGA(DeviceRequest) returns (StatusResponse);
@@ -1085,8 +1115,9 @@ service ClassicDataPortService {
 }
 
 // AXIDataPortService handles FrontPanel AXI Lite, Full, and Stream
-// operations. These are only available on devices with
-// dataport == DATAPORT_AXI after FPGA configuration.
+// operations via okRegisterBridge. These endpoints are available when the
+// loaded bitfile instantiates okRegisterBridge on the okHost bus. The server
+// does NOT gate access based on okTDeviceInfo.dataport.
 service AXIDataPortService {
   // --- AXI Lite ---
 

@@ -122,6 +122,18 @@ impl OkFpgaRestClient {
         Ok(resp.json().await?)
     }
 
+    /// Internal helper: perform a DELETE request.
+    async fn delete_req(&self, path: &str) -> Result<(), ClientError> {
+        let url = format!("{}{}", self.base_url, path);
+        let resp = self.client.delete(&url).send().await?;
+        let status = resp.status().as_u16();
+        if status >= 400 {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ClientError::Server { status, body });
+        }
+        Ok(())
+    }
+
     // ========================================================================
     // Server Endpoints (/server/*)
     // ========================================================================
@@ -243,7 +255,9 @@ impl OkFpgaRestClient {
     // Classic Data Port Endpoints (/devices/{serial}/classic/*)
     // ========================================================================
 
-    /// `POST /devices/{serial}/classic/wires/in` — Set a WireIn value.
+    /// `PUT /devices/{serial}/classic/wires/in` — Set a WireIn value.
+    ///
+    /// This is a PUT (idempotent state assignment per ADR-015).
     pub async fn set_wire_in(
         &self,
         serial: &str,
@@ -255,7 +269,7 @@ impl OkFpgaRestClient {
         if let Some(m) = mask {
             body["mask"] = serde_json::json!(m);
         }
-        self.post(&format!("/devices/{}/classic/wires/in", serial), Some(body)).await
+        self.put(&format!("/devices/{}/classic/wires/in", serial), body).await
     }
 
     /// `GET /devices/{serial}/classic/wires/out` — Read WireOut values.
@@ -349,7 +363,9 @@ impl OkFpgaRestClient {
         self.post(&format!("/devices/{}/classic/registers/read", serial), Some(body)).await
     }
 
-    /// `POST /devices/{serial}/classic/registers/write` — Write registers.
+    /// `PUT /devices/{serial}/classic/registers/write` — Write registers.
+    ///
+    /// This is a PUT (idempotent state assignment per ADR-015).
     pub async fn write_register(
         &self,
         serial: &str,
@@ -357,7 +373,7 @@ impl OkFpgaRestClient {
         value: u32,
     ) -> Result<Value, ClientError> {
         let body = serde_json::json!({ "address": address, "value": value });
-        self.post(&format!("/devices/{}/classic/registers/write", serial), Some(body)).await
+        self.put(&format!("/devices/{}/classic/registers/write", serial), body).await
     }
 
     /// `POST /devices/{serial}/classic/reset` — Reset the FPGA.
@@ -379,7 +395,9 @@ impl OkFpgaRestClient {
         self.post(&format!("/devices/{}/axi/lite/read", serial), Some(body)).await
     }
 
-    /// `POST /devices/{serial}/axi/lite/write` — AXI Lite write.
+    /// `PUT /devices/{serial}/axi/lite/write` — AXI Lite write.
+    ///
+    /// This is a PUT (idempotent state assignment per ADR-015).
     pub async fn axi_lite_write(
         &self,
         serial: &str,
@@ -387,7 +405,7 @@ impl OkFpgaRestClient {
         value: u32,
     ) -> Result<Value, ClientError> {
         let body = serde_json::json!({ "address": address, "value": value });
-        self.post(&format!("/devices/{}/axi/lite/write", serial), Some(body)).await
+        self.put(&format!("/devices/{}/axi/lite/write", serial), body).await
     }
 
     /// `POST /devices/{serial}/axi/lite/reset` — AXI Lite reset.
@@ -494,6 +512,45 @@ impl OkFpgaRestClient {
     ) -> Result<Value, ClientError> {
         let body = serde_json::json!({ "user_id": user_id });
         self.post(&format!("/resources/{}/release", resource_id), Some(body)).await
+    }
+
+    /// `POST /resources` — Create a new resource (ADR-016).
+    ///
+    /// # Arguments
+    /// * `name` — Human-readable resource name
+    /// * `device_serial` — Serial of the FPGA providing this resource
+    /// * `description` — Optional description
+    /// * `resource_type` — Optional type identifier (e.g., "classic", "axi")
+    /// * `capabilities` — Optional list of capabilities
+    pub async fn create_resource(
+        &self,
+        name: &str,
+        device_serial: &str,
+        description: Option<&str>,
+        resource_type: Option<&str>,
+        capabilities: Option<Vec<&str>>,
+    ) -> Result<Value, ClientError> {
+        let mut body = serde_json::json!({
+            "name": name,
+            "device_serial": device_serial,
+        });
+        if let Some(desc) = description {
+            body["description"] = serde_json::json!(desc);
+        }
+        if let Some(rt) = resource_type {
+            body["resource_type"] = serde_json::json!(rt);
+        }
+        if let Some(caps) = capabilities {
+            body["capabilities"] = serde_json::json!(caps);
+        }
+        self.post("/resources", Some(body)).await
+    }
+
+    /// `DELETE /resources/{resource_id}` — Delete a resource (ADR-016).
+    ///
+    /// Returns 409 if the resource is currently held by any user.
+    pub async fn delete_resource(&self, resource_id: &str) -> Result<(), ClientError> {
+        self.delete_req(&format!("/resources/{}", resource_id)).await
     }
 
     // ========================================================================

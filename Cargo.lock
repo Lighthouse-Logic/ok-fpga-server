@@ -836,6 +836,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
+ "base64",
  "chrono",
  "hostname",
  "mdns-sd",

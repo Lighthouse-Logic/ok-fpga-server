@@ -491,7 +491,11 @@ paths:
     get:
       tags: [Devices]
       summary: Get data port type
-      description: Returns the data port type (classic, axi, or none if not configured).
+      description: |
+        Returns the physical host interface (transport layer) type for this device.
+        This describes the USB host-side transport (Gen1/Gen2 vs Gen3), NOT which
+        HDL endpoint families (Classic or AXI) the loaded bitfile supports.
+        A bitfile can implement both Classic and AXI endpoints simultaneously.
       operationId: getDataportType
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -505,16 +509,20 @@ paths:
                 properties:
                   dataport:
                     type: string
-                    enum: [unknown, classic, axi, none]
-                    description: The data port type for this device
+                    enum: [unknown, legacy, axi]
+                    description: Physical host interface type (legacy=FP-Gen1/2-USB, axi=FP-Gen3-USB)
 
   # ---- Classic Data Port ----
 
   /devices/{serial}/classic/wires/in:
-    post:
+    put:
       tags: [Classic Data Port]
       summary: Set WireIn value
-      description: Sets a WireIn endpoint value with an optional bitmask and optionally triggers UpdateWireIns.
+      description: |
+        Sets a WireIn endpoint value with an optional bitmask and optionally
+        triggers UpdateWireIns. This is an idempotent state assignment (PUT)
+        per ADR-015 — setting endpoint 0x00 to value 0xFF produces the same
+        hardware state regardless of how many times it is called.
       operationId: setWireInValue
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -532,7 +540,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StatusResponse'
         '400':
-          description: Invalid endpoint or device does not have Classic data port
+          description: Invalid endpoint address or request body
           content:
             application/json:
               schema:
@@ -770,10 +778,13 @@ paths:
                       $ref: '#/components/schemas/RegisterEntry'
 
   /devices/{serial}/classic/registers/write:
-    post:
+    put:
       tags: [Classic Data Port]
       summary: Write registers
-      description: Writes one or more register address-data pairs. Supports single and bulk writes.
+      description: |
+        Writes one or more register address-data pairs. This is an idempotent
+        state assignment (PUT) per ADR-015 — writing address 0x04 = 0xDEADBEEF
+        produces the same hardware state regardless of repetition.
       operationId: writeRegisters
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -838,10 +849,12 @@ paths:
                 $ref: '#/components/schemas/AXILiteReadResponse'
 
   /devices/{serial}/axi/lite/write:
-    post:
+    put:
       tags: [AXI Data Port]
       summary: AXI Lite write
-      description: Writes a single 32-bit value or bulk values to an AXI Lite address.
+      description: |
+        Writes a single 32-bit value or bulk values to an AXI Lite address.
+        This is an idempotent state assignment (PUT) per ADR-015.
       operationId: axiLiteWrite
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -1075,6 +1088,51 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Resource'
+    post:
+      tags: [Resources]
+      summary: Create a resource
+      description: |
+        Creates a new resource for a programmed FPGA. The client creates resources
+        after programming a bitfile, since the client knows what capabilities the
+        bitfile exposes. The server validates that the referenced device exists
+        and is programmed. See ADR-016.
+      operationId: createResource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateResourceRequest'
+      responses:
+        '201':
+          description: Resource created
+          headers:
+            Location:
+              description: URI of the created resource
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resource'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '404':
+          description: Referenced device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '409':
+          description: Resource already exists or FPGA is not programmed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
 
   /resources/{resource_id}:
     get:
@@ -1092,6 +1150,30 @@ paths:
                 $ref: '#/components/schemas/Resource'
         '404':
           description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+    delete:
+      tags: [Resources]
+      summary: Delete a resource
+      description: |
+        Deletes a resource definition. Returns 409 if the resource is currently
+        held by any user. See ADR-016.
+      operationId: deleteResource
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      responses:
+        '204':
+          description: Resource deleted
+        '404':
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '409':
+          description: Resource is currently held by one or more users
           content:
             application/json:
               schema:
@@ -1634,6 +1716,29 @@ components:
           format: int64
 
     # ---- Resources ----
+
+    CreateResourceRequest:
+      type: object
+      description: Request body for creating a new resource (ADR-016).
+      required: [name, device_serial]
+      properties:
+        name:
+          type: string
+          description: Human-readable resource name (e.g., "xem7320-classic-counters")
+        description:
+          type: string
+          description: Optional description of the resource
+        device_serial:
+          type: string
+          description: Serial of the FPGA that provides this resource
+        resource_type:
+          type: string
+          description: Resource type identifier (e.g., "classic", "axi", "dsp")
+        capabilities:
+          type: array
+          items:
+            type: string
+          description: List of capabilities this resource provides
 
     Resource:
       type: object

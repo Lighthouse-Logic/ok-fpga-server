@@ -68,6 +68,9 @@ anyhow = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
 
+# Base64 encoding/decoding for pipe data transfer in REST handlers.
+base64 = "0.22"
+
 # TOML parsing for server configuration files.
 toml = "0.8"
 

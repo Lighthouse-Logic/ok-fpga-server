@@ -149,3 +149,65 @@ class OkFpgaGrpcClient:
                 serial=serial, address=address, value=value
             )
         )
+
+    # ========================================================================
+    # Resource RPCs (ADR-016)
+    # ========================================================================
+
+    async def list_resources(self):
+        """List all registered resources."""
+        return await self._device.ListResources(
+            okfpga_pb2.ListResourcesRequest()
+        )
+
+    async def get_resource(self, resource_id: str):
+        """Get a specific resource by ID."""
+        return await self._device.GetResource(
+            okfpga_pb2.ResourceRequest(resource_id=resource_id)
+        )
+
+    async def create_resource(
+        self,
+        name: str,
+        device_serial: str,
+        description: str = "",
+        resource_type: str = "",
+    ):
+        """Create a new resource (ADR-016).
+
+        Args:
+            name: Human-readable resource name.
+            device_serial: Serial of the FPGA providing this resource.
+            description: Optional description.
+            resource_type: Optional type identifier.
+        """
+        return await self._device.CreateResource(
+            okfpga_pb2.CreateResourceRequest(
+                name=name,
+                device_serial=device_serial,
+                description=description,
+                resource_type=resource_type,
+            )
+        )
+
+    async def delete_resource(self, resource_id: str):
+        """Delete a resource (ADR-016)."""
+        return await self._device.DeleteResource(
+            okfpga_pb2.ResourceRequest(resource_id=resource_id)
+        )
+
+    async def acquire_resource(self, resource_id: str, user_id: str, mode: str = "exclusive"):
+        """Acquire a resource."""
+        return await self._device.AcquireResource(
+            okfpga_pb2.AcquireResourceRequest(
+                resource_id=resource_id, user_id=user_id, mode=mode
+            )
+        )
+
+    async def release_resource(self, resource_id: str, user_id: str):
+        """Release a resource."""
+        return await self._device.ReleaseResource(
+            okfpga_pb2.ReleaseResourceRequest(
+                resource_id=resource_id, user_id=user_id
+            )
+        )

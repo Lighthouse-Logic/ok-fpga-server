@@ -371,6 +371,24 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         ))
     }
 
+    async fn create_resource(
+        &self,
+        _request: Request<proto::CreateResourceRequest>,
+    ) -> Result<Response<proto::ResourceResponse>, Status> {
+        Err(Status::unimplemented(
+            "CreateResource requires resource registry integration (ADR-016)",
+        ))
+    }
+
+    async fn delete_resource(
+        &self,
+        _request: Request<proto::ResourceRequest>,
+    ) -> Result<Response<proto::StatusResponse>, Status> {
+        Err(Status::unimplemented(
+            "DeleteResource requires resource registry integration (ADR-016)",
+        ))
+    }
+
     // ========================================================================
     // Users
     // ========================================================================
