@@ -919,6 +919,27 @@ message UserResponse {
   ErrorCluster error = 2;
 }
 
+// Heartbeat / liveness ping (ADR-020 §5).
+// Clients should send this periodically to keep their session alive.
+message PingRequest {
+  // User identifier sending the heartbeat.
+  string user_id = 1;
+}
+
+message PingResponse {
+  // Server timestamp (ISO 8601) when the ping was received.
+  string server_time = 1;
+  ErrorCluster error = 2;
+}
+
+// Lock/unlock a shared resource (ADR-020 §3).
+message LockResourceRequest {
+  // Resource identifier.
+  string resource_id = 1;
+  // User requesting the lock.
+  string user_id = 2;
+}
+
 // ============================================================================
 // Service Definitions
 // ============================================================================
@@ -1033,6 +1054,12 @@ service DeviceService {
   // Release a previously acquired resource.
   rpc ReleaseResource(ReleaseResourceRequest) returns (StatusResponse);
 
+  // Lock a shared resource for exclusive use by a holder (ADR-020 §3).
+  rpc LockResource(LockResourceRequest) returns (ResourceResponse);
+
+  // Unlock a previously locked shared resource (ADR-020 §3).
+  rpc UnlockResource(LockResourceRequest) returns (ResourceResponse);
+
   // --- Users ---
 
   // List all connected users and their held resources.
@@ -1040,6 +1067,12 @@ service DeviceService {
 
   // Get details for a specific user.
   rpc GetUser(UserRequest) returns (UserResponse);
+
+  // --- Heartbeat ---
+
+  // Heartbeat / liveness ping (ADR-020 §5).
+  // Clients should call this periodically to keep their session alive.
+  rpc Ping(PingRequest) returns (PingResponse);
 }
 
 // ClassicDataPortService handles FrontPanel Classic wire, trigger, pipe,

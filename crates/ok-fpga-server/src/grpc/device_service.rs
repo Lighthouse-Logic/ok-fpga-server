@@ -524,4 +524,105 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             "GetUser requires user session integration",
         ))
     }
+
+    // ========================================================================
+    // Lock / Unlock (ADR-020 §3)
+    // ========================================================================
+
+    async fn lock_resource(
+        &self,
+        request: Request<proto::LockResourceRequest>,
+    ) -> Result<Response<proto::ResourceResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.resource_id.is_empty() {
+            return Err(Status::invalid_argument("resource_id is required"));
+        }
+        if req.user_id.is_empty() {
+            return Err(Status::invalid_argument("user_id is required"));
+        }
+
+        self.state
+            .resource_registry
+            .lock(&req.resource_id, &req.user_id)
+            .map_err(|e| Status::failed_precondition(e))?;
+
+        let resource = self
+            .state
+            .resource_registry
+            .get(&req.resource_id)
+            .ok_or_else(|| Status::internal("Resource disappeared after lock"))?;
+
+        Ok(Response::new(proto::ResourceResponse {
+            resource: Some(Self::resource_to_proto(&resource)),
+            error: Some(proto::ErrorCluster {
+                status: false,
+                code: 0,
+                source: String::new(),
+            }),
+        }))
+    }
+
+    async fn unlock_resource(
+        &self,
+        request: Request<proto::LockResourceRequest>,
+    ) -> Result<Response<proto::ResourceResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.resource_id.is_empty() {
+            return Err(Status::invalid_argument("resource_id is required"));
+        }
+        if req.user_id.is_empty() {
+            return Err(Status::invalid_argument("user_id is required"));
+        }
+
+        self.state
+            .resource_registry
+            .unlock(&req.resource_id, &req.user_id)
+            .map_err(|e| Status::failed_precondition(e))?;
+
+        let resource = self
+            .state
+            .resource_registry
+            .get(&req.resource_id)
+            .ok_or_else(|| Status::internal("Resource disappeared after unlock"))?;
+
+        Ok(Response::new(proto::ResourceResponse {
+            resource: Some(Self::resource_to_proto(&resource)),
+            error: Some(proto::ErrorCluster {
+                status: false,
+                code: 0,
+                source: String::new(),
+            }),
+        }))
+    }
+
+    // ========================================================================
+    // Heartbeat / Liveness (ADR-020 §5)
+    // ========================================================================
+
+    async fn ping(
+        &self,
+        request: Request<proto::PingRequest>,
+    ) -> Result<Response<proto::PingResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.user_id.is_empty() {
+            return Err(Status::invalid_argument("user_id is required"));
+        }
+
+        // TODO(ADR-020 §5): Update user session's `last_seen_at` here
+        // when user session tracking is implemented.
+
+        let server_time = chrono::Utc::now().to_rfc3339();
+
+        Ok(Response::new(proto::PingResponse {
+            server_time,
+            error: Some(proto::ErrorCluster {
+                status: false,
+                code: 0,
+                source: String::new(),
+            }),
+        }))
+    }
 }

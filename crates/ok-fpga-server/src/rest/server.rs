@@ -9,7 +9,7 @@ use axum::extract::Path;
 use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use ok_fpga_core::service::ServiceInfo;
 
@@ -25,6 +25,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/server/services/{name}/start", post(start_service))
         .route("/server/services/{name}/stop", post(stop_service))
         .route("/server/services/{name}/restart", post(restart_service))
+        .route("/heartbeat", post(heartbeat))
 }
 
 // ============================================================================
@@ -147,4 +148,48 @@ async fn restart_service(
         .ok_or_else(|| ProblemDetail::not_found(format!("service '{}' not found", name)))?;
 
     Ok((axum::http::StatusCode::ACCEPTED, Json(info)))
+}
+
+// ============================================================================
+// Heartbeat / Liveness (ADR-020 §5)
+// ============================================================================
+
+/// Request body for the heartbeat endpoint.
+#[derive(Deserialize)]
+struct HeartbeatRequest {
+    /// User identifier sending the heartbeat.
+    user_id: String,
+}
+
+/// Response body for the heartbeat endpoint.
+#[derive(Serialize)]
+struct HeartbeatResponse {
+    /// Server timestamp (ISO 8601) when the ping was received.
+    server_time: String,
+    /// User ID that was pinged (echoed back for confirmation).
+    user_id: String,
+}
+
+/// `POST /heartbeat` — User liveness heartbeat (ADR-020 §5).
+///
+/// Clients should call this periodically to keep their session alive.
+/// The server responds with the current server time. In the future, this
+/// will update the user session's `last_seen_at` timestamp.
+async fn heartbeat(
+    State(_state): State<Arc<AppState>>,
+    Json(body): Json<HeartbeatRequest>,
+) -> Result<Json<HeartbeatResponse>, ProblemDetail> {
+    if body.user_id.is_empty() {
+        return Err(ProblemDetail::bad_request("user_id is required"));
+    }
+
+    // TODO(ADR-020 §5): Update user session's `last_seen_at` here
+    // when user session tracking is implemented.
+
+    let server_time = chrono::Utc::now().to_rfc3339();
+
+    Ok(Json(HeartbeatResponse {
+        server_time,
+        user_id: body.user_id,
+    }))
 }
