@@ -1,3 +1,4 @@
+#![cfg(feature = "mqtt")]
 //! MQTT Integration Test
 //!
 //! Verifies that the ok-fpga-server MQTT message format works correctly
