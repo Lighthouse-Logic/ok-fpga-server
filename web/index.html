@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ok-FPGA-Server Web Dashboard — Monitor and manage Opal Kelly FPGA devices">
+    <title>ok-FPGA-Server Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- ================================================================== -->
+    <!-- Sidebar Navigation                                                  -->
+    <!-- ================================================================== -->
+    <nav id="sidebar" class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <div class="logo-icon">⬡</div>
+                <div class="logo-text">
+                    <span class="logo-title">ok-FPGA</span>
+                    <span class="logo-subtitle">Server Dashboard</span>
+                </div>
+            </div>
+        </div>
+        <ul class="nav-links">
+            <li><a href="#" class="nav-link active" data-page="overview" id="nav-overview">
+                <span class="nav-icon">◈</span> Overview
+            </a></li>
+            <li><a href="#" class="nav-link" data-page="devices" id="nav-devices">
+                <span class="nav-icon">▦</span> Devices
+            </a></li>
+            <li><a href="#" class="nav-link" data-page="resources" id="nav-resources">
+                <span class="nav-icon">⊞</span> Resources
+            </a></li>
+            <li><a href="#" class="nav-link" data-page="users" id="nav-users">
+                <span class="nav-icon">◉</span> Users
+            </a></li>
+            <li><a href="#" class="nav-link" data-page="services" id="nav-services">
+                <span class="nav-icon">⚙</span> Services
+            </a></li>
+            <li><a href="#" class="nav-link" data-page="logs" id="nav-logs">
+                <span class="nav-icon">≡</span> Logs
+            </a></li>
+        </ul>
+        <div class="sidebar-footer">
+            <div class="connection-status" id="ws-status">
+                <span class="status-dot disconnected"></span>
+                <span class="status-text">Connecting…</span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- ================================================================== -->
+    <!-- Main Content Area                                                   -->
+    <!-- ================================================================== -->
+    <main id="main-content" class="main-content">
+
+        <!-- ============================================================== -->
+        <!-- Overview Page                                                   -->
+        <!-- ============================================================== -->
+        <section id="page-overview" class="page active">
+            <header class="page-header">
+                <h1>Server Overview</h1>
+                <span class="page-badge" id="overview-version">v0.0.0</span>
+            </header>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon" style="--accent: var(--blue)">◈</div>
+                    <div class="stat-info">
+                        <span class="stat-label">Uptime</span>
+                        <span class="stat-value" id="stat-uptime">—</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon" style="--accent: var(--green)">▦</div>
+                    <div class="stat-info">
+                        <span class="stat-label">Devices</span>
+                        <span class="stat-value" id="stat-devices">0</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon" style="--accent: var(--purple)">⊞</div>
+                    <div class="stat-info">
+                        <span class="stat-label">Resources</span>
+                        <span class="stat-value" id="stat-resources">0</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon" style="--accent: var(--amber)">⚙</div>
+                    <div class="stat-info">
+                        <span class="stat-label">Platform</span>
+                        <span class="stat-value" id="stat-platform">—</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>Server Details</h2>
+                <table class="info-table" id="server-details-table">
+                    <tbody>
+                        <tr><td class="label">Version</td><td id="detail-version">—</td></tr>
+                        <tr><td class="label">FrontPanel</td><td id="detail-fp-version">—</td></tr>
+                        <tr><td class="label">Platform</td><td id="detail-platform">—</td></tr>
+                        <tr><td class="label">Compiled Features</td><td id="detail-features">—</td></tr>
+                        <tr><td class="label">Management Port</td><td id="detail-mgmt-port">—</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- Devices Page                                                    -->
+        <!-- ============================================================== -->
+        <section id="page-devices" class="page">
+            <header class="page-header">
+                <h1>FPGA Devices</h1>
+                <button class="btn btn-secondary" id="btn-refresh-devices">↻ Refresh</button>
+            </header>
+            <div class="panel">
+                <div class="empty-state" id="devices-empty">
+                    <span class="empty-icon">▦</span>
+                    <p>No FPGA devices connected</p>
+                    <p class="empty-hint">Connect an Opal Kelly board via USB3, PCIe, or Gen3</p>
+                </div>
+                <table class="data-table" id="devices-table" style="display:none">
+                    <thead>
+                        <tr>
+                            <th>Serial</th>
+                            <th>Product</th>
+                            <th>Interface</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="devices-tbody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- Resources Page                                                  -->
+        <!-- ============================================================== -->
+        <section id="page-resources" class="page">
+            <header class="page-header">
+                <h1>Resources</h1>
+            </header>
+            <div class="panel">
+                <div class="empty-state" id="resources-empty">
+                    <span class="empty-icon">⊞</span>
+                    <p>No resources registered</p>
+                    <p class="empty-hint">Resources appear after programming FPGAs with bitfiles</p>
+                </div>
+                <table class="data-table" id="resources-table" style="display:none">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Device</th>
+                            <th>State</th>
+                            <th>Holders</th>
+                        </tr>
+                    </thead>
+                    <tbody id="resources-tbody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- Users Page                                                      -->
+        <!-- ============================================================== -->
+        <section id="page-users" class="page">
+            <header class="page-header">
+                <h1>Connected Users</h1>
+            </header>
+            <div class="panel">
+                <div class="empty-state" id="users-empty">
+                    <span class="empty-icon">◉</span>
+                    <p>No users connected</p>
+                    <p class="empty-hint">Users appear when they acquire resources</p>
+                </div>
+                <table class="data-table" id="users-table" style="display:none">
+                    <thead>
+                        <tr>
+                            <th>User ID</th>
+                            <th>Resources Held</th>
+                            <th>Connected Since</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-tbody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- Services Page                                                   -->
+        <!-- ============================================================== -->
+        <section id="page-services" class="page">
+            <header class="page-header">
+                <h1>Service Management</h1>
+                <button class="btn btn-secondary" id="btn-refresh-services">↻ Refresh</button>
+            </header>
+            <div class="panel">
+                <table class="data-table" id="services-table">
+                    <thead>
+                        <tr>
+                            <th>Service</th>
+                            <th>Status</th>
+                            <th>Compiled</th>
+                            <th>Enabled</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="services-tbody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ============================================================== -->
+        <!-- Logs Page                                                       -->
+        <!-- ============================================================== -->
+        <section id="page-logs" class="page">
+            <header class="page-header">
+                <h1>Server Logs</h1>
+                <div class="log-controls">
+                    <label class="toggle" id="log-auto-scroll-toggle">
+                        <input type="checkbox" id="log-auto-scroll" checked>
+                        <span class="toggle-slider"></span>
+                        Auto-scroll
+                    </label>
+                    <button class="btn btn-secondary btn-sm" id="btn-clear-logs">Clear</button>
+                </div>
+            </header>
+            <div class="panel log-panel">
+                <div class="log-container" id="log-container">
+                    <div class="log-entry log-info">
+                        <span class="log-time">—</span>
+                        <span class="log-level">INFO</span>
+                        <span class="log-msg">Waiting for WebSocket connection…</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>

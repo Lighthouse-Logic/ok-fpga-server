@@ -69,6 +69,9 @@ mod config;
 /// Shared application state (device manager, service manager, etc.)
 mod state;
 
+/// Management server (always-on, serves dashboard + mgmt API on port 9090).
+mod management;
+
 /// REST API server module — only compiled when `rest` feature is enabled.
 #[cfg(feature = "rest")]
 mod rest;
@@ -145,6 +148,12 @@ async fn main() -> anyhow::Result<()> {
             "service state"
         );
     }
+    // Create the event broadcast channel for WebSocket.
+    let (event_tx, _) = tokio::sync::broadcast::channel::<String>(256);
+
+    // Start the management server (always-on, serves dashboard + mgmt API).
+    let cfg_arc = Arc::new(cfg);
+    start_management_server(&app_state, &cfg_arc, event_tx.clone()).await;
 
     info!("ok-FPGA-Server is ready. Press Ctrl+C to shut down.");
 
@@ -157,6 +166,51 @@ async fn main() -> anyhow::Result<()> {
 
     info!("ok-FPGA-Server shut down cleanly.");
     Ok(())
+}
+
+/// Start the management server (always-on).
+///
+/// This server runs for the entire lifetime of the process and cannot be
+/// stopped or restarted. It serves:
+/// - `/mgmt/*` — management API (service lifecycle, config, shutdown)
+/// - `/ws/events` — WebSocket event streaming
+/// - `/*` — web dashboard static files (when `dashboard` feature enabled)
+async fn start_management_server(
+    app_state: &Arc<AppState>,
+    config: &Arc<ServerConfig>,
+    event_tx: tokio::sync::broadcast::Sender<String>,
+) {
+    let mgmt_addr: std::net::SocketAddr = format!(
+        "{}:{}",
+        config.server.management_bind, config.server.management_port
+    )
+    .parse()
+    .expect("valid management bind address from config");
+
+    let router = management::build_management_router(
+        app_state.clone(),
+        config.clone(),
+        event_tx,
+    );
+
+    let listener = match tokio::net::TcpListener::bind(mgmt_addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!(address = %mgmt_addr, error = %e, "failed to bind management server");
+            return;
+        }
+    };
+
+    info!(
+        address = %mgmt_addr,
+        "management server started (dashboard + mgmt API)"
+    );
+
+    tokio::spawn(async move {
+        if let Err(e) = axum::serve(listener, router).await {
+            tracing::error!(error = %e, "management server error");
+        }
+    });
 }
 
 /// Initialize the `tracing` subscriber with the configured log level.

@@ -24,7 +24,9 @@ license.workspace = true
 default = ["rest", "dashboard"]
 
 # REST API server (Axum). Serves the OpenAPI-defined endpoints on port 8080.
-rest = ["dep:axum", "dep:tower", "dep:tower-http"]
+# The REST feature gates the REST API routes module, NOT Axum itself — Axum
+# is always required because the management server (always-on) uses it.
+rest = []
 
 # Web dashboard SPA served on the management port (9090).
 dashboard = []
@@ -65,16 +67,14 @@ async-trait = { workspace = true }
 # TOML parsing for server configuration files.
 toml = "0.8"
 
-# --- REST feature dependencies ---
+# Axum is the HTTP framework for BOTH the management server (always-on,
+# port 9090) and the REST API server (optional, port 8080).
+axum = { version = "0.8", features = ["ws"] }
 
-# Axum is our HTTP framework — it handles REST API routes and serves the
-# web dashboard's static files. Built on top of tokio and tower.
-axum = { version = "0.8", optional = true }
-
-# Tower provides middleware (logging, timeouts, CORS, etc.) that works
-# with both Axum (REST) and Tonic (gRPC).
-tower = { version = "0.5", optional = true }
-tower-http = { version = "0.6", features = ["fs", "cors", "trace"], optional = true }
+# Tower provides middleware (logging, timeouts, CORS, etc.) used by the
+# management server and REST API.
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
 
 # --- gRPC feature dependencies ---
 
