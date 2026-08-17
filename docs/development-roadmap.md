@@ -796,6 +796,144 @@ cargo test -p ok-fpga-ffi --test hardware -- --ignored --test-threads=1 --nocapt
 - [ ] `okREALM_TEST` Tier 1 tests — *deferred to Phase 15B*
 - [x] All existing tests still pass (155 tests)
 - [x] Committed with descriptive messages
+---
+
+## Phase 16: Example Clients & End-to-End Testing
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 6 (REST), Phase 5 (gRPC), Phase 10 (MQTT), Phase 11 (mDNS)  
+**ADR reference**: [ADR-014 — Example Client Architecture](architecture/adr/ADR-014-example-clients.md)
+
+### Overview
+
+Four standalone example clients (2 Rust, 2 Python) that discover the server via
+mDNS, exercise every REST endpoint and gRPC RPC, publish their status to MQTT,
+and serve as both working reference implementations and a rigorous test suite.
+
+All testing uses `--features full` on the server. No real FPGA/FFI is needed —
+clients use mock programming and mock resources to verify the protocol layer.
+
+### Sub-phases
+
+#### Phase 16A: Infrastructure & ADR
+
+**Status**: `[/]` In progress
+
+1. Create ADR-014 (example client architecture, MQTT topic schema, testing strategy)
+2. Create `client-examples/` directory structure
+3. Create top-level `README.md` with setup instructions
+4. Update `development-roadmap.md` and `overview.md`
+
+#### Phase 16B: Rust REST Client
+
+**Status**: `[ ]` Not started
+
+1. Create `client-examples/rust-rest-client/` Cargo project
+   - Dependencies: `reqwest`, `tokio`, `serde`, `serde_json`, `mdns-sd`, `rumqttc`, `clap`
+   - NOT part of the workspace (standalone project)
+2. Implement `OkFpgaRestClient` library (`lib.rs`):
+   - Methods for all 48 REST endpoints (grouped: server, device, classic, AXI, resource, user, events)
+   - Built against `/api/openapi.yaml` schema definitions
+   - Well-commented with endpoint URL, method, expected request/response
+3. Implement mDNS discovery (`discovery.rs`):
+   - Browse `_okfpga._tcp.local.`, extract TXT records
+   - Header comment noting sync with `rust-grpc-client/src/discovery.rs`
+4. Implement MQTT status publisher (`mqtt.rs`):
+   - Topic prefix: `okfpga-client/{client_id}/`
+   - Heartbeat, connection status, resource state
+   - Skip gracefully if broker unavailable
+5. Interactive demo (`main.rs`):
+   - Discover server → list devices → mock configure → acquire resource → release
+6. Automated tests (`tests/integration.rs`):
+   - One test per endpoint (48+ tests)
+   - Start server, run demo, verify output
+
+**Verification**:
+- [ ] `cargo build` succeeds
+- [ ] `cargo test` passes all endpoint tests (with server running)
+- [ ] `cargo run` demo completes without errors
+- [ ] MQTT heartbeat visible on broker (when available)
+
+#### Phase 16C: Rust gRPC Client
+
+**Status**: `[ ]` Not started
+
+1. Create `client-examples/rust-grpc-client/` Cargo project
+   - Dependencies: `tonic`, `prost`, `tokio`, `mdns-sd`, `rumqttc`, `clap`
+   - `build.rs` compiles `/proto/okfpga/v1/okfpga.proto` via `tonic-build`
+2. Implement client wrappers for all 4 gRPC services:
+   - `DeviceService` — 20 RPCs
+   - `ClassicDataPortService` — 15 RPCs
+   - `AXIDataPortService` — 12 RPCs
+   - `ServerService` — 6 RPCs
+3. mDNS discovery (`discovery.rs`) — identical to REST client, with sync comment
+4. MQTT status publisher (`mqtt.rs`) — identical pattern
+5. Interactive demo (`main.rs`)
+6. Automated tests (`tests/integration.rs`) — 53+ tests
+
+**Verification**:
+- [ ] `cargo build` succeeds
+- [ ] `cargo test` passes all RPC tests (with server running)
+- [ ] `cargo run` demo completes without errors
+
+#### Phase 16D: Python REST Client
+
+**Status**: `[ ]` Not started
+
+1. Create `client-examples/python-rest-client/` Python project
+   - `pyproject.toml` with `requires-python = ">=3.12"`
+   - Dependencies: `httpx`, `pydantic>=2`, `zeroconf`, `paho-mqtt`
+   - Test deps: `pytest`, `pytest-asyncio`
+2. Implement `OkFpgaRestClient` async class (`client.py`):
+   - Methods for all 48 REST endpoints
+   - Built against `/api/openapi.yaml` schema definitions
+   - Pydantic v2 models for request/response validation
+   - Context manager (`async with`) for session management
+3. mDNS discovery (`discovery.py`) — standalone, with sync comment
+4. MQTT status publisher (`mqtt_status.py`) — `paho-mqtt` (synchronous, publish-only)
+5. Interactive demo (`examples/demo.py`)
+6. Automated tests (`tests/test_endpoints.py`) — pytest
+
+**Verification**:
+- [ ] `pip install -e .` succeeds
+- [ ] `pytest -v` passes all endpoint tests (with server running)
+- [ ] `python -m okfpga_rest_client.examples.demo` completes
+
+#### Phase 16E: Python gRPC Client
+
+**Status**: `[ ]` Not started
+
+1. Create `client-examples/python-grpc-client/` Python project
+   - `pyproject.toml` with `requires-python = ">=3.12"`
+   - Dependencies: `grpcio`, `grpcio-tools`, `pydantic>=2`, `zeroconf`, `paho-mqtt`
+2. `generate_protos.py` script:
+   - Runs `python -m grpc_tools.protoc` on `/proto/okfpga/v1/okfpga.proto`
+   - Outputs `_pb2.py` and `_pb2_grpc.py` to `okfpga_grpc_client/generated/`
+3. Implement typed wrapper client class (`client.py`)
+4. mDNS discovery, MQTT status, demo, tests — same pattern as Python REST
+
+**Verification**:
+- [ ] `python generate_protos.py` succeeds
+- [ ] `pip install -e .` succeeds
+- [ ] `pytest -v` passes all RPC tests (with server running)
+
+#### Phase 16F: Cross-Client Integration
+
+**Status**: `[ ]` Not started
+
+1. Create test script that:
+   - Starts server with `cargo run --features full`
+   - Runs all 4 client demos sequentially
+   - Verifies console output from each
+   - Runs all 4 test suites
+   - Tears down server
+2. Document in `client-examples/README.md`
+
+**Verification**:
+- [ ] All 4 clients pass tests in a single run
+- [ ] MQTT broker shows heartbeats from all 4 clients
+- [ ] mDNS discovery works for all 4 clients
+- [ ] Server dashboard shows connected users during test
 
 ---
 
@@ -818,12 +956,21 @@ Phase 0: Scaffolding
                  └── Phase 12: Integration testing (needs all)
                       └── Phase 13: Documentation & polish (needs all)
                            └── Phase 14: Device scanner (needs 3 + 4 + 8)
-                                └── Phase 15: Hot-plug callbacks (needs 14)
+                                └── Phase 15: Hot-plug detection (needs 14)
+                                     └── Phase 16: Example clients & E2E testing
+                                          (needs 5 + 6 + 10 + 11)
+                                          ├── 16A: Infrastructure & ADR
+                                          ├── 16B: Rust REST client
+                                          ├── 16C: Rust gRPC client
+                                          ├── 16D: Python REST client
+                                          ├── 16E: Python gRPC client
+                                          └── 16F: Cross-client integration
 ```
 
 Phases 1 and 2 can be done **in parallel** (both depend only on Phase 0).  
 Phases 5 and 6 can be done **in parallel** (both depend on Phase 4E).  
-Phases 10 and 11 can be done **in parallel** (both depend on Phase 4E + Phase 7).
+Phases 10 and 11 can be done **in parallel** (both depend on Phase 4E + Phase 7).  
+Phases 16B–16E can be done **in parallel** (all depend on 16A).
 
 ### Feature Flag Summary
 

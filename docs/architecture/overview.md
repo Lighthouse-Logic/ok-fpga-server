@@ -129,6 +129,7 @@ All decisions are recorded as ADRs in `docs/architecture/adr/`:
 | [ADR-011](adr/ADR-011-mqtt-publishing.md) | MQTT Status Publishing | Accepted |
 | [ADR-012](adr/ADR-012-mdns-discovery.md) | mDNS/DNS-SD Service Discovery | Accepted |
 | [ADR-013](adr/ADR-013-device-scanner.md) | Device Scanner — FFI→DeviceManager Bridge | Accepted |
+| [ADR-014](adr/ADR-014-example-clients.md) | Example Client Architecture & E2E Testing | Accepted |
 
 ## 6. Technology Stack
 
