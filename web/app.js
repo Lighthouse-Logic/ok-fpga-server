@@ -139,27 +139,28 @@ async function fetchStatus() {
 // ============================================================================
 
 async function fetchDevices() {
-    const data = await api(`${API_BASE}/status`);
-    if (!data) return;
+    const devices = await api(`${API_BASE}/devices`);
+    if (!devices) return;
 
     const tbody = document.getElementById('devices-tbody');
     const table = document.getElementById('devices-table');
     const empty = document.getElementById('devices-empty');
 
-    if (data.connected_devices === 0) {
+    if (devices.length === 0) {
         table.style.display = 'none';
         empty.style.display = 'block';
     } else {
         table.style.display = 'table';
         empty.style.display = 'none';
-        // In the future, this will call GET /api/v1/devices on the REST port.
-        // For now, show a count placeholder.
-        tbody.innerHTML = `
+
+        tbody.innerHTML = devices.map(d => `
             <tr>
-                <td colspan="5" style="text-align:center; color: var(--text-muted)">
-                    ${data.connected_devices} device(s) connected — detail view requires REST API
-                </td>
-            </tr>`;
+                <td><code>${escapeHtml(d.serial)}</code></td>
+                <td>${escapeHtml(d.product_name)}</td>
+                <td>${escapeHtml(d.interface)}</td>
+                <td>${escapeHtml(d.usb_speed)}</td>
+                <td><span class="badge badge-${d.state.startsWith('Programmed') ? 'success' : 'info'}">${escapeHtml(d.state)}</span></td>
+            </tr>`).join('');
     }
 }
 

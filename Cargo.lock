@@ -840,6 +840,7 @@ dependencies = [
  "hostname",
  "mdns-sd",
  "ok-fpga-core",
+ "ok-fpga-ffi",
  "prost",
  "rumqttc",
  "serde",

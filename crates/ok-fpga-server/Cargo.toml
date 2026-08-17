@@ -54,6 +54,10 @@ full = ["rest", "dashboard", "grpc", "mqtt", "mdns"]
 # service manager, etc.)
 ok-fpga-core = { path = "../ok-fpga-core" }
 
+# The FFI crate provides low-level access to the FrontPanel C API.
+# Used by the scanner module to enumerate connected FPGA devices at startup.
+ok-fpga-ffi = { path = "../ok-fpga-ffi" }
+
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

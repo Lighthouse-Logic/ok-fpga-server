@@ -72,6 +72,10 @@ mod state;
 /// Management server (always-on, serves dashboard + mgmt API on port 9090).
 mod management;
 
+/// Device scanner — loads FrontPanel DLL and enumerates connected FPGAs at
+/// startup (ADR-013). Will be replaced by FrontPanelManager hot-plug in Phase 15.
+mod scanner;
+
 /// REST API server module — only compiled when `rest` feature is enabled.
 #[cfg(feature = "rest")]
 mod rest;
@@ -129,6 +133,28 @@ async fn main() -> anyhow::Result<()> {
     let device_manager = Arc::new(DeviceManager::new());
     let resource_registry = Arc::new(ResourceRegistry::new());
     let service_manager = Arc::new(ServiceManager::new());
+
+    // Scan for connected FPGA devices via the FrontPanel DLL (ADR-013).
+    //
+    // This is a one-shot snapshot using FrontPanelDevices. Devices connected
+    // after this point are NOT detected until the server restarts. Phase 15
+    // will replace this with FrontPanelManager callbacks for real-time
+    // hot-plug monitoring.
+    if let Some(scanner) = scanner::DeviceScanner::try_new() {
+        let scanned = scanner.scan_devices();
+        info!(count = scanned.len(), "initial device scan complete");
+        for device_info in scanned {
+            info!(
+                serial = %device_info.serial,
+                product = %device_info.product_name,
+                interface = %device_info.device_interface,
+                "discovered FPGA device"
+            );
+            device_manager.on_device_added(device_info);
+        }
+    } else {
+        warn!("FrontPanel DLL not available - running without hardware access");
+    }
 
     // Create the authentication provider from config (ADR-008).
     let auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider> =
