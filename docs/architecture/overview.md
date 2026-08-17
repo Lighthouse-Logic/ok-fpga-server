@@ -1,6 +1,6 @@
 # ok-FPGA-Server — Architecture Overview
 
-**Version**: 0.1.0-draft  
+**Version**: 0.1.0  
 **Date**: 2026-08-16  
 **Author**: Architecture Team  
 
@@ -92,6 +92,9 @@ The **ok-FPGA-Server** is a Rust-based service that wraps the Opal Kelly FrontPa
 - **Config**: TOML file with environment variable overrides
 - **Logging**: `tracing` crate with log streaming to web dashboard
 - **Auth stubs**: Pluggable trait — no-auth default, local user store stub, LDAP/SSL stub
+- **MQTT publishing**: Publish-only status events to external MQTT v5 broker (feature-gated)
+- **mDNS discovery**: Zero-config `_okfpga._tcp` service advertising (feature-gated)
+- **Service manager**: Dynamic start/stop/restart of optional services via management API
 
 ## 4. Supported Hardware
 
@@ -122,6 +125,9 @@ All decisions are recorded as ADRs in `docs/architecture/adr/`:
 | [ADR-007](adr/ADR-007-web-dashboard.md) | Web Dashboard Architecture | Accepted |
 | [ADR-008](adr/ADR-008-authentication.md) | Authentication Stubs — Local & LDAP | Accepted |
 | [ADR-009](adr/ADR-009-board-syzygy.md) | Supported Boards & SYZYGY Discovery | Accepted |
+| [ADR-010](adr/ADR-010-service-manager.md) | Service Manager — Dynamic Lifecycle Control | Accepted |
+| [ADR-011](adr/ADR-011-mqtt-publishing.md) | MQTT Status Publishing | Accepted |
+| [ADR-012](adr/ADR-012-mdns-discovery.md) | mDNS/DNS-SD Service Discovery | Accepted |
 
 ## 6. Technology Stack
 
@@ -138,6 +144,8 @@ All decisions are recorded as ADRs in `docs/architecture/adr/`:
 | Logging | Tracing | `tracing`, `tracing-subscriber` |
 | OpenAPI codegen | — | `utoipa` (optional) |
 | Proto codegen | protoc + tonic-build | `tonic-build` (build dep) |
+| MQTT client | rumqttc | `rumqttc` (optional) |
+| mDNS/DNS-SD | mdns-sd | `mdns-sd` (optional) |
 
 ## 7. Deployment Model
 

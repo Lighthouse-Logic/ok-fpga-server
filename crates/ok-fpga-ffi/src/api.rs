@@ -57,10 +57,11 @@ macro_rules! load_symbol {
         // the function signature, and bindgen verified it at build time.
         // The raw symbol is cast to the correct function pointer type by
         // the caller.
-        $lib.get($name.as_bytes()).map_err(|e| LoadError::SymbolNotFound {
-            symbol: $name.to_string(),
-            message: e.to_string(),
-        })
+        $lib.get($name.as_bytes())
+            .map_err(|e| LoadError::SymbolNotFound {
+                symbol: $name.to_string(),
+                message: e.to_string(),
+            })
     }};
 }
 
@@ -96,13 +97,17 @@ pub struct FrontPanelDll {
     pub get_api_version_minor: unsafe extern "C" fn() -> ::std::os::raw::c_int,
     pub get_api_version_micro: unsafe extern "C" fn() -> ::std::os::raw::c_int,
     pub get_api_version_string: unsafe extern "C" fn() -> *const ::std::os::raw::c_char,
-    pub check_api_version:
-        unsafe extern "C" fn(::std::os::raw::c_int, ::std::os::raw::c_int, ::std::os::raw::c_int) -> Bool,
+    pub check_api_version: unsafe extern "C" fn(
+        ::std::os::raw::c_int,
+        ::std::os::raw::c_int,
+        ::std::os::raw::c_int,
+    ) -> Bool,
 
     // ---- Error Handling (§2) ----
     pub get_error_message: unsafe extern "C" fn(ok_ErrorCode) -> *const ::std::os::raw::c_char,
     pub get_last_error: unsafe extern "C" fn(okFrontPanel_HANDLE) -> ok_ErrorCode,
-    pub get_last_error_message: unsafe extern "C" fn(okFrontPanel_HANDLE) -> *const ::std::os::raw::c_char,
+    pub get_last_error_message:
+        unsafe extern "C" fn(okFrontPanel_HANDLE) -> *const ::std::os::raw::c_char,
 
     // ---- Device Core (§3) ----
     pub fp_construct: unsafe extern "C" fn() -> okFrontPanel_HANDLE,
@@ -113,8 +118,11 @@ pub struct FrontPanelDll {
     pub fp_set_timeout: unsafe extern "C" fn(okFrontPanel_HANDLE, ::std::os::raw::c_int),
     pub fp_set_device_id:
         unsafe extern "C" fn(okFrontPanel_HANDLE, *const ::std::os::raw::c_char) -> ok_ErrorCode,
-    pub fp_get_device_info_with_size:
-        unsafe extern "C" fn(okFrontPanel_HANDLE, *mut okTDeviceInfo, ::std::os::raw::c_uint) -> ok_ErrorCode,
+    pub fp_get_device_info_with_size: unsafe extern "C" fn(
+        okFrontPanel_HANDLE,
+        *mut okTDeviceInfo,
+        ::std::os::raw::c_uint,
+    ) -> ok_ErrorCode,
     pub fp_is_front_panel_enabled: unsafe extern "C" fn(okFrontPanel_HANDLE) -> Bool,
     pub fp_get_last_transfer_length:
         unsafe extern "C" fn(okFrontPanel_HANDLE) -> ::std::os::raw::c_long,
@@ -147,8 +155,7 @@ pub struct FrontPanelDll {
     ) -> ok_ErrorCode,
     pub fp_configure_fpga_from_flash:
         unsafe extern "C" fn(okFrontPanel_HANDLE, ::std::os::raw::c_ulong) -> ok_ErrorCode,
-    pub fp_clear_fpga_configuration:
-        unsafe extern "C" fn(okFrontPanel_HANDLE) -> ok_ErrorCode,
+    pub fp_clear_fpga_configuration: unsafe extern "C" fn(okFrontPanel_HANDLE) -> ok_ErrorCode,
 
     // ---- Reset Profile (§5) ----
     pub fp_get_fpga_reset_profile: unsafe extern "C" fn(
@@ -163,14 +170,15 @@ pub struct FrontPanelDll {
     ) -> ok_ErrorCode,
 
     // ---- Data Port Acquisition (§6) ----
-    pub fp_get_fpga_data_port_classic:
-        unsafe extern "C" fn(okFrontPanel_HANDLE, *mut okFPGADataPortClassic_HANDLE) -> ok_ErrorCode,
+    pub fp_get_fpga_data_port_classic: unsafe extern "C" fn(
+        okFrontPanel_HANDLE,
+        *mut okFPGADataPortClassic_HANDLE,
+    ) -> ok_ErrorCode,
     pub fp_get_fpga_data_port_axi:
         unsafe extern "C" fn(okFrontPanel_HANDLE, *mut okFPGADataPortAXI_HANDLE) -> ok_ErrorCode,
 
     // ---- Classic Data Port (§7) — 19 functions ----
-    pub classic_reset_fpga:
-        unsafe extern "C" fn(okFPGADataPortClassic_HANDLE) -> ok_ErrorCode,
+    pub classic_reset_fpga: unsafe extern "C" fn(okFPGADataPortClassic_HANDLE) -> ok_ErrorCode,
     pub classic_set_wire_in_value: unsafe extern "C" fn(
         okFPGADataPortClassic_HANDLE,
         ::std::os::raw::c_int,
@@ -182,8 +190,7 @@ pub struct FrontPanelDll {
         ::std::os::raw::c_int,
         *mut UINT32,
     ) -> ok_ErrorCode,
-    pub classic_update_wire_ins:
-        unsafe extern "C" fn(okFPGADataPortClassic_HANDLE) -> ok_ErrorCode,
+    pub classic_update_wire_ins: unsafe extern "C" fn(okFPGADataPortClassic_HANDLE) -> ok_ErrorCode,
     pub classic_get_wire_out_value: unsafe extern "C" fn(
         okFPGADataPortClassic_HANDLE,
         ::std::os::raw::c_int,
@@ -202,10 +209,8 @@ pub struct FrontPanelDll {
         ::std::os::raw::c_int,
         ::std::os::raw::c_ulong,
     ) -> Bool,
-    pub classic_get_trigger_out_vector: unsafe extern "C" fn(
-        okFPGADataPortClassic_HANDLE,
-        ::std::os::raw::c_int,
-    ) -> UINT32,
+    pub classic_get_trigger_out_vector:
+        unsafe extern "C" fn(okFPGADataPortClassic_HANDLE, ::std::os::raw::c_int) -> UINT32,
     pub classic_write_to_pipe_in: unsafe extern "C" fn(
         okFPGADataPortClassic_HANDLE,
         ::std::os::raw::c_int,
@@ -232,20 +237,12 @@ pub struct FrontPanelDll {
         ::std::os::raw::c_long,
         *mut ::std::os::raw::c_uchar,
     ) -> ::std::os::raw::c_long,
-    pub classic_set_bt_pipe_polling_interval: unsafe extern "C" fn(
-        okFPGADataPortClassic_HANDLE,
-        ::std::os::raw::c_int,
-    ) -> ok_ErrorCode,
-    pub classic_read_register: unsafe extern "C" fn(
-        okFPGADataPortClassic_HANDLE,
-        UINT32,
-        *mut UINT32,
-    ) -> ok_ErrorCode,
-    pub classic_write_register: unsafe extern "C" fn(
-        okFPGADataPortClassic_HANDLE,
-        UINT32,
-        UINT32,
-    ) -> ok_ErrorCode,
+    pub classic_set_bt_pipe_polling_interval:
+        unsafe extern "C" fn(okFPGADataPortClassic_HANDLE, ::std::os::raw::c_int) -> ok_ErrorCode,
+    pub classic_read_register:
+        unsafe extern "C" fn(okFPGADataPortClassic_HANDLE, UINT32, *mut UINT32) -> ok_ErrorCode,
+    pub classic_write_register:
+        unsafe extern "C" fn(okFPGADataPortClassic_HANDLE, UINT32, UINT32) -> ok_ErrorCode,
     pub classic_read_registers: unsafe extern "C" fn(
         okFPGADataPortClassic_HANDLE,
         ::std::os::raw::c_uint,
@@ -266,16 +263,10 @@ pub struct FrontPanelDll {
         unsafe extern "C" fn(okFPGADataPortAXI_HANDLE) -> okFrontPanelAXIStream_HANDLE,
 
     // ---- AXI Lite (§8) ----
-    pub axi_lite_read: unsafe extern "C" fn(
-        okFrontPanelAXILite_HANDLE,
-        UINT64,
-        *mut UINT32,
-    ) -> ok_ErrorCode,
-    pub axi_lite_write: unsafe extern "C" fn(
-        okFrontPanelAXILite_HANDLE,
-        UINT64,
-        UINT32,
-    ) -> ok_ErrorCode,
+    pub axi_lite_read:
+        unsafe extern "C" fn(okFrontPanelAXILite_HANDLE, UINT64, *mut UINT32) -> ok_ErrorCode,
+    pub axi_lite_write:
+        unsafe extern "C" fn(okFrontPanelAXILite_HANDLE, UINT64, UINT32) -> ok_ErrorCode,
     pub axi_lite_read_bulk: unsafe extern "C" fn(
         okFrontPanelAXILite_HANDLE,
         UINT64,
@@ -296,12 +287,8 @@ pub struct FrontPanelDll {
         *mut UINT32,
         UINT32,
     ) -> ok_ErrorCode,
-    pub axi_lite_write_ex: unsafe extern "C" fn(
-        okFrontPanelAXILite_HANDLE,
-        UINT64,
-        UINT32,
-        UINT32,
-    ) -> ok_ErrorCode,
+    pub axi_lite_write_ex:
+        unsafe extern "C" fn(okFrontPanelAXILite_HANDLE, UINT64, UINT32, UINT32) -> ok_ErrorCode,
     pub axi_lite_read_bulk_ex: unsafe extern "C" fn(
         okFrontPanelAXILite_HANDLE,
         UINT64,
@@ -318,12 +305,10 @@ pub struct FrontPanelDll {
         UINT32,
         *mut okTOperationStatistics,
     ) -> ok_ErrorCode,
-    pub axi_lite_reset:
-        unsafe extern "C" fn(okFrontPanelAXILite_HANDLE) -> ok_ErrorCode,
+    pub axi_lite_reset: unsafe extern "C" fn(okFrontPanelAXILite_HANDLE) -> ok_ErrorCode,
 
     // ---- AXI Full (§8) ----
-    pub axi_full_get_datapath_width:
-        unsafe extern "C" fn(okFrontPanelAXIFull_HANDLE) -> UINT8,
+    pub axi_full_get_datapath_width: unsafe extern "C" fn(okFrontPanelAXIFull_HANDLE) -> UINT8,
     pub axi_full_read: unsafe extern "C" fn(
         okFrontPanelAXIFull_HANDLE,
         UINT64,
@@ -356,8 +341,7 @@ pub struct FrontPanelDll {
         UINT32,
         *mut okTOperationStatistics,
     ) -> ok_ErrorCode,
-    pub axi_full_reset:
-        unsafe extern "C" fn(okFrontPanelAXIFull_HANDLE) -> ok_ErrorCode,
+    pub axi_full_reset: unsafe extern "C" fn(okFrontPanelAXIFull_HANDLE) -> ok_ErrorCode,
 
     // ---- AXI Stream (§8) ----
     pub axi_stream_get_write_datapath_width:
@@ -390,8 +374,7 @@ pub struct FrontPanelDll {
         UINT32,
         *mut UINT64,
     ) -> ok_ErrorCode,
-    pub axi_stream_reset:
-        unsafe extern "C" fn(okFrontPanelAXIStream_HANDLE) -> ok_ErrorCode,
+    pub axi_stream_reset: unsafe extern "C" fn(okFrontPanelAXIStream_HANDLE) -> ok_ErrorCode,
 
     // ---- Device Settings (§9) ----
     pub settings_construct: unsafe extern "C" fn() -> okDeviceSettings_HANDLE,
@@ -421,68 +404,51 @@ pub struct FrontPanelDll {
         okDeviceSettings_HANDLE,
         *const ::std::os::raw::c_char,
     ) -> ok_ErrorCode,
-    pub settings_save:
-        unsafe extern "C" fn(okDeviceSettings_HANDLE) -> ok_ErrorCode,
-    pub settings_list: unsafe extern "C" fn(
-        okDeviceSettings_HANDLE,
-        okDeviceSettingNames_HANDLE,
-    ) -> ok_ErrorCode,
-    pub setting_names_construct:
-        unsafe extern "C" fn() -> okDeviceSettingNames_HANDLE,
-    pub setting_names_destruct:
-        unsafe extern "C" fn(okDeviceSettingNames_HANDLE),
+    pub settings_save: unsafe extern "C" fn(okDeviceSettings_HANDLE) -> ok_ErrorCode,
+    pub settings_list:
+        unsafe extern "C" fn(okDeviceSettings_HANDLE, okDeviceSettingNames_HANDLE) -> ok_ErrorCode,
+    pub setting_names_construct: unsafe extern "C" fn() -> okDeviceSettingNames_HANDLE,
+    pub setting_names_destruct: unsafe extern "C" fn(okDeviceSettingNames_HANDLE),
     pub setting_names_get_count:
         unsafe extern "C" fn(okDeviceSettingNames_HANDLE) -> ::std::os::raw::c_int,
     pub setting_names_get: unsafe extern "C" fn(
         okDeviceSettingNames_HANDLE,
         ::std::os::raw::c_int,
     ) -> *const ::std::os::raw::c_char,
-    pub fp_get_device_settings: unsafe extern "C" fn(
-        okFrontPanel_HANDLE,
-        okDeviceSettings_HANDLE,
-    ) -> ok_ErrorCode,
+    pub fp_get_device_settings:
+        unsafe extern "C" fn(okFrontPanel_HANDLE, okDeviceSettings_HANDLE) -> ok_ErrorCode,
 
     // ---- Device Sensors (§10) ----
     pub sensors_construct: unsafe extern "C" fn() -> okDeviceSensors_HANDLE,
     pub sensors_destruct: unsafe extern "C" fn(okDeviceSensors_HANDLE),
-    pub sensors_get_count:
-        unsafe extern "C" fn(okDeviceSensors_HANDLE) -> ::std::os::raw::c_int,
+    pub sensors_get_count: unsafe extern "C" fn(okDeviceSensors_HANDLE) -> ::std::os::raw::c_int,
     pub sensors_get_sensor:
         unsafe extern "C" fn(okDeviceSensors_HANDLE, ::std::os::raw::c_int) -> okTDeviceSensor,
-    pub fp_get_device_sensors: unsafe extern "C" fn(
-        okFrontPanel_HANDLE,
-        okDeviceSensors_HANDLE,
-    ) -> ok_ErrorCode,
+    pub fp_get_device_sensors:
+        unsafe extern "C" fn(okFrontPanel_HANDLE, okDeviceSensors_HANDLE) -> ok_ErrorCode,
 
     // ---- PLL22150 (§11) ----
     pub pll22150_construct: unsafe extern "C" fn() -> okPLL22150_HANDLE,
     pub pll22150_destruct: unsafe extern "C" fn(okPLL22150_HANDLE),
-    pub pll22150_set_crystal_load:
-        unsafe extern "C" fn(okPLL22150_HANDLE, f64),
-    pub pll22150_set_reference:
-        unsafe extern "C" fn(okPLL22150_HANDLE, f64, Bool),
-    pub pll22150_get_reference:
-        unsafe extern "C" fn(okPLL22150_HANDLE) -> f64,
-    pub pll22150_set_vco_parameters:
-        unsafe extern "C" fn(okPLL22150_HANDLE, ::std::os::raw::c_int, ::std::os::raw::c_int) -> Bool,
-    pub pll22150_get_vco_p:
-        unsafe extern "C" fn(okPLL22150_HANDLE) -> ::std::os::raw::c_int,
-    pub pll22150_get_vco_q:
-        unsafe extern "C" fn(okPLL22150_HANDLE) -> ::std::os::raw::c_int,
-    pub pll22150_get_vco_frequency:
-        unsafe extern "C" fn(okPLL22150_HANDLE) -> f64,
+    pub pll22150_set_crystal_load: unsafe extern "C" fn(okPLL22150_HANDLE, f64),
+    pub pll22150_set_reference: unsafe extern "C" fn(okPLL22150_HANDLE, f64, Bool),
+    pub pll22150_get_reference: unsafe extern "C" fn(okPLL22150_HANDLE) -> f64,
+    pub pll22150_set_vco_parameters: unsafe extern "C" fn(
+        okPLL22150_HANDLE,
+        ::std::os::raw::c_int,
+        ::std::os::raw::c_int,
+    ) -> Bool,
+    pub pll22150_get_vco_p: unsafe extern "C" fn(okPLL22150_HANDLE) -> ::std::os::raw::c_int,
+    pub pll22150_get_vco_q: unsafe extern "C" fn(okPLL22150_HANDLE) -> ::std::os::raw::c_int,
+    pub pll22150_get_vco_frequency: unsafe extern "C" fn(okPLL22150_HANDLE) -> f64,
     pub pll22150_set_div1:
         unsafe extern "C" fn(okPLL22150_HANDLE, ok_DividerSource, ::std::os::raw::c_int),
     pub pll22150_set_div2:
         unsafe extern "C" fn(okPLL22150_HANDLE, ok_DividerSource, ::std::os::raw::c_int),
-    pub pll22150_get_div1_source:
-        unsafe extern "C" fn(okPLL22150_HANDLE) -> ok_DividerSource,
-    pub pll22150_get_div2_source:
-        unsafe extern "C" fn(okPLL22150_HANDLE) -> ok_DividerSource,
-    pub pll22150_get_div1_divider:
-        unsafe extern "C" fn(okPLL22150_HANDLE) -> ::std::os::raw::c_int,
-    pub pll22150_get_div2_divider:
-        unsafe extern "C" fn(okPLL22150_HANDLE) -> ::std::os::raw::c_int,
+    pub pll22150_get_div1_source: unsafe extern "C" fn(okPLL22150_HANDLE) -> ok_DividerSource,
+    pub pll22150_get_div2_source: unsafe extern "C" fn(okPLL22150_HANDLE) -> ok_DividerSource,
+    pub pll22150_get_div1_divider: unsafe extern "C" fn(okPLL22150_HANDLE) -> ::std::os::raw::c_int,
+    pub pll22150_get_div2_divider: unsafe extern "C" fn(okPLL22150_HANDLE) -> ::std::os::raw::c_int,
     pub pll22150_set_output_source:
         unsafe extern "C" fn(okPLL22150_HANDLE, ::std::os::raw::c_int, ok_ClockSource_22150),
     pub pll22150_set_output_enable:
@@ -505,12 +471,9 @@ pub struct FrontPanelDll {
     // ---- PLL22393 (§11) ----
     pub pll22393_construct: unsafe extern "C" fn() -> okPLL22393_HANDLE,
     pub pll22393_destruct: unsafe extern "C" fn(okPLL22393_HANDLE),
-    pub pll22393_set_crystal_load:
-        unsafe extern "C" fn(okPLL22393_HANDLE, f64) -> Bool,
-    pub pll22393_set_reference:
-        unsafe extern "C" fn(okPLL22393_HANDLE, f64),
-    pub pll22393_get_reference:
-        unsafe extern "C" fn(okPLL22393_HANDLE) -> f64,
+    pub pll22393_set_crystal_load: unsafe extern "C" fn(okPLL22393_HANDLE, f64) -> Bool,
+    pub pll22393_set_reference: unsafe extern "C" fn(okPLL22393_HANDLE, f64),
+    pub pll22393_get_reference: unsafe extern "C" fn(okPLL22393_HANDLE) -> f64,
     pub pll22393_set_pll_parameters: unsafe extern "C" fn(
         okPLL22393_HANDLE,
         ::std::os::raw::c_int,
@@ -518,12 +481,21 @@ pub struct FrontPanelDll {
         ::std::os::raw::c_int,
         Bool,
     ) -> Bool,
-    pub pll22393_set_pll_lf:
-        unsafe extern "C" fn(okPLL22393_HANDLE, ::std::os::raw::c_int, ::std::os::raw::c_int) -> Bool,
-    pub pll22393_set_output_divider:
-        unsafe extern "C" fn(okPLL22393_HANDLE, ::std::os::raw::c_int, ::std::os::raw::c_int) -> Bool,
-    pub pll22393_set_output_source:
-        unsafe extern "C" fn(okPLL22393_HANDLE, ::std::os::raw::c_int, ok_ClockSource_22393) -> Bool,
+    pub pll22393_set_pll_lf: unsafe extern "C" fn(
+        okPLL22393_HANDLE,
+        ::std::os::raw::c_int,
+        ::std::os::raw::c_int,
+    ) -> Bool,
+    pub pll22393_set_output_divider: unsafe extern "C" fn(
+        okPLL22393_HANDLE,
+        ::std::os::raw::c_int,
+        ::std::os::raw::c_int,
+    ) -> Bool,
+    pub pll22393_set_output_source: unsafe extern "C" fn(
+        okPLL22393_HANDLE,
+        ::std::os::raw::c_int,
+        ok_ClockSource_22393,
+    ) -> Bool,
     pub pll22393_set_output_enable:
         unsafe extern "C" fn(okPLL22393_HANDLE, ::std::os::raw::c_int, Bool),
     pub pll22393_get_pll_p:
@@ -554,28 +526,16 @@ pub struct FrontPanelDll {
         unsafe extern "C" fn(okFrontPanel_HANDLE) -> ok_ErrorCode,
 
     // ---- Flash Memory (§12) ----
-    pub fp_flash_erase_sector:
-        unsafe extern "C" fn(okFrontPanel_HANDLE, UINT32) -> ok_ErrorCode,
-    pub fp_flash_write: unsafe extern "C" fn(
-        okFrontPanel_HANDLE,
-        UINT32,
-        UINT32,
-        *const UINT8,
-    ) -> ok_ErrorCode,
-    pub fp_flash_read: unsafe extern "C" fn(
-        okFrontPanel_HANDLE,
-        UINT32,
-        UINT32,
-        *mut UINT8,
-    ) -> ok_ErrorCode,
+    pub fp_flash_erase_sector: unsafe extern "C" fn(okFrontPanel_HANDLE, UINT32) -> ok_ErrorCode,
+    pub fp_flash_write:
+        unsafe extern "C" fn(okFrontPanel_HANDLE, UINT32, UINT32, *const UINT8) -> ok_ErrorCode,
+    pub fp_flash_read:
+        unsafe extern "C" fn(okFrontPanel_HANDLE, UINT32, UINT32, *mut UINT8) -> ok_ErrorCode,
 
     // ---- Custom Device Registration (§13) ----
-    pub fp_add_custom_device: unsafe extern "C" fn(
-        *const okTDeviceMatchInfo,
-        *const okTDeviceInfo,
-    ) -> ok_ErrorCode,
-    pub fp_remove_custom_device:
-        unsafe extern "C" fn(::std::os::raw::c_int) -> ok_ErrorCode,
+    pub fp_add_custom_device:
+        unsafe extern "C" fn(*const okTDeviceMatchInfo, *const okTDeviceInfo) -> ok_ErrorCode,
+    pub fp_remove_custom_device: unsafe extern "C" fn(::std::os::raw::c_int) -> ok_ErrorCode,
 
     // ---- FrontPanelManager — Hot-Plug (§14) ----
     pub manager_construct: unsafe extern "C" fn(
@@ -583,14 +543,14 @@ pub struct FrontPanelDll {
         *const ::std::os::raw::c_char,
     ) -> okCFrontPanelManager_HANDLE,
     pub manager_destruct: unsafe extern "C" fn(okCFrontPanelManager_HANDLE),
-    pub manager_start_monitoring:
-        unsafe extern "C" fn(okCFrontPanelManager_HANDLE) -> ok_ErrorCode,
+    pub manager_start_monitoring: unsafe extern "C" fn(okCFrontPanelManager_HANDLE) -> ok_ErrorCode,
     pub manager_start_monitoring_with_cb_info:
         unsafe extern "C" fn(okCFrontPanelManager_HANDLE, *mut okTCallbackInfo) -> ok_ErrorCode,
-    pub manager_stop_monitoring:
-        unsafe extern "C" fn(okCFrontPanelManager_HANDLE) -> ok_ErrorCode,
-    pub manager_enter_monitor_loop:
-        unsafe extern "C" fn(okCFrontPanelManager_HANDLE, *const okTCallbackInfo) -> ::std::os::raw::c_int,
+    pub manager_stop_monitoring: unsafe extern "C" fn(okCFrontPanelManager_HANDLE) -> ok_ErrorCode,
+    pub manager_enter_monitor_loop: unsafe extern "C" fn(
+        okCFrontPanelManager_HANDLE,
+        *const okTCallbackInfo,
+    ) -> ::std::os::raw::c_int,
     pub manager_enter_monitor_loop_with_timeout: unsafe extern "C" fn(
         okCFrontPanelManager_HANDLE,
         *const okTCallbackInfo,
@@ -624,8 +584,7 @@ pub struct FrontPanelDll {
     ) -> okFrontPanel_HANDLE,
 
     // ---- Error (§2) - additional ----
-    pub error_get_message:
-        unsafe extern "C" fn(*const okError) -> *const ::std::os::raw::c_char,
+    pub error_get_message: unsafe extern "C" fn(*const okError) -> *const ::std::os::raw::c_char,
     pub error_free: unsafe extern "C" fn(*mut okError),
 }
 
@@ -696,47 +655,137 @@ impl FrontPanelDll {
                 fp_close: *load_symbol!(library, "okFrontPanel_Close")?,
                 fp_set_timeout: *load_symbol!(library, "okFrontPanel_SetTimeout")?,
                 fp_set_device_id: *load_symbol!(library, "okFrontPanel_SetDeviceID")?,
-                fp_get_device_info_with_size: *load_symbol!(library, "okFrontPanel_GetDeviceInfoWithSize")?,
-                fp_is_front_panel_enabled: *load_symbol!(library, "okFrontPanel_IsFrontPanelEnabled")?,
-                fp_get_last_transfer_length: *load_symbol!(library, "okFrontPanel_GetLastTransferLength")?,
+                fp_get_device_info_with_size: *load_symbol!(
+                    library,
+                    "okFrontPanel_GetDeviceInfoWithSize"
+                )?,
+                fp_is_front_panel_enabled: *load_symbol!(
+                    library,
+                    "okFrontPanel_IsFrontPanelEnabled"
+                )?,
+                fp_get_last_transfer_length: *load_symbol!(
+                    library,
+                    "okFrontPanel_GetLastTransferLength"
+                )?,
 
                 // ---- FPGA Configuration (§4) ----
                 fp_configure_fpga: *load_symbol!(library, "okFrontPanel_ConfigureFPGA")?,
-                fp_configure_fpga_with_reset: *load_symbol!(library, "okFrontPanel_ConfigureFPGAWithReset")?,
-                fp_configure_fpga_from_memory: *load_symbol!(library, "okFrontPanel_ConfigureFPGAFromMemory")?,
-                fp_configure_fpga_from_memory_with_progress: *load_symbol!(library, "okFrontPanel_ConfigureFPGAFromMemoryWithProgress")?,
-                fp_configure_fpga_from_memory_with_reset: *load_symbol!(library, "okFrontPanel_ConfigureFPGAFromMemoryWithReset")?,
-                fp_configure_fpga_from_flash: *load_symbol!(library, "okFrontPanel_ConfigureFPGAFromFlash")?,
-                fp_clear_fpga_configuration: *load_symbol!(library, "okFrontPanel_ClearFPGAConfiguration")?,
+                fp_configure_fpga_with_reset: *load_symbol!(
+                    library,
+                    "okFrontPanel_ConfigureFPGAWithReset"
+                )?,
+                fp_configure_fpga_from_memory: *load_symbol!(
+                    library,
+                    "okFrontPanel_ConfigureFPGAFromMemory"
+                )?,
+                fp_configure_fpga_from_memory_with_progress: *load_symbol!(
+                    library,
+                    "okFrontPanel_ConfigureFPGAFromMemoryWithProgress"
+                )?,
+                fp_configure_fpga_from_memory_with_reset: *load_symbol!(
+                    library,
+                    "okFrontPanel_ConfigureFPGAFromMemoryWithReset"
+                )?,
+                fp_configure_fpga_from_flash: *load_symbol!(
+                    library,
+                    "okFrontPanel_ConfigureFPGAFromFlash"
+                )?,
+                fp_clear_fpga_configuration: *load_symbol!(
+                    library,
+                    "okFrontPanel_ClearFPGAConfiguration"
+                )?,
 
                 // ---- Reset Profile (§5) ----
-                fp_get_fpga_reset_profile: *load_symbol!(library, "okFrontPanel_GetFPGAResetProfile")?,
-                fp_set_fpga_reset_profile: *load_symbol!(library, "okFrontPanel_SetFPGAResetProfile")?,
+                fp_get_fpga_reset_profile: *load_symbol!(
+                    library,
+                    "okFrontPanel_GetFPGAResetProfile"
+                )?,
+                fp_set_fpga_reset_profile: *load_symbol!(
+                    library,
+                    "okFrontPanel_SetFPGAResetProfile"
+                )?,
 
                 // ---- Data Port Acquisition (§6) ----
-                fp_get_fpga_data_port_classic: *load_symbol!(library, "okFrontPanel_GetFPGADataPortClassic")?,
-                fp_get_fpga_data_port_axi: *load_symbol!(library, "okFrontPanel_GetFPGADataPortAXI")?,
+                fp_get_fpga_data_port_classic: *load_symbol!(
+                    library,
+                    "okFrontPanel_GetFPGADataPortClassic"
+                )?,
+                fp_get_fpga_data_port_axi: *load_symbol!(
+                    library,
+                    "okFrontPanel_GetFPGADataPortAXI"
+                )?,
 
                 // ---- Classic Data Port (§7) ----
                 classic_reset_fpga: *load_symbol!(library, "okFPGADataPortClassic_ResetFPGA")?,
-                classic_set_wire_in_value: *load_symbol!(library, "okFPGADataPortClassic_SetWireInValue")?,
-                classic_get_wire_in_value: *load_symbol!(library, "okFPGADataPortClassic_GetWireInValue")?,
-                classic_update_wire_ins: *load_symbol!(library, "okFPGADataPortClassic_UpdateWireIns")?,
-                classic_get_wire_out_value: *load_symbol!(library, "okFPGADataPortClassic_GetWireOutValue")?,
-                classic_update_wire_outs: *load_symbol!(library, "okFPGADataPortClassic_UpdateWireOuts")?,
-                classic_activate_trigger_in: *load_symbol!(library, "okFPGADataPortClassic_ActivateTriggerIn")?,
-                classic_update_trigger_outs: *load_symbol!(library, "okFPGADataPortClassic_UpdateTriggerOuts")?,
+                classic_set_wire_in_value: *load_symbol!(
+                    library,
+                    "okFPGADataPortClassic_SetWireInValue"
+                )?,
+                classic_get_wire_in_value: *load_symbol!(
+                    library,
+                    "okFPGADataPortClassic_GetWireInValue"
+                )?,
+                classic_update_wire_ins: *load_symbol!(
+                    library,
+                    "okFPGADataPortClassic_UpdateWireIns"
+                )?,
+                classic_get_wire_out_value: *load_symbol!(
+                    library,
+                    "okFPGADataPortClassic_GetWireOutValue"
+                )?,
+                classic_update_wire_outs: *load_symbol!(
+                    library,
+                    "okFPGADataPortClassic_UpdateWireOuts"
+                )?,
+                classic_activate_trigger_in: *load_symbol!(
+                    library,
+                    "okFPGADataPortClassic_ActivateTriggerIn"
+                )?,
+                classic_update_trigger_outs: *load_symbol!(
+                    library,
+                    "okFPGADataPortClassic_UpdateTriggerOuts"
+                )?,
                 classic_is_triggered: *load_symbol!(library, "okFPGADataPortClassic_IsTriggered")?,
-                classic_get_trigger_out_vector: *load_symbol!(library, "okFPGADataPortClassic_GetTriggerOutVector")?,
-                classic_write_to_pipe_in: *load_symbol!(library, "okFPGADataPortClassic_WriteToPipeIn")?,
-                classic_read_from_pipe_out: *load_symbol!(library, "okFPGADataPortClassic_ReadFromPipeOut")?,
-                classic_write_to_block_pipe_in: *load_symbol!(library, "okFPGADataPortClassic_WriteToBlockPipeIn")?,
-                classic_read_from_block_pipe_out: *load_symbol!(library, "okFPGADataPortClassic_ReadFromBlockPipeOut")?,
-                classic_set_bt_pipe_polling_interval: *load_symbol!(library, "okFPGADataPortClassic_SetBTPipePollingInterval")?,
-                classic_read_register: *load_symbol!(library, "okFPGADataPortClassic_ReadRegister")?,
-                classic_write_register: *load_symbol!(library, "okFPGADataPortClassic_WriteRegister")?,
-                classic_read_registers: *load_symbol!(library, "okFPGADataPortClassic_ReadRegisters")?,
-                classic_write_registers: *load_symbol!(library, "okFPGADataPortClassic_WriteRegisters")?,
+                classic_get_trigger_out_vector: *load_symbol!(
+                    library,
+                    "okFPGADataPortClassic_GetTriggerOutVector"
+                )?,
+                classic_write_to_pipe_in: *load_symbol!(
+                    library,
+                    "okFPGADataPortClassic_WriteToPipeIn"
+                )?,
+                classic_read_from_pipe_out: *load_symbol!(
+                    library,
+                    "okFPGADataPortClassic_ReadFromPipeOut"
+                )?,
+                classic_write_to_block_pipe_in: *load_symbol!(
+                    library,
+                    "okFPGADataPortClassic_WriteToBlockPipeIn"
+                )?,
+                classic_read_from_block_pipe_out: *load_symbol!(
+                    library,
+                    "okFPGADataPortClassic_ReadFromBlockPipeOut"
+                )?,
+                classic_set_bt_pipe_polling_interval: *load_symbol!(
+                    library,
+                    "okFPGADataPortClassic_SetBTPipePollingInterval"
+                )?,
+                classic_read_register: *load_symbol!(
+                    library,
+                    "okFPGADataPortClassic_ReadRegister"
+                )?,
+                classic_write_register: *load_symbol!(
+                    library,
+                    "okFPGADataPortClassic_WriteRegister"
+                )?,
+                classic_read_registers: *load_symbol!(
+                    library,
+                    "okFPGADataPortClassic_ReadRegisters"
+                )?,
+                classic_write_registers: *load_symbol!(
+                    library,
+                    "okFPGADataPortClassic_WriteRegisters"
+                )?,
 
                 // ---- AXI Data Port Root (§8) ----
                 axi_get_axi_lite: *load_symbol!(library, "okFPGADataPortAXI_GetAXILite")?,
@@ -755,7 +804,10 @@ impl FrontPanelDll {
                 axi_lite_reset: *load_symbol!(library, "okFrontPanelAXILite_Reset")?,
 
                 // ---- AXI Full (§8) ----
-                axi_full_get_datapath_width: *load_symbol!(library, "okFrontPanelAXIFull_GetDatapathWidthByteCount")?,
+                axi_full_get_datapath_width: *load_symbol!(
+                    library,
+                    "okFrontPanelAXIFull_GetDatapathWidthByteCount"
+                )?,
                 axi_full_read: *load_symbol!(library, "okFrontPanelAXIFull_Read")?,
                 axi_full_write: *load_symbol!(library, "okFrontPanelAXIFull_Write")?,
                 axi_full_read_ex: *load_symbol!(library, "okFrontPanelAXIFull_ReadEx")?,
@@ -763,8 +815,14 @@ impl FrontPanelDll {
                 axi_full_reset: *load_symbol!(library, "okFrontPanelAXIFull_Reset")?,
 
                 // ---- AXI Stream (§8) ----
-                axi_stream_get_write_datapath_width: *load_symbol!(library, "okFrontPanelAXIStream_GetWriteDatapathWidthByteCount")?,
-                axi_stream_get_read_datapath_width: *load_symbol!(library, "okFrontPanelAXIStream_GetReadDatapathWidthByteCount")?,
+                axi_stream_get_write_datapath_width: *load_symbol!(
+                    library,
+                    "okFrontPanelAXIStream_GetWriteDatapathWidthByteCount"
+                )?,
+                axi_stream_get_read_datapath_width: *load_symbol!(
+                    library,
+                    "okFrontPanelAXIStream_GetReadDatapathWidthByteCount"
+                )?,
                 axi_stream_read: *load_symbol!(library, "okFrontPanelAXIStream_Read")?,
                 axi_stream_write: *load_symbol!(library, "okFrontPanelAXIStream_Write")?,
                 axi_stream_read_ex: *load_symbol!(library, "okFrontPanelAXIStream_ReadEx")?,
@@ -813,12 +871,27 @@ impl FrontPanelDll {
                 pll22150_set_output_source: *load_symbol!(library, "okPLL22150_SetOutputSource")?,
                 pll22150_set_output_enable: *load_symbol!(library, "okPLL22150_SetOutputEnable")?,
                 pll22150_get_output_source: *load_symbol!(library, "okPLL22150_GetOutputSource")?,
-                pll22150_get_output_frequency: *load_symbol!(library, "okPLL22150_GetOutputFrequency")?,
+                pll22150_get_output_frequency: *load_symbol!(
+                    library,
+                    "okPLL22150_GetOutputFrequency"
+                )?,
                 pll22150_is_output_enabled: *load_symbol!(library, "okPLL22150_IsOutputEnabled")?,
-                fp_get_pll22150_configuration: *load_symbol!(library, "okFrontPanel_GetPLL22150Configuration")?,
-                fp_set_pll22150_configuration: *load_symbol!(library, "okFrontPanel_SetPLL22150Configuration")?,
-                fp_get_eeprom_pll22150_configuration: *load_symbol!(library, "okFrontPanel_GetEepromPLL22150Configuration")?,
-                fp_set_eeprom_pll22150_configuration: *load_symbol!(library, "okFrontPanel_SetEepromPLL22150Configuration")?,
+                fp_get_pll22150_configuration: *load_symbol!(
+                    library,
+                    "okFrontPanel_GetPLL22150Configuration"
+                )?,
+                fp_set_pll22150_configuration: *load_symbol!(
+                    library,
+                    "okFrontPanel_SetPLL22150Configuration"
+                )?,
+                fp_get_eeprom_pll22150_configuration: *load_symbol!(
+                    library,
+                    "okFrontPanel_GetEepromPLL22150Configuration"
+                )?,
+                fp_set_eeprom_pll22150_configuration: *load_symbol!(
+                    library,
+                    "okFrontPanel_SetEepromPLL22150Configuration"
+                )?,
 
                 // ---- PLL22393 (§11) ----
                 pll22393_construct: *load_symbol!(library, "okPLL22393_Construct")?,
@@ -836,14 +909,32 @@ impl FrontPanelDll {
                 pll22393_get_pll_frequency: *load_symbol!(library, "okPLL22393_GetPLLFrequency")?,
                 pll22393_get_output_divider: *load_symbol!(library, "okPLL22393_GetOutputDivider")?,
                 pll22393_get_output_source: *load_symbol!(library, "okPLL22393_GetOutputSource")?,
-                pll22393_get_output_frequency: *load_symbol!(library, "okPLL22393_GetOutputFrequency")?,
+                pll22393_get_output_frequency: *load_symbol!(
+                    library,
+                    "okPLL22393_GetOutputFrequency"
+                )?,
                 pll22393_is_output_enabled: *load_symbol!(library, "okPLL22393_IsOutputEnabled")?,
                 pll22393_is_pll_enabled: *load_symbol!(library, "okPLL22393_IsPLLEnabled")?,
-                fp_get_pll22393_configuration: *load_symbol!(library, "okFrontPanel_GetPLL22393Configuration")?,
-                fp_set_pll22393_configuration: *load_symbol!(library, "okFrontPanel_SetPLL22393Configuration")?,
-                fp_get_eeprom_pll22393_configuration: *load_symbol!(library, "okFrontPanel_GetEepromPLL22393Configuration")?,
-                fp_set_eeprom_pll22393_configuration: *load_symbol!(library, "okFrontPanel_SetEepromPLL22393Configuration")?,
-                fp_load_default_pll_configuration: *load_symbol!(library, "okFrontPanel_LoadDefaultPLLConfiguration")?,
+                fp_get_pll22393_configuration: *load_symbol!(
+                    library,
+                    "okFrontPanel_GetPLL22393Configuration"
+                )?,
+                fp_set_pll22393_configuration: *load_symbol!(
+                    library,
+                    "okFrontPanel_SetPLL22393Configuration"
+                )?,
+                fp_get_eeprom_pll22393_configuration: *load_symbol!(
+                    library,
+                    "okFrontPanel_GetEepromPLL22393Configuration"
+                )?,
+                fp_set_eeprom_pll22393_configuration: *load_symbol!(
+                    library,
+                    "okFrontPanel_SetEepromPLL22393Configuration"
+                )?,
+                fp_load_default_pll_configuration: *load_symbol!(
+                    library,
+                    "okFrontPanel_LoadDefaultPLLConfiguration"
+                )?,
 
                 // ---- Flash Memory (§12) ----
                 fp_flash_erase_sector: *load_symbol!(library, "okFrontPanel_FlashEraseSector")?,
@@ -857,14 +948,35 @@ impl FrontPanelDll {
                 // ---- FrontPanelManager (§14) ----
                 manager_construct: *load_symbol!(library, "okFrontPanelManager_Construct")?,
                 manager_destruct: *load_symbol!(library, "okFrontPanelManager_Destruct")?,
-                manager_start_monitoring: *load_symbol!(library, "okFrontPanelManager_StartMonitoring")?,
-                manager_start_monitoring_with_cb_info: *load_symbol!(library, "okFrontPanelManager_StartMonitoringWithCBInfo")?,
-                manager_stop_monitoring: *load_symbol!(library, "okFrontPanelManager_StopMonitoring")?,
-                manager_enter_monitor_loop: *load_symbol!(library, "okFrontPanelManager_EnterMonitorLoop")?,
-                manager_enter_monitor_loop_with_timeout: *load_symbol!(library, "okFrontPanelManager_EnterMonitorLoopWithTimeout")?,
-                manager_exit_monitor_loop: *load_symbol!(library, "okFrontPanelManager_ExitMonitorLoop")?,
+                manager_start_monitoring: *load_symbol!(
+                    library,
+                    "okFrontPanelManager_StartMonitoring"
+                )?,
+                manager_start_monitoring_with_cb_info: *load_symbol!(
+                    library,
+                    "okFrontPanelManager_StartMonitoringWithCBInfo"
+                )?,
+                manager_stop_monitoring: *load_symbol!(
+                    library,
+                    "okFrontPanelManager_StopMonitoring"
+                )?,
+                manager_enter_monitor_loop: *load_symbol!(
+                    library,
+                    "okFrontPanelManager_EnterMonitorLoop"
+                )?,
+                manager_enter_monitor_loop_with_timeout: *load_symbol!(
+                    library,
+                    "okFrontPanelManager_EnterMonitorLoopWithTimeout"
+                )?,
+                manager_exit_monitor_loop: *load_symbol!(
+                    library,
+                    "okFrontPanelManager_ExitMonitorLoop"
+                )?,
                 manager_open: *load_symbol!(library, "okFrontPanelManager_Open")?,
-                manager_emulate_test_device_connection: *load_symbol!(library, "okFrontPanelManager_EmulateTestDeviceConnection")?,
+                manager_emulate_test_device_connection: *load_symbol!(
+                    library,
+                    "okFrontPanelManager_EmulateTestDeviceConnection"
+                )?,
 
                 // ---- FrontPanelDevices (§15) ----
                 devices_construct: *load_symbol!(library, "okFrontPanelDevices_Construct")?,
@@ -904,9 +1016,7 @@ impl FrontPanelDll {
             if ptr.is_null() {
                 "unknown".to_string()
             } else {
-                std::ffi::CStr::from_ptr(ptr)
-                    .to_string_lossy()
-                    .into_owned()
+                std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned()
             }
         }
     }

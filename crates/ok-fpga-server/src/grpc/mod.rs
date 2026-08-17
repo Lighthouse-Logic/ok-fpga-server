@@ -18,11 +18,11 @@
 //! the `ok-fpga-core` domain types. The gRPC server itself implements
 //! `ManagedService` so it can be started/stopped by the `ServiceManager`.
 
-pub mod server_service;
-pub mod device_service;
-pub mod classic_service;
 pub mod axi_service;
+pub mod classic_service;
+pub mod device_service;
 pub mod managed;
+pub mod server_service;
 
 use std::sync::Arc;
 
@@ -40,6 +40,7 @@ use crate::state::AppState;
 ///
 /// We re-export it here so other modules can use `crate::grpc::proto::*`.
 pub mod proto {
+    #![allow(clippy::enum_variant_names)] // Proto-generated enums use prefixed variants (protobuf convention).
     tonic::include_proto!("ok_fpga_service.v1");
 }
 
@@ -59,9 +60,9 @@ pub async fn start_grpc_server(
     state: Arc<AppState>,
     shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> Result<(), tonic::transport::Error> {
-    use proto::device_service_server::DeviceServiceServer;
-    use proto::classic_data_port_service_server::ClassicDataPortServiceServer;
     use proto::axi_data_port_service_server::AxiDataPortServiceServer;
+    use proto::classic_data_port_service_server::ClassicDataPortServiceServer;
+    use proto::device_service_server::DeviceServiceServer;
     use proto::server_service_server::ServerServiceServer;
 
     let device_svc = device_service::DeviceServiceImpl::new(state.clone());

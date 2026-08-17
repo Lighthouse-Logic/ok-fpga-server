@@ -11,12 +11,12 @@
 //! - **stop()**: Signals the server to shut down gracefully.
 //! - **status()**: Returns the current lifecycle state.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Arc;
 
 use ok_fpga_core::service::{ManagedService, ServiceError, ServiceStatus};
 use tokio::sync::Notify;
-use tracing::{info, error};
+use tracing::{error, info};
 
 use crate::state::AppState;
 
@@ -89,13 +89,9 @@ impl ManagedService for GrpcManagedService {
 
         // Spawn the gRPC server as a background task.
         let handle = tokio::spawn(async move {
-            let result = super::start_grpc_server(
-                addr,
-                state,
-                async move {
-                    shutdown.notified().await;
-                },
-            )
+            let result = super::start_grpc_server(addr, state, async move {
+                shutdown.notified().await;
+            })
             .await;
 
             if let Err(e) = &result {

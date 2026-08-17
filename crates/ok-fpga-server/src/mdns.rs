@@ -27,8 +27,8 @@
 //!   connect/disconnect.
 //! - **All values are strings**.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Arc;
 
 use mdns_sd::{ServiceDaemon, ServiceInfo};
 use ok_fpga_core::service::{ManagedService, ServiceError, ServiceStatus};
@@ -109,10 +109,7 @@ impl MdnsDiscoveryService {
         // Dashboard management port (if compiled and enabled).
         #[cfg(feature = "dashboard")]
         if self.config.dashboard.enabled {
-            props.push((
-                "dashboard",
-                self.config.server.management_port.to_string(),
-            ));
+            props.push(("dashboard", self.config.server.management_port.to_string()));
         }
 
         // Current device count (dynamic).
@@ -162,17 +159,14 @@ impl ManagedService for MdnsDiscoveryService {
 
         // Build TXT properties.
         let txt_props = self.build_txt_properties();
-        let txt_refs: Vec<(&str, &str)> = txt_props
-            .iter()
-            .map(|(k, v)| (*k, v.as_str()))
-            .collect();
+        let txt_refs: Vec<(&str, &str)> = txt_props.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
         // Build the ServiceInfo.
         let service_info = match ServiceInfo::new(
             SERVICE_TYPE,
             instance_name,
             &host_with_local,
-            "",  // Let mdns-sd determine the IP addresses
+            "", // Let mdns-sd determine the IP addresses
             self.config.server.management_port,
             txt_refs.as_slice(),
         ) {

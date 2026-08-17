@@ -57,10 +57,8 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         _request: Request<proto::ListDevicesRequest>,
     ) -> Result<Response<proto::ListDevicesResponse>, Status> {
         let devices = self.state.device_manager.registry().list();
-        let device_infos: Vec<proto::DeviceInfo> = devices
-            .iter()
-            .map(Self::device_to_proto)
-            .collect();
+        let device_infos: Vec<proto::DeviceInfo> =
+            devices.iter().map(Self::device_to_proto).collect();
 
         Ok(Response::new(proto::ListDevicesResponse {
             devices: device_infos,
@@ -106,7 +104,11 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         warn!(serial = %serial, "GetDeviceSensors: requires FFI — returning empty");
         Ok(Response::new(proto::DeviceSensorsResponse {
             sensors: vec![],
-            error: Some(proto::ErrorCluster { status: false, code: 0, source: String::new() }),
+            error: Some(proto::ErrorCluster {
+                status: false,
+                code: 0,
+                source: String::new(),
+            }),
         }))
     }
 
@@ -118,7 +120,11 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         warn!(serial = %serial, "GetDeviceSettings: requires FFI — returning empty");
         Ok(Response::new(proto::DeviceSettingsResponse {
             settings: vec![],
-            error: Some(proto::ErrorCluster { status: false, code: 0, source: String::new() }),
+            error: Some(proto::ErrorCluster {
+                status: false,
+                code: 0,
+                source: String::new(),
+            }),
         }))
     }
 
@@ -126,14 +132,18 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         &self,
         _request: Request<proto::GetDeviceSettingRequest>,
     ) -> Result<Response<proto::DeviceSettingResponse>, Status> {
-        Err(Status::unimplemented("GetDeviceSetting requires FFI integration"))
+        Err(Status::unimplemented(
+            "GetDeviceSetting requires FFI integration",
+        ))
     }
 
     async fn set_device_setting(
         &self,
         _request: Request<proto::SetDeviceSettingRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
-        Err(Status::unimplemented("SetDeviceSetting requires FFI integration"))
+        Err(Status::unimplemented(
+            "SetDeviceSetting requires FFI integration",
+        ))
     }
 
     // ========================================================================
@@ -144,7 +154,9 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         &self,
         _request: Request<proto::DeviceRequest>,
     ) -> Result<Response<proto::SyzygyPortsResponse>, Status> {
-        Err(Status::unimplemented("GetSyzygyPorts requires FFI integration"))
+        Err(Status::unimplemented(
+            "GetSyzygyPorts requires FFI integration",
+        ))
     }
 
     // ========================================================================
@@ -155,35 +167,45 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         &self,
         _request: Request<proto::ConfigureFpgaRequest>,
     ) -> Result<Response<proto::ConfigureFpgaResponse>, Status> {
-        Err(Status::unimplemented("ConfigureFPGA requires FFI integration"))
+        Err(Status::unimplemented(
+            "ConfigureFPGA requires FFI integration",
+        ))
     }
 
     async fn configure_fpga_from_memory(
         &self,
         _request: Request<tonic::Streaming<proto::ConfigureFpgaChunk>>,
     ) -> Result<Response<proto::ConfigureFpgaResponse>, Status> {
-        Err(Status::unimplemented("ConfigureFPGAFromMemory requires FFI integration"))
+        Err(Status::unimplemented(
+            "ConfigureFPGAFromMemory requires FFI integration",
+        ))
     }
 
     async fn clear_fpga_configuration(
         &self,
         _request: Request<proto::DeviceRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
-        Err(Status::unimplemented("ClearFPGAConfiguration requires FFI integration"))
+        Err(Status::unimplemented(
+            "ClearFPGAConfiguration requires FFI integration",
+        ))
     }
 
     async fn get_bitfile_info(
         &self,
         _request: Request<proto::DeviceRequest>,
     ) -> Result<Response<proto::BitfileInfoResponse>, Status> {
-        Err(Status::unimplemented("GetBitfileInfo requires FFI integration"))
+        Err(Status::unimplemented(
+            "GetBitfileInfo requires FFI integration",
+        ))
     }
 
     async fn get_dataport_type(
         &self,
         _request: Request<proto::DeviceRequest>,
     ) -> Result<Response<proto::DataportTypeResponse>, Status> {
-        Err(Status::unimplemented("GetDataportType requires FFI integration"))
+        Err(Status::unimplemented(
+            "GetDataportType requires FFI integration",
+        ))
     }
 
     // ========================================================================
@@ -194,21 +216,27 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         &self,
         _request: Request<proto::GetPllRequest>,
     ) -> Result<Response<proto::PllConfigurationResponse>, Status> {
-        Err(Status::unimplemented("GetPLLConfiguration requires FFI integration"))
+        Err(Status::unimplemented(
+            "GetPLLConfiguration requires FFI integration",
+        ))
     }
 
     async fn set_pll_configuration(
         &self,
         _request: Request<proto::SetPllRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
-        Err(Status::unimplemented("SetPLLConfiguration requires FFI integration"))
+        Err(Status::unimplemented(
+            "SetPLLConfiguration requires FFI integration",
+        ))
     }
 
     async fn load_default_pll_configuration(
         &self,
         _request: Request<proto::DeviceRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
-        Err(Status::unimplemented("LoadDefaultPLLConfiguration requires FFI integration"))
+        Err(Status::unimplemented(
+            "LoadDefaultPLLConfiguration requires FFI integration",
+        ))
     }
 
     // ========================================================================
@@ -233,7 +261,9 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         &self,
         _request: Request<proto::FlashEraseSectorRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
-        Err(Status::unimplemented("FlashEraseSector requires FFI integration"))
+        Err(Status::unimplemented(
+            "FlashEraseSector requires FFI integration",
+        ))
     }
 
     // ========================================================================
@@ -244,7 +274,9 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         &self,
         _request: Request<proto::SetDeviceIdRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
-        Err(Status::unimplemented("SetDeviceID requires FFI integration"))
+        Err(Status::unimplemented(
+            "SetDeviceID requires FFI integration",
+        ))
     }
 
     async fn set_timeout(
@@ -265,7 +297,12 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         let device_count = self.state.device_manager.device_count() as i32;
         let resource_count = self.state.resource_registry.count() as i32;
         let uptime_secs = self.state.uptime_secs();
-        let uptime_str = format!("{}h {}m {}s", uptime_secs / 3600, (uptime_secs % 3600) / 60, uptime_secs % 60);
+        let uptime_str = format!(
+            "{}h {}m {}s",
+            uptime_secs / 3600,
+            (uptime_secs % 3600) / 60,
+            uptime_secs % 60
+        );
 
         Ok(Response::new(proto::ServerStatus {
             version: self.state.api_version.to_string(),
@@ -282,13 +319,16 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
     // Events (Server Streaming)
     // ========================================================================
 
-    type WatchDeviceEventsStream = tokio_stream::wrappers::ReceiverStream<Result<proto::DeviceEvent, Status>>;
+    type WatchDeviceEventsStream =
+        tokio_stream::wrappers::ReceiverStream<Result<proto::DeviceEvent, Status>>;
 
     async fn watch_device_events(
         &self,
         _request: Request<proto::WatchDeviceEventsRequest>,
     ) -> Result<Response<Self::WatchDeviceEventsStream>, Status> {
-        Err(Status::unimplemented("WatchDeviceEvents requires event bridge"))
+        Err(Status::unimplemented(
+            "WatchDeviceEvents requires event bridge",
+        ))
     }
 
     // ========================================================================
@@ -299,28 +339,36 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         &self,
         _request: Request<proto::ListResourcesRequest>,
     ) -> Result<Response<proto::ListResourcesResponse>, Status> {
-        Err(Status::unimplemented("ListResources requires resource registry integration"))
+        Err(Status::unimplemented(
+            "ListResources requires resource registry integration",
+        ))
     }
 
     async fn get_resource(
         &self,
         _request: Request<proto::ResourceRequest>,
     ) -> Result<Response<proto::ResourceResponse>, Status> {
-        Err(Status::unimplemented("GetResource requires resource registry integration"))
+        Err(Status::unimplemented(
+            "GetResource requires resource registry integration",
+        ))
     }
 
     async fn acquire_resource(
         &self,
         _request: Request<proto::AcquireResourceRequest>,
     ) -> Result<Response<proto::ResourceResponse>, Status> {
-        Err(Status::unimplemented("AcquireResource requires resource registry integration"))
+        Err(Status::unimplemented(
+            "AcquireResource requires resource registry integration",
+        ))
     }
 
     async fn release_resource(
         &self,
         _request: Request<proto::ReleaseResourceRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
-        Err(Status::unimplemented("ReleaseResource requires resource registry integration"))
+        Err(Status::unimplemented(
+            "ReleaseResource requires resource registry integration",
+        ))
     }
 
     // ========================================================================
@@ -333,7 +381,11 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
     ) -> Result<Response<proto::ListUsersResponse>, Status> {
         Ok(Response::new(proto::ListUsersResponse {
             users: vec![],
-            error: Some(proto::ErrorCluster { status: false, code: 0, source: String::new() }),
+            error: Some(proto::ErrorCluster {
+                status: false,
+                code: 0,
+                source: String::new(),
+            }),
         }))
     }
 
@@ -341,6 +393,8 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         &self,
         _request: Request<proto::UserRequest>,
     ) -> Result<Response<proto::UserResponse>, Status> {
-        Err(Status::unimplemented("GetUser requires user session integration"))
+        Err(Status::unimplemented(
+            "GetUser requires user session integration",
+        ))
     }
 }

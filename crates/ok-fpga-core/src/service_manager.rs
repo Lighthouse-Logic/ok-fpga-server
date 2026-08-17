@@ -44,9 +44,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 
-use crate::service::{
-    ManagedService, ServiceError, ServiceEvent, ServiceInfo, ServiceStatus,
-};
+use crate::service::{ManagedService, ServiceError, ServiceEvent, ServiceInfo, ServiceStatus};
 
 // ============================================================================
 // Configuration
@@ -168,13 +166,7 @@ impl ServiceManager {
             );
         }
 
-        services.insert(
-            name.clone(),
-            ServiceEntry {
-                service,
-                enabled,
-            },
-        );
+        services.insert(name.clone(), ServiceEntry { service, enabled });
 
         // Track insertion order for shutdown sequencing.
         let mut order = self
@@ -830,7 +822,11 @@ mod tests {
         // rest: enabled=true → should be running
         assert!(list[0].status.is_running(), "rest should be running");
         // grpc: enabled=false → should still be stopped
-        assert_eq!(list[1].status, ServiceStatus::Stopped, "grpc should be stopped");
+        assert_eq!(
+            list[1].status,
+            ServiceStatus::Stopped,
+            "grpc should be stopped"
+        );
         // mqtt: enabled=true → should be running
         assert!(list[2].status.is_running(), "mqtt should be running");
     }
@@ -888,7 +884,12 @@ mod tests {
         // All services should be stopped.
         let list = manager.list();
         for info in &list {
-            assert_eq!(info.status, ServiceStatus::Stopped, "{} should be stopped", info.name);
+            assert_eq!(
+                info.status,
+                ServiceStatus::Stopped,
+                "{} should be stopped",
+                info.name
+            );
         }
 
         // Collect stop events to verify MQTT was last.

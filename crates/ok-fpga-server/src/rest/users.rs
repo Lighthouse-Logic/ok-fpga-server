@@ -13,8 +13,7 @@ use crate::state::AppState;
 
 /// Build the `/users` route group.
 pub fn routes() -> Router<Arc<AppState>> {
-    Router::new()
-        .route("/users", get(list_users))
+    Router::new().route("/users", get(list_users))
 }
 
 /// User list response.
@@ -28,7 +27,5 @@ struct UserListBody {
 /// User session tracking is implemented in Phase 9 (Authentication).
 /// For now, returns an empty list.
 async fn list_users() -> Json<UserListBody> {
-    Json(UserListBody {
-        users: vec![],
-    })
+    Json(UserListBody { users: vec![] })
 }

@@ -35,10 +35,9 @@ fn main() {
     // Resolve the absolute path to the header file.
     // We navigate from the crate root (crates/ok-fpga-ffi/) up two levels
     // to the workspace root, then into FrontPanel-6.1.0/.
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR")
-        .expect("CARGO_MANIFEST_DIR must be set by Cargo");
-    let header_path = PathBuf::from(&manifest_dir)
-        .join("../../FrontPanel-6.1.0/okFrontPanel.h");
+    let manifest_dir =
+        env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set by Cargo");
+    let header_path = PathBuf::from(&manifest_dir).join("../../FrontPanel-6.1.0/okFrontPanel.h");
 
     // Verify the header file exists — give a clear error message if not.
     if !header_path.exists() {
@@ -62,8 +61,11 @@ fn main() {
     //   pattern matching.
     let bindings = bindgen::Builder::default()
         // The header file to parse.
-        .header(header_path.to_str().expect("Header path must be valid UTF-8"))
-
+        .header(
+            header_path
+                .to_str()
+                .expect("Header path must be valid UTF-8"),
+        )
         // Preprocessor defines to exclude unwanted sections of the header.
         //
         // okNO_LUA: Prevents the Lua scripting API from being parsed.
@@ -77,20 +79,16 @@ fn main() {
         // (okCFrontPanel, okCPLL22150, etc.) that we don't need — we use
         // the C function API directly.
         .clang_arg("-DOPALKELLY_NO_CXX_TYPES")
-
         // --- Blocklisted functions ---
         //
         // These functions exist in the C API but are excluded from our
         // bindings because they are either USB 2.0-only, Android-only,
         // or not needed for the server.
-
         // USB 2.0 only — not supported by this project (ADR-001).
         .blocklist_function("okFrontPanel_WriteI2C")
         .blocklist_function("okFrontPanel_ReadI2C")
-
         // Android only — constructs from a file descriptor.
         .blocklist_function("okFrontPanel_ConstructFromFD")
-
         // --- Bindgen output configuration ---
         //
         // Generate Rust enums with proper variants instead of integer
@@ -98,23 +96,19 @@ fn main() {
         .default_enum_style(bindgen::EnumVariation::Rust {
             non_exhaustive: true,
         })
-
         // Derive common traits on generated types so we can debug-print
         // them, compare them, and copy them around easily.
         .derive_debug(true)
         .derive_default(true)
         .derive_copy(true)
-
         // Use `core` types instead of `std` types where possible.
         // This makes the generated code work in no_std environments,
         // though we don't strictly need it — it's just good practice.
         .use_core()
-
         // Parse comments from the C header and include them as Rust
         // doc comments on the generated types. This makes the generated
         // code self-documenting when viewed with `cargo doc`.
         .generate_comments(true)
-
         // Allow only the types and functions with the "ok" prefix to
         // be included. This filters out any system types pulled in by
         // included system headers (like windows.h).
@@ -126,7 +120,6 @@ fn main() {
         .allowlist_var("TRUE")
         .allowlist_var("FALSE")
         .allowlist_type("Bool")
-
         // Generate the bindings. This invokes libclang to parse the
         // header and produce Rust source code.
         .generate()

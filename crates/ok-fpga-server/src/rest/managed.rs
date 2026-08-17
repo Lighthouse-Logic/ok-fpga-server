@@ -4,12 +4,12 @@
 //! the REST API server, allowing it to be started, stopped, and restarted
 //! via the [`ServiceManager`](ok_fpga_core::service_manager::ServiceManager).
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Arc;
 
 use ok_fpga_core::service::{ManagedService, ServiceError, ServiceStatus};
 use tokio::sync::Notify;
-use tracing::{info, error};
+use tracing::{error, info};
 
 use crate::state::AppState;
 

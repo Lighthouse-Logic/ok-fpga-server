@@ -13,8 +13,7 @@ use crate::state::AppState;
 
 /// Build the `/events` route group.
 pub fn routes() -> Router<Arc<AppState>> {
-    Router::new()
-        .route("/events", get(subscribe_events))
+    Router::new().route("/events", get(subscribe_events))
 }
 
 /// `GET /events` — Subscribe to server-sent events (SSE).

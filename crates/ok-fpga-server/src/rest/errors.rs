@@ -62,6 +62,7 @@ impl ProblemDetail {
     }
 
     /// Create a 400 Bad Request problem.
+    #[allow(dead_code)] // Available for future handler use.
     pub fn bad_request(detail: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, detail)
     }
@@ -77,6 +78,7 @@ impl ProblemDetail {
     }
 
     /// Create a 500 Internal Server Error problem.
+    #[allow(dead_code)] // Available for future handler use.
     pub fn internal(detail: impl Into<String>) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, detail)
     }
@@ -88,8 +90,7 @@ impl ProblemDetail {
 /// required by RFC 7807.
 impl IntoResponse for ProblemDetail {
     fn into_response(self) -> Response {
-        let status = StatusCode::from_u16(self.status)
-            .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        let status = StatusCode::from_u16(self.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 
         let mut response = (status, Json(self)).into_response();
         response.headers_mut().insert(

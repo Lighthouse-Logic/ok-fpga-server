@@ -360,16 +360,11 @@ impl FrontPanelManagerHandle {
     /// * `dll` — The loaded FrontPanel DLL.
     /// * `realm` — The realm string. Use `""` for real hardware or
     ///   `"test"` for the emulated test environment.
-    pub fn new(
-        dll: Arc<FrontPanelDll>,
-        realm: &std::ffi::CStr,
-    ) -> Self {
+    pub fn new(dll: Arc<FrontPanelDll>, realm: &std::ffi::CStr) -> Self {
         // SAFETY: `manager_construct` takes a null self-handle (for the C++
         // callback pattern) and a realm string. We pass null for the self
         // handle because we don't use the C++ callback mechanism.
-        let handle = unsafe {
-            (dll.manager_construct)(std::ptr::null_mut(), realm.as_ptr())
-        };
+        let handle = unsafe { (dll.manager_construct)(std::ptr::null_mut(), realm.as_ptr()) };
         assert!(
             !handle.is_null(),
             "okFrontPanelManager_Construct returned null"
@@ -441,9 +436,7 @@ impl FrontPanelDevicesHandle {
         // SAFETY: `devices_construct` creates a snapshot of connected devices.
         // It takes a realm string and an error pointer. If an error occurs,
         // the error pointer is set and must be freed.
-        let handle = unsafe {
-            (dll.devices_construct)(realm.as_ptr(), &mut err_ptr)
-        };
+        let handle = unsafe { (dll.devices_construct)(realm.as_ptr(), &mut err_ptr) };
 
         // Check if an error occurred during construction.
         if !err_ptr.is_null() {
@@ -462,10 +455,7 @@ impl FrontPanelDevicesHandle {
                 msg
             };
 
-            return Err(crate::error::FfiError::FrontPanelError {
-                code: -1,
-                message,
-            });
+            return Err(crate::error::FfiError::FrontPanelError { code: -1, message });
         }
 
         if handle.is_null() {

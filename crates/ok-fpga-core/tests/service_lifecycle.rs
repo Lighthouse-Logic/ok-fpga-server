@@ -3,8 +3,8 @@
 //! Tests the ServiceManager's ability to start, stop, and restart services
 //! with event broadcasting — the core orchestration logic from ADR-010.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Arc;
 
 use ok_fpga_core::service::{ManagedService, ServiceError, ServiceStatus};
 use ok_fpga_core::service_manager::ServiceManager;

@@ -210,23 +210,13 @@ fn error_code_to_string(code: ok_ErrorCode) -> String {
         ok_ErrorCode::ok_NoError => "No error".to_string(),
         ok_ErrorCode::ok_Failed => "Operation failed".to_string(),
         ok_ErrorCode::ok_Timeout => "Operation timed out".to_string(),
-        ok_ErrorCode::ok_DoneNotHigh => {
-            "FPGA DONE signal not high after configuration".to_string()
-        }
+        ok_ErrorCode::ok_DoneNotHigh => "FPGA DONE signal not high after configuration".to_string(),
         ok_ErrorCode::ok_TransferError => "Data transfer error".to_string(),
-        ok_ErrorCode::ok_CommunicationError => {
-            "Communication error with device".to_string()
-        }
-        ok_ErrorCode::ok_InvalidBitstream => {
-            "Invalid bitstream file".to_string()
-        }
+        ok_ErrorCode::ok_CommunicationError => "Communication error with device".to_string(),
+        ok_ErrorCode::ok_InvalidBitstream => "Invalid bitstream file".to_string(),
         ok_ErrorCode::ok_FileError => "File I/O error".to_string(),
-        ok_ErrorCode::ok_DeviceNotOpen => {
-            "Device is not open — call Open() first".to_string()
-        }
-        ok_ErrorCode::ok_InvalidEndpoint => {
-            "Invalid endpoint address".to_string()
-        }
+        ok_ErrorCode::ok_DeviceNotOpen => "Device is not open — call Open() first".to_string(),
+        ok_ErrorCode::ok_InvalidEndpoint => "Invalid endpoint address".to_string(),
         ok_ErrorCode::ok_InvalidBlockSize => {
             "Invalid block size for block pipe transfer".to_string()
         }
@@ -235,35 +225,19 @@ fn error_code_to_string(code: ok_ErrorCode) -> String {
         }
         ok_ErrorCode::ok_I2CBitError => "I2C bit error".to_string(),
         ok_ErrorCode::ok_I2CNack => "I2C NACK received".to_string(),
-        ok_ErrorCode::ok_I2CUnknownStatus => {
-            "I2C unknown status".to_string()
-        }
-        ok_ErrorCode::ok_UnsupportedFeature => {
-            "Feature not supported by this device".to_string()
-        }
+        ok_ErrorCode::ok_I2CUnknownStatus => "I2C unknown status".to_string(),
+        ok_ErrorCode::ok_UnsupportedFeature => "Feature not supported by this device".to_string(),
         ok_ErrorCode::ok_FIFOUnderflow => "FIFO underflow".to_string(),
         ok_ErrorCode::ok_FIFOOverflow => "FIFO overflow".to_string(),
         ok_ErrorCode::ok_DataAlignmentError => {
             "Data alignment error — check buffer size and alignment".to_string()
         }
-        ok_ErrorCode::ok_InvalidResetProfile => {
-            "Invalid FPGA reset profile".to_string()
-        }
-        ok_ErrorCode::ok_InvalidParameter => {
-            "Invalid parameter passed to function".to_string()
-        }
-        ok_ErrorCode::ok_AXISlaveError => {
-            "AXI slave error".to_string()
-        }
-        ok_ErrorCode::ok_AXIDecodeError => {
-            "AXI decode error — invalid address".to_string()
-        }
-        ok_ErrorCode::ok_GatewareTimeout => {
-            "Gateware timeout — FPGA did not respond".to_string()
-        }
-        ok_ErrorCode::ok_EntitlementFailed => {
-            "Entitlement check failed".to_string()
-        }
+        ok_ErrorCode::ok_InvalidResetProfile => "Invalid FPGA reset profile".to_string(),
+        ok_ErrorCode::ok_InvalidParameter => "Invalid parameter passed to function".to_string(),
+        ok_ErrorCode::ok_AXISlaveError => "AXI slave error".to_string(),
+        ok_ErrorCode::ok_AXIDecodeError => "AXI decode error — invalid address".to_string(),
+        ok_ErrorCode::ok_GatewareTimeout => "Gateware timeout — FPGA did not respond".to_string(),
+        ok_ErrorCode::ok_EntitlementFailed => "Entitlement check failed".to_string(),
         ok_ErrorCode::ok_FrontPanelNotEnabled => {
             "FrontPanel is not enabled in the FPGA bitfile".to_string()
         }

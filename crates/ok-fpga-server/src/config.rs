@@ -45,7 +45,7 @@ use tracing::{info, warn};
 /// bind = "0.0.0.0"
 /// port = 50051
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ServerConfig {
     /// Core server settings (management port, logging).
@@ -68,20 +68,6 @@ pub struct ServerConfig {
 
     /// Authentication configuration (ADR-008).
     pub auth: AuthConfig,
-}
-
-impl Default for ServerConfig {
-    fn default() -> Self {
-        Self {
-            server: CoreConfig::default(),
-            rest: RestConfig::default(),
-            grpc: GrpcConfig::default(),
-            mqtt: MqttConfig::default(),
-            mdns: MdnsConfig::default(),
-            dashboard: DashboardConfig::default(),
-            auth: AuthConfig::default(),
-        }
-    }
 }
 
 /// Core server settings.
@@ -253,17 +239,11 @@ impl Default for AuthConfig {
 }
 
 /// Local auth provider configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LocalAuthConfig {
     /// List of local user accounts.
     pub users: Vec<ok_fpga_core::auth::LocalUser>,
-}
-
-impl Default for LocalAuthConfig {
-    fn default() -> Self {
-        Self { users: vec![] }
-    }
 }
 
 // ============================================================================

@@ -79,7 +79,8 @@ pub mod auth;
 mod tests {
     #[test]
     fn crate_compiles() {
-        // This test simply verifies that the crate compiles and links.
-        assert!(true);
+        // Verify core types are accessible — catches module visibility issues.
+        let _dm = super::manager::DeviceManager::new();
+        let _rr = super::resource::ResourceRegistry::new();
     }
 }

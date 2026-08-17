@@ -185,7 +185,11 @@ fn invalidate_device_clears_all_resources() {
     rr.invalidate_device("DEV_CLEAR");
 
     let dev_clear_resources = rr.list_for_device("DEV_CLEAR");
-    assert_eq!(dev_clear_resources.len(), 2, "resources should still exist but be invalidated");
+    assert_eq!(
+        dev_clear_resources.len(),
+        2,
+        "resources should still exist but be invalidated"
+    );
     for res in &dev_clear_resources {
         assert_eq!(
             res.state,
@@ -199,6 +203,13 @@ fn invalidate_device_clears_all_resources() {
 
     // DEV_OTHER resources should be unaffected (still held).
     let dev_other_resources = rr.list_for_device("DEV_OTHER");
-    assert_eq!(dev_other_resources.len(), 1, "DEV_OTHER resources should be unaffected");
-    assert!(!dev_other_resources[0].holders.is_empty(), "DEV_OTHER holder should remain");
+    assert_eq!(
+        dev_other_resources.len(),
+        1,
+        "DEV_OTHER resources should be unaffected"
+    );
+    assert!(
+        !dev_other_resources[0].holders.is_empty(),
+        "DEV_OTHER holder should remain"
+    );
 }

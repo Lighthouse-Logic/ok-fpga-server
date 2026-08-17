@@ -4,9 +4,9 @@
 //! This file exists in the ok-fpga-server binary crate's `tests/` directory.
 //! Since it's a binary crate, we can only test via ok-fpga-core public APIs.
 
-use ok_fpga_core::service_manager::ServiceManager;
 use ok_fpga_core::manager::DeviceManager;
 use ok_fpga_core::resource::ResourceRegistry;
+use ok_fpga_core::service_manager::ServiceManager;
 
 /// Core types are constructable and interoperable.
 #[test]
@@ -50,7 +50,7 @@ fn auth_providers_initialize() {
 /// Session manager handles concurrent sessions.
 #[test]
 fn session_manager_concurrent_sessions() {
-    use ok_fpga_core::auth::{SessionManager, AuthenticatedUser};
+    use ok_fpga_core::auth::{AuthenticatedUser, SessionManager};
 
     let sm = SessionManager::new(3600);
 

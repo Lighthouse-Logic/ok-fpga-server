@@ -161,7 +161,10 @@ mod tests {
         let _xem8320 = ok_BoardModel::ok_brdXEM8320AU25P;
 
         // Verify the enum variant has a reasonable numeric value (non-zero).
-        assert_ne!(_xem8320 as i32, 0, "XEM8320AU25P should not be ok_brdUnknown (0)");
+        assert_ne!(
+            _xem8320 as i32, 0,
+            "XEM8320AU25P should not be ok_brdUnknown (0)"
+        );
     }
 
     /// Verify that the okTRegisterEntry struct exists (used for register
@@ -174,4 +177,3 @@ mod tests {
         assert_eq!(entry.data, 0);
     }
 }
-

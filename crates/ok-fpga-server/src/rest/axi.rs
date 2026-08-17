@@ -26,7 +26,10 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/devices/{serial}/axi/full/write", post(axi_full_write))
         .route("/devices/{serial}/axi/full/reset", post(axi_full_reset))
         // AXI Stream
-        .route("/devices/{serial}/axi/stream/widths", get(axi_stream_widths))
+        .route(
+            "/devices/{serial}/axi/stream/widths",
+            get(axi_stream_widths),
+        )
         .route("/devices/{serial}/axi/stream/read", post(axi_stream_read))
         .route("/devices/{serial}/axi/stream/write", post(axi_stream_write))
         .route("/devices/{serial}/axi/stream/reset", post(axi_stream_reset))
@@ -34,46 +37,90 @@ pub fn routes() -> Router<Arc<AppState>> {
 
 // All AXI data port operations require FFI integration.
 
-async fn axi_lite_read(Path(_serial): Path<String>) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented("AXILiteRead requires FFI integration"))
+async fn axi_lite_read(
+    Path(_serial): Path<String>,
+) -> Result<Json<serde_json::Value>, ProblemDetail> {
+    Err(ProblemDetail::not_implemented(
+        "AXILiteRead requires FFI integration",
+    ))
 }
 
-async fn axi_lite_write(Path(_serial): Path<String>) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented("AXILiteWrite requires FFI integration"))
+async fn axi_lite_write(
+    Path(_serial): Path<String>,
+) -> Result<Json<serde_json::Value>, ProblemDetail> {
+    Err(ProblemDetail::not_implemented(
+        "AXILiteWrite requires FFI integration",
+    ))
 }
 
-async fn axi_lite_reset(Path(_serial): Path<String>) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented("AXILiteReset requires FFI integration"))
+async fn axi_lite_reset(
+    Path(_serial): Path<String>,
+) -> Result<Json<serde_json::Value>, ProblemDetail> {
+    Err(ProblemDetail::not_implemented(
+        "AXILiteReset requires FFI integration",
+    ))
 }
 
-async fn axi_full_widths(Path(_serial): Path<String>) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented("AXIFullGetDatapathWidths requires FFI integration"))
+async fn axi_full_widths(
+    Path(_serial): Path<String>,
+) -> Result<Json<serde_json::Value>, ProblemDetail> {
+    Err(ProblemDetail::not_implemented(
+        "AXIFullGetDatapathWidths requires FFI integration",
+    ))
 }
 
-async fn axi_full_read(Path(_serial): Path<String>) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented("AXIFullRead requires FFI integration"))
+async fn axi_full_read(
+    Path(_serial): Path<String>,
+) -> Result<Json<serde_json::Value>, ProblemDetail> {
+    Err(ProblemDetail::not_implemented(
+        "AXIFullRead requires FFI integration",
+    ))
 }
 
-async fn axi_full_write(Path(_serial): Path<String>) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented("AXIFullWrite requires FFI integration"))
+async fn axi_full_write(
+    Path(_serial): Path<String>,
+) -> Result<Json<serde_json::Value>, ProblemDetail> {
+    Err(ProblemDetail::not_implemented(
+        "AXIFullWrite requires FFI integration",
+    ))
 }
 
-async fn axi_full_reset(Path(_serial): Path<String>) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented("AXIFullReset requires FFI integration"))
+async fn axi_full_reset(
+    Path(_serial): Path<String>,
+) -> Result<Json<serde_json::Value>, ProblemDetail> {
+    Err(ProblemDetail::not_implemented(
+        "AXIFullReset requires FFI integration",
+    ))
 }
 
-async fn axi_stream_widths(Path(_serial): Path<String>) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented("AXIStreamGetDatapathWidths requires FFI integration"))
+async fn axi_stream_widths(
+    Path(_serial): Path<String>,
+) -> Result<Json<serde_json::Value>, ProblemDetail> {
+    Err(ProblemDetail::not_implemented(
+        "AXIStreamGetDatapathWidths requires FFI integration",
+    ))
 }
 
-async fn axi_stream_read(Path(_serial): Path<String>) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented("AXIStreamRead requires FFI integration"))
+async fn axi_stream_read(
+    Path(_serial): Path<String>,
+) -> Result<Json<serde_json::Value>, ProblemDetail> {
+    Err(ProblemDetail::not_implemented(
+        "AXIStreamRead requires FFI integration",
+    ))
 }
 
-async fn axi_stream_write(Path(_serial): Path<String>) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented("AXIStreamWrite requires FFI integration"))
+async fn axi_stream_write(
+    Path(_serial): Path<String>,
+) -> Result<Json<serde_json::Value>, ProblemDetail> {
+    Err(ProblemDetail::not_implemented(
+        "AXIStreamWrite requires FFI integration",
+    ))
 }
 
-async fn axi_stream_reset(Path(_serial): Path<String>) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented("AXIStreamReset requires FFI integration"))
+async fn axi_stream_reset(
+    Path(_serial): Path<String>,
+) -> Result<Json<serde_json::Value>, ProblemDetail> {
+    Err(ProblemDetail::not_implemented(
+        "AXIStreamReset requires FFI integration",
+    ))
 }

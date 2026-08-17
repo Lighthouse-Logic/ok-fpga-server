@@ -159,10 +159,8 @@ pub trait AuthProvider: Send + Sync {
     /// Authenticate a user with the given credentials.
     ///
     /// Returns the authenticated user identity on success, or an `AuthError`.
-    async fn authenticate(
-        &self,
-        credentials: &Credentials,
-    ) -> Result<AuthenticatedUser, AuthError>;
+    async fn authenticate(&self, credentials: &Credentials)
+        -> Result<AuthenticatedUser, AuthError>;
 }
 
 // ============================================================================
@@ -235,10 +233,8 @@ pub struct LocalAuthProvider {
 impl LocalAuthProvider {
     /// Create a new `LocalAuthProvider` from a list of configured users.
     pub fn new(users: Vec<LocalUser>) -> Self {
-        let user_map: HashMap<String, LocalUser> = users
-            .into_iter()
-            .map(|u| (u.username.clone(), u))
-            .collect();
+        let user_map: HashMap<String, LocalUser> =
+            users.into_iter().map(|u| (u.username.clone(), u)).collect();
         Self { users: user_map }
     }
 }

@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
-use axum::routing::{get, post, delete};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Serialize;
 
@@ -37,9 +37,7 @@ struct ResourceSummary {
 }
 
 /// `GET /resources` — List all registered resources across all devices.
-async fn list_resources(
-    State(state): State<Arc<AppState>>,
-) -> Json<ResourceListBody> {
+async fn list_resources(State(state): State<Arc<AppState>>) -> Json<ResourceListBody> {
     let resources = state.resource_registry.list();
     let summaries = resources
         .iter()

@@ -25,9 +25,7 @@ impl ServerServiceImpl {
     }
 
     /// Convert a core `ServiceInfo` into the proto `ServiceInfo` message.
-    fn to_proto_service_info(
-        info: &ok_fpga_core::service::ServiceInfo,
-    ) -> proto::ServiceInfo {
+    fn to_proto_service_info(info: &ok_fpga_core::service::ServiceInfo) -> proto::ServiceInfo {
         proto::ServiceInfo {
             name: info.name.clone(),
             status: info.status.as_str().to_string(),
@@ -47,10 +45,8 @@ impl proto::server_service_server::ServerService for ServerServiceImpl {
         let services = self.state.service_manager.list();
         let device_count = self.state.device_manager.device_count() as i32;
 
-        let proto_services: Vec<proto::ServiceInfo> = services
-            .iter()
-            .map(Self::to_proto_service_info)
-            .collect();
+        let proto_services: Vec<proto::ServiceInfo> =
+            services.iter().map(Self::to_proto_service_info).collect();
 
         Ok(Response::new(proto::ServerStatusResponse {
             error: Some(proto::ErrorCluster {
@@ -84,10 +80,8 @@ impl proto::server_service_server::ServerService for ServerServiceImpl {
         _request: Request<proto::StatusResponse>,
     ) -> Result<Response<proto::ListServicesResponse>, Status> {
         let services = self.state.service_manager.list();
-        let proto_services: Vec<proto::ServiceInfo> = services
-            .iter()
-            .map(Self::to_proto_service_info)
-            .collect();
+        let proto_services: Vec<proto::ServiceInfo> =
+            services.iter().map(Self::to_proto_service_info).collect();
 
         Ok(Response::new(proto::ListServicesResponse {
             error: Some(proto::ErrorCluster {
@@ -108,11 +102,10 @@ impl proto::server_service_server::ServerService for ServerServiceImpl {
 
         match self.state.service_manager.start(name).await {
             Ok(()) => {
-                let info = self
-                    .state
-                    .service_manager
-                    .get_status(name)
-                    .ok_or_else(|| Status::not_found(format!("service '{}' not found", name)))?;
+                let info =
+                    self.state.service_manager.get_status(name).ok_or_else(|| {
+                        Status::not_found(format!("service '{}' not found", name))
+                    })?;
 
                 Ok(Response::new(proto::ServiceOperationResponse {
                     error: Some(proto::ErrorCluster {
@@ -136,11 +129,10 @@ impl proto::server_service_server::ServerService for ServerServiceImpl {
 
         match self.state.service_manager.stop(name).await {
             Ok(()) => {
-                let info = self
-                    .state
-                    .service_manager
-                    .get_status(name)
-                    .ok_or_else(|| Status::not_found(format!("service '{}' not found", name)))?;
+                let info =
+                    self.state.service_manager.get_status(name).ok_or_else(|| {
+                        Status::not_found(format!("service '{}' not found", name))
+                    })?;
 
                 Ok(Response::new(proto::ServiceOperationResponse {
                     error: Some(proto::ErrorCluster {
@@ -164,11 +156,10 @@ impl proto::server_service_server::ServerService for ServerServiceImpl {
 
         match self.state.service_manager.restart(name).await {
             Ok(()) => {
-                let info = self
-                    .state
-                    .service_manager
-                    .get_status(name)
-                    .ok_or_else(|| Status::not_found(format!("service '{}' not found", name)))?;
+                let info =
+                    self.state.service_manager.get_status(name).ok_or_else(|| {
+                        Status::not_found(format!("service '{}' not found", name))
+                    })?;
 
                 Ok(Response::new(proto::ServiceOperationResponse {
                     error: Some(proto::ErrorCluster {

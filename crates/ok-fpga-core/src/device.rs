@@ -33,13 +33,13 @@ use serde::{Deserialize, Serialize};
 /// See ADR-009 for the complete supported board matrix with interface types
 /// and documentation links.
 const SUPPORTED_PRODUCTS: &[i32] = &[
-    60,         // XEM8305AU15P
-    57,         // XEM8310AU25P
-    45, 46,     // XEM7320 (A75T, A200T)
-    56,         // XEM8320AU25P
+    60, // XEM8305AU15P
+    57, // XEM8310AU25P
+    45, 46, // XEM7320 (A75T, A200T)
+    56, // XEM8320AU25P
     49, 50, 51, // XEM8350 (KU060, KU085, KU115)
-    59,         // XEM8370KU11P
-    61, 62,     // HUB1450 (AU10P, AU25P)
+    59, // XEM8370KU11P
+    61, 62, // HUB1450 (AU10P, AU25P)
 ];
 
 /// Device interface types from the FrontPanel C API.
@@ -402,10 +402,7 @@ impl fmt::Display for FpgaDevice {
         write!(
             f,
             "{} ({}) [{}] — {}",
-            self.info.product_name,
-            self.info.serial,
-            self.info.device_interface,
-            self.state
+            self.info.product_name, self.info.serial, self.info.device_interface, self.state
         )
     }
 }
@@ -533,10 +530,7 @@ mod tests {
             },
         };
         assert!(device.is_programmed());
-        assert_eq!(
-            device.state.bitfile().unwrap().filename,
-            "design.bit"
-        );
+        assert_eq!(device.state.bitfile().unwrap().filename, "design.bit");
     }
 
     #[test]

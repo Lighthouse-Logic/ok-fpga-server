@@ -34,8 +34,8 @@
 //! MQTT is **publish-only** — the server never subscribes to command topics.
 //! This prevents unauthorized control via MQTT.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Arc;
 
 use ok_fpga_core::service::{ManagedService, ServiceError, ServiceStatus};
 use rumqttc::{AsyncClient, MqttOptions, QoS};
@@ -112,11 +112,7 @@ impl ManagedService for MqttPublisher {
         let broker_url = &self.config.broker_url;
         let (host, port) = parse_broker_url(broker_url);
 
-        let mut mqtt_options = MqttOptions::new(
-            &self.config.client_id,
-            &host,
-            port,
-        );
+        let mut mqtt_options = MqttOptions::new(&self.config.client_id, &host, port);
         mqtt_options.set_keep_alive(std::time::Duration::from_secs(30));
         mqtt_options.set_clean_session(true);
 
@@ -209,16 +205,11 @@ impl ManagedService for MqttPublisher {
         let host2 = host.clone();
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(
-                tokio::time::Duration::from_secs(publish_interval),
-            );
+            let mut interval =
+                tokio::time::interval(tokio::time::Duration::from_secs(publish_interval));
 
             // Build a separate client for periodic publishing.
-            let mut opts = MqttOptions::new(
-                format!("{}-periodic", server_id2),
-                &host2,
-                port,
-            );
+            let mut opts = MqttOptions::new(format!("{}-periodic", server_id2), &host2, port);
             opts.set_keep_alive(std::time::Duration::from_secs(30));
             opts.set_clean_session(true);
 
@@ -311,7 +302,12 @@ async fn publish_services_status(
         .service_manager
         .list()
         .iter()
-        .map(|s| (s.name.clone(), serde_json::Value::String(format!("{}", s.status))))
+        .map(|s| {
+            (
+                s.name.clone(),
+                serde_json::Value::String(format!("{}", s.status)),
+            )
+        })
         .collect();
 
     let msg = build_message(
@@ -411,11 +407,7 @@ async fn publish_resource_inventory(
 /// ```json
 /// { "v": 1, "ts": "...", "type": "...", "server_id": "...", "payload": {...} }
 /// ```
-fn build_message(
-    server_id: &str,
-    msg_type: &str,
-    payload: serde_json::Value,
-) -> serde_json::Value {
+fn build_message(server_id: &str, msg_type: &str, payload: serde_json::Value) -> serde_json::Value {
     serde_json::json!({
         "v": MESSAGE_VERSION,
         "ts": chrono::Utc::now().to_rfc3339(),

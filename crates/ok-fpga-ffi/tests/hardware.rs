@@ -53,7 +53,9 @@ fn dll_path() -> PathBuf {
         .and_then(|p| p.parent())
         .unwrap_or(Path::new(manifest_dir));
 
-    workspace_root.join("FrontPanel-6.1.0").join("okFrontPanel.dll")
+    workspace_root
+        .join("FrontPanel-6.1.0")
+        .join("okFrontPanel.dll")
 }
 
 /// Load the FrontPanel DLL or skip the test if it's unavailable.
@@ -169,7 +171,11 @@ fn load_frontpanel_dll() {
         eprintln!("  Version components: {}.{}.{}", major, minor, micro);
         assert!(major >= 6, "Expected API major >= 6, got {}", major);
         if major == 6 {
-            assert!(minor >= 1, "Expected API minor >= 1 (for 6.x), got {}", minor);
+            assert!(
+                minor >= 1,
+                "Expected API minor >= 1 (for 6.x), got {}",
+                minor
+            );
         }
     }
 }
@@ -237,7 +243,10 @@ fn read_device_info() {
         eprintln!("  Device ID:        {}", device_id);
         eprintln!("  Interface:        {:?}", info.deviceInterface);
         eprintln!("  USB Speed:        {:?}", info.usbSpeed);
-        eprintln!("  FW Version:       {}.{}", info.deviceMajorVersion, info.deviceMinorVersion);
+        eprintln!(
+            "  FW Version:       {}.{}",
+            info.deviceMajorVersion, info.deviceMinorVersion
+        );
         eprintln!("  Wire Width:       {}", info.wireWidth);
         eprintln!("  Trigger Width:    {}", info.triggerWidth);
         eprintln!("  Pipe Width:       {}", info.pipeWidth);
@@ -279,7 +288,10 @@ fn read_device_sensors() {
         // when no FPGA bitfile is programmed, or if the board doesn't support the
         // sensor API. Handle this gracefully.
         if rc as i32 != ok_ErrorCode::ok_NoError as i32 {
-            eprintln!("  SKIP: GetDeviceSensors returned {:?} — sensors may require FPGA configuration", rc);
+            eprintln!(
+                "  SKIP: GetDeviceSensors returned {:?} — sensors may require FPGA configuration",
+                rc
+            );
             eprintln!("        or this board may not support the sensor API.");
             (dll.sensors_destruct)(sensors);
             return;
@@ -294,10 +306,7 @@ fn read_device_sensors() {
             let name = cstr_from_array(&sensor.name);
             let description = cstr_from_array(&sensor.description);
 
-            eprintln!(
-                "  Sensor {}: {} (type={:?})",
-                sensor.id, name, sensor.type_
-            );
+            eprintln!("  Sensor {}: {} (type={:?})", sensor.id, name, sensor.type_);
             eprintln!(
                 "    Value: {:.3}  Range: [{:.3}, {:.3}]  Step: {:.3}",
                 sensor.value, sensor.min, sensor.max, sensor.step
@@ -446,7 +455,10 @@ fn enumerate_syzygy_ports() {
             let voltage_mv = port_status as f64 * 10.0;
             let powered = port_status > 0;
 
-            eprintln!("  Port {}: status={} ({}mV, powered={})", n, port_status, voltage_mv, powered);
+            eprintln!(
+                "  Port {}: status={} ({}mV, powered={})",
+                n, port_status, voltage_mv, powered
+            );
 
             // Read string fields for this port.
             let string_keys = [
@@ -475,7 +487,10 @@ fn enumerate_syzygy_ports() {
         }
 
         eprintln!("  Total SYZYGY ports discovered: {}", port_count);
-        assert!(port_count > 0, "Expected at least 1 SYZYGY port on this board");
+        assert!(
+            port_count > 0,
+            "Expected at least 1 SYZYGY port on this board"
+        );
 
         (dll.settings_destruct)(settings);
     }
@@ -508,18 +523,20 @@ fn program_example_bitfile() {
             .parent()
             .and_then(|p| p.parent())
             .unwrap_or(Path::new(manifest_dir));
-        let bitfiles_dir = workspace_root.join("FrontPanel-6.1.0").join("ExampleBitfiles");
+        let bitfiles_dir = workspace_root
+            .join("FrontPanel-6.1.0")
+            .join("ExampleBitfiles");
         if !bitfiles_dir.exists() {
-            eprintln!("  SKIP: ExampleBitfiles directory not found at {:?}", bitfiles_dir);
+            eprintln!(
+                "  SKIP: ExampleBitfiles directory not found at {:?}",
+                bitfiles_dir
+            );
             return;
         }
 
         // Search for a folder containing the product name (e.g., *XEM7320*).
         // Extract the board model base (e.g., "XEM7320" from "XEM7320-A75T").
-        let model_base = product_name
-            .split('-')
-            .next()
-            .unwrap_or(&product_name);
+        let model_base = product_name.split('-').next().unwrap_or(&product_name);
 
         let bitfile_dir = std::fs::read_dir(&bitfiles_dir)
             .expect("Failed to read ExampleBitfiles directory")
@@ -532,7 +549,10 @@ fn program_example_bitfile() {
         let bitfile_dir = match bitfile_dir {
             Some(dir) => dir.path(),
             None => {
-                eprintln!("  SKIP: No bitfile directory found matching '{}' in {:?}", model_base, bitfiles_dir);
+                eprintln!(
+                    "  SKIP: No bitfile directory found matching '{}' in {:?}",
+                    model_base, bitfiles_dir
+                );
                 return;
             }
         };
@@ -566,7 +586,10 @@ fn program_example_bitfile() {
         // Verify FrontPanel is enabled after programming.
         let fp_enabled = (dll.fp_is_front_panel_enabled)(guard.handle);
         eprintln!("  IsFrontPanelEnabled: {}", fp_enabled);
-        assert!(fp_enabled != 0, "FrontPanel should be enabled after programming Counters.bit");
+        assert!(
+            fp_enabled != 0,
+            "FrontPanel should be enabled after programming Counters.bit"
+        );
 
         // Read the counter values via Classic data port to verify the design is running.
         // Per Counetrs-endpoints.md:
@@ -591,7 +614,10 @@ fn program_example_bitfile() {
                     eprintln!("  Counter1 (after 50ms): 0x{:04X} ({})", count1b, count1b);
                     // Counter1 is a free-running counter, its value should have changed.
                     // (Unless it wrapped around to the exact same value, which is extremely unlikely.)
-                    eprintln!("  ✓ Counter1 changed: {} → {} (design is running)", count1, count1b);
+                    eprintln!(
+                        "  ✓ Counter1 changed: {} → {} (design is running)",
+                        count1, count1b
+                    );
                 }
             }
         }
@@ -606,7 +632,12 @@ fn find_file_recursive(dir: &Path, target: &str) -> Option<PathBuf> {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() && path.file_name().map(|n| n.to_string_lossy().eq_ignore_ascii_case(target)).unwrap_or(false) {
+            if path.is_file()
+                && path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().eq_ignore_ascii_case(target))
+                    .unwrap_or(false)
+            {
                 return Some(path);
             }
             if path.is_dir() {

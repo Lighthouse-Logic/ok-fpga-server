@@ -25,6 +25,7 @@ use crate::config::ServerConfig;
 use crate::state::AppState;
 
 /// Event broadcast channel capacity for WebSocket clients.
+#[allow(dead_code)] // Will be used when WS event streaming is implemented.
 const WS_EVENT_CHANNEL_CAPACITY: usize = 256;
 
 /// Build the management server router.
@@ -141,9 +142,7 @@ struct ConfigResponse {
 // ============================================================================
 
 /// `GET /mgmt/status` — Get server status.
-async fn mgmt_status(
-    State(state): State<Arc<MgmtState>>,
-) -> Json<StatusResponse> {
+async fn mgmt_status(State(state): State<Arc<MgmtState>>) -> Json<StatusResponse> {
     let uptime = state.app.uptime_secs();
     let hours = uptime / 3600;
     let mins = (uptime % 3600) / 60;
@@ -164,9 +163,7 @@ async fn mgmt_status(
 }
 
 /// `GET /mgmt/services` — List all services and their states.
-async fn mgmt_list_services(
-    State(state): State<Arc<MgmtState>>,
-) -> Json<Vec<ServiceInfoResponse>> {
+async fn mgmt_list_services(State(state): State<Arc<MgmtState>>) -> Json<Vec<ServiceInfoResponse>> {
     let services: Vec<ServiceInfoResponse> = state
         .app
         .service_manager
@@ -196,7 +193,8 @@ async fn mgmt_start_service(
                     "type": "service_started",
                     "service": name,
                     "timestamp": chrono::Utc::now().to_rfc3339()
-                }).to_string()
+                })
+                .to_string(),
             );
             Json(ServiceOpResponse {
                 name: name.clone(),
@@ -225,7 +223,8 @@ async fn mgmt_stop_service(
                     "type": "service_stopped",
                     "service": name,
                     "timestamp": chrono::Utc::now().to_rfc3339()
-                }).to_string()
+                })
+                .to_string(),
             );
             Json(ServiceOpResponse {
                 name: name.clone(),
@@ -263,7 +262,8 @@ async fn mgmt_restart_service(
                     "type": "service_restarted",
                     "service": name,
                     "timestamp": chrono::Utc::now().to_rfc3339()
-                }).to_string()
+                })
+                .to_string(),
             );
             Json(ServiceOpResponse {
                 name: name.clone(),
@@ -280,9 +280,7 @@ async fn mgmt_restart_service(
 }
 
 /// `GET /mgmt/config` — Get current config (sanitized).
-async fn mgmt_get_config(
-    State(state): State<Arc<MgmtState>>,
-) -> Json<ConfigResponse> {
+async fn mgmt_get_config(State(state): State<Arc<MgmtState>>) -> Json<ConfigResponse> {
     let cfg = &state.config;
     Json(ConfigResponse {
         management_port: cfg.server.management_port,
@@ -307,7 +305,8 @@ async fn mgmt_shutdown(
         serde_json::json!({
             "type": "server_shutdown",
             "timestamp": chrono::Utc::now().to_rfc3339()
-        }).to_string()
+        })
+        .to_string(),
     );
     // Spawn delayed shutdown so the response is sent first.
     tokio::spawn(async {
@@ -329,10 +328,7 @@ async fn mgmt_shutdown(
 // ============================================================================
 
 /// `GET /ws/events` — WebSocket upgrade for real-time event streaming.
-async fn ws_events(
-    ws: WebSocketUpgrade,
-    State(state): State<Arc<MgmtState>>,
-) -> impl IntoResponse {
+async fn ws_events(ws: WebSocketUpgrade, State(state): State<Arc<MgmtState>>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_ws_connection(socket, state))
 }
 
@@ -392,8 +388,7 @@ fn serve_dashboard(router: Router) -> Router {
 
     // Serve from the `web/` directory relative to the working directory.
     // In production this would be `include_dir!` or a configurable path.
-    let serve_dir = ServeDir::new("web")
-        .append_index_html_on_directories(true);
+    let serve_dir = ServeDir::new("web").append_index_html_on_directories(true);
 
     router.fallback_service(serve_dir)
 }
@@ -403,6 +398,7 @@ fn serve_dashboard(router: Router) -> Router {
 // ============================================================================
 
 /// Get a list of compiled feature names.
+#[allow(clippy::vec_init_then_push)] // Can't use vec![] with #[cfg] gates.
 fn compiled_features() -> Vec<String> {
     let mut features = Vec::new();
     #[cfg(feature = "rest")]

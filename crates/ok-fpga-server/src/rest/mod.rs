@@ -19,15 +19,15 @@
 //! Each route handler extracts `State<Arc<AppState>>` and delegates to
 //! `ok-fpga-core` domain types. Responses use JSON serialization via serde.
 
-pub mod server;
-pub mod devices;
-pub mod classic;
 pub mod axi;
-pub mod resources;
-pub mod users;
-pub mod events;
+pub mod classic;
+pub mod devices;
 pub mod errors;
+pub mod events;
 pub mod managed;
+pub mod resources;
+pub mod server;
+pub mod users;
 
 use std::sync::Arc;
 

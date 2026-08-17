@@ -212,24 +212,16 @@ impl fmt::Display for Resource {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AcquisitionDenied {
     /// The resource is not in a state that allows acquisition.
-    InvalidState {
-        current_state: ResourceState,
-    },
+    InvalidState { current_state: ResourceState },
 
     /// The resource is exclusively locked by another user.
-    ExclusivelyHeld {
-        held_by: UserId,
-    },
+    ExclusivelyHeld { held_by: UserId },
 
     /// The user requested exclusive mode but the resource is already shared.
-    AlreadyShared {
-        holder_count: usize,
-    },
+    AlreadyShared { holder_count: usize },
 
     /// Custom denial reason (for pluggable policies).
-    Custom {
-        reason: String,
-    },
+    Custom { reason: String },
 }
 
 impl fmt::Display for AcquisitionDenied {
@@ -288,11 +280,7 @@ pub trait ResourceAccessPolicy: Send + Sync {
     ///
     /// The default implementation does nothing. Override this to implement
     /// custom notification or cleanup logic.
-    fn on_resource_invalidated(
-        &self,
-        _resource: &Resource,
-        _holders: &[UserId],
-    ) {
+    fn on_resource_invalidated(&self, _resource: &Resource, _holders: &[UserId]) {
         // Default: no-op. Subclasses can override for custom behavior.
     }
 }

@@ -5,10 +5,10 @@
 
 use std::sync::Arc;
 
+use axum::extract::Path;
 use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use axum::extract::Path;
 use serde::Serialize;
 
 use ok_fpga_core::service::ServiceInfo;
@@ -58,9 +58,7 @@ struct StatusResponseBody {
 // ============================================================================
 
 /// `GET /server/status` — Get server status, uptime, and service states.
-async fn get_server_status(
-    State(state): State<Arc<AppState>>,
-) -> Json<ServerStatusBody> {
+async fn get_server_status(State(state): State<Arc<AppState>>) -> Json<ServerStatusBody> {
     let services = state.service_manager.list();
     let device_count = state.device_manager.device_count();
 
@@ -91,9 +89,7 @@ async fn restart_server() -> (axum::http::StatusCode, Json<StatusResponseBody>) 
 }
 
 /// `GET /server/services` — List all manageable services.
-async fn list_services(
-    State(state): State<Arc<AppState>>,
-) -> Json<ServiceListBody> {
+async fn list_services(State(state): State<Arc<AppState>>) -> Json<ServiceListBody> {
     let services = state.service_manager.list();
     Json(ServiceListBody { services })
 }

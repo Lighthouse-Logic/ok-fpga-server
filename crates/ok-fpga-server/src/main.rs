@@ -131,13 +131,12 @@ async fn main() -> anyhow::Result<()> {
     let service_manager = Arc::new(ServiceManager::new());
 
     // Create the authentication provider from config (ADR-008).
-    let auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider> = Arc::from(
-        ok_fpga_core::auth::create_provider(
+    let auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider> =
+        Arc::from(ok_fpga_core::auth::create_provider(
             &cfg.auth.provider,
             cfg.auth.local.users.clone(),
             Some(cfg.auth.ldap.clone()),
-        ),
-    );
+        ));
     info!(
         provider = auth_provider.provider_name(),
         required = auth_provider.is_required(),
@@ -145,9 +144,9 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Create the session manager.
-    let session_manager = Arc::new(
-        ok_fpga_core::auth::SessionManager::new(cfg.auth.session_expiry_secs),
-    );
+    let session_manager = Arc::new(ok_fpga_core::auth::SessionManager::new(
+        cfg.auth.session_expiry_secs,
+    ));
 
     // Create shared application state.
     let app_state = Arc::new(AppState::new(
@@ -218,11 +217,7 @@ async fn start_management_server(
     .parse()
     .expect("valid management bind address from config");
 
-    let router = management::build_management_router(
-        app_state.clone(),
-        config.clone(),
-        event_tx,
-    );
+    let router = management::build_management_router(app_state.clone(), config.clone(), event_tx);
 
     let listener = match tokio::net::TcpListener::bind(mgmt_addr).await {
         Ok(l) => l,
@@ -255,9 +250,7 @@ fn init_tracing(cfg: &ServerConfig) {
     // If RUST_LOG is set, use it directly (standard tracing convention).
     // Otherwise, use the config's log_level.
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| {
-            tracing_subscriber::EnvFilter::new(&cfg.server.log_level)
-        });
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&cfg.server.log_level));
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)
@@ -375,10 +368,7 @@ fn log_feature_status() {
 /// Print the startup banner to stdout.
 fn print_banner(cfg: &ServerConfig) {
     println!("╔══════════════════════════════════════════════════╗");
-    println!(
-        "║           ok-FPGA-Server v{}                 ║",
-        VERSION
-    );
+    println!("║           ok-FPGA-Server v{}                 ║", VERSION);
     println!("║  Opal Kelly FrontPanel 6.1.0 Device Server      ║");
     println!("╠══════════════════════════════════════════════════╣");
 
@@ -388,9 +378,11 @@ fn print_banner(cfg: &ServerConfig) {
             "║  REST API:  http://{}:{}/api/v1{} ║",
             cfg.rest.bind,
             cfg.rest.port,
-            " ".repeat(49_usize.saturating_sub(
-                14 + cfg.rest.bind.len() + format!("{}", cfg.rest.port).len() + 7
-            ))
+            " ".repeat(
+                49_usize.saturating_sub(
+                    14 + cfg.rest.bind.len() + format!("{}", cfg.rest.port).len() + 7
+                )
+            )
         );
     }
 
@@ -400,9 +392,10 @@ fn print_banner(cfg: &ServerConfig) {
             "║  gRPC:      http://{}:{}{}║",
             cfg.grpc.bind,
             cfg.grpc.port,
-            " ".repeat(49_usize.saturating_sub(
-                14 + cfg.grpc.bind.len() + format!("{}", cfg.grpc.port).len()
-            ))
+            " ".repeat(
+                49_usize
+                    .saturating_sub(14 + cfg.grpc.bind.len() + format!("{}", cfg.grpc.port).len())
+            )
         );
     }
 
@@ -411,8 +404,7 @@ fn print_banner(cfg: &ServerConfig) {
         cfg.server.management_bind,
         cfg.server.management_port,
         " ".repeat(49_usize.saturating_sub(
-            14 + cfg.server.management_bind.len()
-                + format!("{}", cfg.server.management_port).len()
+            14 + cfg.server.management_bind.len() + format!("{}", cfg.server.management_port).len()
         ))
     );
 

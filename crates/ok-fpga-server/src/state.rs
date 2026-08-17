@@ -53,9 +53,11 @@ pub struct AppState {
     pub service_manager: Arc<ServiceManager>,
 
     /// Authentication provider (ADR-008).
+    #[allow(dead_code)] // Used when auth middleware is wired.
     pub auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider>,
 
     /// In-memory session store for the web dashboard.
+    #[allow(dead_code)] // Used when auth middleware is wired.
     pub session_manager: Arc<ok_fpga_core::auth::SessionManager>,
 
     /// When the server process started. Used to calculate uptime.
