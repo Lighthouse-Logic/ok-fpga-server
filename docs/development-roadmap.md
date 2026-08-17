@@ -1261,7 +1261,7 @@ pytest tests/test_hardware.py -v -s
 
 ## Phase 20: Enhanced Resource Registration
 
-**Status**: `[ ]` Not started  
+**Status**: `[/]` Partially complete (2026-08-17)  
 **Depends on**: Phase 19  
 **ADR reference**: [ADR-020 — Client-Side Resource Registration](architecture/adr/ADR-020-client-side-resource-registration.md)
 
@@ -1276,7 +1276,7 @@ from ADR-020.
 
 #### Phase 20A: Enhanced Resource Schema
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (2026-08-17, `247b045`)
 
 1. Extend `Resource` struct in `ok-fpga-core/src/resource.rs` with:
    - `access_mode: AccessMode` (resource-level, not per-acquisition)
@@ -1290,7 +1290,7 @@ from ADR-020.
 
 #### Phase 20B: Registration-Time Validation
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (2026-08-17, `247b045`)
 
 1. **Interface validation (strict)**: If `axi_lite/full/stream` is declared, call
    `GetFPGADataPortAXI()` and the specific sub-handle getter. Reject if unsupported.
@@ -1306,7 +1306,7 @@ from ADR-020.
 
 #### Phase 20C: Access Mode & Lock/Unlock
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (2026-08-17, `247b045`, `1d15d61`)
 
 1. Change acquisition logic: `exclusive` resources always transition to `InUseLocked`
    on acquire (no mode choice). `shared` resources transition to `InUseShared`.
@@ -1320,7 +1320,9 @@ from ADR-020.
 
 #### Phase 20D: Heartbeat / Liveness
 
-**Status**: `[ ]` Not started
+**Status**: `[/]` Partially complete (2026-08-17, `1d15d61`)
+
+> Explicit heartbeat endpoints implemented. Items 1, 2, 4, 6 deferred to Phase 21.
 
 1. Add `last_seen_at: DateTime<Utc>` to `UserSession`.
 2. **Implicit heartbeat**: Middleware/interceptor on all REST and gRPC requests that
@@ -1336,7 +1338,9 @@ from ADR-020.
 
 #### Phase 20E: Resource Persistence Rules
 
-**Status**: `[ ]` Not started
+**Status**: `[/]` Partially complete (2026-08-17, `247b045`)
+
+> Resource deletion on device disconnect implemented. Holder notification deferred to Phase 22.
 
 1. **Survive client disconnect**: Resources remain in registry after the
    registering client disconnects. No change needed (already in-memory).
@@ -1346,7 +1350,7 @@ from ADR-020.
 
 #### Phase 20F: Client Updates & Documentation
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (2026-08-17, client update commit)
 
 1. Update all 4 example clients to use the enhanced `CreateResource` schema.
 2. Add resource registration documentation with full schema examples.
@@ -1356,7 +1360,7 @@ from ADR-020.
 
 #### Phase 20G: Stub Code for Developers
 
-**Status**: `[ ]` Not started
+**Status**: `[ ]` Deferred to Phase 22B
 
 1. Add `ResourceAccessPolicy` trait methods for:
    - Address-range-based access validation (stub, not enforced in v1)
@@ -1401,6 +1405,174 @@ curl -X POST http://localhost:8088/api/v1/heartbeat -d '{"user_id": "alice"}'
 
 ---
 
+## Phase 21: User Session Tracking & Liveness
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 20  
+**ADR reference**: ADR-020 §5 (Heartbeat / Liveness)
+
+### Overview
+
+Implement user session tracking with `last_seen_at` timestamps, implicit heartbeat
+middleware on all REST/gRPC requests, and a background sweep task that auto-releases
+resources held by expired users.
+
+> [!NOTE]
+> When `auth.provider = "none"`, the implicit heartbeat middleware will skip
+> silently if no `X-User-Id` header is present (backward compatible). However,
+> it is **highly recommended** to always send the `X-User-Id` header even
+> when authentication is disabled, or diminished functionality (no liveness
+> tracking, no auto-release) will occur.
+
+### Sub-phases
+
+#### Phase 21A: User Session Registry
+
+**Status**: `[ ]` Not started
+
+1. Create a `UserSession` struct with `user_id: String`,
+   `last_seen_at: DateTime<Utc>`, and `held_resource_ids: Vec<String>`.
+   Location: new `user.rs` module in `ok-fpga-core`, or extend `resource.rs`.
+2. Create a `UserSessionRegistry` backed by `RwLock<HashMap<String, UserSession>>`
+   with methods:
+   - `touch(user_id)` — create or update `last_seen_at` to `Utc::now()`
+   - `get(user_id)` → `Option<UserSession>`
+   - `list()` → `Vec<UserSession>`
+   - `remove(user_id)`
+   - `expired(timeout: Duration)` → `Vec<UserSession>` (users not seen within timeout)
+3. Add `pub user_sessions: Arc<UserSessionRegistry>` to `AppState` in `state.rs`.
+4. Update `GET /users` handler in `rest/users.rs` to return real session data
+   from the registry instead of the current empty `[]` stub.
+5. Update the existing `POST /heartbeat` (REST) and `Ping` (gRPC) handlers
+   to call `user_sessions.touch(user_id)`.
+6. Update `acquire_resource` and `release_resource` handlers (REST + gRPC)
+   to also call `touch()` for implicit user tracking.
+
+#### Phase 21B: Implicit Heartbeat Middleware
+
+**Status**: `[ ]` Not started
+
+1. Create an Axum middleware layer wrapping all `/api/v1/*` routes that:
+   - Extracts `user_id` from the `X-User-Id` request header (when `auth.provider = "none"`)
+   - Extracts `user_id` from the session cookie (when `auth.provider = "local"` or `"ldap"`)
+   - Calls `user_sessions.touch(user_id)` if a user identity is available
+   - Skips silently if no user identity is present (backward compatible)
+2. Create a gRPC interceptor in the `device_service.rs` module that:
+   - Extracts `user_id` from the `x-user-id` metadata key
+   - Calls `user_sessions.touch(user_id)` if present
+3. Document that `X-User-Id` header is **highly recommended** even when
+   `auth.provider = "none"`, or liveness tracking will not function.
+
+#### Phase 21C: Server Sweep Task
+
+**Status**: `[ ]` Not started
+
+1. Add two new fields to `CoreConfig` in `config.rs`:
+   ```toml
+   [server]
+   user_timeout_secs = 60         # Mark user expired after 60s of silence
+   user_sweep_interval_secs = 10  # Check for expired users every 10s
+   ```
+2. Implement the sweep function (spawned via `tokio::spawn` in `main.rs`):
+   - Every `user_sweep_interval_secs`, call `user_sessions.expired(timeout)`
+   - For each expired user:
+     a. List all resources held by the user
+     b. Call `resource_registry.release()` for each resource
+     c. Broadcast a `DeviceEvent::ResourceChanged` for each released resource
+        (Option B — handlers broadcast via `DeviceManager`)
+     d. Remove the user session from the registry
+     e. Log: `warn!("auto-released {} resources for expired user '{}'", count, user_id)`
+3. Add unit tests for the sweep logic.
+
+### Verification
+
+```bash
+cargo test -p ok-fpga-core -- user_session
+cargo test --features full -- heartbeat
+cargo test --features full -- sweep_expired
+
+# Manual: send heartbeat, wait 60s, verify resources are auto-released
+curl -X POST http://localhost:8088/api/v1/heartbeat \
+  -H 'Content-Type: application/json' \
+  -d '{"user_id": "alice"}'
+```
+
+---
+
+## Phase 22: Event System & Policy Stubs
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 20 (Phase 21 is NOT a dependency)  
+**ADR reference**: ADR-020 §3 (Lock/Unlock events), ADR-004 (SSE), ADR-007 (WebSocket)
+
+### Overview
+
+Wire the existing `DeviceEvent` / `ServiceEvent` broadcast channels to the REST
+SSE endpoint and management WebSocket. Add resource event broadcasting from
+REST/gRPC handlers (Option B — handlers broadcast via `DeviceManager`). Add
+stub methods to `ResourceAccessPolicy` for future HDL-specific validation.
+
+### Sub-phases
+
+#### Phase 22A: Event Notifications
+
+**Status**: `[ ]` Not started
+
+1. **SSE endpoint** — Replace the `501 Not Implemented` stub in `rest/events.rs`
+   with a real SSE implementation using `axum::response::sse::Sse` and
+   `tokio_stream`. Subscribe to `device_manager.subscribe()` and yield events.
+2. **WebSocket** — Wire the management WebSocket handler (`/ws/events`) in
+   `management.rs` to forward `DeviceEvent` and `ServiceEvent` broadcasts
+   to connected dashboard clients as JSON messages.
+3. **Resource event broadcasting (Option B)** — After each successful registry
+   mutation in REST/gRPC handlers, broadcast via `device_manager.broadcast()`:
+
+   | Handler | Event | `new_state` |
+   |---------|-------|-------------|
+   | `acquire_resource` | `ResourceChanged` | `"In Use (Shared)"` or `"In Use (Locked)"` |
+   | `release_resource` | `ResourceChanged` | `"Available"` or `"In Use (Shared)"` |
+   | `lock_resource` | `ResourceChanged` | `"In Use (Locked)"` |
+   | `unlock_resource` | `ResourceChanged` | `"In Use (Shared)"` |
+   | `invalidate_device` | `ResourceChanged` | `"Deleted"` (one per resource) |
+
+4. Add integration tests verifying events are received via SSE when resources
+   are acquired, released, locked, and unlocked.
+
+#### Phase 22B: ResourceAccessPolicy Trait Stubs
+
+**Status**: `[ ]` Not started  
+(Moved from Phase 20G)
+
+1. Add three new **default-implemented** methods to the `ResourceAccessPolicy`
+   trait in `ok-fpga-core/src/resource.rs`:
+   - `validate_address_access(resource, user, address) → Result<(), AcquisitionDenied>`
+     — Stub for HDL-specific AXI address range protection. Default: allow all.
+   - `validate_endpoint_access(resource, user, endpoint, ep_type) → Result<(), AcquisitionDenied>`
+     — Stub for per-Classic-endpoint access control. Default: allow all.
+   - `on_metadata_key(resource, key, value) → Result<(), String>`
+     — Stub for custom metadata key processing during `create_resource`. Default: accept all.
+2. All three methods have default no-op implementations — `DefaultAccessPolicy`
+   does not need to change.
+3. Add comprehensive doc comments with examples showing how a developer would
+   override each method for an HDL-specific access policy.
+4. Add unit tests verifying the default (allow-all) behavior.
+
+### Verification
+
+```bash
+# SSE event stream
+curl -N http://localhost:8088/api/v1/events
+# → Connect a device → expect DeviceAdded event
+# → Acquire a resource → expect ResourceChanged event
+
+# Trait stub tests
+cargo test -p ok-fpga-core -- validate_address
+cargo test -p ok-fpga-core -- validate_endpoint
+cargo test -p ok-fpga-core -- on_metadata_key
+```
+
+---
+
 ## Summary of Dependencies
 
 ```
@@ -1425,19 +1597,27 @@ Phase 0: Scaffolding
                                           └── Phase 17: HTTP Method Audit ✅
                                                └── Phase 18: Hardware Integration Tests ✅
                                                     └── Phase 19: FFI Endpoint Wiring ✅
-                                                         └── Phase 20: Enhanced Resource Registration (ADR-020)
-                                                              ├── 20A: Enhanced resource schema
-                                                              ├── 20B: Registration-time validation
-                                                              ├── 20C: Access mode & lock/unlock
-                                                              ├── 20D: Heartbeat / liveness
-                                                              ├── 20E: Resource persistence rules
-                                                              ├── 20F: Client updates & documentation
-                                                              └── 20G: Stub code for developers
+                                                         └── Phase 20: Enhanced Resource Registration (ADR-020) ✅*
+                                                              ├── 20A: Enhanced resource schema ✅
+                                                              ├── 20B: Registration-time validation ✅
+                                                              ├── 20C: Access mode & lock/unlock ✅
+                                                              ├── 20D: Heartbeat / liveness ✅*
+                                                              ├── 20E: Resource persistence rules ✅*
+                                                              ├── 20F: Client updates & documentation ✅
+                                                              └── 20G: Stub code → Phase 22B
+                                                              │
+                                                              ├── Phase 21: User Session Tracking & Liveness
+                                                              │    ├── 21A: UserSessionRegistry
+                                                              │    ├── 21B: Implicit heartbeat middleware
+                                                              │    └── 21C: Server sweep task
+                                                              │
+                                                              └── Phase 22: Event System & Policy Stubs
+                                                                   ├── 22A: SSE + WebSocket event wiring
+                                                                   └── 22B: ResourceAccessPolicy stubs
 ```
 
-Phases 20A and 20B are sequential (schema must exist before validation).  
-Phases 20C, 20D, and 20E can be done **in parallel** (all depend on 20A+20B).  
-Phases 20F and 20G depend on 20C+20D+20E completion.
+`✅*` = core implementation complete; remaining items deferred to Phase 21/22.  
+Phases 21 and 22 can be done **in parallel** — they have no cross-dependency.
 
 ### Feature Flag Summary
 
