@@ -133,7 +133,7 @@ not detected until restart. This was chosen to deliver working device
 visibility in the dashboard without the complexity of C callback → Rust
 channel wiring.
 
-**Phase 2 (this ADR, future)**: Full `FrontPanelManager` callback integration
+**Phase 2 (this ADR)**: Full `FrontPanelManager` callback integration
 with `extern "C"` callbacks → `tokio::sync::mpsc` channel → `DeviceManager`
 events. This will also enable `okREALM_TEST` for Tier 1 emulated tests
 (see `.agents/rules/ai-collaboration.md` §9.2).
@@ -142,6 +142,70 @@ The two phases share the same `DeviceManager`/`DeviceRegistry` infrastructure
 (which is already built). Phase 2 replaces Phase 1's one-shot scan with a
 persistent monitor.
 
+## Addendum (2026-08-17): Windows Callback Limitation & Polling Decision
+
+### Investigation
+
+Phase 2 was implemented as designed: `ConstructWithCallbacks` → `extern "C"`
+callbacks → `std::sync::mpsc` channel → bridge thread → `tokio::sync::mpsc`
+→ async event processor. The full implementation is in
+`crates/ok-fpga-server/src/device_monitor.rs`.
+
+Three approaches were tested on Windows:
+
+| Approach | Initial Enum | Hot-Plug Events |
+|----------|-------------|-----------------|
+| `StartMonitoring` only | ✅ OnDeviceAdded fires | ❌ No callbacks |
+| `EnterMonitorLoop` only (dedicated thread) | ❌ No callbacks | ❌ No callbacks |
+| `StartMonitoring` + `EnterMonitorLoop` | ✅ OnDeviceAdded fires | ❌ No callbacks |
+
+**Finding**: The `FrontPanelManager` callback API fires `OnDeviceAdded` during
+`StartMonitoring` for initial enumeration, but does NOT deliver subsequent
+hot-plug/unplug events on Windows. Diagnostic `println!` instrumentation
+confirmed zero callback invocations after startup. The API appears designed
+for the C++ subclass pattern in GUI applications that provide a Windows
+message loop (Qt, MFC, etc.), which a headless console server does not have.
+
+### Decision: Polling-Based Hot-Plug Detection
+
+Given the callback limitation, hot-plug detection uses a **periodic polling**
+approach:
+
+- The `DeviceScanner` (using `FrontPanelDevices` snapshot API) runs every
+  2 seconds on a tokio background task (`device_poll_loop` in `main.rs`)
+- Each scan is diffed against the current `DeviceRegistry`:
+  - **New serials** → `on_device_added()` + WebSocket `device_connected` event
+  - **Gone serials** → `on_device_removed()` + WebSocket `device_disconnected` event
+- Detection latency: ≤2 seconds (acceptable for human-initiated USB connect/disconnect)
+- CPU overhead: negligible (one USB enumeration syscall per poll interval)
+
+This replaces the "zero-latency" benefit described in the Consequences section
+above with a ≤2s latency that is acceptable for the server's use case.
+
+### Retained Code
+
+The callback-based `device_monitor.rs` module is retained as `#[allow(dead_code)]`
+for two reasons:
+
+1. **Future Linux support**: On Linux, USB device notifications use `udev`/`netlink`,
+   not Windows message pumps. The FrontPanelManager may deliver callbacks correctly
+   via a different internal mechanism. When Linux support is added, test the
+   callback approach first — it may "just work."
+
+2. **Opal Kelly SDK updates**: Future SDK versions may fix or document the Windows
+   callback delivery requirements. The infrastructure is ready to re-enable.
+
+### Future Work: Linux Callback Support
+
+When adding Linux support, try the following before defaulting to polling:
+
+1. Build and test `device_monitor.rs` on Linux
+2. If `StartMonitoring` delivers hot-plug callbacks on Linux (via internal
+   `udev`/`netlink` integration), use the callback approach as the primary
+   mechanism with polling as fallback
+3. The `device_poll_loop` in `main.rs` can serve as the cross-platform fallback
+4. Use `#[cfg(target_os = "linux")]` to conditionally prefer callbacks
+
 ## References
 
 - [FrontPanelManager C API](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 1271-1306
@@ -149,3 +213,5 @@ persistent monitor.
 - [okREALM_TEST / okREALM_LOCAL](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 2232-2233
 - [EmulateTestDeviceConnection](../../FrontPanel-6.1.0/okFrontPanel.h) — line 1306
 - [ADR-013 — Device Scanner](ADR-013-device-scanner.md) — Phase 1 implementation
+- [`device_monitor.rs`](../../../crates/ok-fpga-server/src/device_monitor.rs) — callback implementation (retained, `dead_code`)
+- [`main.rs` — `device_poll_loop`](../../../crates/ok-fpga-server/src/main.rs) — polling implementation (active)
