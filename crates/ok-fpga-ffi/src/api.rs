@@ -82,9 +82,10 @@ macro_rules! load_symbol {
 ///
 /// ## Thread Safety
 ///
-/// `FrontPanelDll` is `Send` but NOT `Sync`. The FrontPanel C API is not
-/// thread-safe — callers must serialize access (the `ok-fpga-core` layer
-/// handles this via `Mutex`).
+/// `FrontPanelDll` is `Send` and `Sync`. All fields are function pointers
+/// (immutable addresses in the DLL's code segment) and a `Library` handle.
+/// The DLL functions themselves may not be thread-safe — callers must
+/// serialize access (the `ok-fpga-core` layer handles this via `Mutex`).
 pub struct FrontPanelDll {
     /// The loaded shared library handle. This must be kept alive for as
     /// long as any function pointers are in use. When this is dropped,
@@ -597,6 +598,14 @@ pub struct FrontPanelDll {
     pub error_get_message: unsafe extern "C" fn(*const okError) -> *const ::std::os::raw::c_char,
     pub error_free: unsafe extern "C" fn(*mut okError),
 }
+
+// SAFETY: FrontPanelDll contains only function pointers (immutable addresses
+// in the loaded DLL's text segment) and a `Library` handle. Function pointers
+// are inherently thread-safe to share — they're just code addresses.
+// The underlying C functions may not be thread-safe, but that's the caller's
+// responsibility to enforce via serialization (e.g., Mutex).
+unsafe impl Send for FrontPanelDll {}
+unsafe impl Sync for FrontPanelDll {}
 
 // ============================================================================
 // Loading Implementation

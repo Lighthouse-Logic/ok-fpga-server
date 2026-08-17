@@ -57,6 +57,7 @@ struct SendableManagerHandle(okCFrontPanelManager_HANDLE);
 unsafe impl Send for SendableManagerHandle {}
 unsafe impl Sync for SendableManagerHandle {}
 
+
 /// Events sent from the DLL callback thread to the async event processor.
 enum MonitorEvent {
     /// A device was physically connected (serial number).
@@ -227,9 +228,13 @@ impl DeviceMonitor {
 
     /// Start monitoring for device connections/disconnections.
     ///
-    /// This calls `okFrontPanelManager_StartMonitoring` and spawns a tokio
-    /// task that processes the callback events. The manager automatically
-    /// fires `OnDeviceAdded` for every already-connected device.
+    /// This spawns a dedicated OS thread that calls
+    /// `okFrontPanelManager_EnterMonitorLoop`, which blocks while processing
+    /// USB device events and dispatching callbacks. On Windows, this provides
+    /// the message pump required for `RegisterDeviceNotification` to work.
+    ///
+    /// The manager fires `OnDeviceAdded` for every already-connected device
+    /// when monitoring begins.
     ///
     /// ## Arguments
     ///
@@ -240,18 +245,6 @@ impl DeviceMonitor {
         device_manager: Arc<DeviceManager>,
         event_tx: tokio::sync::broadcast::Sender<String>,
     ) -> bool {
-        // Start monitoring — the DLL begins firing callbacks.
-        let result = unsafe { (self.dll.manager_start_monitoring)(self.manager_handle) };
-        if result as i32 != ok_ErrorCode::ok_NoError as i32 {
-            error!(
-                error_code = result as i32,
-                "FrontPanelManager_StartMonitoring failed"
-            );
-            return false;
-        }
-
-        info!("FrontPanelManager monitoring started - hot-plug active");
-
         // Take the receiver (can only start once).
         let rx = match self.rx.take() {
             Some(rx) => rx,
@@ -261,11 +254,38 @@ impl DeviceMonitor {
             }
         };
 
+        // Clone the DLL Arc for the monitor loop thread.
+        let loop_dll = self.dll.clone();
+        let loop_handle = SendableManagerHandle(self.manager_handle);
+
+        // Spawn a dedicated OS thread for the monitor loop.
+        //
+        // EnterMonitorLoop blocks the calling thread while processing USB
+        // device events. On Windows, it internally creates a hidden window
+        // and pumps messages — this is required for RegisterDeviceNotification
+        // to deliver USB device change events.
+        //
+        // When a device is connected/disconnected, the DLL fires our
+        // on_device_added_cb / on_device_removed_cb callbacks from this thread.
+        std::thread::Builder::new()
+            .name("fp-monitor-loop".into())
+            .spawn(move || {
+                info!("FrontPanelManager monitor loop thread started");
+                let exit_code = run_monitor_loop(&loop_dll, loop_handle);
+                info!(
+                    exit_code = exit_code,
+                    "FrontPanelManager monitor loop exited"
+                );
+            })
+            .expect("failed to spawn fp-monitor-loop thread");
+
+        info!("FrontPanelManager monitoring started via EnterMonitorLoop - hot-plug active");
+
         // Clone the DLL Arc for the event processor task.
         let dll = self.dll.clone();
         let mgr_handle = SendableManagerHandle(self.manager_handle);
 
-        // Spawn the event processor task.
+        // Spawn the async event processor task.
         tokio::spawn(async move {
             event_processor(rx, dll, mgr_handle, device_manager, event_tx).await;
         });
@@ -300,6 +320,24 @@ impl Drop for DeviceMonitor {
         }
 
         debug!("DeviceMonitor dropped - FrontPanelManager destructed");
+    }
+}
+
+// ============================================================================
+// Monitor Loop Helper
+// ============================================================================
+
+/// Run the FrontPanelManager monitor loop (blocks the calling thread).
+///
+/// This is extracted as a separate function so the `std::thread::spawn`
+/// closure captures `SendableManagerHandle` (which is `Send`) rather than
+/// the raw pointer field.
+fn run_monitor_loop(dll: &FrontPanelDll, handle: SendableManagerHandle) -> i32 {
+    unsafe {
+        (dll.manager_enter_monitor_loop)(
+            handle.0,
+            std::ptr::null(), // cbInfo = NULL (no callback info needed)
+        )
     }
 }
 
