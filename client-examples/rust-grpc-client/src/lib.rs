@@ -183,6 +183,88 @@ impl OkFpgaGrpcClient {
             .await
     }
 
+    /// Get WireOut value (calls UpdateWireOuts + GetWireOutValue).
+    pub async fn get_wire_out_value(
+        &mut self,
+        serial: &str,
+        endpoint: i32,
+    ) -> Result<tonic::Response<okfpga::v1::WireValueResponse>, tonic::Status> {
+        self.classic
+            .get_wire_out_value(okfpga::v1::GetWireValueRequest {
+                serial: serial.to_string(),
+                endpoint,
+            })
+            .await
+    }
+
+    /// Update WireOuts (read all wire-out values from FPGA).
+    pub async fn update_wire_outs(
+        &mut self,
+        serial: &str,
+    ) -> Result<tonic::Response<okfpga::v1::StatusResponse>, tonic::Status> {
+        self.classic
+            .update_wire_outs(okfpga::v1::DeviceRequest {
+                serial: serial.to_string(),
+            })
+            .await
+    }
+
+    /// Get TriggerOut vector for an endpoint.
+    pub async fn get_trigger_out_vector(
+        &mut self,
+        serial: &str,
+        endpoint: i32,
+    ) -> Result<tonic::Response<okfpga::v1::TriggerOutVectorResponse>, tonic::Status> {
+        self.classic
+            .get_trigger_out_vector(okfpga::v1::TriggerOutVectorRequest {
+                serial: serial.to_string(),
+                endpoint,
+            })
+            .await
+    }
+
+    /// Read a single register.
+    pub async fn read_register(
+        &mut self,
+        serial: &str,
+        address: u32,
+    ) -> Result<tonic::Response<okfpga::v1::RegisterValueResponse>, tonic::Status> {
+        self.classic
+            .read_register(okfpga::v1::ReadRegisterRequest {
+                serial: serial.to_string(),
+                address,
+            })
+            .await
+    }
+
+    /// Write a single register.
+    pub async fn write_register(
+        &mut self,
+        serial: &str,
+        address: u32,
+        data: u32,
+    ) -> Result<tonic::Response<okfpga::v1::StatusResponse>, tonic::Status> {
+        self.classic
+            .write_register(okfpga::v1::WriteRegisterRequest {
+                serial: serial.to_string(),
+                address,
+                data,
+            })
+            .await
+    }
+
+    /// Reset the FPGA via Classic data port.
+    pub async fn reset_fpga(
+        &mut self,
+        serial: &str,
+    ) -> Result<tonic::Response<okfpga::v1::StatusResponse>, tonic::Status> {
+        self.classic
+            .reset_fpga(okfpga::v1::DeviceRequest {
+                serial: serial.to_string(),
+            })
+            .await
+    }
+
     // ========================================================================
     // AXIDataPortService RPCs (stub wrappers)
     // ========================================================================

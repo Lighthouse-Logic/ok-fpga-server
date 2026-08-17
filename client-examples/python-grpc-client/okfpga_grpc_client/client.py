@@ -132,6 +132,42 @@ class OkFpgaGrpcClient:
             )
         )
 
+    async def get_wire_out_value(self, serial: str, endpoint: int):
+        """Get a WireOut value (calls UpdateWireOuts + GetWireOutValue)."""
+        return await self._classic.GetWireOutValue(
+            okfpga_pb2.GetWireValueRequest(serial=serial, endpoint=endpoint)
+        )
+
+    async def update_wire_outs(self, serial: str):
+        """Update all WireOut values from FPGA."""
+        return await self._classic.UpdateWireOuts(
+            okfpga_pb2.DeviceRequest(serial=serial)
+        )
+
+    async def get_trigger_out_vector(self, serial: str, endpoint: int):
+        """Get TriggerOut vector for an endpoint."""
+        return await self._classic.GetTriggerOutVector(
+            okfpga_pb2.TriggerOutVectorRequest(serial=serial, endpoint=endpoint)
+        )
+
+    async def read_register(self, serial: str, address: int):
+        """Read a single register."""
+        return await self._classic.ReadRegister(
+            okfpga_pb2.ReadRegisterRequest(serial=serial, address=address)
+        )
+
+    async def write_register(self, serial: str, address: int, data: int):
+        """Write a single register."""
+        return await self._classic.WriteRegister(
+            okfpga_pb2.WriteRegisterRequest(serial=serial, address=address, data=data)
+        )
+
+    async def reset_fpga(self, serial: str):
+        """Reset the FPGA via Classic data port."""
+        return await self._classic.ResetFPGA(
+            okfpga_pb2.DeviceRequest(serial=serial)
+        )
+
     # ========================================================================
     # AXIDataPortService RPCs
     # ========================================================================

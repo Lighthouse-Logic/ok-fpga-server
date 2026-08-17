@@ -38,3 +38,7 @@ toml = "0.8"
 [build-dependencies]
 # Compiles .proto files into Rust gRPC client/server code at build time.
 tonic-build = "0.13"
+
+[dev-dependencies]
+# Used by hardware integration tests to configure FPGA via REST API.
+reqwest = { version = "0.12", features = ["json"] }
