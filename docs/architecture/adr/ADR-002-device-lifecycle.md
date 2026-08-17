@@ -122,9 +122,30 @@ Disconnected (removed from registry)
 - **Callback ordering** — if the DLL fires `OnDeviceRemoved` before the `OnDeviceAdded` processing completes, the channel-based approach naturally serializes this
 - **DLL thread contention** — callbacks must be lightweight; heavy work (device interrogation) happens on the async side
 
+## Addendum (2026-08-16): Phased Implementation
+
+This ADR's full `FrontPanelManager` callback design is being implemented in
+two phases:
+
+**Phase 1 (ADR-013)**: Startup-only device scan using `FrontPanelDevices`
+snapshot enumeration. No hot-plug — devices connected after server start are
+not detected until restart. This was chosen to deliver working device
+visibility in the dashboard without the complexity of C callback → Rust
+channel wiring.
+
+**Phase 2 (this ADR, future)**: Full `FrontPanelManager` callback integration
+with `extern "C"` callbacks → `tokio::sync::mpsc` channel → `DeviceManager`
+events. This will also enable `okREALM_TEST` for Tier 1 emulated tests
+(see `.agents/rules/ai-collaboration.md` §9.2).
+
+The two phases share the same `DeviceManager`/`DeviceRegistry` infrastructure
+(which is already built). Phase 2 replaces Phase 1's one-shot scan with a
+persistent monitor.
+
 ## References
 
 - [FrontPanelManager C API](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 1271-1306
 - [FrontPanelManager C++ class](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 2235-2273
 - [okREALM_TEST / okREALM_LOCAL](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 2232-2233
 - [EmulateTestDeviceConnection](../../FrontPanel-6.1.0/okFrontPanel.h) — line 1306
+- [ADR-013 — Device Scanner](ADR-013-device-scanner.md) — Phase 1 implementation

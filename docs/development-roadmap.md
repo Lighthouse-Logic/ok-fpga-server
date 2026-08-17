@@ -719,6 +719,75 @@ cargo test -p ok-fpga-ffi --test hardware -- --ignored --test-threads=1 --nocapt
 
 ---
 
+## Phase 14: Device Scanner — FFI→DeviceManager Bridge
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 3 (FFI layer), Phase 4 (Core domain), Phase 8 (Dashboard)  
+**ADR reference**: [ADR-013 — Device Scanner](architecture/adr/ADR-013-device-scanner.md)
+
+### What to do
+
+1. Create `crates/ok-fpga-server/src/scanner.rs`:
+   - `DeviceScanner::try_new()` — loads DLL via `OKFPGA_DLL_PATH` env var
+     (defaults to `FrontPanel-6.1.0/okFrontPanel.dll`)
+   - `DeviceScanner::scan_devices()` — enumerates connected devices using
+     `FrontPanelDevices` (§15), reads `okTDeviceInfo` for each, filters
+     through `is_supported_device()`, returns `Vec<DeviceInfo>`
+   - Graceful degradation: if DLL not found, return `None` and log warning
+2. Wire scanner into `main.rs` startup sequence:
+   - After `DeviceManager::new()`, call `scanner::DeviceScanner::try_new()`
+   - For each discovered device, call `device_manager.on_device_added(info)`
+3. Add `GET /mgmt/devices` to `management.rs`:
+   - Returns full device details from `DeviceRegistry`
+   - Enables dashboard to show device info without REST cross-port calls
+4. Update `web/app.js` `fetchDevices()`:
+   - Call `GET /mgmt/devices` for real device data
+   - Render device table with serial, product name, interface, state
+5. Create `crates/ok-fpga-server/tests/management_api.rs`:
+   - HTTP tests for `/mgmt/status`, `/mgmt/devices`, `/mgmt/services`,
+     `/mgmt/config` using `axum::Router` oneshot (no TCP bind)
+
+### Verification
+
+- [ ] Server startup log shows "discovered FPGA device" with serial number
+- [ ] Dashboard overview page shows `connected_devices: 1` (with board attached)
+- [ ] Dashboard devices page shows device serial, product name, interface type
+- [ ] Server starts cleanly without DLL (warning log, 0 devices)
+- [ ] `cargo test` — all management API tests pass
+- [ ] `cargo clippy --features full` — zero warnings
+- [ ] Commit with descriptive message
+
+---
+
+## Phase 15: Hot-Plug Callbacks (FrontPanelManager)
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 14 (Device Scanner)  
+**ADR reference**: [ADR-002 — Device Lifecycle & Hot-Plug](architecture/adr/ADR-002-device-lifecycle.md)
+
+### What to do
+
+1. Wire `FrontPanelManager` C callbacks (§14 in fp6-api-surface.md):
+   - `extern "C" fn on_device_added(serial)` → `tokio::sync::mpsc::Sender`
+   - `extern "C" fn on_device_removed(serial)` → `tokio::sync::mpsc::Sender`
+   - Async task reads from channel → calls `DeviceManager::on_device_added/removed`
+2. Replace Phase 14's one-shot scan with persistent monitoring:
+   - `okFrontPanelManager_ConstructWithCallbacks` → `StartMonitoring`
+   - Manager fires `OnDeviceAdded` for already-connected devices (initial enum)
+3. Add `okREALM_TEST` support for emulated device connections:
+   - Tier 1 tests using `okFrontPanelManager_EmulateTestDeviceConnection`
+4. Update dashboard to receive real-time device events via WebSocket
+
+### Verification
+
+- [ ] Hot-plug: connect board → appears in dashboard within 1 second
+- [ ] Hot-unplug: disconnect board → removed from dashboard within 1 second
+- [ ] `okREALM_TEST` Tier 1 tests pass without hardware
+- [ ] All existing tests still pass
+- [ ] Commit with descriptive message
+
+---
+
 ## Summary of Dependencies
 
 ```
@@ -737,6 +806,8 @@ Phase 0: Scaffolding
                  │    └── Phase 9: Auth stubs (needs 6)
                  └── Phase 12: Integration testing (needs all)
                       └── Phase 13: Documentation & polish (needs all)
+                           └── Phase 14: Device scanner (needs 3 + 4 + 8)
+                                └── Phase 15: Hot-plug callbacks (needs 14)
 ```
 
 Phases 1 and 2 can be done **in parallel** (both depend only on Phase 0).  
@@ -753,3 +824,4 @@ Phases 10 and 11 can be done **in parallel** (both depend on Phase 4E + Phase 7)
 | `mqtt` | ❌ No | rumqttc | 10 |
 | `mdns` | ❌ No | mdns-sd | 11 |
 | `full` | ❌ No | all of the above | — |
+

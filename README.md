@@ -194,6 +194,7 @@ All major design decisions are documented as ADRs in [`docs/architecture/adr/`](
 | [ADR-010](docs/architecture/adr/ADR-010-service-manager.md) | Service Manager |
 | [ADR-011](docs/architecture/adr/ADR-011-mqtt-publishing.md) | MQTT Status Publishing |
 | [ADR-012](docs/architecture/adr/ADR-012-mdns-discovery.md) | mDNS/DNS-SD Service Discovery |
+| [ADR-013](docs/architecture/adr/ADR-013-device-scanner.md) | Device Scanner — FFI→DeviceManager Bridge |
 
 ## License
 
