@@ -38,7 +38,7 @@ grpc = ["dep:tonic", "dep:prost", "dep:tokio-stream"]
 mqtt = ["dep:rumqttc"]
 
 # mDNS/DNS-SD service discovery. Advertises the server on the local network.
-mdns = []
+mdns = ["dep:mdns-sd"]
 
 # Convenience: enable all optional features.
 full = ["rest", "dashboard", "grpc", "mqtt", "mdns"]
@@ -67,6 +67,9 @@ async-trait = { workspace = true }
 # TOML parsing for server configuration files.
 toml = "0.8"
 
+# Hostname resolution for mDNS service registration.
+hostname = "0.4"
+
 # Axum is the HTTP framework for BOTH the management server (always-on,
 # port 9090) and the REST API server (optional, port 8080).
 axum = { version = "0.8", features = ["ws"] }
@@ -89,6 +92,12 @@ tokio-stream = { version = "0.1", optional = true }
 # rumqttc is a pure-Rust async MQTT v5 client. Used to publish status
 # messages to an external broker (e.g., Mosquitto).
 rumqttc = { version = "0.24", optional = true }
+
+# --- mDNS feature dependencies ---
+
+# mdns-sd is a pure-Rust mDNS/DNS-SD library. Used for zero-config
+# network discovery — clients browse for `_okfpga._tcp` services.
+mdns-sd = { version = "0.11", optional = true }
 
 # ============================================================================
 # Build Dependencies

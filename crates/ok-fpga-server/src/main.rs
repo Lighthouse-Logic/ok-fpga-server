@@ -84,6 +84,10 @@ mod grpc;
 #[cfg(feature = "mqtt")]
 mod mqtt;
 
+/// mDNS/DNS-SD service discovery — only compiled when `mdns` feature is enabled.
+#[cfg(feature = "mdns")]
+mod mdns;
+
 use std::sync::Arc;
 
 use ok_fpga_core::manager::DeviceManager;
@@ -154,8 +158,11 @@ async fn main() -> anyhow::Result<()> {
         session_manager,
     ));
 
+    // Wrap config in Arc (needed by management server and mDNS service).
+    let cfg_arc = Arc::new(cfg);
+
     // Register available services based on compiled features and config.
-    register_services(&service_manager, &app_state, &cfg);
+    register_services(&service_manager, &app_state, &cfg_arc);
 
     // Log the feature flag status.
     log_feature_status();
@@ -177,7 +184,6 @@ async fn main() -> anyhow::Result<()> {
     let (event_tx, _) = tokio::sync::broadcast::channel::<String>(256);
 
     // Start the management server (always-on, serves dashboard + mgmt API).
-    let cfg_arc = Arc::new(cfg);
     start_management_server(&app_state, &cfg_arc, event_tx.clone()).await;
 
     info!("ok-FPGA-Server is ready. Press Ctrl+C to shut down.");
@@ -272,7 +278,7 @@ fn init_tracing(cfg: &ServerConfig) {
 fn register_services(
     service_manager: &Arc<ServiceManager>,
     app_state: &Arc<AppState>,
-    cfg: &ServerConfig,
+    cfg: &Arc<ServerConfig>,
 ) {
     // --- REST (default feature) ---
     #[cfg(feature = "rest")]
@@ -328,9 +334,20 @@ fn register_services(
         );
     }
 
-    // --- mDNS (Phase 11, opt-in feature) ---
-    // #[cfg(feature = "mdns")]
-    // { ... }
+    // --- mDNS (opt-in feature, ADR-012) ---
+    #[cfg(feature = "mdns")]
+    {
+        let mdns_service = Arc::new(mdns::MdnsDiscoveryService::new(
+            cfg.clone(),
+            app_state.clone(),
+        ));
+        service_manager.register(mdns_service, cfg.mdns.enabled);
+        info!(
+            instance_name = %cfg.mdns.instance_name,
+            enabled = cfg.mdns.enabled,
+            "registered mDNS service"
+        );
+    }
 }
 
 /// Log which features are compiled into this binary.
