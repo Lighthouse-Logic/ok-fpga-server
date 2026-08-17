@@ -367,7 +367,7 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 ## Phase 5: gRPC Server (`ok-fpga-server`)
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed (2026-08-16, `8edfdce`)  
 **Depends on**: Phase 2, Phase 4E  
 **ADR references**: [ADR-005](architecture/adr/ADR-005-grpc-api-design.md), [ADR-010](architecture/adr/ADR-010-service-manager.md)  
 **Feature flag**: `grpc` (NOT a default feature)
@@ -387,16 +387,16 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 ### Verification
 
-- [ ] `cargo build -p ok-fpga-server --features grpc` succeeds
-- [ ] `cargo build -p ok-fpga-server` succeeds WITHOUT gRPC
-- [ ] gRPC reflection or `grpcurl` can list services
-- [ ] Commit: `feat(server): implement gRPC services behind feature flag`
+- [x] `cargo build -p ok-fpga-server --features grpc` succeeds — ✅
+- [x] `cargo build -p ok-fpga-server` succeeds WITHOUT gRPC — ✅
+- [ ] gRPC reflection or `grpcurl` can list services (requires running server)
+- [x] Commit: `8edfdce` — `feat(server): implement Phase 5 (gRPC) and Phase 6 (REST) API servers`
 
 ---
 
 ## Phase 6: REST Server (`ok-fpga-server`)
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed (2026-08-16, `8edfdce`)  
 **Depends on**: Phase 1, Phase 4E  
 **ADR references**: [ADR-004](architecture/adr/ADR-004-rest-api-design.md), [ADR-010](architecture/adr/ADR-010-service-manager.md)  
 **Feature flag**: `rest` (default feature)
@@ -419,11 +419,11 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 ### Verification
 
-- [ ] `cargo build -p ok-fpga-server --features rest` succeeds
-- [ ] `cargo build -p ok-fpga-server --no-default-features` succeeds WITHOUT REST
-- [ ] `curl http://localhost:8080/api/v1/server/status` returns valid JSON
-- [ ] `curl http://localhost:8080/api/v1/server/services` returns service list
-- [ ] Commit: `feat(server): implement REST API routes behind feature flag`
+- [x] `cargo build -p ok-fpga-server --features rest` succeeds — ✅
+- [x] `cargo build -p ok-fpga-server --no-default-features` succeeds WITHOUT REST — ✅
+- [ ] `curl http://localhost:8080/api/v1/server/status` returns valid JSON (requires running server)
+- [ ] `curl http://localhost:8080/api/v1/server/services` returns service list (requires running server)
+- [x] Commit: `8edfdce` — `feat(server): implement Phase 5 (gRPC) and Phase 6 (REST) API servers`
 
 ---
 
