@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use tonic::{Request, Response, Status};
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::grpc::proto;
 use crate::state::AppState;
@@ -132,14 +132,118 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         }))
     }
 
+    /// `GetDeviceSettings` — enumerate all settings on a device.
+    ///
+    /// Reads settings via FFI (ADR-021): construct settings handle, populate
+    /// from device, enumerate keys, read each value, then clean up.
     async fn get_device_settings(
         &self,
         request: Request<proto::DeviceRequest>,
     ) -> Result<Response<proto::DeviceSettingsResponse>, Status> {
         let serial = &request.get_ref().serial;
-        warn!(serial = %serial, "GetDeviceSettings: requires FFI — returning empty");
+
+        let pool = self
+            .state
+            .handle_pool
+            .as_ref()
+            .ok_or_else(|| Status::unimplemented("FrontPanel DLL not loaded"))?;
+
+        let device_arc = pool
+            .get(serial)
+            .await
+            .ok_or_else(|| Status::not_found(format!("device '{}' not in handle pool", serial)))?;
+
+        let device = device_arc.lock().await;
+        let dll = device.dll();
+        let handle = device.raw();
+
+        // SAFETY: handle is valid (from pool). We construct settings + names
+        // containers, populate from the device, iterate keys, then destroy both.
+        let settings_vec: Vec<proto::DeviceSetting> = unsafe {
+            let settings = (dll.settings_construct)();
+            if settings.is_null() {
+                return Err(Status::internal("Failed to construct settings handle"));
+            }
+
+            let rc = (dll.fp_get_device_settings)(handle, settings);
+            if rc as i32 != ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                (dll.settings_destruct)(settings);
+                return Err(Status::internal(format!(
+                    "GetDeviceSettings failed with code {}",
+                    rc as i32
+                )));
+            }
+
+            let names = (dll.setting_names_construct)();
+            if names.is_null() {
+                (dll.settings_destruct)(settings);
+                return Err(Status::internal("Failed to construct setting names handle"));
+            }
+
+            let rc = (dll.settings_list)(settings, names);
+            if rc as i32 != ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                (dll.setting_names_destruct)(names);
+                (dll.settings_destruct)(settings);
+                return Err(Status::internal(format!(
+                    "Settings_List failed with code {}",
+                    rc as i32
+                )));
+            }
+
+            let count = (dll.setting_names_get_count)(names);
+            let mut result = Vec::with_capacity(count as usize);
+
+            for i in 0..count {
+                let name_ptr = (dll.setting_names_get)(names, i);
+                if name_ptr.is_null() {
+                    continue;
+                }
+                let key = std::ffi::CStr::from_ptr(name_ptr)
+                    .to_string_lossy()
+                    .to_string();
+
+                let key_c = std::ffi::CString::new(key.clone()).unwrap_or_default();
+                let mut int_val: ok_fpga_ffi::UINT32 = 0;
+                let int_rc =
+                    (dll.settings_get_int)(settings, key_c.as_ptr(), &mut int_val);
+
+                if int_rc as i32 == ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                    result.push(proto::DeviceSetting {
+                        key,
+                        value: Some(proto::device_setting::Value::IntValue(int_val)),
+                    });
+                } else {
+                    let mut str_buf = vec![0i8; 256];
+                    let str_rc = (dll.settings_get_string)(
+                        settings,
+                        key_c.as_ptr(),
+                        str_buf.len() as i32,
+                        str_buf.as_mut_ptr(),
+                    );
+                    if str_rc as i32 == ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                        let val = cstr_from_char_array(&str_buf);
+                        result.push(proto::DeviceSetting {
+                            key,
+                            value: Some(proto::device_setting::Value::StringValue(val)),
+                        });
+                    } else {
+                        // Key exists but neither type read succeeded.
+                        result.push(proto::DeviceSetting {
+                            key,
+                            value: None,
+                        });
+                    }
+                }
+            }
+
+            (dll.setting_names_destruct)(names);
+            (dll.settings_destruct)(settings);
+            result
+        };
+
+        info!(serial = %serial, count = settings_vec.len(), "GetDeviceSettings: returned settings");
         Ok(Response::new(proto::DeviceSettingsResponse {
-            settings: vec![],
+            settings: settings_vec,
             error: Some(proto::ErrorCluster {
                 status: false,
                 code: 0,
@@ -148,22 +252,190 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         }))
     }
 
+    /// `GetDeviceSetting` — read a single setting by key.
     async fn get_device_setting(
         &self,
-        _request: Request<proto::GetDeviceSettingRequest>,
+        request: Request<proto::GetDeviceSettingRequest>,
     ) -> Result<Response<proto::DeviceSettingResponse>, Status> {
-        Err(Status::unimplemented(
-            "GetDeviceSetting requires FFI integration",
-        ))
+        let req = request.get_ref();
+        let serial = &req.serial;
+        let key = &req.key;
+
+        let pool = self
+            .state
+            .handle_pool
+            .as_ref()
+            .ok_or_else(|| Status::unimplemented("FrontPanel DLL not loaded"))?;
+
+        let device_arc = pool
+            .get(serial)
+            .await
+            .ok_or_else(|| Status::not_found(format!("device '{}' not in handle pool", serial)))?;
+
+        let device = device_arc.lock().await;
+        let dll = device.dll();
+        let handle = device.raw();
+
+        // SAFETY: handle is valid (from pool). Construct, populate, read, destroy.
+        let setting: proto::DeviceSetting = unsafe {
+            let settings = (dll.settings_construct)();
+            if settings.is_null() {
+                return Err(Status::internal("Failed to construct settings handle"));
+            }
+
+            let rc = (dll.fp_get_device_settings)(handle, settings);
+            if rc as i32 != ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                (dll.settings_destruct)(settings);
+                return Err(Status::internal(format!(
+                    "GetDeviceSettings failed with code {}",
+                    rc as i32
+                )));
+            }
+
+            let key_c = std::ffi::CString::new(key.clone()).map_err(|_| {
+                (dll.settings_destruct)(settings);
+                Status::invalid_argument(format!("invalid setting key: {}", key))
+            })?;
+
+            // Try integer first.
+            let mut int_val: ok_fpga_ffi::UINT32 = 0;
+            let int_rc = (dll.settings_get_int)(settings, key_c.as_ptr(), &mut int_val);
+
+            let value = if int_rc as i32 == ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                Some(proto::device_setting::Value::IntValue(int_val))
+            } else {
+                let mut str_buf = vec![0i8; 256];
+                let str_rc = (dll.settings_get_string)(
+                    settings,
+                    key_c.as_ptr(),
+                    str_buf.len() as i32,
+                    str_buf.as_mut_ptr(),
+                );
+                if str_rc as i32 == ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                    let val = cstr_from_char_array(&str_buf);
+                    Some(proto::device_setting::Value::StringValue(val))
+                } else {
+                    (dll.settings_destruct)(settings);
+                    return Err(Status::not_found(format!(
+                        "setting '{}' not found on device '{}'",
+                        key, serial
+                    )));
+                }
+            };
+
+            (dll.settings_destruct)(settings);
+            proto::DeviceSetting {
+                key: key.clone(),
+                value,
+            }
+        };
+
+        Ok(Response::new(proto::DeviceSettingResponse {
+            setting: Some(setting),
+            error: Some(proto::ErrorCluster {
+                status: false,
+                code: 0,
+                source: String::new(),
+            }),
+        }))
     }
 
+    /// `SetDeviceSetting` — write a setting and persist to device.
     async fn set_device_setting(
         &self,
-        _request: Request<proto::SetDeviceSettingRequest>,
+        request: Request<proto::SetDeviceSettingRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
-        Err(Status::unimplemented(
-            "SetDeviceSetting requires FFI integration",
-        ))
+        let req = request.get_ref();
+        let serial = &req.serial;
+        let setting = req
+            .setting
+            .as_ref()
+            .ok_or_else(|| Status::invalid_argument("setting field is required"))?;
+
+        let pool = self
+            .state
+            .handle_pool
+            .as_ref()
+            .ok_or_else(|| Status::unimplemented("FrontPanel DLL not loaded"))?;
+
+        let device_arc = pool
+            .get(serial)
+            .await
+            .ok_or_else(|| Status::not_found(format!("device '{}' not in handle pool", serial)))?;
+
+        let device = device_arc.lock().await;
+        let dll = device.dll();
+        let handle = device.raw();
+
+        // SAFETY: handle is valid (from pool). Construct, populate, write, save, destroy.
+        unsafe {
+            let settings_h = (dll.settings_construct)();
+            if settings_h.is_null() {
+                return Err(Status::internal("Failed to construct settings handle"));
+            }
+
+            let rc = (dll.fp_get_device_settings)(handle, settings_h);
+            if rc as i32 != ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                (dll.settings_destruct)(settings_h);
+                return Err(Status::internal(format!(
+                    "GetDeviceSettings failed with code {}",
+                    rc as i32
+                )));
+            }
+
+            let key_c = std::ffi::CString::new(setting.key.clone()).map_err(|_| {
+                (dll.settings_destruct)(settings_h);
+                Status::invalid_argument(format!("invalid setting key: {}", setting.key))
+            })?;
+
+            // Write the value based on the oneof variant.
+            let write_rc = match &setting.value {
+                Some(proto::device_setting::Value::IntValue(val)) => {
+                    (dll.settings_set_int)(settings_h, key_c.as_ptr(), *val)
+                }
+                Some(proto::device_setting::Value::StringValue(val)) => {
+                    let val_c = std::ffi::CString::new(val.as_str()).map_err(|_| {
+                        (dll.settings_destruct)(settings_h);
+                        Status::invalid_argument("string_value contains null bytes")
+                    })?;
+                    (dll.settings_set_string)(settings_h, key_c.as_ptr(), val_c.as_ptr())
+                }
+                None => {
+                    (dll.settings_destruct)(settings_h);
+                    return Err(Status::invalid_argument(
+                        "setting value is required (string_value or int_value)",
+                    ));
+                }
+            };
+
+            if write_rc as i32 != ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                (dll.settings_destruct)(settings_h);
+                return Err(Status::internal(format!(
+                    "Failed to set setting '{}' with code {}",
+                    setting.key, write_rc as i32
+                )));
+            }
+
+            // Persist changes to device flash/EEPROM.
+            let save_rc = (dll.settings_save)(settings_h);
+            (dll.settings_destruct)(settings_h);
+
+            if save_rc as i32 != ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                return Err(Status::internal(format!(
+                    "settings_save failed with code {}",
+                    save_rc as i32
+                )));
+            }
+        }
+
+        info!(serial = %serial, key = %setting.key, "SetDeviceSetting: saved");
+        Ok(Response::new(proto::StatusResponse {
+            error: Some(proto::ErrorCluster {
+                status: false,
+                code: 0,
+                source: String::new(),
+            }),
+        }))
     }
 
     // ========================================================================
@@ -625,4 +897,17 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             }),
         }))
     }
+}
+
+/// Extract a Rust `String` from a C `char` array (null-terminated).
+///
+/// Used by the settings handlers to convert FFI string buffers to Rust strings.
+/// Same implementation as `rest::devices::cstr_from_char_array`.
+fn cstr_from_char_array(buf: &[::std::os::raw::c_char]) -> String {
+    let bytes: Vec<u8> = buf
+        .iter()
+        .take_while(|&&c| c != 0)
+        .map(|&c| c as u8)
+        .collect();
+    String::from_utf8_lossy(&bytes).to_string()
 }

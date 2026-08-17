@@ -3,11 +3,12 @@
 //! REST endpoints for device discovery, info, sensors, settings, SYZYGY,
 //! and configuration. Implements the `/devices/*` paths from ADR-004.
 //!
-//! ## FFI Integration (Phase 19)
+//! ## FFI Integration (Phase 19 + 19G)
 //!
-//! The `configure_fpga`, `get_device_sensors`, `get_bitfile_info`, and
-//! `get_dataport_type` handlers are wired to the FrontPanel DLL via the
-//! `DeviceHandlePool` in `AppState`.
+//! The `configure_fpga`, `get_device_sensors`, `get_bitfile_info`,
+//! `get_dataport_type`, `get_device_settings`, `get_device_setting`, and
+//! `set_device_setting` handlers are wired to the FrontPanel DLL via the
+//! `DeviceHandlePool` in `AppState`. See ADR-017 and ADR-021.
 
 use std::sync::Arc;
 
@@ -63,6 +64,20 @@ struct DeviceSummary {
 struct ConfigurePathRequest {
     /// Local filesystem path to the bitfile.
     bitfile_path: String,
+}
+
+/// Request body for `PUT /devices/{serial}/settings/{key}`.
+///
+/// The caller specifies the value type ("string" or "integer") and the
+/// corresponding value field. Matches the `DeviceSettingValue` OpenAPI schema.
+#[derive(Deserialize)]
+struct SetDeviceSettingRequest {
+    /// "string" or "integer" — determines which value field is used.
+    value_type: String,
+    /// String value (used when `value_type == "string"`).
+    string_value: Option<String>,
+    /// Integer value (used when `value_type == "integer"`).
+    int_value: Option<u32>,
 }
 
 /// Successful configuration response.
@@ -223,30 +238,312 @@ async fn get_device_sensors(
 }
 
 /// `GET /devices/{serial}/settings` — List all device settings.
+///
+/// Reads settings via the FrontPanel DLL (ADR-021): constructs an
+/// `okDeviceSettings` handle, populates it from the device, enumerates
+/// all key names, reads each value (int or string), then cleans up.
+///
+/// Settings are device-level metadata and do NOT require FPGA programming.
 async fn get_device_settings(
-    Path(_serial): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Path(serial): Path<String>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented(
-        "Settings require FFI integration",
-    ))
+    let pool = state
+        .handle_pool
+        .as_ref()
+        .ok_or_else(|| ProblemDetail::not_implemented("FrontPanel DLL not loaded"))?;
+
+    let device_arc = pool
+        .get(&serial)
+        .await
+        .ok_or_else(|| ProblemDetail::not_found(format!("device '{}' not found in handle pool", serial)))?;
+
+    let device = device_arc.lock().await;
+    let dll = device.dll();
+    let handle = device.raw();
+
+    // SAFETY: handle is valid (from pool). We construct settings + names
+    // containers, populate from the device, iterate keys, then destroy both.
+    let settings_list: Vec<serde_json::Value> = unsafe {
+        let settings = (dll.settings_construct)();
+        if settings.is_null() {
+            return Err(ProblemDetail::internal("Failed to construct settings handle"));
+        }
+
+        // Populate settings from the device.
+        let rc = (dll.fp_get_device_settings)(handle, settings);
+        if rc as i32 != ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+            (dll.settings_destruct)(settings);
+            return Err(ffi_error_to_problem(&FfiError::FrontPanelError {
+                code: rc as i32,
+                message: format!("GetDeviceSettings failed with code {}", rc as i32),
+            }));
+        }
+
+        // Enumerate key names.
+        let names = (dll.setting_names_construct)();
+        if names.is_null() {
+            (dll.settings_destruct)(settings);
+            return Err(ProblemDetail::internal("Failed to construct setting names handle"));
+        }
+
+        let rc = (dll.settings_list)(settings, names);
+        if rc as i32 != ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+            (dll.setting_names_destruct)(names);
+            (dll.settings_destruct)(settings);
+            return Err(ffi_error_to_problem(&FfiError::FrontPanelError {
+                code: rc as i32,
+                message: format!("Settings_List failed with code {}", rc as i32),
+            }));
+        }
+
+        let count = (dll.setting_names_get_count)(names);
+        let mut result = Vec::with_capacity(count as usize);
+
+        for i in 0..count {
+            let name_ptr = (dll.setting_names_get)(names, i);
+            if name_ptr.is_null() {
+                continue;
+            }
+            let key = std::ffi::CStr::from_ptr(name_ptr)
+                .to_string_lossy()
+                .to_string();
+
+            // Try reading as integer first, then as string.
+            // The FrontPanel API doesn't expose a "type" query, so we probe.
+            let key_c = std::ffi::CString::new(key.clone()).unwrap_or_default();
+            let mut int_val: ok_fpga_ffi::UINT32 = 0;
+            let int_rc = (dll.settings_get_int)(settings, key_c.as_ptr(), &mut int_val);
+
+            if int_rc as i32 == ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                result.push(serde_json::json!({
+                    "key": key,
+                    "value_type": "integer",
+                    "int_value": int_val,
+                }));
+            } else {
+                // Try as string.
+                let mut str_buf = vec![0i8; 256];
+                let str_rc = (dll.settings_get_string)(
+                    settings,
+                    key_c.as_ptr(),
+                    str_buf.len() as i32,
+                    str_buf.as_mut_ptr(),
+                );
+                if str_rc as i32 == ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                    let val = cstr_from_char_array(&str_buf);
+                    result.push(serde_json::json!({
+                        "key": key,
+                        "value_type": "string",
+                        "string_value": val,
+                    }));
+                } else {
+                    // Key exists but neither type read succeeded — report as unknown.
+                    result.push(serde_json::json!({
+                        "key": key,
+                        "value_type": "unknown",
+                    }));
+                }
+            }
+        }
+
+        (dll.setting_names_destruct)(names);
+        (dll.settings_destruct)(settings);
+        result
+    };
+
+    Ok(Json(serde_json::json!({ "settings": settings_list })))
 }
 
 /// `GET /devices/{serial}/settings/{key}` — Get a single setting.
+///
+/// Reads a single device setting by key name. Tries integer first, then
+/// string. Returns 404 if the key is not found on the device.
 async fn get_device_setting(
-    Path((_serial, _key)): Path<(String, String)>,
+    State(state): State<Arc<AppState>>,
+    Path((serial, key)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented(
-        "Settings require FFI integration",
-    ))
+    let pool = state
+        .handle_pool
+        .as_ref()
+        .ok_or_else(|| ProblemDetail::not_implemented("FrontPanel DLL not loaded"))?;
+
+    let device_arc = pool
+        .get(&serial)
+        .await
+        .ok_or_else(|| ProblemDetail::not_found(format!("device '{}' not found in handle pool", serial)))?;
+
+    let device = device_arc.lock().await;
+    let dll = device.dll();
+    let handle = device.raw();
+
+    // SAFETY: handle is valid (from pool). Construct settings, populate,
+    // read the single key, then destroy.
+    let result: Result<serde_json::Value, ProblemDetail> = unsafe {
+        let settings = (dll.settings_construct)();
+        if settings.is_null() {
+            return Err(ProblemDetail::internal("Failed to construct settings handle"));
+        }
+
+        let rc = (dll.fp_get_device_settings)(handle, settings);
+        if rc as i32 != ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+            (dll.settings_destruct)(settings);
+            return Err(ffi_error_to_problem(&FfiError::FrontPanelError {
+                code: rc as i32,
+                message: format!("GetDeviceSettings failed with code {}", rc as i32),
+            }));
+        }
+
+        let key_c = std::ffi::CString::new(key.clone()).map_err(|_| {
+            (dll.settings_destruct)(settings);
+            ProblemDetail::bad_request(format!("invalid setting key: {}", key))
+        })?;
+
+        // Try integer first.
+        let mut int_val: ok_fpga_ffi::UINT32 = 0;
+        let int_rc = (dll.settings_get_int)(settings, key_c.as_ptr(), &mut int_val);
+
+        let value = if int_rc as i32 == ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+            serde_json::json!({
+                "key": key,
+                "value_type": "integer",
+                "int_value": int_val,
+            })
+        } else {
+            // Try string.
+            let mut str_buf = vec![0i8; 256];
+            let str_rc = (dll.settings_get_string)(
+                settings,
+                key_c.as_ptr(),
+                str_buf.len() as i32,
+                str_buf.as_mut_ptr(),
+            );
+            if str_rc as i32 == ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                let val = cstr_from_char_array(&str_buf);
+                serde_json::json!({
+                    "key": key,
+                    "value_type": "string",
+                    "string_value": val,
+                })
+            } else {
+                (dll.settings_destruct)(settings);
+                return Err(ProblemDetail::not_found(format!(
+                    "setting '{}' not found on device '{}'",
+                    key, serial
+                )));
+            }
+        };
+
+        (dll.settings_destruct)(settings);
+        Ok(value)
+    };
+
+    Ok(Json(result?))
 }
 
 /// `PUT /devices/{serial}/settings/{key}` — Set a setting value.
+///
+/// Writes a single device setting by key name and persists via `settings_save`.
+/// The request body specifies `value_type` ("string" or "integer") and the
+/// corresponding value field.
 async fn set_device_setting(
-    Path((_serial, _key)): Path<(String, String)>,
+    State(state): State<Arc<AppState>>,
+    Path((serial, key)): Path<(String, String)>,
+    Json(body): Json<SetDeviceSettingRequest>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented(
-        "Settings require FFI integration",
-    ))
+    let pool = state
+        .handle_pool
+        .as_ref()
+        .ok_or_else(|| ProblemDetail::not_implemented("FrontPanel DLL not loaded"))?;
+
+    let device_arc = pool
+        .get(&serial)
+        .await
+        .ok_or_else(|| ProblemDetail::not_found(format!("device '{}' not found in handle pool", serial)))?;
+
+    let device = device_arc.lock().await;
+    let dll = device.dll();
+    let handle = device.raw();
+
+    // SAFETY: handle is valid (from pool). Construct settings, populate from
+    // device, write the new value, save back to device, then destroy.
+    unsafe {
+        let settings = (dll.settings_construct)();
+        if settings.is_null() {
+            return Err(ProblemDetail::internal("Failed to construct settings handle"));
+        }
+
+        let rc = (dll.fp_get_device_settings)(handle, settings);
+        if rc as i32 != ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+            (dll.settings_destruct)(settings);
+            return Err(ffi_error_to_problem(&FfiError::FrontPanelError {
+                code: rc as i32,
+                message: format!("GetDeviceSettings failed with code {}", rc as i32),
+            }));
+        }
+
+        let key_c = std::ffi::CString::new(key.clone()).map_err(|_| {
+            (dll.settings_destruct)(settings);
+            ProblemDetail::bad_request(format!("invalid setting key: {}", key))
+        })?;
+
+        // Write the value based on the specified type.
+        let write_rc = match body.value_type.as_str() {
+            "integer" => {
+                let val = body.int_value.ok_or_else(|| {
+                    // Clean up before returning error.
+                    (dll.settings_destruct)(settings);
+                    ProblemDetail::bad_request("int_value is required when value_type is \"integer\"")
+                })?;
+                (dll.settings_set_int)(settings, key_c.as_ptr(), val)
+            }
+            "string" => {
+                let val = body.string_value.as_deref().ok_or_else(|| {
+                    (dll.settings_destruct)(settings);
+                    ProblemDetail::bad_request(
+                        "string_value is required when value_type is \"string\"",
+                    )
+                })?;
+                let val_c = std::ffi::CString::new(val).map_err(|_| {
+                    (dll.settings_destruct)(settings);
+                    ProblemDetail::bad_request("string_value contains null bytes")
+                })?;
+                (dll.settings_set_string)(settings, key_c.as_ptr(), val_c.as_ptr())
+            }
+            other => {
+                (dll.settings_destruct)(settings);
+                return Err(ProblemDetail::bad_request(format!(
+                    "unsupported value_type '{}' — use \"string\" or \"integer\"",
+                    other
+                )));
+            }
+        };
+
+        if write_rc as i32 != ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+            (dll.settings_destruct)(settings);
+            return Err(ffi_error_to_problem(&FfiError::FrontPanelError {
+                code: write_rc as i32,
+                message: format!("Failed to set setting '{}' with code {}", key, write_rc as i32),
+            }));
+        }
+
+        // Persist changes to device flash/EEPROM.
+        let save_rc = (dll.settings_save)(settings);
+        (dll.settings_destruct)(settings);
+
+        if save_rc as i32 != ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+            return Err(ffi_error_to_problem(&FfiError::FrontPanelError {
+                code: save_rc as i32,
+                message: format!("settings_save failed with code {}", save_rc as i32),
+            }));
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "status": "ok",
+        "key": key,
+        "message": format!("Setting '{}' updated on device '{}'", key, serial),
+    })))
 }
 
 /// `GET /devices/{serial}/syzygy` — Get SYZYGY port information.

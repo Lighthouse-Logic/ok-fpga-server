@@ -168,11 +168,17 @@ async fn main() {
                 Err(e) => println!("  Device info: {} (expected for stub endpoints)", e),
             }
 
-            // Try sensor, settings, SYZYGY endpoints (expected to return 501)
+            // Device settings — wired to FFI (Phase 19G, ADR-021)
+            println!("\n━━━ Device Settings ━━━");
+            match client.get_device_settings(serial).await {
+                Ok(v) => println!("  {}", serde_json::to_string_pretty(&v).unwrap()),
+                Err(e) => println!("  Settings: {} (unexpected error)", e),
+            }
+
+            // Try sensor, SYZYGY endpoints (expected to return 501)
             println!("\n━━━ Stub Endpoints (expected 501) ━━━");
             for (name, result) in [
                 ("Sensors", client.get_device_sensors(serial).await),
-                ("Settings", client.get_device_settings(serial).await),
                 ("SYZYGY", client.get_syzygy_ports(serial).await),
                 ("Bitfile", client.get_bitfile_info(serial).await),
                 ("Dataport", client.get_dataport_type(serial).await),
