@@ -200,23 +200,35 @@ An FPGA can only be reprogrammed if it is not `InUse` (no resources currently he
 
 ## Addendum A: Client-Side Resource Registration (2026-08-17)
 
-See [ADR-016](ADR-016-hardware-integration-testing.md) for full design.
+See [ADR-020](ADR-020-client-side-resource-registration.md) for full design.
 
 The original ADR stated resources are "defined by the developer/integrator" but did
-not specify the creation mechanism. ADR-016 resolves this:
+not specify the creation mechanism. ADR-020 resolves this:
 
 - **The client creates resources** via `POST /api/v1/resources` after programming a
   bitfile. The server remains agnostic to bitfile capabilities.
 - **The client deletes resources** via `DELETE /api/v1/resources/{resource_id}` when
   cleaning up before reprogramming or disconnecting.
-- **Server auto-transitions**: On FPGA disconnect, resources transition to
-  `Unavailable` (but are not deleted). On reprogramming, old resources transition to
-  `Unavailable` and the client is expected to delete/recreate them.
-
-This approach aligns with the original design principle that the server does not
-know what a bitfile is capable of — only the integrator/client has that knowledge.
+- **Server auto-deletes**: On FPGA disconnect, resources are **deleted** (the
+  device state is unknown after reconnection — it may have lost power or been
+  reprogrammed by another tool).
+- **Access mode at registration**: The `access_mode` field is set at registration
+  time as a hardware design constraint, replacing the original model where mode was
+  chosen at acquisition time.
+- **Lock/unlock semantics**: Shared resources can be temporarily locked by any
+  holder for uninterrupted access, then unlocked to resume shared access.
+- **Heartbeat/liveness**: Users must maintain heartbeats (implicit via any API call,
+  or explicit via `POST /heartbeat`) to retain resource holds. Auto-release occurs
+  after 60 seconds of inactivity.
+- **Interface declarations**: Resources declare Classic, AXI-Lite, AXI-Full, and/or
+  AXI-Stream support, validated against the device at registration time.
+- **Classic endpoint declarations**: Resources declare which EPs they use and
+  whether each is shared or exclusive. Exclusive EP overlaps are rejected.
+- **Address range declarations**: Resources declare memory-mapped address ranges
+  with per-range sharing semantics. Exclusive overlaps are rejected.
 
 ## References
 
 - [Project Goals — Resource Model](../../ok-FPGA-Server_Project-goals.txt) — lines 3-4
-- [ADR-016 — Hardware Integration Testing & Resource Registration](ADR-016-hardware-integration-testing.md)
+- [ADR-020 — Client-Side Resource Registration](ADR-020-client-side-resource-registration.md)
+
