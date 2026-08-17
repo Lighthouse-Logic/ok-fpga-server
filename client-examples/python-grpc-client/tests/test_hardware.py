@@ -324,12 +324,13 @@ async def test_16_axi_lite_write(client: OkFpgaGrpcClient, device_serial: str):
 
 @pytest.mark.asyncio
 async def test_17_create_resource(client: OkFpgaGrpcClient, device_serial: str):
-    """Create a resource via gRPC."""
+    """Create a resource via gRPC (ADR-020)."""
     result = await skip_if_unimplemented(
         client.create_resource(
             "grpc-test-resource",
             device_serial,
             description="Test resource via gRPC",
+            access_mode="shared",
         ),
         "CreateResource",
     )
@@ -338,8 +339,29 @@ async def test_17_create_resource(client: OkFpgaGrpcClient, device_serial: str):
 
 
 @pytest.mark.asyncio
+async def test_17a_list_resources(client: OkFpgaGrpcClient):
+    """List all resources via gRPC."""
+    result = await skip_if_unimplemented(
+        client.list_resources(),
+        "ListResources",
+    )
+    logger.info(f"Resources: {len(result.resources)}")
+
+
+@pytest.mark.asyncio
+async def test_17b_ping(client: OkFpgaGrpcClient):
+    """Heartbeat / liveness ping via gRPC (ADR-020 §5)."""
+    result = await skip_if_unimplemented(
+        client.ping("python-grpc-test-user"),
+        "Ping",
+    )
+    assert result.server_time
+    logger.info(f"Ping: server_time={result.server_time}")
+
+
+@pytest.mark.asyncio
 async def test_18_delete_resource(client: OkFpgaGrpcClient, device_serial: str):
-    """Delete a resource via gRPC."""
+    """Delete a resource via gRPC (ADR-020)."""
     resource_id = f"{device_serial}:grpc-test-resource"
     try:
         await client.delete_resource(resource_id)

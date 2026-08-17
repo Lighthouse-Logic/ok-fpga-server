@@ -392,8 +392,7 @@ async fn test_19_create_resource() {
         "test-classic-counters",
         &serial,
         Some("Counters.bit Classic resource"),
-        None,
-        None,
+        "shared",
     ).await {
         Ok(r) => {
             println!("Created resource: {}", r);
@@ -418,6 +417,62 @@ async fn test_20_list_resources() {
 
     let result = client.list_resources().await.expect("list resources");
     println!("Resources: {}", result);
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_20a_lock_unlock_resource() {
+    let (client, serial) = setup_programmed_device().await;
+
+    let resource_id = format!("{}:test-classic-counters", serial);
+    let user_id = "integration-test-user";
+
+    // Acquire the resource first.
+    match client.acquire_resource(&resource_id, user_id, "shared").await {
+        Ok(r) => println!("Acquired: {}", r),
+        Err(e) if is_expected_skip(&e) => { println!("SKIP"); return; },
+        Err(e) => { println!("Acquire failed (may be already held): {}", e); }
+    }
+
+    // Lock it.
+    match client.lock_resource(&resource_id, user_id).await {
+        Ok(r) => {
+            println!("Locked: {}", r);
+            assert_eq!(r["state"].as_str(), Some("In Use (Locked)"));
+            assert_eq!(r["locked_by"].as_str(), Some(user_id));
+        }
+        Err(e) if is_expected_skip(&e) => { println!("SKIP"); return; },
+        Err(e) => panic!("Lock failed: {}", e),
+    }
+
+    // Unlock it.
+    match client.unlock_resource(&resource_id, user_id).await {
+        Ok(r) => {
+            println!("Unlocked: {}", r);
+            assert_eq!(r["state"].as_str(), Some("In Use (Shared)"));
+        }
+        Err(e) if is_expected_skip(&e) => println!("SKIP"),
+        Err(e) => panic!("Unlock failed: {}", e),
+    }
+
+    // Release it.
+    let _ = client.release_resource(&resource_id, user_id).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_20b_heartbeat() {
+    let client = OkFpgaRestClient::new(&server_url());
+
+    match client.heartbeat("integration-test-user").await {
+        Ok(r) => {
+            println!("Heartbeat response: {}", r);
+            assert!(r["server_time"].as_str().is_some());
+            assert_eq!(r["user_id"].as_str(), Some("integration-test-user"));
+        }
+        Err(e) if is_expected_skip(&e) => println!("SKIP"),
+        Err(e) => panic!("Heartbeat failed: {}", e),
+    }
 }
 
 #[tokio::test]

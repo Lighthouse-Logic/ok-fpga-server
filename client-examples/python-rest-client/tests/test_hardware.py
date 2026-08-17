@@ -533,14 +533,13 @@ async def test_21_axi_trig_status_read(
 async def test_22_create_resource(
     client: OkFpgaRestClient, programmed_device: str
 ):
-    """Create a resource via POST /resources (ADR-016)."""
+    """Create a resource via POST /resources (ADR-020)."""
     serial = programmed_device
     result = await client.create_resource(
         name="test-classic-counters",
         device_serial=serial,
+        access_mode="shared",
         description="Classic counter endpoints from Counters.bit",
-        resource_type="classic",
-        capabilities=["wire_in", "wire_out", "trigger_in", "trigger_out"],
     )
     assert "id" in result
     logger.info(f"Created resource: {result['id']}")
@@ -552,16 +551,55 @@ async def test_22_create_resource(
 
 @pytest.mark.asyncio
 @hardware
+async def test_22a_lock_unlock_resource(
+    client: OkFpgaRestClient, programmed_device: str
+):
+    """Lock and unlock a shared resource (ADR-020 §3)."""
+    serial = programmed_device
+    resource_id = f"{serial}:test-classic-counters"
+    user_id = "python-test-user"
+
+    # Acquire the resource.
+    await client.acquire_resource(resource_id, "shared", user_id)
+
+    # Lock it.
+    locked = await client.lock_resource(resource_id, user_id)
+    assert locked["state"] == "In Use (Locked)"
+    assert locked.get("locked_by") == user_id
+    logger.info(f"Locked: {resource_id}")
+
+    # Unlock it.
+    unlocked = await client.unlock_resource(resource_id, user_id)
+    assert unlocked["state"] == "In Use (Shared)"
+    logger.info(f"Unlocked: {resource_id}")
+
+    # Release it.
+    await client.release_resource(resource_id, user_id)
+
+
+@pytest.mark.asyncio
+@hardware
+async def test_22b_heartbeat(client: OkFpgaRestClient):
+    """User liveness heartbeat (ADR-020 §5)."""
+    result = await client.heartbeat("python-test-user")
+    assert "server_time" in result
+    assert result["user_id"] == "python-test-user"
+    logger.info(f"Heartbeat: {result['server_time']}")
+
+
+@pytest.mark.asyncio
+@hardware
 async def test_23_delete_resource(
     client: OkFpgaRestClient, programmed_device: str
 ):
-    """Delete a resource via DELETE /resources/{id} (ADR-016)."""
+    """Delete a resource via DELETE /resources/{id} (ADR-020)."""
     serial = programmed_device
 
     # Create a resource to delete
     result = await client.create_resource(
         name="test-delete-me",
         device_serial=serial,
+        access_mode="exclusive",
         description="Temporary resource for deletion test",
     )
     resource_id = result["id"]

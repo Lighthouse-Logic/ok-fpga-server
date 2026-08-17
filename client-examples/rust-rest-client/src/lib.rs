@@ -514,43 +514,62 @@ impl OkFpgaRestClient {
         self.post(&format!("/resources/{}/release", resource_id), Some(body)).await
     }
 
-    /// `POST /resources` — Create a new resource (ADR-016).
+    /// `POST /resources` — Create a new resource (ADR-020).
     ///
     /// # Arguments
     /// * `name` — Human-readable resource name
     /// * `device_serial` — Serial of the FPGA providing this resource
     /// * `description` — Optional description
-    /// * `resource_type` — Optional type identifier (e.g., "classic", "axi")
-    /// * `capabilities` — Optional list of capabilities
+    /// * `access_mode` — "shared" or "exclusive" (design-level constraint)
     pub async fn create_resource(
         &self,
         name: &str,
         device_serial: &str,
         description: Option<&str>,
-        resource_type: Option<&str>,
-        capabilities: Option<Vec<&str>>,
+        access_mode: &str,
     ) -> Result<Value, ClientError> {
         let mut body = serde_json::json!({
             "name": name,
             "device_serial": device_serial,
+            "access_mode": access_mode,
         });
         if let Some(desc) = description {
             body["description"] = serde_json::json!(desc);
         }
-        if let Some(rt) = resource_type {
-            body["resource_type"] = serde_json::json!(rt);
-        }
-        if let Some(caps) = capabilities {
-            body["capabilities"] = serde_json::json!(caps);
-        }
         self.post("/resources", Some(body)).await
     }
 
-    /// `DELETE /resources/{resource_id}` — Delete a resource (ADR-016).
+    /// `DELETE /resources/{resource_id}` — Delete a resource (ADR-020).
     ///
     /// Returns 409 if the resource is currently held by any user.
     pub async fn delete_resource(&self, resource_id: &str) -> Result<(), ClientError> {
         self.delete_req(&format!("/resources/{}", resource_id)).await
+    }
+
+    /// `POST /resources/{resource_id}/lock` — Lock a shared resource (ADR-020 §3).
+    pub async fn lock_resource(
+        &self,
+        resource_id: &str,
+        user_id: &str,
+    ) -> Result<Value, ClientError> {
+        let body = serde_json::json!({ "user_id": user_id });
+        self.post(&format!("/resources/{}/lock", resource_id), Some(body)).await
+    }
+
+    /// `POST /resources/{resource_id}/unlock` — Unlock a locked resource (ADR-020 §3).
+    pub async fn unlock_resource(
+        &self,
+        resource_id: &str,
+        user_id: &str,
+    ) -> Result<Value, ClientError> {
+        let body = serde_json::json!({ "user_id": user_id });
+        self.post(&format!("/resources/{}/unlock", resource_id), Some(body)).await
+    }
+
+    /// `POST /heartbeat` — User liveness heartbeat (ADR-020 §5).
+    pub async fn heartbeat(&self, user_id: &str) -> Result<Value, ClientError> {
+        let body = serde_json::json!({ "user_id": user_id });
+        self.post("/heartbeat", Some(body)).await
     }
 
     // ========================================================================

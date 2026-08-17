@@ -332,34 +332,50 @@ class OkFpgaRestClient:
         self,
         name: str,
         device_serial: str,
+        access_mode: str = "shared",
         description: Optional[str] = None,
-        resource_type: Optional[str] = None,
-        capabilities: Optional[list[str]] = None,
     ) -> dict:
-        """POST /resources — Create a new resource (ADR-016).
+        """POST /resources — Create a new resource (ADR-020).
 
         Args:
             name: Human-readable resource name (e.g., "xem7320-classic-counters").
             device_serial: Serial of the FPGA providing this resource.
+            access_mode: "shared" or "exclusive" (design-level constraint).
             description: Optional description of the resource.
-            resource_type: Optional type identifier (e.g., "classic", "axi").
-            capabilities: Optional list of capabilities this resource provides.
         """
-        body: dict[str, Any] = {"name": name, "device_serial": device_serial}
+        body: dict[str, Any] = {
+            "name": name,
+            "device_serial": device_serial,
+            "access_mode": access_mode,
+        }
         if description is not None:
             body["description"] = description
-        if resource_type is not None:
-            body["resource_type"] = resource_type
-        if capabilities is not None:
-            body["capabilities"] = capabilities
         return await self._post("/resources", json=body)
 
     async def delete_resource(self, resource_id: str) -> None:
-        """DELETE /resources/{resource_id} — Delete a resource (ADR-016).
+        """DELETE /resources/{resource_id} — Delete a resource (ADR-020).
 
         Returns 409 if the resource is currently held by any user.
         """
         await self._delete(f"/resources/{resource_id}")
+
+    async def lock_resource(self, resource_id: str, user_id: str) -> dict:
+        """POST /resources/{resource_id}/lock — Lock a shared resource (ADR-020 §3)."""
+        return await self._post(
+            f"/resources/{resource_id}/lock",
+            json={"user_id": user_id},
+        )
+
+    async def unlock_resource(self, resource_id: str, user_id: str) -> dict:
+        """POST /resources/{resource_id}/unlock — Unlock a locked resource (ADR-020 §3)."""
+        return await self._post(
+            f"/resources/{resource_id}/unlock",
+            json={"user_id": user_id},
+        )
+
+    async def heartbeat(self, user_id: str) -> dict:
+        """POST /heartbeat — User liveness heartbeat (ADR-020 §5)."""
+        return await self._post("/heartbeat", json={"user_id": user_id})
 
     # ========================================================================
     # Users (/users/*)

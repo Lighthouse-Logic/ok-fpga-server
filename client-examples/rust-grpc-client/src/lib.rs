@@ -300,4 +300,92 @@ impl OkFpgaGrpcClient {
             })
             .await
     }
+
+    // ========================================================================
+    // Resource Management (ADR-020)
+    // ========================================================================
+
+    /// Create a new resource for a programmed FPGA.
+    pub async fn create_resource(
+        &mut self,
+        name: &str,
+        device_serial: &str,
+        description: &str,
+        access_mode: &str,
+    ) -> Result<tonic::Response<okfpga::v1::ResourceResponse>, tonic::Status> {
+        self.device
+            .create_resource(okfpga::v1::CreateResourceRequest {
+                name: name.to_string(),
+                device_serial: device_serial.to_string(),
+                description: description.to_string(),
+                resource_type: access_mode.to_string(),
+                capabilities: vec![],
+            })
+            .await
+    }
+
+    /// List all resources.
+    pub async fn list_resources(
+        &mut self,
+    ) -> Result<tonic::Response<okfpga::v1::ListResourcesResponse>, tonic::Status> {
+        self.device
+            .list_resources(okfpga::v1::ListResourcesRequest {})
+            .await
+    }
+
+    /// Delete a resource by ID.
+    pub async fn delete_resource(
+        &mut self,
+        resource_id: &str,
+    ) -> Result<tonic::Response<okfpga::v1::StatusResponse>, tonic::Status> {
+        self.device
+            .delete_resource(okfpga::v1::ResourceRequest {
+                resource_id: resource_id.to_string(),
+            })
+            .await
+    }
+
+    /// Lock a shared resource (ADR-020 §3).
+    pub async fn lock_resource(
+        &mut self,
+        resource_id: &str,
+        user_id: &str,
+    ) -> Result<tonic::Response<okfpga::v1::ResourceResponse>, tonic::Status> {
+        self.device
+            .lock_resource(okfpga::v1::LockResourceRequest {
+                resource_id: resource_id.to_string(),
+                user_id: user_id.to_string(),
+            })
+            .await
+    }
+
+    /// Unlock a locked resource (ADR-020 §3).
+    pub async fn unlock_resource(
+        &mut self,
+        resource_id: &str,
+        user_id: &str,
+    ) -> Result<tonic::Response<okfpga::v1::ResourceResponse>, tonic::Status> {
+        self.device
+            .unlock_resource(okfpga::v1::LockResourceRequest {
+                resource_id: resource_id.to_string(),
+                user_id: user_id.to_string(),
+            })
+            .await
+    }
+
+    // ========================================================================
+    // Heartbeat / Liveness (ADR-020 §5)
+    // ========================================================================
+
+    /// Ping the server to keep a user session alive.
+    pub async fn ping(
+        &mut self,
+        user_id: &str,
+    ) -> Result<tonic::Response<okfpga::v1::PingResponse>, tonic::Status> {
+        self.device
+            .ping(okfpga::v1::PingRequest {
+                user_id: user_id.to_string(),
+            })
+            .await
+    }
 }

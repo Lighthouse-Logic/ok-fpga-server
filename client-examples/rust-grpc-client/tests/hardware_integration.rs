@@ -372,3 +372,86 @@ async fn test_16_axi_lite_write() {
         Err(e) => panic!("{}", e),
     }
 }
+
+// ============================================================================
+// Phase 7: Resources (ADR-020)
+// ============================================================================
+
+#[tokio::test]
+#[ignore]
+async fn test_17_create_resource() {
+    let mut client = OkFpgaGrpcClient::connect(&grpc_url()).await.unwrap();
+    let serial = get_serial(&mut client).await;
+
+    match client.create_resource(
+        "test-grpc-counters",
+        &serial,
+        "Classic counter resource for gRPC test",
+        "shared",
+    ).await {
+        Ok(r) => {
+            let resp = r.into_inner();
+            println!("Created resource: {:?}", resp.resource);
+            assert!(resp.resource.is_some());
+        }
+        Err(e) if is_expected_skip(&e) => println!("SKIP: {}", e),
+        Err(e) => {
+            if e.code() == tonic::Code::AlreadyExists {
+                println!("Already exists (OK)");
+            } else {
+                panic!("{}", e);
+            }
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_18_list_resources() {
+    let mut client = OkFpgaGrpcClient::connect(&grpc_url()).await.unwrap();
+
+    match client.list_resources().await {
+        Ok(r) => {
+            let resp = r.into_inner();
+            println!("Resources: {:?}", resp.resources);
+        }
+        Err(e) if is_expected_skip(&e) => println!("SKIP: {}", e),
+        Err(e) => panic!("{}", e),
+    }
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_19_ping() {
+    let mut client = OkFpgaGrpcClient::connect(&grpc_url()).await.unwrap();
+
+    match client.ping("grpc-test-user").await {
+        Ok(r) => {
+            let resp = r.into_inner();
+            println!("Ping response: server_time={}", resp.server_time);
+            assert!(!resp.server_time.is_empty());
+        }
+        Err(e) if is_expected_skip(&e) => println!("SKIP: {}", e),
+        Err(e) => panic!("{}", e),
+    }
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_20_delete_resource() {
+    let mut client = OkFpgaGrpcClient::connect(&grpc_url()).await.unwrap();
+    let serial = get_serial(&mut client).await;
+
+    let resource_id = format!("{}:test-grpc-counters", serial);
+    match client.delete_resource(&resource_id).await {
+        Ok(_) => println!("Deleted resource: {}", resource_id),
+        Err(e) if is_expected_skip(&e) => println!("SKIP: {}", e),
+        Err(e) => {
+            if e.code() == tonic::Code::NotFound {
+                println!("Not found (OK)");
+            } else {
+                panic!("{}", e);
+            }
+        }
+    }
+}

@@ -207,27 +207,27 @@ class OkFpgaGrpcClient:
         name: str,
         device_serial: str,
         description: str = "",
-        resource_type: str = "",
+        access_mode: str = "shared",
     ):
-        """Create a new resource (ADR-016).
+        """Create a new resource (ADR-020).
 
         Args:
             name: Human-readable resource name.
             device_serial: Serial of the FPGA providing this resource.
             description: Optional description.
-            resource_type: Optional type identifier.
+            access_mode: "shared" or "exclusive" (design-level constraint).
         """
         return await self._device.CreateResource(
             okfpga_pb2.CreateResourceRequest(
                 name=name,
                 device_serial=device_serial,
                 description=description,
-                resource_type=resource_type,
+                resource_type=access_mode,
             )
         )
 
     async def delete_resource(self, resource_id: str):
-        """Delete a resource (ADR-016)."""
+        """Delete a resource (ADR-020)."""
         return await self._device.DeleteResource(
             okfpga_pb2.ResourceRequest(resource_id=resource_id)
         )
@@ -246,4 +246,26 @@ class OkFpgaGrpcClient:
             okfpga_pb2.ReleaseResourceRequest(
                 resource_id=resource_id, user_id=user_id
             )
+        )
+
+    async def lock_resource(self, resource_id: str, user_id: str):
+        """Lock a shared resource (ADR-020 §3)."""
+        return await self._device.LockResource(
+            okfpga_pb2.LockResourceRequest(
+                resource_id=resource_id, user_id=user_id
+            )
+        )
+
+    async def unlock_resource(self, resource_id: str, user_id: str):
+        """Unlock a locked resource (ADR-020 §3)."""
+        return await self._device.UnlockResource(
+            okfpga_pb2.LockResourceRequest(
+                resource_id=resource_id, user_id=user_id
+            )
+        )
+
+    async def ping(self, user_id: str):
+        """Heartbeat / liveness ping (ADR-020 §5)."""
+        return await self._device.Ping(
+            okfpga_pb2.PingRequest(user_id=user_id)
         )
