@@ -104,6 +104,9 @@ mod mqtt;
 #[cfg(feature = "mdns")]
 mod mdns;
 
+/// Background user session sweep task (ADR-020 §5).
+mod sweep;
+
 use std::sync::Arc;
 
 use ok_fpga_core::manager::DeviceManager;
@@ -226,6 +229,15 @@ async fn main() -> anyhow::Result<()> {
 
     // Start the management server (always-on, serves dashboard + mgmt API).
     start_management_server(&app_state, &cfg_arc, event_tx.clone()).await;
+
+    // Start the user session sweep task (auto-releases expired users' resources).
+    sweep::spawn_sweep_task(
+        app_state.user_sessions.clone(),
+        app_state.resource_registry.clone(),
+        app_state.device_manager.clone(),
+        cfg_arc.server.user_timeout_secs,
+        cfg_arc.server.user_sweep_interval_secs,
+    );
 
     info!("ok-FPGA-Server is ready. Press Ctrl+C to shut down.");
 

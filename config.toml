@@ -42,6 +42,13 @@ management_bind = "0.0.0.0"
 #   Per-module: "ok_fpga_server=debug,ok_fpga_core=info"
 log_level = "info"
 
+# User session liveness settings (ADR-020 §5).
+# After user_timeout_secs of inactivity (no heartbeat, no API calls with
+# X-User-Id header), the sweep task auto-releases that user's held resources.
+# Set user_timeout_secs = 0 to disable the sweep task.
+user_timeout_secs = 60
+user_sweep_interval_secs = 10
+
 # -----------------------------------------------------------------------------
 # REST API Server (feature: rest)
 # -----------------------------------------------------------------------------

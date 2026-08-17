@@ -84,6 +84,15 @@ pub struct CoreConfig {
 
     /// Bind address for the management server.
     pub management_bind: String,
+
+    /// Seconds of inactivity before a user session is considered expired.
+    /// The server sweep task will auto-release resources held by expired users.
+    /// Set to 0 to disable the sweep task entirely.
+    pub user_timeout_secs: u64,
+
+    /// How often (in seconds) the sweep task checks for expired users.
+    /// Only relevant when `user_timeout_secs > 0`.
+    pub user_sweep_interval_secs: u64,
 }
 
 impl Default for CoreConfig {
@@ -92,6 +101,8 @@ impl Default for CoreConfig {
             management_port: 9090,
             log_level: "info".to_string(),
             management_bind: "0.0.0.0".to_string(),
+            user_timeout_secs: 60,
+            user_sweep_interval_secs: 10,
         }
     }
 }
