@@ -189,6 +189,25 @@ Two new resource endpoints added:
 
 URL hierarchy above has been updated to reflect these additions.
 
+## Addendum C: AXI Endpoint Independence (2026-08-17)
+
+See [ADR-019 — AXI Interface Architecture](ADR-019-axi-interface-architecture.md).
+
+The three AXI sub-groups in the URL hierarchy above (`/axi/lite/`, `/axi/full/`,
+`/axi/stream/`) are **independent and non-polymorphic**. Each endpoint uses only
+its own sub-handle:
+
+- `/axi/lite/read` uses the AXI Lite handle only — returns 409 if unavailable
+- `/axi/full/read` uses the AXI Full handle only — returns 409 if unavailable
+- `/axi/stream/read` uses the AXI Stream handle only — returns 409 if unavailable
+
+There is **no fallback** from one sub-interface to another. This is correct because
+AXI Lite (register access), AXI Full (memory-mapped bulk), and AXI Stream
+(addressless FIFO) have fundamentally different transfer semantics.
+
+AXI is only available on FP-Gen3-USB devices. On Legacy devices (e.g., XEM7320),
+all AXI endpoints return 409.
+
 ## References
 
 - [OpenAPI 3.0.0 Specification](https://spec.openapis.org/oas/v3.0.0)
@@ -197,3 +216,5 @@ URL hierarchy above has been updated to reflect these additions.
 - [ADR-010 Service Manager](ADR-010-service-manager.md) — feature flags and service lifecycle
 - [ADR-015 HTTP Method Semantics](ADR-015-http-method-semantics.md) — POST vs PUT audit
 - [ADR-016 Hardware Integration Testing](ADR-016-hardware-integration-testing.md) — resource creation and test matrix
+- [ADR-019 AXI Interface Architecture](ADR-019-axi-interface-architecture.md) — AXI sub-interface independence
+

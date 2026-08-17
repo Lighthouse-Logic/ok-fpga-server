@@ -181,9 +181,30 @@ bitfile. Inside the FPGA:
 
 The server therefore does not restrict API access based on this field.
 
+## Addendum B: AXI Sub-Interface Independence (2026-08-17)
+
+See [ADR-019 — AXI Interface Architecture](ADR-019-axi-interface-architecture.md)
+for the full decision.
+
+**Key clarification**: The three AXI sub-interfaces (Lite, Full, Stream) are
+**independent, distinct protocols** that can coexist simultaneously in a single
+FPGA design. They are NOT interchangeable or polymorphic:
+
+- **AXI Lite**: 32-bit register access (addressed)
+- **AXI Full**: Burst-capable byte-level memory-mapped access (addressed)
+- **AXI Stream**: Continuous addressless data streaming (FIFO)
+
+REST and gRPC endpoints for each sub-interface must use **only** their own
+sub-handle. There must be no fallback from one sub-interface to another.
+
+The AXI data port itself is only available on FP-Gen3-USB devices. Devices
+reporting `okDATAPORT_LEGACY` (e.g., XEM7320) do not support any AXI sub-interface.
+
 ## References
 
 - [FPGADataPortClassic C API](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 1080-1131
 - [FPGADataPortAXI / AXILite / AXIFull / AXIStream C API](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 939-1077
 - [C++ data port split](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 1696-1822
 - [okTDeviceInfo.dataport field](../../FrontPanel-6.1.0/okFrontPanel.h) — line 642
+- [ADR-019 — AXI Interface Architecture](ADR-019-axi-interface-architecture.md)
+

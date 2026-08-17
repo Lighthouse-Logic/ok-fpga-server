@@ -1080,9 +1080,9 @@ pytest tests/test_hardware.py -v -s
 
 ## Phase 19: FFI Endpoint Wiring
 
-**Status**: `[ ]` Not started  
+**Status**: `[/]` In progress  
 **Depends on**: Phase 17, Phase 18A  
-**ADR references**: [ADR-017 — FFI Endpoint Wiring](architecture/adr/ADR-017-ffi-endpoint-wiring.md), [ADR-018 — Device Handle Pool](architecture/adr/ADR-018-device-handle-pool.md)
+**ADR references**: [ADR-017 — FFI Endpoint Wiring](architecture/adr/ADR-017-ffi-endpoint-wiring.md), [ADR-018 — Device Handle Pool](architecture/adr/ADR-018-device-handle-pool.md), [ADR-019 — AXI Interface Architecture](architecture/adr/ADR-019-axi-interface-architecture.md)
 
 ### Overview
 
@@ -1094,60 +1094,95 @@ tests exercise real FPGA hardware through the server's API.
 
 #### Phase 19A: Device Handle Pool Infrastructure
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (2026-08-17)  
+**Commit**: `704f37f`
 
-1. Create `crates/ok-fpga-server/src/handle_pool.rs`:
+1. ✅ Created `crates/ok-fpga-server/src/handle_pool.rs`:
    - `DeviceHandlePool` struct with `open()`, `close()`, `get()`, `configure()` methods
-   - `OpenDevice` struct holding `FrontPanelHandle` + optional data port handles
+   - `OpenDevice` struct holding raw handle + optional data port handles
    - Per-device `tokio::sync::Mutex` for thread-safe FFI serialization
-2. Add `handle_pool: Arc<DeviceHandlePool>` to `AppState`
-3. Wire into `main.rs` startup: open handles for each discovered device
-4. Wire into `device_poll_loop`: open/close handles on hot-plug/unplug
+2. ✅ Added `handle_pool: Arc<DeviceHandlePool>` to `AppState`
+3. ✅ Wired into `main.rs` startup: open handles for each discovered device
+4. ✅ Wired into `device_poll_loop`: skip "gone" detection for pool-held devices
+5. ✅ `unsafe impl Send/Sync for OpenDevice` (raw handles are `!Send` by default)
 
 #### Phase 19B: Configure FPGA + Device Endpoints
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (2026-08-17)  
+**Commit**: `704f37f`
 
-Wire the 4 device-level endpoints that currently return 501:
+Wired 4 device-level endpoints:
 
-1. `POST /devices/{serial}/configure` → `okFrontPanel_ConfigureFPGA` (local path)
+1. ✅ `POST /devices/{serial}/configure` → `okFrontPanel_ConfigureFPGA` (JSON path)
    or `okFrontPanel_ConfigureFPGAFromMemory` (binary upload)
-   - Dual content-type support: `multipart/form-data` (remote) and `application/json` (local)
-2. `GET /devices/{serial}/bitfile` → return stored `BitfileRecord`
-3. `GET /devices/{serial}/dataport` → return cached `okTDeviceInfo.dataport`
-4. `GET /devices/{serial}/sensors` → `okDeviceSensors_Construct` + iterate
+2. ✅ `GET /devices/{serial}/bitfile` → return stored `BitfileRecord`
+3. ✅ `GET /devices/{serial}/dataport` → return cached `okTDeviceInfo.dataport`
+4. ⏭️ `GET /devices/{serial}/sensors` → skipped (XEM7320 has no sensors)
 
 #### Phase 19C: Classic Data Port Endpoints
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (2026-08-17)  
+**Commit**: `704f37f`
 
-Wire all 13 Classic handlers in `classic.rs` to FFI:
+Wired all Classic handlers in `classic.rs` to FFI:
 
-| Handler | FFI Call(s) |
-|---------|------------|
-| `set_wire_in` | `SetWireInValue` + `UpdateWireIns` (atomic under lock) |
-| `update_wire_ins` | `UpdateWireIns` |
-| `update_wire_outs` | `UpdateWireOuts` |
-| `get_wire_out` | `UpdateWireOuts` + `GetWireOutValue` |
-| `activate_trigger_in` | `ActivateTriggerIn` |
-| `update_trigger_outs` | `UpdateTriggerOuts` |
-| `is_triggered` | `UpdateTriggerOuts` + `IsTriggered` |
-| `write_to_pipe_in` | `WriteToPipeIn` |
-| `read_from_pipe_out` | `ReadFromPipeOut` |
-| `write_to_block_pipe_in` | `WriteToBlockPipeIn` |
-| `read_from_block_pipe_out` | `ReadFromBlockPipeOut` |
-| `read_register` | `ReadRegister` |
-| `write_register` | `WriteRegister` |
-| `reset_fpga` | `ResetFPGA` |
+| Handler | FFI Call(s) | Status |
+|---------|------------|--------|
+| `set_wire_in` | `SetWireInValue` + `UpdateWireIns` | ✅ |
+| `get_wire_out` | `UpdateWireOuts` + `GetWireOutValue` (per-address) | ✅ |
+| `get_all_wire_outs` | `UpdateWireOuts` + `GetWireOutValue` (0x20–0x3F batch) | ✅ |
+| `activate_trigger_in` | `ActivateTriggerIn` | ✅ |
+| `is_triggered` | `UpdateTriggerOuts` + `IsTriggered` (per-address) | ✅ |
+| `get_all_trigger_outs` | `UpdateTriggerOuts` + `GetTriggerOutVector` (0x60–0x7F batch) | ✅ |
+| `write_to_pipe_in` | `WriteToPipeIn` | ✅ |
+| `read_from_pipe_out` | `ReadFromPipeOut` | ✅ |
+| `write_to_block_pipe_in` | `WriteToBlockPipeIn` | ✅ |
+| `read_from_block_pipe_out` | `ReadFromBlockPipeOut` | ✅ |
+| `read_register` | `ReadRegister` | ✅ |
+| `write_register` | `WriteRegister` | ✅ |
+| `reset_fpga` | `ResetFPGA` | ✅ |
 
-#### Phase 19D: AXI Lite Endpoints
+#### Phase 19D: AXI Data Port Endpoints — All Three Sub-Interfaces
 
-**Status**: `[ ]` Not started
+**Status**: `[/]` Partially complete — requires design fix  
+**ADR reference**: [ADR-019 — AXI Interface Architecture](architecture/adr/ADR-019-axi-interface-architecture.md)
 
-Wire AXI Lite handlers in `axi.rs` to FFI via `okRegisterBridge`:
+Per ADR-019, the three AXI sub-interfaces (Lite, Full, Stream) are **independent,
+distinct protocols** that must NOT fall back to each other:
 
-1. `axi_lite_read` → `ReadRegister` (via AXI Lite data port handle)
-2. `axi_lite_write` → `WriteRegister` (via AXI Lite data port handle)
+| Sub-Interface | Protocol | Addressing | Transfer Semantics |
+|---------------|----------|-----------|-------------------|
+| **AXI Lite** | AXI4-Lite | Explicit 32/64-bit | Single 32-bit register R/W (+ bulk) |
+| **AXI Full** | AXI4 | Explicit 32/64-bit | Burst-capable byte-level memory-mapped |
+| **AXI Stream** | AXI4-Stream | **Addressless** | Continuous ordered byte streaming (FIFO) |
+
+**Handle acquisition** (in `acquire_data_ports()`):
+1. ✅ Call `GetFPGADataPortAXI()` — if `ok_UnsupportedFeature`, AXI not supported
+2. ✅ If `ok_NoError`, independently probe all three sub-handles:
+   - `GetAXILite()` → `axi_lite` (or `None`)
+   - `GetAXIFull()` → `axi_full` (or `None`)
+   - `GetAXIStream()` → `axi_stream` (or `None`)
+
+**REST endpoints** (each uses ONLY its own sub-handle, no fallback):
+
+| Endpoint | FFI Call | Status |
+|----------|---------|--------|
+| `POST /axi/lite/read` | `AXILite::Read` | ⚠️ Wired but has incorrect Full fallback — **must fix** |
+| `PUT /axi/lite/write` | `AXILite::Write` | ⚠️ Wired but has incorrect Full fallback — **must fix** |
+| `POST /axi/lite/reset` | `AXILite::Reset` | ⚠️ Same issue — **must fix** |
+| `GET /axi/full/datapath-width` | `AXIFull::GetDatapathWidthByteCount` | ✅ |
+| `POST /axi/full/read` | `AXIFull::Read` | ✅ |
+| `POST /axi/full/write` | `AXIFull::Write` | ✅ |
+| `POST /axi/full/reset` | `AXIFull::Reset` | ✅ |
+| `GET /axi/stream/datapath-width` | `AXIStream::GetDatapathWidths` | ⏭️ Stub (501) |
+| `POST /axi/stream/read` | `AXIStream::Read` | ⏭️ Stub (501) |
+| `POST /axi/stream/write` | `AXIStream::Write` | ⏭️ Stub (501) |
+| `POST /axi/stream/reset` | `AXIStream::Reset` | ⏭️ Stub (501) |
+
+**Remaining work:**
+1. Remove the Lite→Full fallback from `axi_lite_read`, `axi_lite_write`, `axi_lite_reset`
+2. Wire AXI Stream endpoints (widths, read, write, reset) to FFI
+3. Test on a Gen3-USB device (XEM7320 reports `okDATAPORT_LEGACY`, AXI unsupported)
 
 #### Phase 19E: gRPC Resource RPCs
 
@@ -1156,6 +1191,37 @@ Wire AXI Lite handlers in `axi.rs` to FFI via `okRegisterBridge`:
 1. `CreateResource` → delegate to `ResourceRegistry::create()`
 2. `DeleteResource` → delegate to `ResourceRegistry::remove()`
 3. Replace `UNIMPLEMENTED` stubs with working implementations
+
+#### Phase 19F: Session-Scoped Configure Caching (Test Optimization)
+
+**Status**: `[ ]` Not started
+
+The `programmed_device` test fixture in `test_hardware.py` re-programs the FPGA
+before each test (~1s overhead). Implement session-scoped bitfile caching to
+configure once per test session:
+
+1. Create a session-scoped pytest fixture that configures the FPGA once
+2. Individual tests use the pre-configured fixture
+3. Only reconfigure if a different bitfile is needed
+
+### Hardware Test Results (XEM7320-A75T, Counters.bit)
+
+```
+================== 16 passed, 7 skipped, 0 failed (25.47s) ==================
+```
+
+| Test | Status | Notes |
+|------|--------|-------|
+| 01-03: Server, devices, info | ✅ PASSED | |
+| 04: Sensors | ⏭️ SKIPPED | XEM7320 has no sensors |
+| 05: Configure FPGA | ✅ PASSED | |
+| 06: Dataport type | ✅ PASSED | |
+| 07-09: Classic wires | ✅ PASSED | Reset, disable, free-running |
+| 10-12: Classic triggers | ✅ PASSED | TriggerIn count up/down |
+| 13: Trigger out | ✅ PASSED | Batch TriggerOut vector |
+| 14-15: Registers | ✅ PASSED | Read/write register bridge |
+| 16-21: AXI | ⏭️ SKIPPED | XEM7320 = `okDATAPORT_LEGACY` (AXI unsupported) |
+| 22-23: Resources | ✅ PASSED | Create/delete resource |
 
 ### Verification
 
@@ -1167,7 +1233,8 @@ cargo test --features full
 # Hardware tests (server running + FPGA connected)
 cd client-examples/python-rest-client
 pytest tests/test_hardware.py -v -s
-# Expected: 23/23 pass (no skips)
+# Expected: 16 passed, 7 skipped (on XEM7320)
+# On Gen3-USB device: 23/23 passed (no skips except sensors)
 ```
 
 ---
@@ -1204,12 +1271,13 @@ Phase 0: Scaffolding
                                                     └── Phase 18: Hardware Integration Tests (ADR-016)
                                                          ├── 18A: Server resource CRUD ✅
                                                          ├── 18D: Python REST HW tests ✅ (created)
-                                                         └── Phase 19: FFI Endpoint Wiring (ADR-017/018)
-                                                              ├── 19A: Device Handle Pool
-                                                              ├── 19B: Configure FPGA + device endpoints
-                                                              ├── 19C: Classic data port endpoints
-                                                              ├── 19D: AXI Lite endpoints
-                                                              └── 19E: gRPC resource RPCs
+                                                         └── Phase 19: FFI Endpoint Wiring (ADR-017/018/019)
+                                                              ├── 19A: Device Handle Pool ✅
+                                                              ├── 19B: Configure FPGA + device endpoints ✅
+                                                              ├── 19C: Classic data port endpoints ✅
+                                                              ├── 19D: AXI endpoints — Lite/Full/Stream (ADR-019)
+                                                              ├── 19E: gRPC resource RPCs
+                                                              └── 19F: Session-scoped configure caching
                                                                    └── Phase 18 (remaining):
                                                                         ├── 18B: Rust REST HW tests
                                                                         ├── 18C: Rust gRPC HW tests
