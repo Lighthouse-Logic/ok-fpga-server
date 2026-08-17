@@ -340,7 +340,7 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 ## Phase 4E: Service Manager
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed (2026-08-16, `025de4b`)  
 **Depends on**: Phase 4  
 **ADR reference**: [ADR-010](architecture/adr/ADR-010-service-manager.md)
 
@@ -359,9 +359,9 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 ### Verification
 
-- [ ] `cargo build -p ok-fpga-core` succeeds
-- [ ] `cargo test -p ok-fpga-core` succeeds (unit tests for ServiceManager)
-- [ ] Commit: `feat(core): add ServiceManager and ManagedService trait`
+- [x] `cargo build -p ok-fpga-core` succeeds — ✅ 0 warnings
+- [x] `cargo test -p ok-fpga-core` succeeds — ✅ 84 unit + 10 doc-tests = 94 total, 0 failures
+- [x] Commit: `025de4b` — `feat(core): add ServiceManager and ManagedService trait`
 
 ---
 
