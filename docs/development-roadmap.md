@@ -749,8 +749,8 @@ cargo test -p ok-fpga-ffi --test hardware -- --ignored --test-threads=1 --nocapt
 ### Verification
 
 - [x] Server startup log shows "discovered FPGA device" with serial number
-- [ ] Dashboard overview page shows `connected_devices: 1` (with board attached) — *needs manual check*
-- [ ] Dashboard devices page shows device serial, product name, interface type — *needs manual check*
+- [x] Dashboard overview page shows `connected_devices: 1` (with board attached)
+- [x] Dashboard devices page shows device serial, product name, interface type
 - [x] Server starts cleanly without DLL (warning log, 0 devices)
 - [x] `cargo test` — 155 tests pass (8 new management API tests)
 - [x] `cargo clippy --features full` — zero warnings
