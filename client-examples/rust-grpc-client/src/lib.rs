@@ -101,6 +101,56 @@ impl OkFpgaGrpcClient {
             .await
     }
 
+    /// Get all device settings (key-value pairs from device flash/EEPROM).
+    pub async fn get_device_settings(
+        &mut self,
+        serial: &str,
+    ) -> Result<tonic::Response<okfpga::v1::DeviceSettingsResponse>, tonic::Status> {
+        self.device
+            .get_device_settings(okfpga::v1::DeviceRequest {
+                serial: serial.to_string(),
+            })
+            .await
+    }
+
+    /// Get a single device setting by key.
+    pub async fn get_device_setting(
+        &mut self,
+        serial: &str,
+        key: &str,
+    ) -> Result<tonic::Response<okfpga::v1::DeviceSettingResponse>, tonic::Status> {
+        self.device
+            .get_device_setting(okfpga::v1::GetDeviceSettingRequest {
+                serial: serial.to_string(),
+                key: key.to_string(),
+            })
+            .await
+    }
+
+    /// Discover SYZYGY peripheral ports on a device.
+    pub async fn get_syzygy_ports(
+        &mut self,
+        serial: &str,
+    ) -> Result<tonic::Response<okfpga::v1::SyzygyPortsResponse>, tonic::Status> {
+        self.device
+            .get_syzygy_ports(okfpga::v1::DeviceRequest {
+                serial: serial.to_string(),
+            })
+            .await
+    }
+
+    /// Get device sensor readings.
+    pub async fn get_device_sensors(
+        &mut self,
+        serial: &str,
+    ) -> Result<tonic::Response<okfpga::v1::DeviceSensorsResponse>, tonic::Status> {
+        self.device
+            .get_device_sensors(okfpga::v1::DeviceRequest {
+                serial: serial.to_string(),
+            })
+            .await
+    }
+
     /// Get server status via DeviceService.
     pub async fn get_server_status_device(
         &mut self,

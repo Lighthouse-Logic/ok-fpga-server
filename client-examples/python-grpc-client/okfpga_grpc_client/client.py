@@ -94,6 +94,30 @@ class OkFpgaGrpcClient:
         """Get server status via DeviceService."""
         return await self._device.GetServerStatus(okfpga_pb2.ServerStatusRequest())
 
+    async def get_device_settings(self, serial: str):
+        """Get all device settings (key-value pairs from device flash/EEPROM)."""
+        return await self._device.GetDeviceSettings(
+            okfpga_pb2.DeviceRequest(serial=serial)
+        )
+
+    async def get_device_setting(self, serial: str, key: str):
+        """Get a single device setting by key."""
+        return await self._device.GetDeviceSetting(
+            okfpga_pb2.GetDeviceSettingRequest(serial=serial, key=key)
+        )
+
+    async def get_syzygy_ports(self, serial: str):
+        """Discover SYZYGY peripheral ports on a device."""
+        return await self._device.GetSyzygyPorts(
+            okfpga_pb2.DeviceRequest(serial=serial)
+        )
+
+    async def get_device_sensors(self, serial: str):
+        """Get device sensor readings."""
+        return await self._device.GetDeviceSensors(
+            okfpga_pb2.DeviceRequest(serial=serial)
+        )
+
     # ========================================================================
     # ServerService RPCs
     # ========================================================================

@@ -59,22 +59,125 @@ async def main() -> None:
     print()
 
     async with OkFpgaGrpcClient(target) as client:
+        # --- Server Status ---
+        print("━━━ Server Status ━━━")
+        try:
+            status = await client.get_server_status()
+            print(f"  API Version:  {status.api_version}")
+            print(f"  Uptime:       {status.uptime_secs}s")
+            print(f"  Devices:      {status.device_count}")
+        except Exception as e:
+            print(f"  Error: {e}")
+
+        # --- List Services ---
+        print("\n━━━ Services ━━━")
+        try:
+            resp = await client.list_services()
+            for svc in resp.services:
+                print(
+                    f"  {svc.name} — status: {svc.status}, "
+                    f"compiled: {svc.compiled}, enabled: {svc.enabled}"
+                )
+        except Exception as e:
+            print(f"  Error: {e}")
+
         # --- List Devices ---
-        print("--- Devices ---")
+        print("\n━━━ Devices ━━━")
+        first_serial = None
         try:
             resp = await client.list_devices()
             if not resp.devices:
                 print("  No devices connected")
             for dev in resp.devices:
-                print(f"  {dev.serial} - {dev.product_name} ({dev.product_id})")
+                print(f"  {dev.serial} — {dev.product_name} ({dev.product_id})")
+                if first_serial is None:
+                    first_serial = dev.serial
         except Exception as e:
             print(f"  Error: {e}")
 
-        # --- Server Status ---
-        print("\n--- Server Status ---")
+        # --- Device Detail (if any device found) ---
+        if first_serial:
+            # Device Info
+            print(f"\n━━━ Device Detail: {first_serial} ━━━")
+            try:
+                resp = await client.get_device_info(first_serial)
+                dev = resp.device
+                if dev:
+                    print(f"  Product:    {dev.product_name} (ID {dev.product_id})")
+                    print(f"  USB Speed:  {dev.usb_speed}")
+                    print(f"  Firmware:   {dev.device_major_version}.{dev.device_minor_version}")
+            except Exception as e:
+                print(f"  Error: {e}")
+
+            # Device Settings
+            print("\n━━━ Device Settings ━━━")
+            try:
+                resp = await client.get_device_settings(first_serial)
+                print(f"  {len(resp.settings)} settings found:")
+                for s in resp.settings:
+                    if s.HasField("value"):
+                        which = s.WhichOneof("value")
+                        if which == "int_value":
+                            print(f"    {s.key} = {s.int_value} (integer)")
+                        elif which == "string_value":
+                            print(f'    {s.key} = "{s.string_value}"')
+                    else:
+                        print(f"    {s.key} = <unknown type>")
+            except Exception as e:
+                print(f"  Error: {e}")
+
+            # SYZYGY Ports
+            print("\n━━━ SYZYGY Ports ━━━")
+            try:
+                resp = await client.get_syzygy_ports(first_serial)
+                if not resp.ports:
+                    print("  No SYZYGY ports found")
+                else:
+                    print(f"  {len(resp.ports)} ports discovered:")
+                    for port in resp.ports:
+                        if port.is_populated:
+                            print(
+                                f"    Port {port.index}: {port.manufacturer_name} "
+                                f"{port.product_name} ({port.port_status_mv}mV) "
+                                f"— SN: {port.serial_number}"
+                            )
+                        else:
+                            print(f"    Port {port.index}: empty (unpowered)")
+            except Exception as e:
+                print(f"  Error: {e}")
+
+            # Sensors
+            print("\n━━━ Sensors ━━━")
+            try:
+                resp = await client.get_device_sensors(first_serial)
+                if not resp.sensors:
+                    print("  No sensors found")
+                else:
+                    for s in resp.sensors:
+                        print(f"  {s.name} = {s.value} ({s.description})")
+            except Exception as e:
+                print(f"  {e} (expected on boards without on-board sensors)")
+
+        # --- Resources ---
+        print("\n━━━ Resources ━━━")
         try:
-            status = await client.get_server_status()
-            print(f"  Response: {status}")
+            resp = await client.list_resources()
+            if not resp.resources:
+                print("  No resources registered")
+            else:
+                for r in resp.resources:
+                    print(
+                        f"  {r.id} — {r.name} [{r.state}] "
+                        f"(device: {r.device_serial})"
+                    )
+        except Exception as e:
+            print(f"  Error: {e}")
+
+        # --- Heartbeat ---
+        print("\n━━━ Heartbeat ━━━")
+        try:
+            resp = await client.ping("python-grpc-demo")
+            print(f"  Pong — server time: {resp.server_time}")
         except Exception as e:
             print(f"  Error: {e}")
 
@@ -82,14 +185,14 @@ async def main() -> None:
     if mqtt:
         mqtt.publish_heartbeat(0)
         mqtt.publish_connection_status("localhost", True, target)
-        print("\n--- MQTT ---")
+        print("\n━━━ MQTT ━━━")
         print("  Published heartbeat and connection status")
         mqtt.publish_offline()
     else:
-        print("\n--- MQTT ---")
+        print("\n━━━ MQTT ━━━")
         print("  Skipped (broker unavailable)")
 
-    print("\nOK: Demo complete.")
+    print("\n✅ Demo complete.")
 
 
 if __name__ == "__main__":
