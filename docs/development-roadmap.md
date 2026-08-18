@@ -2022,7 +2022,12 @@ Phase 0: Scaffolding
                                                                    ├── 25E: Python REST GUI (tkinter) ✅
                                                                    ├── 25F: Python REST GUI (dearpygui) ✅
                                                                    ├── 25G: Python gRPC GUI (tkinter) ✅
-                                                                   └── 25H: Python gRPC GUI (dearpygui) ✅
+                                                                   ├── 25H: Python gRPC GUI (dearpygui) ✅
+                                                                   │
+                                                                   └── Phase 25-Fix: iced 0.14 + Tests ✅
+                                                                        ├── 25-Fix-A: iced 0.13→0.14 migration ✅
+                                                                        ├── 25-Fix-B: Common lib tests (79) ✅
+                                                                        └── 25-Fix-C: GUI app tests (103) ✅
 ```
 
 Phases 23 and 24 can be executed in parallel — Phase 24 does not depend on 23,
