@@ -1,9 +1,9 @@
 # ADR-014: Example Client Architecture & End-to-End Testing
 
-**Status**: Accepted  
-**Date**: 2026-08-17  
+**Status**: Accepted (updated 2026-08-17)  
+**Date**: 2026-08-17 (original), 2026-08-17 (addendum: §Demo Consistency)  
 **Deciders**: Architecture Team  
-**Roadmap Phase**: 16
+**Roadmap Phase**: 16 (original), 19G/20G (consistency addendum)
 
 ## Context
 
@@ -161,6 +161,77 @@ real hardware. The example client tests verify the **protocol layer**:
 | Events | 1 SSE endpoint | 1 streaming RPC |
 | **Total** | **48 endpoints** | **53 RPCs** |
 
+### Demo Consistency Contract
+
+All four client demos (`rust-rest-client`, `rust-grpc-client`, `python-rest-client`,
+`python-grpc-client`) **must present identical output sections in the same order**.
+When a new server endpoint is wired or an existing stub is implemented, every demo
+must be updated in the same commit (or PR) to exercise it.
+
+#### Canonical Demo Section Order
+
+The following sections are **required** in every demo, in this order:
+
+| # | Section | Source |
+|---|---------|--------|
+| 1 | **Server Status** | `GET /status` · `ServerService.GetServerStatus` |
+| 2 | **Services** | `GET /services` · `ServerService.ListServices` |
+| 3 | **Devices** | `GET /devices` · `DeviceService.ListDevices` |
+| 4 | **Device Detail** | `GET /devices/{serial}` · `DeviceService.GetDeviceInfo` |
+| 5 | **Device Settings** | `GET /devices/{serial}/settings` · `DeviceService.GetDeviceSettings` |
+| 6 | **SYZYGY Ports** | `GET /devices/{serial}/syzygy` · `DeviceService.GetSyzygyPorts` |
+| 7 | **Device Endpoints** | Dataport type + Bitfile info (REST: separate endpoints; gRPC: from `DeviceInfo.bitfile`) |
+| 8 | **Sensors** | `GET /devices/{serial}/sensors` · `DeviceService.GetDeviceSensors` |
+| 9 | **Resources** | `GET /resources` · `DeviceService.ListResources` |
+| 10 | **Users** | `GET /users` · `DeviceService.ListUsers` |
+| 11 | **Heartbeat** | gRPC only: `DeviceService.Ping` (REST has no equivalent) |
+| 12 | **MQTT** | Publish heartbeat + connection status (all demos) |
+
+> Sections 4–8 are conditional on at least one device being connected.
+> Section 11 is gRPC-only and may be omitted from REST demos.
+
+#### Parity Rules
+
+1. **Feature parity**: If an endpoint is exercised by one demo, it must be
+   exercised by all four (or all demos for that protocol if the endpoint is
+   protocol-specific).
+2. **Error handling parity**: All demos must use the same pattern for expected
+   errors — e.g., "expected on boards without on-board sensors" for the sensors
+   `501`, "not programmed" for the bitfile `409`. Raw exception dumps or
+   generic "stub" labels are not acceptable.
+3. **Section headers**: All demos must use `━━━` (U+2501 box-drawing) section
+   headers for visual consistency. REST demos use `━━━ Name ━━━`; gRPC demos
+   use the same format.
+4. **No "Stub Endpoints" catch-all**: Each endpoint must be presented in its
+   own labeled section. Grouping multiple endpoints under a generic "stubs"
+   heading masks which ones are actually working.
+5. **Completion banner**: All demos end with `✅ Demo complete.`
+
+#### Adding a New Endpoint to Demos
+
+When a new server endpoint is wired (FFI integration or new feature):
+
+1. Add the wrapper method to the client library (`lib.rs` / `client.py`) for
+   both Rust and Python, for both REST and gRPC.
+2. Add a demo section in the canonical position (see table above) in all four
+   demo files.
+3. Include contextual error messages for expected failure cases (e.g.,
+   unsupported hardware, device not programmed).
+4. Verify all four demos produce structurally identical output when run against
+   the same server.
+5. Update the Coverage Matrix above if the endpoint count changes.
+
+#### Verification Checklist
+
+Before merging any PR that modifies a demo or wires a new endpoint:
+
+- [ ] All four demos compile/parse without errors
+- [ ] Section order matches the canonical table
+- [ ] No section is labeled "stub" for a wired endpoint
+- [ ] Error messages are descriptive, not raw exception dumps
+- [ ] `cargo test --features full --lib` passes (122+ tests)
+- [ ] `cargo check` passes for both `rust-rest-client` and `rust-grpc-client`
+
 ### Python Version
 
 All Python clients target Python `>=3.12`. This version provides:
@@ -191,6 +262,29 @@ All Python clients target Python `>=3.12`. This version provides:
 - **MQTT broker assumption** — tests skip MQTT if broker unavailable, which could
   mask MQTT bugs. Mitigation: CI should run Mosquitto.
 
+## Addendum: Demo Consistency Enforcement (2026-08-17)
+
+**Trigger**: During Phase 19G/20G, it was discovered that the four client demos
+had diverged significantly:
+
+- The Python REST demo grouped Settings, SYZYGY, Bitfile, Dataport, and Sensors
+  under a single "Stub Endpoints (expect 501)" loop — even though Settings,
+  SYZYGY, and Dataport were returning `200 OK` with real data.
+- Both gRPC demos lacked Device Settings, SYZYGY, Sensors, Bitfile, Resources,
+  and Users sections entirely.
+- The gRPC server's `ListResources`, `GetResource`, `AcquireResource`, and
+  `ReleaseResource` RPCs were still returning `UNIMPLEMENTED` despite the
+  resource registry being fully functional in `AppState`.
+
+**Resolution**: All four demos were rewritten to follow the canonical section
+order defined in §Demo Consistency Contract above. The four gRPC resource RPCs
+were wired to the existing `resource_registry`. The `list_users`,
+`get_device_settings`, `get_device_setting`, `get_syzygy_ports`, and
+`get_device_sensors` wrapper methods were added to both Rust and Python gRPC
+client libraries.
+
+**Commit**: `2cfc9c4`
+
 ## References
 
 - [OpenAPI 3.0 Spec](../../api/openapi.yaml)
@@ -200,3 +294,4 @@ All Python clients target Python `>=3.12`. This version provides:
 - [ADR-006 — Resource Management](ADR-006-resource-management.md)
 - [ADR-011 — MQTT Publishing](ADR-011-mqtt-publishing.md)
 - [ADR-012 — mDNS Discovery](ADR-012-mdns-discovery.md)
+- [ADR-021 — Settings FFI Wiring](ADR-021-settings-ffi-wiring.md)
