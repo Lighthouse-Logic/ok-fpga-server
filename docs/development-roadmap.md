@@ -1613,7 +1613,7 @@ cargo test -p ok-fpga-core -- on_metadata_key
 
 ## Phase 23: Disconnect Detection Bug Fix
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed (2026-08-18, `d8b8341`)  
 **Depends on**: Phase 15, Phase 19 (ADR-018 handle pool)  
 **ADR reference**: [ADR-002](architecture/adr/ADR-002-device-lifecycle.md) (addendum),
 [ADR-018](architecture/adr/ADR-018-device-handle-pool.md)
@@ -1678,7 +1678,7 @@ cargo test --features full --lib
 
 ## Phase 24: Dashboard Log Streaming & Level Filtering (ADR-022)
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed (2026-08-18)  
 **Depends on**: Phase 8 (web dashboard), Phase 23 (disconnect fix — INFO-level events)  
 **ADR reference**: [ADR-022](architecture/adr/ADR-022-dashboard-logging.md),
 [ADR-007](architecture/adr/ADR-007-web-dashboard.md) §77-94
@@ -1694,7 +1694,7 @@ file on disk.
 
 #### Phase 24A: Server-Side Broadcast Layer
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (2026-08-18, `cb55e75`)
 
 1. **Create `log_broadcast.rs`** — a custom `tracing_subscriber::Layer` that:
    - Captures all events at TRACE level
@@ -1713,7 +1713,7 @@ file on disk.
 
 #### Phase 24B: WebSocket Per-Client Filtering
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (2026-08-18, `cb55e75`)
 
 1. **Update `handle_ws_connection`** in `management.rs`:
    - Accept `{"type": "set_log_level", "level": "DEBUG"}` control messages
@@ -1728,7 +1728,7 @@ file on disk.
 
 #### Phase 24C: FFI & Request Instrumentation
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (2026-08-18, `1f30cb1`)
 
 1. **Tower middleware** — shared between Axum and Tonic:
    - TRACE: log every request (method, path/RPC, status, latency)
@@ -1744,7 +1744,7 @@ file on disk.
 
 #### Phase 24D: Dashboard UI
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (2026-08-18, `784d75b`)
 
 1. **Log level selector** — button group in Logs page header:
    `[TRACE] [DEBUG] [INFO] [WARN] [ERROR]`
@@ -1833,14 +1833,14 @@ Phase 0: Scaffolding
                                                               │    ├── 22A: SSE + WebSocket event wiring ✅
                                                               │    └── 22B: ResourceAccessPolicy stubs ✅
                                                               │
-                                                              ├── Phase 23: Disconnect Detection Bug Fix
+                                                              ├── Phase 23: Disconnect Detection Bug Fix ✅
                                                               │    └── Fix circular dependency in device_poll_loop
                                                               │
-                                                              └── Phase 24: Dashboard Log Streaming (ADR-022)
-                                                                   ├── 24A: Server-side broadcast layer
-                                                                   ├── 24B: WebSocket per-client filtering
-                                                                   ├── 24C: FFI & request instrumentation
-                                                                   └── 24D: Dashboard UI
+                                                              └── Phase 24: Dashboard Log Streaming (ADR-022) ✅
+                                                                   ├── 24A: Server-side broadcast layer ✅
+                                                                   ├── 24B: WebSocket per-client filtering ✅
+                                                                   ├── 24C: FFI & request instrumentation ✅
+                                                                   └── 24D: Dashboard UI ✅
 ```
 
 Phases 23 and 24 can be executed in parallel — Phase 24 does not depend on 23,
