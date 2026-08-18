@@ -190,10 +190,27 @@ Tests skip gracefully if the bitfile is not found at the configured path.
 - **Requires real hardware** — tests cannot run in CI without an FPGA connected
 - **Sequential execution** — hardware tests cannot be parallelized
 
+## GUI Integration Tests (ADR-023)
+
+The eight GUI demo clients (ADR-023) serve as **interactive hardware integration
+tests**. They exercise the same Classic Data Port endpoints as the automated
+test matrix above, but under user-driven control rather than scripted sequences.
+
+GUI demos additionally test:
+- **Resource locking enforcement** — user can override client-side lockout to
+  verify that the server rejects writes from non-lock-holders
+- **Multi-user shared access** — multiple GUI clients connected simultaneously
+  to the same board and resource
+- **Session timeout** — user can exit without releasing the resource to verify
+  the server's sweep mechanism reclaims it
+
+See [ADR-023 — GUI Example Clients](ADR-023-gui-example-clients.md).
+
 ## References
 
 - [ADR-014 — Example Client Architecture](ADR-014-example-clients.md)
 - [ADR-017 — FFI Endpoint Wiring](ADR-017-ffi-endpoint-wiring.md)
 - [ADR-020 — Client-Side Resource Registration](ADR-020-client-side-resource-registration.md)
-- [Counters.bit endpoint map](../../FrontPanel-6.1.0/ExampleBitfiles/20190501-FP50-XEM7320-A75/XEM7320-A75/Counetrs-endpoints.md)
+- [ADR-023 — GUI Example Clients](ADR-023-gui-example-clients.md)
+- [Counters.bit Endpoint Reference](../counters-bit-endpoints.md)
 - [ai-collaboration.md §9 — Testing Strategy](../../.agents/rules/ai-collaboration.md)

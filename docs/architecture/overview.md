@@ -137,6 +137,8 @@ All decisions are recorded as ADRs in `docs/architecture/adr/`:
 | [ADR-019](adr/ADR-019-axi-interface-architecture.md) | AXI Interface Architecture — Lite, Full, and Stream | Accepted |
 | [ADR-020](adr/ADR-020-client-side-resource-registration.md) | Client-Side Resource Registration | Accepted |
 | [ADR-021](adr/ADR-021-settings-ffi-wiring.md) | Device Settings FFI Wiring | Accepted |
+| [ADR-022](adr/ADR-022-dashboard-logging.md) | Dashboard Log Streaming & Level Filtering | Accepted |
+| [ADR-023](adr/ADR-023-gui-example-clients.md) | GUI Example Clients — Interactive Counters.bit Demo | Accepted |
 
 ## 6. Technology Stack
 

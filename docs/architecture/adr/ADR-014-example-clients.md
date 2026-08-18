@@ -32,10 +32,22 @@ independent and easy to copy as starting points.
 ```
 client-examples/
 ├── README.md
-├── rust-rest-client/        Cargo project (reqwest + mdns-sd + rumqttc)
-├── rust-grpc-client/        Cargo project (tonic + mdns-sd + rumqttc)
-├── python-rest-client/      Python 3.12+ (httpx + pydantic + zeroconf + paho-mqtt)
-└── python-grpc-client/      Python 3.12+ (grpcio + pydantic + zeroconf + paho-mqtt)
+│
+│   CLI Demos (Tier 1 — protocol-level endpoint exerciser)
+├── rust-rest-client/              Cargo project (reqwest + mdns-sd + rumqttc)
+├── rust-grpc-client/              Cargo project (tonic + mdns-sd + rumqttc)
+├── python-rest-client/            Python 3.12+ (httpx + pydantic + zeroconf + paho-mqtt)
+├── python-grpc-client/            Python 3.12+ (grpcio + pydantic + zeroconf + paho-mqtt)
+│
+│   GUI Demos (Tier 2 — interactive Counters.bit control, see ADR-023)
+├── rust-rest-gui-egui/            Cargo project (reqwest + eframe/egui)
+├── rust-rest-gui-iced/            Cargo project (reqwest + iced)
+├── rust-grpc-gui-egui/            Cargo project (tonic + eframe/egui)
+├── rust-grpc-gui-iced/            Cargo project (tonic + iced)
+├── python-rest-gui-tkinter/       Python 3.12+ (httpx + tkinter)
+├── python-rest-gui-dearpygui/     Python 3.12+ (httpx + dearpygui)
+├── python-grpc-gui-tkinter/       Python 3.12+ (grpcio + tkinter)
+└── python-grpc-gui-dearpygui/     Python 3.12+ (grpcio + dearpygui)
 ```
 
 ### Technology Stack
@@ -225,12 +237,12 @@ When a new server endpoint is wired (FFI integration or new feature):
 
 Before merging any PR that modifies a demo or wires a new endpoint:
 
-- [ ] All four demos compile/parse without errors
+- [X] All four demos compile/parse without errors
 - [ ] Section order matches the canonical table
 - [ ] No section is labeled "stub" for a wired endpoint
 - [ ] Error messages are descriptive, not raw exception dumps
-- [ ] `cargo test --features full --lib` passes (122+ tests)
-- [ ] `cargo check` passes for both `rust-rest-client` and `rust-grpc-client`
+- [X] `cargo test --features full --lib` passes (122+ tests)
+- [X] `cargo check` passes for both `rust-rest-client` and `rust-grpc-client`
 
 ### Python Version
 
@@ -285,6 +297,22 @@ client libraries.
 
 **Commit**: `2cfc9c4`
 
+## GUI Demos (Tier 2) — ADR-023
+
+A second tier of **interactive GUI clients** extends the CLI demos with
+real-time Counters.bit hardware control. Eight GUI clients cover two
+languages × two protocols × two GUI frameworks:
+
+- **Rust**: `eframe`/`egui` and `iced`
+- **Python**: `tkinter` and `dearpygui`
+
+GUI demos are **not a replacement** for the CLI demos. The CLI demos verify
+protocol-level correctness; the GUI demos demonstrate interactive use, resource
+locking, and multi-user shared access.
+
+See [ADR-023 — GUI Example Clients](ADR-023-gui-example-clients.md) for the
+full architecture.
+
 ## References
 
 - [OpenAPI 3.0 Spec](../../api/openapi.yaml)
@@ -295,3 +323,4 @@ client libraries.
 - [ADR-011 — MQTT Publishing](ADR-011-mqtt-publishing.md)
 - [ADR-012 — mDNS Discovery](ADR-012-mdns-discovery.md)
 - [ADR-021 — Settings FFI Wiring](ADR-021-settings-ffi-wiring.md)
+- [ADR-023 — GUI Example Clients](ADR-023-gui-example-clients.md)

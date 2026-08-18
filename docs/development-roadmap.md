@@ -1791,6 +1791,110 @@ cargo test --features full --lib
 
 ---
 
+## Phase 25: GUI Example Clients — Interactive Counters.bit Demo (ADR-023)
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 16 (example clients), Phase 18 (hardware integration tests),
+Phase 20 (enhanced resource registration), Phase 19 (FFI endpoint wiring)  
+**ADR reference**: [ADR-023](architecture/adr/ADR-023-gui-example-clients.md),
+[ADR-014](architecture/adr/ADR-014-example-clients.md) §GUI Demos,
+[ADR-016](architecture/adr/ADR-016-hardware-integration-testing.md) §GUI Integration Tests
+
+### Overview
+
+Eight interactive GUI clients demonstrating real-time control of the Counters.bit
+hardware test via Classic Data Port endpoints. Each client registers a shared
+resource, acquires it, and provides interactive counter control with live polling.
+
+Two GUI frameworks per language provide framework comparison:
+- **Rust**: `eframe`/`egui` and `iced`
+- **Python**: `tkinter` and `dearpygui`
+
+### Sub-phases
+
+#### Phase 25A: Rust REST GUI (egui) — "Rusty Rester"
+
+**Status**: `[ ]` Not started
+
+1. Create `client-examples/rust-rest-gui-egui/` Cargo project
+2. Implement connection panel (Discover → Connect → Program → Register → Acquire)
+3. Implement Counter #1 panel (WireIn RESET1/DISABLE1, WireOut 0x20, TriggerOut 0x60)
+4. Implement Counter #2 panel (TriggerIn UP2/DOWN2/RESET2, AUTOCOUNT2, WireOut 0x21, TriggerOut 0x61)
+5. Implement bottom bar (Buttons WireOut 0x22, poll interval selector, activity log)
+6. Implement resource locking (Lock/Unlock, holder display, Override lockout checkbox)
+7. Implement shutdown prompt (Release resource? Yes/No)
+
+#### Phase 25B: Rust REST GUI (iced) — "Icy Rester"
+
+**Status**: `[ ]` Not started
+
+Same feature set as 25A, using `iced` framework.
+
+#### Phase 25C: Rust gRPC GUI (egui) — "Rusty Garpac"
+
+**Status**: `[ ]` Not started
+
+Same feature set as 25A, using gRPC API (`tonic`) instead of REST (`reqwest`).
+
+#### Phase 25D: Rust gRPC GUI (iced) — "Icy Garpac"
+
+**Status**: `[ ]` Not started
+
+Same feature set as 25B, using gRPC API.
+
+#### Phase 25E: Python REST GUI (tkinter) — "Pythos Rester"
+
+**Status**: `[ ]` Not started
+
+1. Create `client-examples/python-rest-gui-tkinter/` Python package
+2. Implement connection panel, counter panels, resource locking, shutdown prompt
+3. Use `httpx` (async) for REST API calls, `tkinter` for GUI
+
+#### Phase 25F: Python REST GUI (dearpygui) — "Dear Rester"
+
+**Status**: `[ ]` Not started
+
+Same feature set as 25E, using `dearpygui` framework.
+
+#### Phase 25G: Python gRPC GUI (tkinter) — "Pythos Garpac"
+
+**Status**: `[ ]` Not started
+
+Same feature set as 25E, using gRPC API (`grpcio`).
+
+#### Phase 25H: Python gRPC GUI (dearpygui) — "Dear Garpac"
+
+**Status**: `[ ]` Not started
+
+Same feature set as 25F, using gRPC API.
+
+### Files Created
+
+| File | Description | Sub-phase |
+|------|-------------|-----------|
+| `client-examples/rust-rest-gui-egui/` | [NEW] Rust REST + egui GUI | 25A |
+| `client-examples/rust-rest-gui-iced/` | [NEW] Rust REST + iced GUI | 25B |
+| `client-examples/rust-grpc-gui-egui/` | [NEW] Rust gRPC + egui GUI | 25C |
+| `client-examples/rust-grpc-gui-iced/` | [NEW] Rust gRPC + iced GUI | 25D |
+| `client-examples/python-rest-gui-tkinter/` | [NEW] Python REST + tkinter GUI | 25E |
+| `client-examples/python-rest-gui-dearpygui/` | [NEW] Python REST + dearpygui GUI | 25F |
+| `client-examples/python-grpc-gui-tkinter/` | [NEW] Python gRPC + tkinter GUI | 25G |
+| `client-examples/python-grpc-gui-dearpygui/` | [NEW] Python gRPC + dearpygui GUI | 25H |
+
+### Verification
+
+Each GUI demo should be verified with:
+
+1. **No device**: GUI launches, connection panel functional, buttons correctly disabled
+2. **With device**: Full startup sequence → counter control → polling → triggers
+3. **Multi-user**: Two GUI clients sharing the same resource simultaneously
+4. **Lock enforcement**: Lock from one client → verify other client is locked out →
+   Override checkbox → verify server rejects writes → error displayed in GUI
+5. **Timeout test**: Exit without releasing → verify server reclaims resource after
+   `user_timeout_secs`
+
+---
+
 ## Summary of Dependencies
 
 ```
@@ -1816,13 +1920,7 @@ Phase 0: Scaffolding
                                                └── Phase 18: Hardware Integration Tests ✅
                                                     └── Phase 19: FFI Endpoint Wiring ✅
                                                          └── Phase 20: Enhanced Resource Registration (ADR-020) ✅
-                                                              ├── 20A: Enhanced resource schema ✅
-                                                              ├── 20B: Registration-time validation ✅
-                                                              ├── 20C: Access mode & lock/unlock ✅
-                                                              ├── 20D: Heartbeat / liveness ✅
-                                                              ├── 20E: Resource persistence rules ✅
-                                                              ├── 20F: Client updates & documentation ✅
-                                                              └── 20G: Stub code → Phase 22B ✅
+                                                              ├── 20A–20G ✅
                                                               │
                                                               ├── Phase 21: User Session Tracking & Liveness ✅
                                                               │    ├── 21A: UserSessionRegistry ✅
@@ -1836,15 +1934,29 @@ Phase 0: Scaffolding
                                                               ├── Phase 23: Disconnect Detection Bug Fix ✅
                                                               │    └── Fix circular dependency in device_poll_loop
                                                               │
-                                                              └── Phase 24: Dashboard Log Streaming (ADR-022) ✅
-                                                                   ├── 24A: Server-side broadcast layer ✅
-                                                                   ├── 24B: WebSocket per-client filtering ✅
-                                                                   ├── 24C: FFI & request instrumentation ✅
-                                                                   └── 24D: Dashboard UI ✅
+                                                              ├── Phase 24: Dashboard Log Streaming (ADR-022) ✅
+                                                              │    ├── 24A: Server-side broadcast layer ✅
+                                                              │    ├── 24B: WebSocket per-client filtering ✅
+                                                              │    ├── 24C: FFI & request instrumentation ✅
+                                                              │    └── 24D: Dashboard UI ✅
+                                                              │
+                                                              └── Phase 25: GUI Example Clients (ADR-023) [ ]
+                                                                   ├── 25A: Rust REST GUI (egui) [ ]
+                                                                   ├── 25B: Rust REST GUI (iced) [ ]
+                                                                   ├── 25C: Rust gRPC GUI (egui) [ ]
+                                                                   ├── 25D: Rust gRPC GUI (iced) [ ]
+                                                                   ├── 25E: Python REST GUI (tkinter) [ ]
+                                                                   ├── 25F: Python REST GUI (dearpygui) [ ]
+                                                                   ├── 25G: Python gRPC GUI (tkinter) [ ]
+                                                                   └── 25H: Python gRPC GUI (dearpygui) [ ]
 ```
 
 Phases 23 and 24 can be executed in parallel — Phase 24 does not depend on 23,
 though 23 should land first so disconnect events are visible in the log viewer.
+
+Phase 25 sub-phases (25A–25H) are independent of each other and can be
+implemented in any order. Recommended order: 25A first (establishes the
+pattern), then 25E (establishes the Python pattern), then remaining variants.
 
 ### Feature Flag Summary
 
