@@ -2065,7 +2065,7 @@ F4 smart-skip, F5 bitfile toggle) are iced-specific and must be ported to other 
 
 #### Phase 25-Fix-G: Dashboard Fixes
 
-**Status**: `[ ]` Planned  
+**Status**: `[x]` Completed (2026-08-18, `a963be4`)  
 **Depends on**: Phase 25-Fix-F  
 **ADR reference**: [ADR-023 Addendum: Phase 25-Fix-F](architecture/adr/ADR-023-gui-example-clients.md)
 

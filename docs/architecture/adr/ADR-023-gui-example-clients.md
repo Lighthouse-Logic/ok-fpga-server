@@ -444,8 +444,9 @@ device revealed 7 bugs spanning the server, client libraries, and the GUI demo.
    (REST or gRPC, by any user), the server clears **all** resources for that device.
    The GUI handles 409 by looking up the existing resource and proceeding.
 
-3. **F6/F7 — Deferred to Phase 25-Fix-G** (dashboard-focused phase). The management
-   API needs `/mgmt/resources` and `/mgmt/users` endpoints.
+3. **F6/F7 — Completed in Phase 25-Fix-G** (`a963be4`). Added `/mgmt/resources` and
+   `/mgmt/users` management API endpoints and updated the dashboard to fetch and
+   render data from them.
 
 4. **Cross-demo applicability**: Server fixes (F1, F2, F3) benefit all 8 demos.
    Client library fixes (F4) benefit all demos using those libraries. GUI-specific
@@ -458,4 +459,49 @@ device revealed 7 bugs spanning the server, client libraries, and the GUI demo.
   is currently held (shared or exclusive). Return 409 listing active holders.
 - **User privilege levels**: Introduce admin vs normal-user roles. Only admin users
   can override in-use protection. Full privilege scheme TBD.
+
+---
+
+## Addendum: Phase 25-Fix-G — Dashboard Fixes
+
+**Date**: 2026-08-18  
+**Status**: Completed (2026-08-18, `a963be4`)
+
+### Problem
+
+The dashboard's Resources page showed an empty table header ("ID NAME DEVICE STATE
+HOLDERS") with no data rows, because `fetchResources()` only checked
+`/mgmt/status.active_resources` for the count — there was no endpoint returning the
+actual resource list. The Users page had no fetch logic at all.
+
+### Decision
+
+Add two new management API endpoints that follow the same pattern as the existing
+`GET /mgmt/devices` and `GET /mgmt/services`:
+
+| Endpoint | Response | Source |
+|----------|----------|--------|
+| `GET /mgmt/resources` | `ResourceInfoResponse[]` | `ResourceRegistry::list()` |
+| `GET /mgmt/users` | `UserSessionResponse[]` | `UserSessionRegistry::list()` |
+
+### Changes
+
+#### Server (`management.rs`)
+
+- `ResourceInfoResponse`: id, name, device_serial, state, holders, locked_by
+- `UserSessionResponse`: user_id, held_resources, last_seen_at (ISO 8601)
+- Both handlers follow the existing `mgmt_list_devices` pattern
+
+#### Dashboard (`web/app.js`)
+
+- `fetchResources()`: calls `/mgmt/resources`, populates `resources-tbody`
+- `fetchUsers()`: calls `/mgmt/users`, populates `users-tbody`
+- Navigation switch updated to call `fetchUsers()` on page change
+
+### Tests
+
+- `mgmt_resources_returns_empty_list` — empty registry → `[]`
+- `mgmt_resources_returns_registered_resource` — verifies JSON shape
+- `mgmt_users_returns_empty_list` — no sessions → `[]`
+- `mgmt_users_returns_active_session` — verifies user_id and last_seen_at
 
