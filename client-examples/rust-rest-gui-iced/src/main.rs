@@ -54,6 +54,7 @@ fn boot() -> (AppState, Task<Message>) {
         AppState {
             rest_url: DEFAULT_REST_URL.to_string(),
             bitfile_path: bitfile,
+            bitfile_mode: BitfileMode::ServerPath,
             phase: Phase::Disconnected,
             devices: vec![],
             selected_serial: None,
@@ -88,10 +89,20 @@ pub enum Phase {
     Acquired,
 }
 
+/// Bitfile configuration mode — server-side path or client-side upload.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BitfileMode {
+    /// Send the path to the server (server reads the file).
+    ServerPath,
+    /// Read the file locally and upload as binary.
+    LocalFile,
+}
+
 /// The complete application state — holds everything the GUI needs.
 pub struct AppState {
     pub rest_url: String,
     pub bitfile_path: String,
+    pub bitfile_mode: BitfileMode,
     pub phase: Phase,
     pub devices: Vec<DeviceInfo>,
     pub selected_serial: Option<String>,
@@ -181,6 +192,10 @@ pub enum Message {
     RefreshDevicesTick,
     RefreshDevicesResult(Result<Vec<DeviceInfo>, String>),
     DismissDisconnect,
+    // Phase 25-Fix-F additions
+    SetBitfileMode(BitfileMode),
+    CheckDeviceState,
+    CheckDeviceStateResult(Result<(bool, Option<ResourceInfo>), String>),
 }
 
 // ============================================================================
@@ -217,15 +232,28 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
         Message::SelectDevice(serial) => {
             state.log(&format!("Selected: {}", serial));
             state.selected_serial = Some(serial);
-            Task::none()
+            // Probe device state and existing resources (F4 smart-skip).
+            update(state, Message::CheckDeviceState)
         }
 
         Message::ProgramPressed => {
             let client = state.make_client();
             let serial = state.serial();
             let bitfile = state.bitfile_path.clone();
+            let mode = state.bitfile_mode;
             Task::perform(
-                async move { client.configure_fpga(&serial, &bitfile).await.map(|_| ()).map_err(|e| e.to_string()) },
+                async move {
+                    match mode {
+                        BitfileMode::ServerPath => {
+                            client.configure_fpga(&serial, &bitfile).await
+                                .map(|_| ()).map_err(|e| e.to_string())
+                        }
+                        BitfileMode::LocalFile => {
+                            client.configure_fpga_from_file(&serial, std::path::Path::new(&bitfile)).await
+                                .map(|_| ()).map_err(|e| e.to_string())
+                        }
+                    }
+                },
                 Message::ProgramResult,
             )
         }
@@ -251,6 +279,24 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
                     state.log(&format!("Resource registered: {}", info.id));
                     state.resource_id = Some(info.id);
                     state.phase = Phase::Registered;
+                }
+                Err(e) if e.contains("409") || e.contains("already exists") => {
+                    // F3: 409 Conflict — resource already exists. Look it up.
+                    state.log("Resource already exists — looking up...");
+                    let client = state.make_client();
+                    let serial = state.serial();
+                    return Task::perform(
+                        async move {
+                            let resources = client.list_resources().await.map_err(|e| e.to_string())?;
+                            let existing = resources.into_iter()
+                                .find(|r| r.device_serial == serial);
+                            match existing {
+                                Some(info) => Ok(info),
+                                None => Err("No matching resource found".to_string()),
+                            }
+                        },
+                        Message::RegisterResult,
+                    );
                 }
                 Err(e) => state.log_err(&format!("Register failed: {}", e)),
             }
@@ -390,6 +436,63 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::DismissDisconnect => { state.show_disconnect_dialog = false; Task::none() }
+
+        // ================================================================
+        // Phase 25-Fix-F: Bitfile mode toggle + device state check
+        // ================================================================
+
+        Message::SetBitfileMode(mode) => {
+            state.bitfile_mode = mode;
+            state.log(&format!("Bitfile mode: {:?}", mode));
+            Task::none()
+        }
+
+        Message::CheckDeviceState => {
+            let client = state.make_client();
+            let serial = state.serial();
+            if serial.is_empty() {
+                return Task::none();
+            }
+            Task::perform(
+                async move {
+                    // Check if device is programmed.
+                    let dev_info = client.get_device_info(&serial).await.map_err(|e| e.to_string())?;
+                    let is_programmed = dev_info["state"].as_str()
+                        .map(|s| s.contains("Programmed"))
+                        .unwrap_or(false);
+                    // Check for existing resource.
+                    let resources = client.list_resources().await.map_err(|e| e.to_string())?;
+                    let existing = resources.into_iter()
+                        .find(|r| r.device_serial == serial);
+                    Ok((is_programmed, existing))
+                },
+                Message::CheckDeviceStateResult,
+            )
+        }
+        Message::CheckDeviceStateResult(result) => {
+            match result {
+                Ok((true, Some(resource))) => {
+                    state.log(&format!(
+                        "Device already programmed, resource '{}' available — skipping to Registered",
+                        resource.name
+                    ));
+                    state.resource_id = Some(resource.id);
+                    state.phase = Phase::Registered;
+                }
+                Ok((true, None)) => {
+                    state.log("Device already programmed — skipping to Register");
+                    state.phase = Phase::Programmed;
+                }
+                Ok((false, _)) => {
+                    // Not programmed — normal flow, stay in Connected phase.
+                }
+                Err(e) => {
+                    // Non-fatal: just log and let user proceed manually.
+                    state.log(&format!("Could not check device state: {}", e));
+                }
+            }
+            Task::none()
+        }
     }
 }
 
@@ -485,6 +588,15 @@ fn view_connection(state: &AppState) -> Element<'_, Message> {
         text_input("path/to/Counters.bit", &state.bitfile_path).on_input(Message::BitfileChanged),
     ].spacing(8);
 
+    // F5: Bitfile mode toggle — Server Path vs Local File.
+    let mode_row = row![
+        text("Mode:").width(100),
+        button(if state.bitfile_mode == BitfileMode::ServerPath { "● Server Path" } else { "○ Server Path" })
+            .on_press(Message::SetBitfileMode(BitfileMode::ServerPath)),
+        button(if state.bitfile_mode == BitfileMode::LocalFile { "● Local File" } else { "○ Local File" })
+            .on_press(Message::SetBitfileMode(BitfileMode::LocalFile)),
+    ].spacing(8);
+
     let program_btn = if state.phase >= Phase::Programmed { button("2. Program Bitfile ✓") }
         else if state.phase == Phase::Connected && state.selected_serial.is_some() { button("2. Program Bitfile").on_press(Message::ProgramPressed) }
         else { button("2. Program Bitfile") };
@@ -510,7 +622,7 @@ fn view_connection(state: &AppState) -> Element<'_, Message> {
         disconnect_msg,
         url_row, connect_btn,
         device_picker,
-        bitfile_row, program_btn, register_btn, acquire_btn,
+        bitfile_row, mode_row, program_btn, register_btn, acquire_btn,
     ].spacing(8).into()
 }
 

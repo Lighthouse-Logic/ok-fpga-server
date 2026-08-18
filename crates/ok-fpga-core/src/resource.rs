@@ -789,6 +789,26 @@ impl ResourceRegistry {
             .collect()
     }
 
+    /// Remove all resources for a specific device serial.
+    ///
+    /// Used when the FPGA is re-programmed: all resources for the device
+    /// become invalid because the bitfile has changed.
+    ///
+    /// Returns the number of resources removed.
+    pub fn remove_for_device(&self, serial: &str) -> usize {
+        let mut map = self.resources.write().unwrap();
+        let ids_to_remove: Vec<String> = map
+            .values()
+            .filter(|r| r.device_serial == serial)
+            .map(|r| r.id.clone())
+            .collect();
+        let count = ids_to_remove.len();
+        for id in ids_to_remove {
+            map.remove(&id);
+        }
+        count
+    }
+
     /// Attempt to acquire a resource for a user (ADR-020 §3).
     ///
     /// The access mode is determined by the resource's `access_mode` field

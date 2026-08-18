@@ -604,6 +604,12 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
 
         info!(serial = %serial, path = %bitfile_path, "gRPC ConfigureFPGA succeeded");
 
+        // Clear stale resources for this device (Phase 25-Fix-F, F3).
+        let cleared = self.state.resource_registry.remove_for_device(serial);
+        if cleared > 0 {
+            info!(serial = %serial, cleared, "Cleared resources for re-programmed device");
+        }
+
         Ok(Response::new(proto::ConfigureFpgaResponse {
             bitfile: Some(proto::BitfileInfo {
                 filename: bitfile_path.to_string(),
@@ -685,6 +691,12 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             size_bytes = bitfile_data.len(),
             "gRPC ConfigureFPGAFromMemory succeeded"
         );
+
+        // Clear stale resources for this device (Phase 25-Fix-F, F3).
+        let cleared = self.state.resource_registry.remove_for_device(&serial);
+        if cleared > 0 {
+            info!(serial = %serial, cleared, "Cleared resources for re-programmed device");
+        }
 
         Ok(Response::new(proto::ConfigureFpgaResponse {
             bitfile: Some(proto::BitfileInfo {

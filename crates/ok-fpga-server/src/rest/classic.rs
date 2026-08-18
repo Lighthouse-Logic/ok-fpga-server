@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -32,14 +32,12 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/devices/{serial}/classic/wires/out/update",
             post(update_wire_outs),
         )
-        .route(
-            "/devices/{serial}/classic/wires/out/{address}",
-            get(get_wire_out),
-        )
-        // Batch wire-out (read all standard wire-outs at once)
+        // Wire-out: single handler dispatches on ?endpoint query param.
+        // - With ?endpoint=N → returns {"endpoint": N, "value": V}
+        // - Without query param → returns batch map of all wire-outs
         .route(
             "/devices/{serial}/classic/wires/out",
-            get(get_all_wire_outs),
+            get(get_wire_out),
         )
         // Triggers
         .route(
@@ -50,14 +48,12 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/devices/{serial}/classic/triggers/out/update",
             post(update_trigger_outs),
         )
-        .route(
-            "/devices/{serial}/classic/triggers/out/{address}",
-            get(is_triggered),
-        )
-        // Batch trigger-out (read all standard trigger-outs at once)
+        // Trigger-out: single handler dispatches on ?endpoint query param.
+        // - With ?endpoint=N → returns per-endpoint response
+        // - Without query param → returns batch map of all trigger-outs
         .route(
             "/devices/{serial}/classic/triggers/out",
-            get(get_all_trigger_outs),
+            get(get_trigger_out),
         )
         // Pipes
         .route("/devices/{serial}/classic/pipes/in", post(write_to_pipe_in))
@@ -113,6 +109,27 @@ struct TriggerOutRequest {
     mask: u32,
 }
 
+/// Query parameters for `GET /devices/{serial}/classic/wires/out`.
+///
+/// Per OpenAPI spec, `endpoint` is a query parameter. When present,
+/// returns a single wire-out value; when absent, returns all wire-outs.
+#[derive(Deserialize)]
+struct WireOutQuery {
+    endpoint: Option<i32>,
+}
+
+/// Query parameters for `GET /devices/{serial}/classic/triggers/out`.
+///
+/// Per OpenAPI spec, `endpoint` and `mask` are query parameters.
+/// When `endpoint` is present, returns a single trigger-out result;
+/// when absent, returns all trigger-outs.
+#[derive(Deserialize)]
+struct TriggerOutQuery {
+    endpoint: Option<i32>,
+    #[serde(default = "default_mask")]
+    mask: u32,
+}
+
 #[derive(Deserialize)]
 struct RegisterRequest {
     address: u32,
@@ -145,17 +162,28 @@ struct BlockPipeRequest {
     data: Option<String>,
 }
 
+/// Response for a single wire-out read (per OpenAPI `WireOutResponse`).
+///
+/// Used as documentation of the JSON shape returned by `get_wire_out`.
+/// The handler constructs the JSON via `serde_json::json!` for flexibility.
 #[derive(Serialize)]
+#[allow(dead_code)]
 struct WireOutResponse {
     endpoint: i32,
     value: u32,
 }
 
+/// Response for a single trigger-out read (per OpenAPI `TriggerOutResponse`).
+///
+/// Used as documentation of the JSON shape returned by `get_trigger_out`.
+/// The handler constructs the JSON via `serde_json::json!` for flexibility.
 #[derive(Serialize)]
+#[allow(dead_code)]
 struct TriggerOutResponse {
     endpoint: i32,
     triggered: bool,
-    mask: u32,
+    /// Full 32-bit trigger vector (per OpenAPI `TriggerOutResponse.vector`).
+    vector: u32,
 }
 
 #[derive(Serialize)]
@@ -284,42 +312,18 @@ async fn update_wire_outs(
     Ok(Json(serde_json::json!({"status": "ok"})))
 }
 
-/// `GET /devices/{serial}/classic/wires/out/{address}` — Read a wire-out value.
+/// `GET /devices/{serial}/classic/wires/out?endpoint=N` — Read wire-out value(s).
 ///
-/// Calls `UpdateWireOuts` then `GetWireOutValue` atomically under the device mutex.
+/// Per OpenAPI spec, `endpoint` is a **query parameter** (not a path segment).
+///
+/// - When `?endpoint=N` is present: calls `UpdateWireOuts` then returns
+///   `{"endpoint": N, "value": V}` for that specific endpoint.
+/// - When no query param: returns a batch map of all standard wire-outs
+///   (0x20–0x3F) as `{"0x20": V, "0x21": V, ...}`.
 async fn get_wire_out(
     State(state): State<Arc<AppState>>,
-    Path((serial, address)): Path<(String, String)>,
-) -> Result<Json<WireOutResponse>, ProblemDetail> {
-    let endpoint: i32 = address.parse().map_err(|_| {
-        ProblemDetail::bad_request(format!("invalid endpoint address: '{}'", address))
-    })?;
-
-    let device_arc = get_device!(state, &serial);
-    let device = device_arc.lock().await;
-
-    let classic = device
-        .classic_port()
-        .ok_or_else(|| ProblemDetail::conflict("FPGA not programmed or Classic port not available"))?;
-    let dll = device.dll();
-
-    // SAFETY: classic handle valid, endpoint address validated above.
-    let value = unsafe {
-        let rc = (dll.classic_update_wire_outs)(classic);
-        FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
-        (dll.classic_get_wire_out_value)(classic, endpoint) as u32
-    };
-
-    Ok(Json(WireOutResponse { endpoint, value }))
-}
-
-/// `GET /devices/{serial}/classic/wires/out` — Read all standard wire-out values.
-///
-/// Calls `UpdateWireOuts` then reads all standard wire-out endpoints (0x20–0x3F).
-/// Returns a map of endpoint address → value.
-async fn get_all_wire_outs(
-    State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    Query(query): Query<WireOutQuery>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
@@ -329,21 +333,28 @@ async fn get_all_wire_outs(
         .ok_or_else(|| ProblemDetail::conflict("FPGA not programmed or Classic port not available"))?;
     let dll = device.dll();
 
-    // SAFETY: classic handle is valid (from pool after configure).
-    // Wire-out endpoints are 0x20..=0x3F (32 endpoints).
-    let wires = unsafe {
-        let rc = (dll.classic_update_wire_outs)(classic);
-        FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
-
-        let mut map = serde_json::Map::new();
-        for ep in 0x20..=0x3F_i32 {
-            let val = (dll.classic_get_wire_out_value)(classic, ep) as u32;
-            map.insert(format!("0x{:02x}", ep), serde_json::json!(val));
-        }
-        map
-    };
-
-    Ok(Json(serde_json::Value::Object(wires)))
+    if let Some(endpoint) = query.endpoint {
+        // Single endpoint query — return {"endpoint": N, "value": V}.
+        let value = unsafe {
+            let rc = (dll.classic_update_wire_outs)(classic);
+            FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
+            (dll.classic_get_wire_out_value)(classic, endpoint) as u32
+        };
+        Ok(Json(serde_json::json!({ "endpoint": endpoint, "value": value })))
+    } else {
+        // Batch query — return all standard wire-outs (0x20–0x3F).
+        let wires = unsafe {
+            let rc = (dll.classic_update_wire_outs)(classic);
+            FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
+            let mut map = serde_json::Map::new();
+            for ep in 0x20..=0x3F_i32 {
+                let val = (dll.classic_get_wire_out_value)(classic, ep) as u32;
+                map.insert(format!("0x{:02x}", ep), serde_json::json!(val));
+            }
+            map
+        };
+        Ok(Json(serde_json::Value::Object(wires)))
+    }
 }
 
 /// `POST /devices/{serial}/classic/triggers/in` — Activate a trigger-in bit.
@@ -389,44 +400,19 @@ async fn update_trigger_outs(
     Ok(Json(serde_json::json!({"status": "ok"})))
 }
 
-/// `GET /devices/{serial}/classic/triggers/out/{address}` — Check if triggered.
-async fn is_triggered(
-    State(state): State<Arc<AppState>>,
-    Path((serial, address)): Path<(String, String)>,
-    Json(req): Json<TriggerOutRequest>,
-) -> Result<Json<TriggerOutResponse>, ProblemDetail> {
-    let endpoint: i32 = address.parse().map_err(|_| {
-        ProblemDetail::bad_request(format!("invalid endpoint address: '{}'", address))
-    })?;
-
-    let device_arc = get_device!(state, &serial);
-    let device = device_arc.lock().await;
-
-    let classic = device
-        .classic_port()
-        .ok_or_else(|| ProblemDetail::conflict("FPGA not programmed or Classic port not available"))?;
-    let dll = device.dll();
-
-    let triggered = unsafe {
-        let rc = (dll.classic_update_trigger_outs)(classic);
-        FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
-        (dll.classic_is_triggered)(classic, endpoint, req.mask as std::os::raw::c_ulong) != 0
-    };
-
-    Ok(Json(TriggerOutResponse {
-        endpoint,
-        triggered,
-        mask: req.mask,
-    }))
-}
-
-/// `GET /devices/{serial}/classic/triggers/out` — Read all trigger-out vectors.
+/// `GET /devices/{serial}/classic/triggers/out?endpoint=N&mask=M` — Read trigger-out.
 ///
-/// Calls `UpdateTriggerOuts` then reads `GetTriggerOutVector` for all standard
-/// trigger-out endpoints (0x60–0x7F). Returns a map of endpoint → vector value.
-async fn get_all_trigger_outs(
+/// Per OpenAPI spec, `endpoint` and `mask` are **query parameters**.
+///
+/// - When `?endpoint=N` is present: calls `UpdateTriggerOuts`, reads the
+///   trigger vector, checks against `mask` (default 0xFFFFFFFF), and returns
+///   `{"endpoint": N, "triggered": bool, "vector": V}`.
+/// - When no query param: returns a batch map of all standard trigger-outs
+///   (0x60–0x7F) as `{"0x60": V, "0x61": V, ...}`.
+async fn get_trigger_out(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    Query(query): Query<TriggerOutQuery>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
@@ -436,21 +422,36 @@ async fn get_all_trigger_outs(
         .ok_or_else(|| ProblemDetail::conflict("FPGA not programmed or Classic port not available"))?;
     let dll = device.dll();
 
-    // SAFETY: classic handle is valid (from pool after configure).
-    // Trigger-out endpoints are 0x60..=0x7F (32 endpoints).
-    let triggers = unsafe {
-        let rc = (dll.classic_update_trigger_outs)(classic);
-        FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
-
-        let mut map = serde_json::Map::new();
-        for ep in 0x60..=0x7F_i32 {
-            let val = (dll.classic_get_trigger_out_vector)(classic, ep);
-            map.insert(format!("0x{:02x}", ep), serde_json::json!(val));
-        }
-        map
-    };
-
-    Ok(Json(serde_json::Value::Object(triggers)))
+    if let Some(endpoint) = query.endpoint {
+        // Single endpoint query.
+        let (triggered, vector) = unsafe {
+            let rc = (dll.classic_update_trigger_outs)(classic);
+            FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
+            let is_triggered = (dll.classic_is_triggered)(
+                classic, endpoint, query.mask as std::os::raw::c_ulong,
+            ) != 0;
+            let vec_val = (dll.classic_get_trigger_out_vector)(classic, endpoint) as u32;
+            (is_triggered, vec_val)
+        };
+        Ok(Json(serde_json::json!({
+            "endpoint": endpoint,
+            "triggered": triggered,
+            "vector": vector,
+        })))
+    } else {
+        // Batch query — return all standard trigger-outs (0x60–0x7F).
+        let triggers = unsafe {
+            let rc = (dll.classic_update_trigger_outs)(classic);
+            FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
+            let mut map = serde_json::Map::new();
+            for ep in 0x60..=0x7F_i32 {
+                let val = (dll.classic_get_trigger_out_vector)(classic, ep);
+                map.insert(format!("0x{:02x}", ep), serde_json::json!(val));
+            }
+            map
+        };
+        Ok(Json(serde_json::Value::Object(triggers)))
+    }
 }
 
 /// `POST /devices/{serial}/classic/pipes/in` — Write data to a pipe-in endpoint.

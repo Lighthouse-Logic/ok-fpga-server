@@ -401,7 +401,7 @@ impl CountersClient {
     /// The server calls `UpdateTriggerOuts()` implicitly.
     pub async fn get_trigger_out_vector(&self, serial: &str, endpoint: u8) -> Result<u32, ClientError> {
         let val = self.get(&format!("/devices/{}/classic/triggers/out?endpoint={}", serial, endpoint)).await?;
-        Ok(val["value"].as_u64().unwrap_or(0) as u32)
+        Ok(val["vector"].as_u64().unwrap_or(0) as u32)
     }
 
     // ========================================================================
@@ -500,6 +500,30 @@ impl CountersClient {
             locked_by: None,
         });
         Ok(info)
+    }
+
+    /// `GET /resources` — List all resources, optionally filtered by device serial.
+    ///
+    /// Used for smart-skip logic: check if a resource already exists for a device.
+    pub async fn list_resources(&self) -> Result<Vec<ResourceInfo>, ClientError> {
+        let val = self.get("/resources").await?;
+        // The server returns { "count": N, "resources": [...] }.
+        let resources = val["resources"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let infos: Vec<ResourceInfo> = resources
+            .into_iter()
+            .filter_map(|v| serde_json::from_value(v).ok())
+            .collect();
+        Ok(infos)
+    }
+
+    /// `GET /devices/{serial}` — Get full device info for a single device.
+    ///
+    /// Used to check if a device is already programmed (state == "Programmed").
+    pub async fn get_device_info(&self, serial: &str) -> Result<Value, ClientError> {
+        self.get(&format!("/devices/{}", serial)).await
     }
 
     /// `POST /resources/{id}/lock` — Lock the resource for exclusive control.

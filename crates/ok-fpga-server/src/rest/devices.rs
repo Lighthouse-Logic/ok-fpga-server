@@ -777,6 +777,13 @@ async fn configure_fpga(
         },
     );
 
+    // Clear any existing resources for this device — the old bitfile's
+    // resources are invalid after re-programming (Phase 25-Fix-F, F3).
+    let cleared = state.resource_registry.remove_for_device(&serial);
+    if cleared > 0 {
+        tracing::info!(serial = %serial, cleared, "Cleared resources for re-programmed device");
+    }
+
     Ok(Json(ConfigureResponse {
         status: "ok".to_string(),
         serial: serial.clone(),
