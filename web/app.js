@@ -300,8 +300,25 @@ document.getElementById('btn-clear-logs')?.addEventListener('click', async () =>
 });
 
 // --- Download Log File ---
-document.getElementById('btn-download-logs')?.addEventListener('click', () => {
-    window.open('/mgmt/logs/download', '_blank');
+document.getElementById('btn-download-logs')?.addEventListener('click', async () => {
+    try {
+        const resp = await fetch('/mgmt/logs/download');
+        if (!resp.ok) {
+            addLogEntry('ERROR', `Download failed: ${resp.status} ${resp.statusText}`);
+            return;
+        }
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'okfpga-server.log';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (e) {
+        addLogEntry('ERROR', `Download failed: ${e.message}`);
+    }
 });
 
 // --- Log File Size ---
