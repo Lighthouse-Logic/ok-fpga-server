@@ -1793,7 +1793,8 @@ cargo test --features full --lib
 
 ## Phase 25: GUI Example Clients — Interactive Counters.bit Demo (ADR-023)
 
-**Status**: `[ ]` Not started  
+**Status**: `[/]` Implemented — unit tests pending (Phase 25-Fix)  
+**Commits**: `b72454a` (8 GUI demos + 4 common libraries), `3eda00b` (docs)  
 **Depends on**: Phase 16 (example clients), Phase 18 (hardware integration tests),
 Phase 20 (enhanced resource registration), Phase 19 (FFI endpoint wiring)  
 **ADR reference**: [ADR-023](architecture/adr/ADR-023-gui-example-clients.md),
@@ -1814,74 +1815,147 @@ Two GUI frameworks per language provide framework comparison:
 
 #### Phase 25A: Rust REST GUI (egui) — "Rusty Rester"
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (`b72454a`)
 
-1. Create `client-examples/rust-rest-gui-egui/` Cargo project
-2. Implement connection panel (Discover → Connect → Program → Register → Acquire)
-3. Implement Counter #1 panel (WireIn RESET1/DISABLE1, WireOut 0x20, TriggerOut 0x60)
-4. Implement Counter #2 panel (TriggerIn UP2/DOWN2/RESET2, AUTOCOUNT2, WireOut 0x21, TriggerOut 0x61)
-5. Implement bottom bar (Buttons WireOut 0x22, poll interval selector, activity log)
-6. Implement resource locking (Lock/Unlock, holder display, Override lockout checkbox)
-7. Implement shutdown prompt (Release resource? Yes/No)
+1. ✅ Created `client-examples/rust-rest-gui-egui/` Cargo project
+2. ✅ Implemented connection panel (Connect → Program → Register → Acquire)
+3. ✅ Implemented Counter #1 panel (WireIn RESET1/DISABLE1, WireOut 0x20, TriggerOut 0x60)
+4. ✅ Implemented Counter #2 panel (TriggerIn UP2/DOWN2/RESET2, AUTOCOUNT2, WireOut 0x21, TriggerOut 0x61)
+5. ✅ Implemented bottom bar (Buttons WireOut 0x22, poll interval selector, activity log)
+6. ✅ Implemented resource locking (Lock/Unlock, holder display, Override lockout checkbox)
+7. ✅ Implemented shutdown prompt (Release resource? Yes/No)
 
 #### Phase 25B: Rust REST GUI (iced) — "Icy Rester"
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (`b72454a`) — using iced 0.13, upgrade to 0.14 pending
 
-Same feature set as 25A, using `iced` framework.
+Same feature set as 25A, using `iced` 0.13 framework.
 
 #### Phase 25C: Rust gRPC GUI (egui) — "Rusty Garpac"
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (`b72454a`)
 
 Same feature set as 25A, using gRPC API (`tonic`) instead of REST (`reqwest`).
+Uses `tokio::sync::Mutex` for async-safe client access in spawned tasks.
 
 #### Phase 25D: Rust gRPC GUI (iced) — "Icy Garpac"
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (`b72454a`) — using iced 0.13, upgrade to 0.14 pending
 
-Same feature set as 25B, using gRPC API.
+Same feature set as 25B, using gRPC API. Creates fresh gRPC connection per
+operation (iced Messages must be `Debug + Clone`, tonic client is not `Clone`).
 
 #### Phase 25E: Python REST GUI (tkinter) — "Pythos Rester"
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (`b72454a`)
 
-1. Create `client-examples/python-rest-gui-tkinter/` Python package
-2. Implement connection panel, counter panels, resource locking, shutdown prompt
-3. Use `httpx` (async) for REST API calls, `tkinter` for GUI
+1. ✅ Created `client-examples/python-rest-gui-tkinter/` Python application
+2. ✅ Implemented connection panel, counter panels, resource locking, shutdown prompt
+3. ✅ Uses `requests` (sync) for REST API calls, `tkinter` for GUI
 
 #### Phase 25F: Python REST GUI (dearpygui) — "Dear Rester"
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (`b72454a`)
 
-Same feature set as 25E, using `dearpygui` framework.
+Same feature set as 25E, using `dearpygui` framework with background polling thread.
 
 #### Phase 25G: Python gRPC GUI (tkinter) — "Pythos Garpac"
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (`b72454a`)
 
 Same feature set as 25E, using gRPC API (`grpcio`).
 
 #### Phase 25H: Python gRPC GUI (dearpygui) — "Dear Garpac"
 
-**Status**: `[ ]` Not started
+**Status**: `[x]` Completed (`b72454a`)
 
 Same feature set as 25F, using gRPC API.
+
+### Phase 25-Fix: iced 0.14 Upgrade + Comprehensive Unit Tests
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 25A–25H  
+**ADR reference**: [ADR-023 §8 Testing Strategy](architecture/adr/ADR-023-gui-example-clients.md)
+
+#### Phase 25-Fix-A: Upgrade iced 0.13 → 0.14
+
+1. Update `iced = "0.13"` → `iced = "0.14"` in Icy Rester and Icy Garpac
+2. Migrate to iced 0.14 API (compiler-guided: `Widget::update` takes `Event` by
+   reference, `Task::perform` relaxed to `FnOnce`, reactive rendering)
+3. Add `iced_test = "0.14"` as dev-dependency for headless GUI testing
+
+#### Phase 25-Fix-B: Common Library Unit Tests
+
+Add comprehensive unit tests to all 4 shared API client libraries using mocks:
+
+| Library | Mock Framework | Estimated Tests |
+|---------|---------------|----------------|
+| `rust-rest-gui-common` | `mockito` | ~12 |
+| `rust-grpc-gui-common` | `tonic` in-process | ~8 |
+| `python_rest_gui_common` | `responses` + `unittest.mock` | ~12 |
+| `python_grpc_gui_common` | `unittest.mock` | ~8 |
+
+Each Python package gets a `pyproject.toml` with `[project.optional-dependencies.test]`.
+
+#### Phase 25-Fix-C: GUI Application Unit Tests
+
+| Demo | Framework | Test Approach | Estimated Tests |
+|------|-----------|--------------|----------------|
+| Rusty Rester (egui) | `#[cfg(test)]` | Logic tests (phase, lock, log) | ~8 |
+| Icy Rester (iced) | `iced_test` | Full headless GUI tests | ~15 |
+| Rusty Garpac (egui) | `#[cfg(test)]` | Logic tests | ~8 |
+| Icy Garpac (iced) | `iced_test` | Full headless GUI tests | ~15 |
+| Pythos Rester (tkinter) | `unittest.mock` | State machine + mock verification | ~8 |
+| Dear Rester (dearpygui) | `unittest.mock` | State machine + mock `dpg` calls | ~8 |
+| Pythos Garpac (tkinter) | `unittest.mock` | State machine + mock verification | ~8 |
+| Dear Garpac (dearpygui) | `unittest.mock` | State machine + mock `dpg` calls | ~8 |
+
+**Estimated total: ~110 new tests across all 12 modules.**
 
 ### Files Created
 
 | File | Description | Sub-phase |
 |------|-------------|-----------|
+| `client-examples/rust-rest-gui-common/` | [NEW] Shared REST CountersClient (reqwest) | 25A |
 | `client-examples/rust-rest-gui-egui/` | [NEW] Rust REST + egui GUI | 25A |
 | `client-examples/rust-rest-gui-iced/` | [NEW] Rust REST + iced GUI | 25B |
+| `client-examples/rust-grpc-gui-common/` | [NEW] Shared gRPC CountersGrpcClient (tonic) | 25C |
 | `client-examples/rust-grpc-gui-egui/` | [NEW] Rust gRPC + egui GUI | 25C |
 | `client-examples/rust-grpc-gui-iced/` | [NEW] Rust gRPC + iced GUI | 25D |
+| `client-examples/python_rest_gui_common/` | [NEW] Shared REST CountersClient (requests) | 25E |
 | `client-examples/python-rest-gui-tkinter/` | [NEW] Python REST + tkinter GUI | 25E |
 | `client-examples/python-rest-gui-dearpygui/` | [NEW] Python REST + dearpygui GUI | 25F |
+| `client-examples/python_grpc_gui_common/` | [NEW] Shared gRPC CountersGrpcClient (grpcio) | 25G |
 | `client-examples/python-grpc-gui-tkinter/` | [NEW] Python gRPC + tkinter GUI | 25G |
 | `client-examples/python-grpc-gui-dearpygui/` | [NEW] Python gRPC + dearpygui GUI | 25H |
 
 ### Verification
+
+#### Automated Tests (Phase 25-Fix)
+
+```bash
+# Rust common libraries — unit tests with mocks
+cd client-examples/rust-rest-gui-common && cargo test
+cd client-examples/rust-grpc-gui-common && cargo test
+
+# Rust GUI demos — logic tests + iced_test headless (iced demos)
+cd client-examples/rust-rest-gui-egui && cargo test
+cd client-examples/rust-rest-gui-iced && cargo test  # includes iced_test
+cd client-examples/rust-grpc-gui-egui && cargo test
+cd client-examples/rust-grpc-gui-iced && cargo test  # includes iced_test
+
+# Python common libraries
+cd client-examples && python -m pytest python_rest_gui_common/ -v
+cd client-examples && python -m pytest python_grpc_gui_common/ -v
+
+# Python GUI demos
+cd client-examples && python -m pytest python-rest-gui-tkinter/ -v
+cd client-examples && python -m pytest python-rest-gui-dearpygui/ -v
+cd client-examples && python -m pytest python-grpc-gui-tkinter/ -v
+cd client-examples && python -m pytest python-grpc-gui-dearpygui/ -v
+```
+
+#### Manual Verification
 
 Each GUI demo should be verified with:
 

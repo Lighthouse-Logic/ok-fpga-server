@@ -52,8 +52,9 @@ reference coverage:
 **Rust:**
 - **`eframe`/`egui`** — Immediate-mode, pure Rust, single binary, no system
   dependencies. Cross-platform. Best for simple tool UIs.
-- **`iced`** — Elm-architecture, retained-mode, more polished look. Demonstrates
-  a different UI paradigm for Rust developers.
+- **`iced`** (0.14) — Elm-architecture, retained-mode, more polished look. Demonstrates
+  a different UI paradigm for Rust developers. Version 0.14 provides the `iced_test`
+  headless simulator for comprehensive GUI testing in CI.
 
 **Python:**
 - **`tkinter`** — Standard library, no `pip install` needed. Works on every
@@ -207,6 +208,125 @@ client-side timer. The poll interval is selectable in the GUI:
 The interval applies to all reads in a single batch per cycle:
 `UpdateWireOuts → GetWireOut × 3 → GetTriggerOut × 2 → GetResource`.
 
+### 8. Testing Strategy
+
+All code follows TDD per [§9 of ai-collaboration.md](../../.agents/rules/ai-collaboration.md).
+Tests are organized in three tiers:
+
+#### Tier 1: Common Library Unit Tests (Always Run, No Server/Hardware)
+
+The 4 shared API client libraries contain all protocol logic and are the
+highest-value test targets. Each library gets comprehensive unit tests:
+
+| Library | Test File | Mock Framework | Focus Areas |
+|---------|-----------|---------------|-------------|
+| `rust-rest-gui-common` | `src/lib.rs` `#[cfg(test)]` | `mockito` | HTTP request construction, URL normalization, bitmask computation, response parsing |
+| `rust-grpc-gui-common` | `src/lib.rs` `#[cfg(test)]` | `tonic` in-process server | gRPC request formation, proto field mapping, enum serialization |
+| `python_rest_gui_common` | `test_counters_client.py` | `responses` / `unittest.mock` | URL construction, bitmask computation, response parsing, error handling |
+| `python_grpc_gui_common` | `test_counters_grpc_client.py` | `unittest.mock` | Data type construction, bitmask logic, field mapping |
+
+Key test categories for common libraries:
+- **WireInState bitmask**: `default() == 0`, individual bits (0x01, 0x02, 0x04), all bits (`0x07`)
+- **CounterState defaults**: All fields zero/false after construction
+- **DeviceInfo / ResourceInfo fields**: Dataclass/struct construction and field access
+- **URL normalization**: Trailing slash handling, base path construction
+- **Lock detection**: `locked_by` field presence/absence/self-detection
+- **HTTP/gRPC request construction**: Correct method, path, body/fields (via mocks)
+- **Response parsing**: Mock server responses → typed data structures
+- **Error handling**: Server error codes → `ClientError` with correct status
+
+#### Tier 2: GUI Application Tests (Always Run, Headless)
+
+Each GUI demo application has tests for its state machine logic and, where
+framework support permits, headless GUI interaction testing.
+
+**Rust iced demos** use `iced_test` (0.14) for full headless GUI testing:
+
+```rust
+// Example: verify counter panel renders after acquisition
+use iced_test::simulator;
+
+#[test]
+fn test_counter_panel_shows_after_acquire() {
+    let mut state = AppState::new("test.bit".into());
+    state.phase = Phase::Acquired;
+    let mut ui = simulator(view(&state));
+    assert!(ui.find("Counter #1").is_ok());
+    assert!(ui.find("Counter #2").is_ok());
+}
+
+#[test]
+fn test_connect_button_disabled_after_connect() {
+    let mut state = AppState::new("test.bit".into());
+    state.phase = Phase::Connected;
+    let mut ui = simulator(view(&state));
+    // Connect button should show checkmark
+    assert!(ui.find("1. Connect ✓").is_ok());
+}
+```
+
+**Rust egui demos** test extracted logic functions (phase ordering, lock
+detection, log truncation) in `#[cfg(test)]` blocks. egui does not provide
+a headless test harness comparable to `iced_test`.
+
+**Python tkinter demos** test state machine logic with `unittest.mock`
+patching `tkinter` calls. No headless GUI rendering.
+
+**Python dearpygui demos** test logic layer with `unittest.mock` patching
+`dearpygui.dearpygui` functions. DearPyGui requires GPU context, so GUI
+integration tests are limited to mock-based verification of `dpg` calls.
+
+| Test Category | What It Verifies |
+|---------------|-----------------|
+| Phase ordering | `Disconnected → Connected → Programmed → Registered → Acquired` |
+| Lock detection | `is_locked_out()` with no resource, self-locked, other-locked, override |
+| Log management | Max 200 entries, truncation, timestamp format |
+| Wire state | UI checkbox state → `WireInState` → bitmask value |
+| Button enable/disable | Buttons disabled in correct phases |
+| Shutdown prompt | Release vs. keep-held logic |
+| *(iced only)* View rendering | Connection panel, counter panel, button labels, progress bars |
+| *(iced only)* Click simulation | Button clicks → correct Messages |
+
+#### Tier 3: Hardware Integration Tests (Run When FPGA Connected)
+
+These are the existing Phase 18 hardware tests, extended to cover the GUI
+client common libraries. They require a running server + connected FPGA and
+are marked `#[ignore]` (Rust) or skipped (Python) by default.
+
+#### Test Dependencies
+
+**Rust dev-dependencies:**
+```toml
+[dev-dependencies]
+mockito = "1"        # HTTP mock server (REST common)
+iced_test = "0.14"   # Headless GUI simulator (iced demos)
+tokio-test = "0.4"   # Async test utilities
+```
+
+**Python test dependencies** (in `pyproject.toml`):
+```toml
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "responses>=0.25",    # HTTP mock (REST common)
+]
+```
+
+### 9. Framework Versions
+
+| Framework | Version | MSRV | Key Testing Feature |
+|-----------|---------|------|-------------------|
+| `eframe`/`egui` | latest | — | No headless test harness; test extracted logic |
+| `iced` | **0.14** | Rust 1.88 | `iced_test` headless simulator with `click()`, `find()`, `tap_key()` |
+| `tkinter` | stdlib | Python 3.12+ | `unittest.mock` patching |
+| `dearpygui` | latest | Python 3.12+ | `unittest.mock` patching (GPU context required for real rendering) |
+
+> **Note on iced version**: iced 0.14 was chosen over 0.13 for its new `iced_test`
+> testing facilities (headless simulator), reactive rendering, animation APIs,
+> and new built-in widgets (`table`, `grid`, `sensor`). The MSRV of Rust 1.88 is
+> satisfied by the project's toolchain (Rust 1.97).
+
 ## Consequences
 
 ### Positive
@@ -218,6 +338,10 @@ The interval applies to all reads in a single batch per cycle:
 - **Framework comparison** — developers can compare egui vs iced, tkinter vs dearpygui
 - **Server enforcement testing** — override checkbox enables validation of
   server-side lock rejection
+- **Comprehensive test coverage** — common libraries tested with HTTP/gRPC mocks,
+  iced demos tested with headless GUI simulator, all following TDD (§9)
+- **Educational value** — tests demonstrate proper GUI testing patterns for
+  each framework, teaching users best practices
 
 ### Negative
 
@@ -226,6 +350,8 @@ The interval applies to all reads in a single batch per cycle:
 - **Requires real hardware** — Counters.bit must be loaded on a physical FPGA
 - **Framework dependencies** — egui, iced, dearpygui are external deps (tkinter
   is stdlib)
+- **Test dependency overhead** — `mockito`, `iced_test`, `responses` add
+  dev-dependency weight, but only affect test builds
 
 ## References
 
@@ -234,3 +360,5 @@ The interval applies to all reads in a single batch per cycle:
 - [ADR-020 — Client-Side Resource Registration](ADR-020-client-side-resource-registration.md)
 - [Counters.bit Endpoint Reference](../counters-bit-endpoints.md)
 - [ai-collaboration.md §9 — Testing Strategy](../../.agents/rules/ai-collaboration.md)
+- [iced_test 0.14 documentation](https://docs.rs/iced_test/0.14.0)
+
