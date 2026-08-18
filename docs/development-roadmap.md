@@ -2076,6 +2076,23 @@ Dashboard-focused phase for bugs deferred from Fix-F.
 | F6 | LOW | Resource panel shows empty table — no `/mgmt/resources` endpoint |
 | F7 | LOW | No users in dashboard — no `/mgmt/users` endpoint |
 
+#### Phase 25-Fix-H: QuitRelease Race, Dashboard Auto-Refresh, User Session Cleanup
+
+**Status**: `[ ]` Planned  
+**Depends on**: Phase 25-Fix-G  
+**ADR reference**: [ADR-023 Addendum: Phase 25-Fix-H](architecture/adr/ADR-023-gui-example-clients.md)
+
+Bugs discovered during manual testing of Fix-G dashboard with the iced GUI demo.
+
+| Bug | Severity | Summary |
+|-----|----------|---------|
+| F8 | HIGH | QuitRelease races — `iced::exit()` kills process before release HTTP request completes |
+| F9 | MEDIUM | Dashboard Resources/Users panels don't auto-update — no WebSocket events for resource/user lifecycle |
+| F10 | LOW | User session not cleared on app close — only removed after server heartbeat timeout |
+
+**Resource cleanup rule** (unchanged): All resources for a device are cleared whenever
+the FPGA is re-programmed (any `configure_fpga` method, by any user).
+
 ---
 
 ## Summary of Dependencies
