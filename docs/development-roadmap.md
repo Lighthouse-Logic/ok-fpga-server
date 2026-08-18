@@ -1611,6 +1611,186 @@ cargo test -p ok-fpga-core -- on_metadata_key
 
 ---
 
+## Phase 23: Disconnect Detection Bug Fix
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 15, Phase 19 (ADR-018 handle pool)  
+**ADR reference**: [ADR-002](architecture/adr/ADR-002-device-lifecycle.md) (addendum),
+[ADR-018](architecture/adr/ADR-018-device-handle-pool.md)
+
+### Overview
+
+The `device_poll_loop` in `main.rs` has a bug that prevents device disconnect
+detection. When a device is physically unplugged, the dashboard continues to
+show it as connected.
+
+### Root Cause
+
+The poll loop (lines 369–389 of `main.rs`) checks whether a "gone" device is
+still in the handle pool before declaring it disconnected. Since every device
+is opened in the pool at startup, and the pool only closes handles when a
+disconnect is detected, the check **always** returns true — creating a circular
+dependency that suppresses all disconnect events.
+
+The `FrontPanelDevices` scanner tries to `devices_open()` each device to read
+`okTDeviceInfo`, which fails when the device is already exclusively opened by
+the pool. The workaround (skip pool-opened devices) was intended to prevent
+false disconnects but instead prevents all disconnects.
+
+### Fix
+
+1. **Add `scan_serials(&self) -> HashSet<String>`** to `scanner.rs` — a
+   lightweight method that calls `FrontPanelDevices::GetCount()` +
+   `GetSerial()` to list all physically connected serial numbers **without
+   opening any devices**. This works regardless of whether the handle pool
+   has the device open.
+
+2. **Rewrite `device_poll_loop`** in `main.rs`:
+   - Use `scan_serials()` for presence detection (replaces `scan_devices()`)
+   - Remove the broken `in_pool` check entirely
+   - For gone devices: call `on_device_removed()` + `pool.close()`
+   - For new devices: call `scan_devices()` for that single serial to get
+     full info, then `on_device_added()` + `pool.open()`
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `crates/ok-fpga-server/src/scanner.rs` | Add `scan_serials()` method |
+| `crates/ok-fpga-server/src/main.rs` | Rewrite `device_poll_loop` |
+
+### Verification
+
+```bash
+# Build check
+cargo check --features full
+
+# Unit tests
+cargo test --features full --lib
+
+# Manual test:
+# 1. Start server with FPGA connected → dashboard shows device
+# 2. Disconnect FPGA → dashboard should update within 2s
+# 3. Reconnect FPGA → dashboard should show device again
+```
+
+---
+
+## Phase 24: Dashboard Log Streaming & Level Filtering (ADR-022)
+
+**Status**: `[ ]` Not started  
+**Depends on**: Phase 8 (web dashboard), Phase 23 (disconnect fix — INFO-level events)  
+**ADR reference**: [ADR-022](architecture/adr/ADR-022-dashboard-logging.md),
+[ADR-007](architecture/adr/ADR-007-web-dashboard.md) §77-94
+
+### Overview
+
+Implement the log streaming architecture specified in ADR-022. Server-side
+`tracing` events are broadcast to the web dashboard via WebSocket, with
+per-client log level filtering. Logs are also persisted to a configurable
+file on disk.
+
+### Sub-phases
+
+#### Phase 24A: Server-Side Broadcast Layer
+
+**Status**: `[ ]` Not started
+
+1. **Create `log_broadcast.rs`** — a custom `tracing_subscriber::Layer` that:
+   - Captures all events at TRACE level
+   - Serializes each event to a `LogEvent` struct
+   - Sends through a `broadcast::Sender<LogEvent>`
+   - Maintains a ring buffer (200 entries) for backfill
+
+2. **Update `init_tracing()`** in `main.rs` — compose the subscriber stack:
+   - `fmt::Layer` (stdout, filtered by config level)
+   - File appender layer (new, filtered by config level)
+   - `WebSocketBroadcastLayer` (new, captures at TRACE)
+
+3. **Add TOML config fields**:
+   - `server.log_file` — log file path (default: `logs/okfpga-server.log`)
+   - `dashboard.default_log_level` — default log level for dashboard (default: `info`)
+
+#### Phase 24B: WebSocket Per-Client Filtering
+
+**Status**: `[ ]` Not started
+
+1. **Update `handle_ws_connection`** in `management.rs`:
+   - Accept `{"type": "set_log_level", "level": "DEBUG"}` control messages
+   - Maintain per-client log level filter (default from config)
+   - Send backfill from ring buffer on new client connection
+   - Filter log events before sending to each client
+
+2. **Add log management endpoints** to the management router:
+   - `GET /mgmt/logs/download` — download log file as `text/plain`
+   - `DELETE /mgmt/logs` — truncate log file to zero bytes
+   - `GET /mgmt/logs/size` — return file size in bytes (JSON)
+
+#### Phase 24C: FFI & Request Instrumentation
+
+**Status**: `[ ]` Not started
+
+1. **Tower middleware** — shared between Axum and Tonic:
+   - TRACE: log every request (method, path/RPC, status, latency)
+   - DEBUG: periodic summary (request count, error count, avg latency)
+
+2. **Handle pool instrumentation** — add `tracing::trace!` around FFI calls:
+   - Log function name, arguments, and return code for every FFI invocation
+   - Log FFI errors at TRACE with error code description
+
+3. **Stub call logging** — ensure all stub/unimplemented handlers emit:
+   - WARN: short alert ("GetDeviceSensors: FFI not wired — returning 501")
+   - TRACE: full request context
+
+#### Phase 24D: Dashboard UI
+
+**Status**: `[ ]` Not started
+
+1. **Log level selector** — button group in Logs page header:
+   `[TRACE] [DEBUG] [INFO] [WARN] [ERROR]`
+   - Default: configurable via TOML
+   - Sends `set_log_level` WebSocket message on click
+   - Active button is visually highlighted
+
+2. **Log management controls**:
+   - Clear button: shows file size, calls `DELETE /mgmt/logs` with confirmation
+   - Download button: calls `GET /mgmt/logs/download`
+
+3. **CSS classes** — add `log-debug` (muted gray) and `log-trace` (very muted, monospace)
+
+### Files Changed
+
+| File | Change | Sub-phase |
+|------|--------|-----------|
+| `crates/ok-fpga-server/src/log_broadcast.rs` | [NEW] Broadcast layer + ring buffer | 24A |
+| `crates/ok-fpga-server/src/main.rs` | Layered tracing subscriber | 24A |
+| `crates/ok-fpga-server/src/management.rs` | Per-client WS filtering + log endpoints | 24B |
+| `crates/ok-fpga-server/src/handle_pool.rs` | FFI call instrumentation | 24C |
+| `web/app.js` | Log level selector + clear/download UI | 24D |
+| `web/index.html` | Log level buttons + download button | 24D |
+| `web/style.css` | `log-debug` + `log-trace` classes | 24D |
+
+### Verification
+
+```bash
+# Build check
+cargo check --features full
+
+# Unit tests
+cargo test --features full --lib
+
+# Manual verification:
+# 1. Open dashboard Logs page → should show INFO+ entries
+# 2. Select TRACE → should see FFI calls, REST requests
+# 3. Select ERROR → should only see errors
+# 4. Perform a REST GET → verify request appears at TRACE level
+# 5. Disconnect a device → verify INFO-level entry appears
+# 6. Click Clear → log file should be truncated
+# 7. Click Download → should download log file
+```
+
+---
+
 ## Summary of Dependencies
 
 ```
@@ -1649,12 +1829,22 @@ Phase 0: Scaffolding
                                                               │    ├── 21B: Implicit heartbeat middleware ✅
                                                               │    └── 21C: Server sweep task ✅
                                                               │
-                                                              └── Phase 22: Event System & Policy Stubs ✅
-                                                                   ├── 22A: SSE + WebSocket event wiring ✅
-                                                                   └── 22B: ResourceAccessPolicy stubs ✅
+                                                              ├── Phase 22: Event System & Policy Stubs ✅
+                                                              │    ├── 22A: SSE + WebSocket event wiring ✅
+                                                              │    └── 22B: ResourceAccessPolicy stubs ✅
+                                                              │
+                                                              ├── Phase 23: Disconnect Detection Bug Fix
+                                                              │    └── Fix circular dependency in device_poll_loop
+                                                              │
+                                                              └── Phase 24: Dashboard Log Streaming (ADR-022)
+                                                                   ├── 24A: Server-side broadcast layer
+                                                                   ├── 24B: WebSocket per-client filtering
+                                                                   ├── 24C: FFI & request instrumentation
+                                                                   └── 24D: Dashboard UI
 ```
 
-Phases 21 and 22 completed in parallel — no cross-dependency.
+Phases 23 and 24 can be executed in parallel — Phase 24 does not depend on 23,
+though 23 should land first so disconnect events are visible in the log viewer.
 
 ### Feature Flag Summary
 
