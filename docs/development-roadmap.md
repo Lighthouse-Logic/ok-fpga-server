@@ -11,8 +11,8 @@
 1. **Work one phase at a time**, in order. Do not skip ahead.
 2. **Each phase must pass its verification steps** before moving to the next.
 3. **Read the referenced ADR** before starting each phase — it contains the design decisions.
-4. **Follow the commenting rules** in `.agents/rules/ai-collaboration.md` §8.
-5. **Commit after each successful build** per `.agents/rules/ai-collaboration.md` §7.
+4. **Follow the commenting rules** in `.agents/rules/ai-collaboration.md` §9.
+5. **Commit after each successful build** per `.agents/rules/ai-collaboration.md` §8.
 6. **Update this roadmap** when a phase is completed (change `[ ]` to `[x]` and add the completion date).
 
 ---
@@ -1949,6 +1949,32 @@ All 8 GUI demos were refactored to implement explicit device selection:
 **Tests updated**: Iced connect tests changed to assert `selected_serial == None`
 after connect (user must select explicitly). All 48 iced tests pass.
 
+#### Phase 25-Fix-E: Client-Server Contract Alignment
+
+**Status**: `[ ]` Planned  
+**Depends on**: Phase 25-Fix-D  
+**ADR reference**: [ADR-023 Addendum: Phase 25-Fix-E](architecture/adr/ADR-023-gui-example-clients.md)  
+**Rule added**: [ai-collaboration.md §6 — API Specification Authority](../.agents/rules/ai-collaboration.md)
+
+Manual testing revealed 4 bugs across all 8 GUI demos, all caused by
+client-server contract mismatches. Split into two commits:
+
+**Commit 1 — Bug Fixes (E1, E2, E5, E6):**
+
+| Sub-phase | Description |
+|-----------|-------------|
+| E1 | Fix REST `list_devices()` — unwrap `{"devices": [...]}` wrapper per OpenAPI spec |
+| E2 | Fix mock test responses to match real server format |
+| E5 | Generate + commit Python gRPC proto stubs; add `getting-started.md` per demo |
+| E6 | Replace `unwrap_or_default()` with error propagation in Rust REST client |
+| Server | Expand `DeviceSummary` → full `DeviceInfo` per OpenAPI `DeviceInfo` schema |
+
+**Commit 2 — Features (E3, E4):**
+
+| Sub-phase | Description |
+|-----------|-------------|
+| E3 | Wire gRPC `ConfigureFPGA` + `ConfigureFPGAFromMemory` to FFI `handle_pool` |
+| E4 | GUI demos support dual-mode bitfile: server-side path OR client-side streaming |
 
 ### Files Created
 
@@ -2070,7 +2096,10 @@ Phase 0: Scaffolding
                                                                         ├── 25-Fix-A: iced 0.13→0.14 migration ✅
                                                                         ├── 25-Fix-B: Common lib tests (79) ✅
                                                                         ├── 25-Fix-C: GUI app tests (103) ✅
-                                                                        └── 25-Fix-D: Device dropdown + disconnect ✅
+                                                                        ├── 25-Fix-D: Device dropdown + disconnect ✅
+                                                                         └── 25-Fix-E: Contract alignment [ ]
+                                                                              ├── E1-E2-E5-E6: Bug fixes [ ]
+                                                                              └── E3-E4: gRPC wiring + streaming [ ]
 ```
 
 Phases 23 and 24 can be executed in parallel — Phase 24 does not depend on 23,

@@ -79,7 +79,29 @@ Always confirm explicitly with the user before:
 
 ---
 
-## 6. Architecture Decision Records (ADRs)
+## 6. API Specification Authority
+
+The **OpenAPI spec** (`api/openapi.yaml`) and the **proto3 spec**
+(`proto/okfpga/v1/okfpga.proto`) are the **single source of truth** for the
+REST and gRPC APIs respectively.
+
+**Rules:**
+- **All server endpoint implementations** must return response bodies, field
+  names, and status codes that exactly match the corresponding spec.
+- **All client libraries** must parse responses according to the spec, not
+  according to what a particular server version happens to return.
+- **Never modify the OpenAPI spec or proto spec** without express user
+  permission (see also §3).
+- When a **discrepancy** is discovered between a spec and an implementation,
+  **note it explicitly** in the response and treat the spec as correct. The
+  implementation must be fixed to match the spec — not the other way around.
+- **Mock-based unit tests** must use response fixtures that match the spec. A
+  test that passes against a mock but fails against the real server is a
+  contract-mismatch bug.
+
+---
+
+## 7. Architecture Decision Records (ADRs)
 
 The project maintains a rolling log of architectural decisions in
 `docs/architecture/`. **This log must be kept current.**
@@ -111,7 +133,7 @@ revised or superseded.
 
 ---
 
-## 7. Commit After Every Successful Build
+## 8. Commit After Every Successful Build
 
 After every `cargo build` or `cargo test` run that completes successfully:
 
@@ -126,7 +148,7 @@ Do **not** skip the commit step because "it's just a small change."
 
 ---
 
-## 8. Rust Code Comments & Documentation Standards
+## 9. Rust Code Comments & Documentation Standards
 
 This codebase must be **readable and educational** for college-level undergraduates
 who are new to Rust programming. All AI-generated Rust code must follow these rules:
@@ -184,7 +206,7 @@ who are new to Rust programming. All AI-generated Rust code must follow these ru
 
 ---
 
-## 9. Testing Strategy & Test-Driven Development
+## 10. Testing Strategy & Test-Driven Development
 
 All code must be developed following a **Test-Driven Development (TDD)** philosophy.
 Tests are not an afterthought — they are written *before or alongside* the code they
@@ -314,7 +336,7 @@ Examples:
   force a build to pass. Fix the code or fix the test.
 - **Continuous alignment**: When code changes, update all affected tests in the
   same commit.
-- **`cargo test` before every commit**: Per §7, a commit requires a passing build.
+- **`cargo test` before every commit**: Per §8, a commit requires a passing build.
   `cargo test` (which includes `cargo build`) is the minimum bar.
 
 ---

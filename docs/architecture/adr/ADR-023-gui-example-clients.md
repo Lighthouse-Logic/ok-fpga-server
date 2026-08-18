@@ -218,7 +218,7 @@ The interval applies to all reads in a single batch per cycle:
 
 ### 8. Testing Strategy
 
-All code follows TDD per [§9 of ai-collaboration.md](../../.agents/rules/ai-collaboration.md).
+All code follows TDD per [§10 of ai-collaboration.md](../../.agents/rules/ai-collaboration.md).
 Tests are organized in three tiers:
 
 #### Tier 1: Common Library Unit Tests (Always Run, No Server/Hardware)
@@ -327,7 +327,7 @@ test = [
 - **Server enforcement testing** — override checkbox enables validation of
   server-side lock rejection
 - **Comprehensive test coverage** — common libraries tested with HTTP/gRPC mocks,
-  iced demos tested with headless GUI simulator, all following TDD (§9)
+  iced demos tested with headless GUI simulator, all following TDD (§10)
 - **Educational value** — tests demonstrate proper GUI testing patterns for
   each framework, teaching users best practices
 
@@ -347,6 +347,65 @@ test = [
 - [ADR-016 — Hardware Integration Testing](ADR-016-hardware-integration-testing.md)
 - [ADR-020 — Client-Side Resource Registration](ADR-020-client-side-resource-registration.md)
 - [Counters.bit Endpoint Reference](../counters-bit-endpoints.md)
-- [ai-collaboration.md §9 — Testing Strategy](../../.agents/rules/ai-collaboration.md)
+- [ai-collaboration.md §10 — Testing Strategy](../../.agents/rules/ai-collaboration.md)
+- [ai-collaboration.md §6 — API Specification Authority](../../.agents/rules/ai-collaboration.md)
 - [iced_test 0.14 documentation](https://docs.rs/iced_test/0.14.0)
 
+---
+
+## Addendum: Phase 25-Fix-E — Client-Server Contract Alignment
+
+**Date**: 2026-08-18  
+**Status**: Planned
+
+### Problem
+
+Manual testing of all 8 GUI demos revealed four categories of failures:
+
+| Bug | Symptom | Root Cause | Demos Affected |
+|-----|---------|------------|---------------|
+| REST response wrapping | 0 devices shown (Rust) or `'str' object has no attribute 'get'` (Python) | `list_devices()` expects flat array `[{...}]`; server returns `{"devices": [{...}]}` per OpenAPI spec | All 4 REST demos |
+| gRPC ConfigureFPGA stub | `Unimplemented: ConfigureFPGA requires FFI integration` | gRPC RPC not wired to FFI `handle_pool`; REST endpoint IS wired | 2 Rust gRPC demos |
+| Python proto stubs missing | `'NoneType' object has no attribute 'DeviceServiceStub'` | `gen/` directory not generated; `try/except` silently sets modules to `None` | 2 Python gRPC demos |
+| Egui dropdown hidden | Select Device dropdown never appears | Consequence of bug #1: `self.devices` always empty | 1 Rust REST egui demo |
+
+All four bugs passed unit tests because the **mock response fixtures did not
+match the real server's response format** — a contract-mismatch class of bug.
+
+### Decision
+
+1. **OpenAPI and proto specs are the source of truth** (new rule: `ai-collaboration.md` §6).
+   Server implementations and client parsers must conform to the specs.
+   When a discrepancy is found, the spec is correct; the code must be fixed.
+
+2. **Server `DeviceSummary` expanded** to return all fields defined in the
+   OpenAPI `DeviceInfo` schema (Option B). The list endpoint must return what
+   the spec says.
+
+3. **Silent error swallowing removed**: Rust client's `unwrap_or_default()` on
+   deserialization replaced with error propagation via `map_err()`.
+
+4. **Dual-mode bitfile configuration**: GUI demos support both:
+   - **Server-side path** (`ConfigureFPGA` / JSON `{"bitfile_path": "..."}`):
+     for bitfiles hosted on the server machine.
+   - **Client-side streaming** (`ConfigureFPGAFromMemory` / `multipart/form-data`):
+     for bitfiles on the GUI client's machine, streamed to the server.
+
+5. **Python gRPC proto stubs committed** to the repository. Each demo directory
+   gets a `getting-started.md` documenting prerequisites and setup.
+
+6. **Mock fixtures aligned to specs**: All mock-based tests updated to return
+   response bodies that exactly match the OpenAPI/proto spec format.
+
+### Files Changed
+
+| Sub-phase | Files | Description |
+|-----------|-------|-------------|
+| E1 | `rust-rest-gui-common/src/lib.rs`, `python_rest_gui_common/counters_client.py` | Fix `list_devices()` to unwrap `{"devices": [...]}` |
+| E2 | `rust-rest-gui-common/src/lib.rs` (tests), `python_rest_gui_common/test_counters_client.py` | Fix mock response fixtures |
+| E3 | `crates/ok-fpga-server/src/grpc/device_service.rs` | Wire gRPC `ConfigureFPGA` + `ConfigureFPGAFromMemory` to FFI |
+| E4 | All 8 GUI demo files, all 4 common client libraries | Add dual-mode (path vs streaming) bitfile config |
+| E5 | `python_grpc_gui_common/gen/`, 8× `getting-started.md` | Commit proto stubs, add per-demo docs |
+| E6 | `rust-rest-gui-common/src/lib.rs` | Replace `unwrap_or_default()` with error propagation |
+| Server | `crates/ok-fpga-server/src/rest/devices.rs` | Expand `DeviceSummary` to full `DeviceInfo` per OpenAPI spec |
+| Rule | `.agents/rules/ai-collaboration.md` | New §6: API Specification Authority |
