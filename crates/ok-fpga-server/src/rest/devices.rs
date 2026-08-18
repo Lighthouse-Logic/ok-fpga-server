@@ -6,9 +6,10 @@
 //! ## FFI Integration (Phase 19 + 19G)
 //!
 //! The `configure_fpga`, `get_device_sensors`, `get_bitfile_info`,
-//! `get_dataport_type`, `get_device_settings`, `get_device_setting`, and
-//! `set_device_setting` handlers are wired to the FrontPanel DLL via the
-//! `DeviceHandlePool` in `AppState`. See ADR-017 and ADR-021.
+//! `get_dataport_type`, `get_device_settings`, `get_device_setting`,
+//! `set_device_setting`, and `get_syzygy_ports` handlers are wired to the
+//! FrontPanel DLL via the `DeviceHandlePool` in `AppState`.
+//! See ADR-017 and ADR-021.
 
 use std::sync::Arc;
 
@@ -546,13 +547,106 @@ async fn set_device_setting(
     })))
 }
 
-/// `GET /devices/{serial}/syzygy` — Get SYZYGY port information.
+/// `GET /devices/{serial}/syzygy` — Discover SYZYGY ports.
+///
+/// SYZYGY ports are discovered by probing device settings keys (ADR-009):
+/// `SYZYGYn_PORT_STATUS` for port indices 0..15. For each port found,
+/// the DNA fields (manufacturer, product, model, version, serial) are read.
+///
+/// This works without FPGA programming — SYZYGY data is stored in device
+/// flash/EEPROM alongside other device settings.
 async fn get_syzygy_ports(
-    Path(_serial): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Path(serial): Path<String>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    Err(ProblemDetail::not_implemented(
-        "SYZYGY discovery requires FFI integration",
-    ))
+    let pool = state
+        .handle_pool
+        .as_ref()
+        .ok_or_else(|| ProblemDetail::not_implemented("FrontPanel DLL not loaded"))?;
+
+    let device_arc = pool
+        .get(&serial)
+        .await
+        .ok_or_else(|| ProblemDetail::not_found(format!("device '{}' not found in handle pool", serial)))?;
+
+    let device = device_arc.lock().await;
+    let dll = device.dll();
+    let handle = device.raw();
+
+    // SAFETY: handle is valid (from pool). Construct settings, populate,
+    // probe SYZYGY keys, then destroy.
+    let ports: Vec<serde_json::Value> = unsafe {
+        let settings = (dll.settings_construct)();
+        if settings.is_null() {
+            return Err(ProblemDetail::internal("Failed to construct settings handle"));
+        }
+
+        let rc = (dll.fp_get_device_settings)(handle, settings);
+        if rc as i32 != ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+            (dll.settings_destruct)(settings);
+            return Err(ffi_error_to_problem(&FfiError::FrontPanelError {
+                code: rc as i32,
+                message: format!("GetDeviceSettings failed with code {}", rc as i32),
+            }));
+        }
+
+        let mut result = Vec::new();
+
+        // Probe ports 0..15. Stop when SYZYGYn_PORT_STATUS is not found.
+        for n in 0u32..16 {
+            let status_key = format!("SYZYGY{}_PORT_STATUS\0", n);
+            let status_key_c = std::ffi::CString::from_vec_unchecked(status_key.into_bytes());
+            let mut port_status: ok_fpga_ffi::UINT32 = 0;
+            let rc = (dll.settings_get_int)(settings, status_key_c.as_ptr(), &mut port_status);
+
+            if rc as i32 != ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                break; // No more SYZYGY ports.
+            }
+
+            let is_populated = port_status > 0;
+
+            // Read string DNA fields for this port.
+            let string_fields = [
+                "MANUFACTURER_NAME",
+                "PRODUCT_NAME",
+                "PRODUCT_MODEL",
+                "PRODUCT_VERSION",
+                "SERIAL_NUMBER",
+            ];
+
+            let mut dna = std::collections::HashMap::new();
+            for field in &string_fields {
+                let key = format!("SYZYGY{}_{}\0", n, field);
+                let key_c = std::ffi::CString::from_vec_unchecked(key.into_bytes());
+                let mut buf = vec![0i8; 256];
+                let str_rc = (dll.settings_get_string)(
+                    settings,
+                    key_c.as_ptr(),
+                    buf.len() as i32,
+                    buf.as_mut_ptr(),
+                );
+                if str_rc as i32 == ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                    dna.insert(field.to_string(), cstr_from_char_array(&buf));
+                }
+            }
+
+            result.push(serde_json::json!({
+                "index": n,
+                "port_status_mv": port_status,
+                "is_populated": is_populated,
+                "manufacturer_name": dna.get("MANUFACTURER_NAME").cloned().unwrap_or_default(),
+                "product_name": dna.get("PRODUCT_NAME").cloned().unwrap_or_default(),
+                "product_model": dna.get("PRODUCT_MODEL").cloned().unwrap_or_default(),
+                "product_version": dna.get("PRODUCT_VERSION").cloned().unwrap_or_default(),
+                "serial_number": dna.get("SERIAL_NUMBER").cloned().unwrap_or_default(),
+            }));
+        }
+
+        (dll.settings_destruct)(settings);
+        result
+    };
+
+    Ok(Json(serde_json::json!({ "ports": ports })))
 }
 
 /// `POST /devices/{serial}/configure` — Program FPGA with a bitfile.

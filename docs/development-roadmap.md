@@ -1260,14 +1260,15 @@ pytest tests/test_hardware.py -v -s
 
 ---
 
-#### Phase 19G: Device Settings FFI Wiring
+#### Phase 19G: Device Settings & SYZYGY FFI Wiring
 
 **Status**: `[x]` Completed (2026-08-17)  
 **ADR reference**: [ADR-021 — Device Settings FFI Wiring](architecture/adr/ADR-021-settings-ffi-wiring.md)
 
-Wired the three settings REST endpoints and three gRPC RPCs from 501 stubs
-to real FFI calls via the `DeviceHandlePool`. Settings are device-level
-metadata (not bitfile-dependent) and do not require FPGA programming.
+Wired the three settings REST endpoints, three gRPC RPCs, and the SYZYGY
+discovery endpoints from 501 stubs to real FFI calls via the `DeviceHandlePool`.
+Settings and SYZYGY data are device-level metadata (not bitfile-dependent) and
+do not require FPGA programming.
 
 **REST endpoints:**
 
@@ -1276,6 +1277,7 @@ metadata (not bitfile-dependent) and do not require FPGA programming.
 | `GET /devices/{serial}/settings` | `settings_construct` → `fp_get_device_settings` → `settings_list` → iterate keys → `settings_get_int`/`settings_get_string` → `settings_destruct` | `[x]` Done |
 | `GET /devices/{serial}/settings/{key}` | Same populate + single-key read | `[x]` Done |
 | `PUT /devices/{serial}/settings/{key}` | Same populate + `settings_set_int`/`settings_set_string` + `settings_save` | `[x]` Done |
+| `GET /devices/{serial}/syzygy` | Same populate + probe `SYZYGYn_PORT_STATUS` keys (n=0..15), read DNA fields | `[x]` Done |
 
 **gRPC RPCs:**
 
@@ -1284,9 +1286,14 @@ metadata (not bitfile-dependent) and do not require FPGA programming.
 | `GetDeviceSettings` | `[x]` Done |
 | `GetDeviceSetting` | `[x]` Done |
 | `SetDeviceSetting` | `[x]` Done |
+| `GetSyzygyPorts` | `[x]` Done |
 
 **Client updates:**
 - `[x]` Move "Settings" out of "Stub Endpoints (expected 501)" in Rust REST client demo
+- `[x]` Add "SYZYGY Ports" section showing structured port data
+- `[x]` Move Dataport to "Device Endpoints" (was already live, mislabeled as stub)
+- `[x]` Add Bitfile info with explanatory note (409 = not programmed, not a stub)
+- `[x]` Clarify Sensors section: 501 with code -15 is correct for XEM7320 (no on-board sensors)
 
 ---
 

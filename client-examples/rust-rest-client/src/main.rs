@@ -175,18 +175,29 @@ async fn main() {
                 Err(e) => println!("  Settings: {} (unexpected error)", e),
             }
 
-            // Try sensor, SYZYGY endpoints (expected to return 501)
-            println!("\n━━━ Stub Endpoints (expected 501) ━━━");
-            for (name, result) in [
-                ("Sensors", client.get_device_sensors(serial).await),
-                ("SYZYGY", client.get_syzygy_ports(serial).await),
-                ("Bitfile", client.get_bitfile_info(serial).await),
-                ("Dataport", client.get_dataport_type(serial).await),
-            ] {
-                match result {
-                    Ok(v) => println!("  {}: {}", name, v),
-                    Err(e) => println!("  {}: {} ✓ (stub)", name, e),
-                }
+            // SYZYGY port discovery — reads from device settings (ADR-009)
+            println!("\n━━━ SYZYGY Ports ━━━");
+            match client.get_syzygy_ports(serial).await {
+                Ok(v) => println!("  {}", serde_json::to_string_pretty(&v).unwrap()),
+                Err(e) => println!("  SYZYGY: {} (unexpected error)", e),
+            }
+
+            // Device-level info endpoints (always available)
+            println!("\n━━━ Device Endpoints ━━━");
+            match client.get_dataport_type(serial).await {
+                Ok(v) => println!("  Dataport: {}", v),
+                Err(e) => println!("  Dataport: {} (unexpected error)", e),
+            }
+            match client.get_bitfile_info(serial).await {
+                Ok(v) => println!("  Bitfile: {}", v),
+                Err(e) => println!("  Bitfile: {} (not programmed — expected if no ConfigureFPGA was called)", e),
+            }
+
+            // Sensors: XEM7320 does not have on-board sensors (code -15 = UnsupportedFeature)
+            println!("\n━━━ Sensors (expected 501 on XEM7320 — no on-board sensors) ━━━");
+            match client.get_device_sensors(serial).await {
+                Ok(v) => println!("  Sensors: {}", v),
+                Err(e) => println!("  Sensors: {} ✓ (expected — this board has no sensors)", e),
             }
         }
     }

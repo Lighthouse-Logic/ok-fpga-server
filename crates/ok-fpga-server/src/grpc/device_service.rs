@@ -442,13 +442,110 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
     // SYZYGY
     // ========================================================================
 
+    /// `GetSyzygyPorts` — discover SYZYGY peripheral ports via device settings.
+    ///
+    /// Probes `SYZYGYn_PORT_STATUS` keys (n = 0..15) to discover ports,
+    /// then reads DNA fields for each port found (ADR-009).
     async fn get_syzygy_ports(
         &self,
-        _request: Request<proto::DeviceRequest>,
+        request: Request<proto::DeviceRequest>,
     ) -> Result<Response<proto::SyzygyPortsResponse>, Status> {
-        Err(Status::unimplemented(
-            "GetSyzygyPorts requires FFI integration",
-        ))
+        let serial = &request.get_ref().serial;
+
+        let pool = self
+            .state
+            .handle_pool
+            .as_ref()
+            .ok_or_else(|| Status::unimplemented("FrontPanel DLL not loaded"))?;
+
+        let device_arc = pool
+            .get(serial)
+            .await
+            .ok_or_else(|| Status::not_found(format!("device '{}' not in handle pool", serial)))?;
+
+        let device = device_arc.lock().await;
+        let dll = device.dll();
+        let handle = device.raw();
+
+        // SAFETY: handle is valid (from pool). Construct settings, populate,
+        // probe SYZYGY keys, then destroy.
+        let ports: Vec<proto::SyzygyPort> = unsafe {
+            let settings = (dll.settings_construct)();
+            if settings.is_null() {
+                return Err(Status::internal("Failed to construct settings handle"));
+            }
+
+            let rc = (dll.fp_get_device_settings)(handle, settings);
+            if rc as i32 != ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                (dll.settings_destruct)(settings);
+                return Err(Status::internal(format!(
+                    "GetDeviceSettings failed with code {}",
+                    rc as i32
+                )));
+            }
+
+            let mut result = Vec::new();
+
+            for n in 0u32..16 {
+                let status_key = format!("SYZYGY{}_PORT_STATUS\0", n);
+                let status_key_c = std::ffi::CString::from_vec_unchecked(status_key.into_bytes());
+                let mut port_status: ok_fpga_ffi::UINT32 = 0;
+                let rc = (dll.settings_get_int)(settings, status_key_c.as_ptr(), &mut port_status);
+
+                if rc as i32 != ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                    break;
+                }
+
+                // Read DNA string fields.
+                let fields = [
+                    "MANUFACTURER_NAME",
+                    "PRODUCT_NAME",
+                    "PRODUCT_MODEL",
+                    "PRODUCT_VERSION",
+                    "SERIAL_NUMBER",
+                ];
+
+                let mut dna = std::collections::HashMap::new();
+                for field in &fields {
+                    let key = format!("SYZYGY{}_{}\0", n, field);
+                    let key_c = std::ffi::CString::from_vec_unchecked(key.into_bytes());
+                    let mut buf = vec![0i8; 256];
+                    let str_rc = (dll.settings_get_string)(
+                        settings,
+                        key_c.as_ptr(),
+                        buf.len() as i32,
+                        buf.as_mut_ptr(),
+                    );
+                    if str_rc as i32 == ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                        dna.insert(field.to_string(), cstr_from_char_array(&buf));
+                    }
+                }
+
+                result.push(proto::SyzygyPort {
+                    index: n,
+                    port_status_mv: port_status,
+                    is_populated: port_status > 0,
+                    manufacturer_name: dna.get("MANUFACTURER_NAME").cloned().unwrap_or_default(),
+                    product_name: dna.get("PRODUCT_NAME").cloned().unwrap_or_default(),
+                    product_model: dna.get("PRODUCT_MODEL").cloned().unwrap_or_default(),
+                    product_version: dna.get("PRODUCT_VERSION").cloned().unwrap_or_default(),
+                    serial_number: dna.get("SERIAL_NUMBER").cloned().unwrap_or_default(),
+                });
+            }
+
+            (dll.settings_destruct)(settings);
+            result
+        };
+
+        info!(serial = %serial, count = ports.len(), "GetSyzygyPorts: discovered ports");
+        Ok(Response::new(proto::SyzygyPortsResponse {
+            ports,
+            error: Some(proto::ErrorCluster {
+                status: false,
+                code: 0,
+                source: String::new(),
+            }),
+        }))
     }
 
     // ========================================================================
