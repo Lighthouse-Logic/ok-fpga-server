@@ -415,7 +415,7 @@ match the real server's response format** — a contract-mismatch class of bug.
 ## Addendum: Phase 25-Fix-F — Iced GUI Demo + Server Bug Fixes
 
 **Date**: 2026-08-18  
-**Status**: Planned
+**Status**: Completed (2026-08-18, `56db45b`)
 
 ### Problem
 

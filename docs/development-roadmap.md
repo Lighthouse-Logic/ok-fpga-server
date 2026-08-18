@@ -2037,7 +2037,7 @@ Each GUI demo should be verified with:
 
 #### Phase 25-Fix-F: Iced GUI + Server Bug Fixes
 
-**Status**: `[ ]` Planned  
+**Status**: `[x]` Completed (2026-08-18, `56db45b`)  
 **Depends on**: Phase 25-Fix-E  
 **ADR reference**: [ADR-023 Addendum: Phase 25-Fix-F](architecture/adr/ADR-023-gui-example-clients.md)
 
