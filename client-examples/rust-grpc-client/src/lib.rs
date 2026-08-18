@@ -438,4 +438,17 @@ impl OkFpgaGrpcClient {
             })
             .await
     }
+
+    // ========================================================================
+    // User Sessions
+    // ========================================================================
+
+    /// List all active user sessions.
+    pub async fn list_users(
+        &mut self,
+    ) -> Result<tonic::Response<okfpga::v1::ListUsersResponse>, tonic::Status> {
+        self.device
+            .list_users(okfpga::v1::ListUsersRequest {})
+            .await
+    }
 }

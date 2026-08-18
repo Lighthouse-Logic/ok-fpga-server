@@ -106,6 +106,13 @@ async def main() -> None:
                     print(f"  Product:    {dev.product_name} (ID {dev.product_id})")
                     print(f"  USB Speed:  {dev.usb_speed}")
                     print(f"  Firmware:   {dev.device_major_version}.{dev.device_minor_version}")
+                    print(f"  Dataport:   {dev.dataport}")
+                    if dev.HasField("bitfile"):
+                        print(f"  Bitfile:    {dev.bitfile.filename}")
+                        if dev.bitfile.programmed_at:
+                            print(f"  Programmed: {dev.bitfile.programmed_at} by {dev.bitfile.programmed_by}")
+                    else:
+                        print("  Bitfile:    (not programmed)")
             except Exception as e:
                 print(f"  Error: {e}")
 
@@ -170,6 +177,18 @@ async def main() -> None:
                         f"  {r.id} — {r.name} [{r.state}] "
                         f"(device: {r.device_serial})"
                     )
+        except Exception as e:
+            print(f"  Error: {e}")
+
+        # --- Users ---
+        print("\n━━━ Users ━━━")
+        try:
+            resp = await client.list_users()
+            if not resp.users:
+                print("  No active user sessions")
+            else:
+                for u in resp.users:
+                    print(f"  {u.user_id} — connected: {u.connected_at} (resources: {list(u.held_resource_ids)})")
         except Exception as e:
             print(f"  Error: {e}")
 

@@ -58,7 +58,7 @@ async def main() -> None:
 
     async with OkFpgaRestClient(base_url) as client:
         # --- Server Status ---
-        print("--- Server Status ---")
+        print("━━━ Server Status ━━━")
         try:
             status = await client.get_server_status()
             print(f"  API Version:  {status.get('api_version', 'N/A')}")
@@ -68,7 +68,7 @@ async def main() -> None:
             print(f"  Error: {e}")
 
         # --- Services ---
-        print("\n--- Services ---")
+        print("\n━━━ Services ━━━")
         try:
             svc_resp = await client.list_services()
             for svc in svc_resp.get("services", []):
@@ -77,7 +77,7 @@ async def main() -> None:
             print(f"  Error: {e}")
 
         # --- Devices ---
-        print("\n--- Devices ---")
+        print("\n━━━ Devices ━━━")
         devices = []
         try:
             dev_resp = await client.list_devices()
@@ -93,30 +93,71 @@ async def main() -> None:
         # --- Device Detail ---
         if devices:
             serial = devices[0]["serial"]
-            print(f"\n--- Device Detail: {serial} ---")
+            print(f"\n━━━ Device Detail: {serial} ━━━")
             try:
                 info = await client.get_device_info(serial)
                 print(f"  Info: {info}")
             except Exception as e:
                 print(f"  Device info: {e}")
 
-            # Stub endpoints (expect 501)
-            print("\n--- Stub Endpoints (expect 501) ---")
-            for name, coro in [
-                ("Sensors", client.get_device_sensors(serial)),
-                ("Settings", client.get_device_settings(serial)),
-                ("SYZYGY", client.get_syzygy_ports(serial)),
-                ("Bitfile", client.get_bitfile_info(serial)),
-                ("Dataport", client.get_dataport_type(serial)),
-            ]:
-                try:
-                    result = await coro
-                    print(f"  {name}: {result}")
-                except Exception as e:
-                    print(f"  {name}: {e} [OK] (stub)")
+            # Device Settings
+            print("\n━━━ Device Settings ━━━")
+            try:
+                settings = await client.get_device_settings(serial)
+                entries = settings.get("settings", [])
+                print(f"  {len(entries)} settings found:")
+                for s in entries:
+                    if s.get("value_type") == "integer":
+                        print(f"    {s['key']} = {s.get('int_value', 'N/A')} (integer)")
+                    else:
+                        print(f"    {s['key']} = \"{s.get('string_value', '')}\"")
+            except Exception as e:
+                print(f"  Settings: {e} (unexpected error)")
+
+            # SYZYGY Ports
+            print("\n━━━ SYZYGY Ports ━━━")
+            try:
+                syzygy = await client.get_syzygy_ports(serial)
+                ports = syzygy.get("ports", [])
+                if not ports:
+                    print("  No SYZYGY ports found")
+                else:
+                    print(f"  {len(ports)} ports discovered:")
+                    for port in ports:
+                        if port.get("is_populated"):
+                            print(
+                                f"    Port {port['index']}: {port.get('manufacturer_name', '')} "
+                                f"{port.get('product_name', '')} ({port.get('port_status_mv', 0)}mV) "
+                                f"— SN: {port.get('serial_number', '')}"
+                            )
+                        else:
+                            print(f"    Port {port['index']}: empty (unpowered)")
+            except Exception as e:
+                print(f"  SYZYGY: {e} (unexpected error)")
+
+            # Device-level info endpoints
+            print("\n━━━ Device Endpoints ━━━")
+            try:
+                dp = await client.get_dataport_type(serial)
+                print(f"  Dataport: {dp.get('dataport', 'N/A')}")
+            except Exception as e:
+                print(f"  Dataport: {e} (unexpected error)")
+            try:
+                bf = await client.get_bitfile_info(serial)
+                print(f"  Bitfile: {bf}")
+            except Exception as e:
+                print(f"  Bitfile: {e} (not programmed — expected if no ConfigureFPGA was called)")
+
+            # Sensors
+            print("\n━━━ Sensors (expected 501 on XEM7320 — no on-board sensors) ━━━")
+            try:
+                sensors = await client.get_device_sensors(serial)
+                print(f"  Sensors: {sensors}")
+            except Exception as e:
+                print(f"  Sensors: {e} ✓ (expected — this board has no sensors)")
 
         # --- Resources ---
-        print("\n--- Resources ---")
+        print("\n━━━ Resources ━━━")
         try:
             res = await client.list_resources()
             print(f"  {res}")
@@ -124,7 +165,7 @@ async def main() -> None:
             print(f"  Resources: {e}")
 
         # --- Users ---
-        print("\n--- Users ---")
+        print("\n━━━ Users ━━━")
         try:
             users = await client.list_users()
             print(f"  {users}")
@@ -135,14 +176,14 @@ async def main() -> None:
     if mqtt:
         mqtt.publish_heartbeat(0)
         mqtt.publish_connection_status("localhost", True, base_url, 8088)
-        print("\n--- MQTT ---")
+        print("\n━━━ MQTT ━━━")
         print("  Published heartbeat and connection status")
         mqtt.publish_offline()
     else:
-        print("\n--- MQTT ---")
+        print("\n━━━ MQTT ━━━")
         print("  Skipped (broker unavailable)")
 
-    print("\nOK: Demo complete.")
+    print("\n\u2705 Demo complete.")
 
 
 if __name__ == "__main__":

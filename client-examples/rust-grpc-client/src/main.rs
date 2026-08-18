@@ -163,6 +163,15 @@ async fn main() {
                     println!("  Product:    {} (ID {})", dev.product_name, dev.product_id);
                     println!("  USB Speed:  {:?}", dev.usb_speed);
                     println!("  Firmware:   {}.{}", dev.device_major_version, dev.device_minor_version);
+                    println!("  Dataport:   {:?}", dev.dataport);
+                    if let Some(bf) = &dev.bitfile {
+                        println!("  Bitfile:    {}", bf.filename);
+                        if !bf.programmed_at.is_empty() {
+                            println!("  Programmed: {} by {}", bf.programmed_at, bf.programmed_by);
+                        }
+                    } else {
+                        println!("  Bitfile:    (not programmed)");
+                    }
                 }
             }
             Err(e) => println!("  Error: {}", e.message()),
@@ -252,6 +261,22 @@ async fn main() {
                         "  {} — {} [{}] (device: {})",
                         r.id, r.name, r.state, r.device_serial
                     );
+                }
+            }
+        }
+        Err(e) => println!("  Error: {}", e.message()),
+    }
+
+    // --- Users ---
+    println!("\n━━━ Users ━━━");
+    match client.list_users().await {
+        Ok(resp) => {
+            let inner = resp.into_inner();
+            if inner.users.is_empty() {
+                println!("  No active user sessions");
+            } else {
+                for u in &inner.users {
+                    println!("  {} — connected: {} (resources: {:?})", u.user_id, u.connected_at, u.held_resource_ids);
                 }
             }
         }

@@ -293,3 +293,11 @@ class OkFpgaGrpcClient:
         return await self._device.Ping(
             okfpga_pb2.PingRequest(user_id=user_id)
         )
+
+    # ========================================================================
+    # User Sessions
+    # ========================================================================
+
+    async def list_users(self):
+        """List all active user sessions."""
+        return await self._device.ListUsers(okfpga_pb2.ListUsersRequest())

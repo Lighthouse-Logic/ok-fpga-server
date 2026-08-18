@@ -728,36 +728,115 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         &self,
         _request: Request<proto::ListResourcesRequest>,
     ) -> Result<Response<proto::ListResourcesResponse>, Status> {
-        Err(Status::unimplemented(
-            "ListResources requires resource registry integration",
-        ))
+        let resources: Vec<proto::Resource> = self
+            .state
+            .resource_registry
+            .list()
+            .iter()
+            .map(Self::resource_to_proto)
+            .collect();
+
+        Ok(Response::new(proto::ListResourcesResponse {
+            resources,
+            error: Some(proto::ErrorCluster {
+                status: false,
+                code: 0,
+                source: String::new(),
+            }),
+        }))
     }
 
     async fn get_resource(
         &self,
-        _request: Request<proto::ResourceRequest>,
+        request: Request<proto::ResourceRequest>,
     ) -> Result<Response<proto::ResourceResponse>, Status> {
-        Err(Status::unimplemented(
-            "GetResource requires resource registry integration",
-        ))
+        let req = request.into_inner();
+        let resource = self
+            .state
+            .resource_registry
+            .get(&req.resource_id)
+            .ok_or_else(|| Status::not_found(format!("Resource '{}' not found", req.resource_id)))?;
+
+        Ok(Response::new(proto::ResourceResponse {
+            resource: Some(Self::resource_to_proto(&resource)),
+            error: Some(proto::ErrorCluster {
+                status: false,
+                code: 0,
+                source: String::new(),
+            }),
+        }))
     }
 
     async fn acquire_resource(
         &self,
-        _request: Request<proto::AcquireResourceRequest>,
+        request: Request<proto::AcquireResourceRequest>,
     ) -> Result<Response<proto::ResourceResponse>, Status> {
-        Err(Status::unimplemented(
-            "AcquireResource requires resource registry integration",
-        ))
+        let req = request.into_inner();
+        if req.resource_id.is_empty() {
+            return Err(Status::invalid_argument("resource_id is required"));
+        }
+        if req.user_id.is_empty() {
+            return Err(Status::invalid_argument("user_id is required"));
+        }
+
+        let mode = if req.mode == proto::AccessMode::Exclusive as i32 {
+            ok_fpga_core::resource::AccessMode::Exclusive
+        } else {
+            ok_fpga_core::resource::AccessMode::Shared
+        };
+
+        self.state
+            .resource_registry
+            .acquire(&req.resource_id, &req.user_id, mode)
+            .map_err(|e| Status::failed_precondition(e.to_string()))?;
+
+        let resource = self
+            .state
+            .resource_registry
+            .get(&req.resource_id)
+            .ok_or_else(|| Status::internal("Resource vanished after acquire"))?;
+
+        Ok(Response::new(proto::ResourceResponse {
+            resource: Some(Self::resource_to_proto(&resource)),
+            error: Some(proto::ErrorCluster {
+                status: false,
+                code: 0,
+                source: String::new(),
+            }),
+        }))
     }
 
     async fn release_resource(
         &self,
-        _request: Request<proto::ReleaseResourceRequest>,
+        request: Request<proto::ReleaseResourceRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
-        Err(Status::unimplemented(
-            "ReleaseResource requires resource registry integration",
-        ))
+        let req = request.into_inner();
+        if req.resource_id.is_empty() {
+            return Err(Status::invalid_argument("resource_id is required"));
+        }
+        if req.user_id.is_empty() {
+            return Err(Status::invalid_argument("user_id is required"));
+        }
+
+        let released = self
+            .state
+            .resource_registry
+            .release(&req.resource_id, &req.user_id);
+
+        if !released {
+            return Err(Status::not_found(format!(
+                "User '{}' is not holding resource '{}'",
+                req.user_id, req.resource_id
+            )));
+        }
+
+        Ok(Response::new(proto::StatusResponse {
+            error: Some(proto::ErrorCluster {
+                status: false,
+                code: 0,
+                source: String::new(),
+            }),
+        }))
     }
 
     async fn create_resource(
