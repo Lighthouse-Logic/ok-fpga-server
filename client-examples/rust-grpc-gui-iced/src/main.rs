@@ -279,3 +279,225 @@ fn view_counters(s: &AppState) -> Element<'_, Message> {
         row![button("Quit — Release").on_press(Message::QuitRelease), button("Quit — Leave Held").on_press(Message::QuitLeaveHeld)].spacing(8),
     ].spacing(8).into()
 }
+
+// ============================================================================
+// Unit Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_state() -> AppState {
+        let (state, _) = boot();
+        state
+    }
+
+    // --- Phase ordering ---
+
+    #[test]
+    fn test_phase_ordering() {
+        assert!(Phase::Disconnected < Phase::Connected);
+        assert!(Phase::Connected < Phase::Programmed);
+        assert!(Phase::Programmed < Phase::Registered);
+        assert!(Phase::Registered < Phase::Acquired);
+    }
+
+    // --- AppState defaults ---
+
+    #[test]
+    fn test_initial_state() {
+        let state = make_state();
+        assert_eq!(state.phase, Phase::Disconnected);
+        assert_eq!(state.grpc_url, DEFAULT_GRPC_URL);
+        assert!(state.devices.is_empty());
+        assert!(state.selected_serial.is_none());
+        assert!(!state.override_lockout);
+        assert_eq!(state.poll_interval_ms, 500);
+    }
+
+    // --- serial() ---
+
+    #[test]
+    fn test_serial_empty_when_none() {
+        assert_eq!(make_state().serial(), "");
+    }
+
+    #[test]
+    fn test_serial_returns_selected() {
+        let mut s = make_state();
+        s.selected_serial = Some("SN001".to_string());
+        assert_eq!(s.serial(), "SN001");
+    }
+
+    // --- is_locked_out() ---
+
+    #[test]
+    fn test_not_locked_out_no_resource() {
+        assert!(!make_state().is_locked_out());
+    }
+
+    #[test]
+    fn test_not_locked_out_no_lock() {
+        let mut s = make_state();
+        s.resource_info = Some(ResourceInfo {
+            id: "r1".to_string(), name: "R".to_string(),
+            device_serial: "S".to_string(), access_mode: "shared".to_string(),
+            holders: vec![], locked_by: None,
+        });
+        assert!(!s.is_locked_out());
+    }
+
+    #[test]
+    fn test_locked_out_by_other() {
+        let mut s = make_state();
+        s.resource_info = Some(ResourceInfo {
+            id: "r1".to_string(), name: "R".to_string(),
+            device_serial: "S".to_string(), access_mode: "shared".to_string(),
+            holders: vec![], locked_by: Some("other".to_string()),
+        });
+        assert!(s.is_locked_out());
+    }
+
+    #[test]
+    fn test_not_locked_out_by_us() {
+        let mut s = make_state();
+        s.resource_info = Some(ResourceInfo {
+            id: "r1".to_string(), name: "R".to_string(),
+            device_serial: "S".to_string(), access_mode: "shared".to_string(),
+            holders: vec![], locked_by: Some(USER_ID.to_string()),
+        });
+        assert!(!s.is_locked_out());
+    }
+
+    #[test]
+    fn test_override_bypasses_lock() {
+        let mut s = make_state();
+        s.override_lockout = true;
+        s.resource_info = Some(ResourceInfo {
+            id: "r1".to_string(), name: "R".to_string(),
+            device_serial: "S".to_string(), access_mode: "shared".to_string(),
+            holders: vec![], locked_by: Some("other".to_string()),
+        });
+        assert!(!s.is_locked_out());
+    }
+
+    // --- Log ---
+
+    #[test]
+    fn test_log_and_log_err() {
+        let mut s = make_state();
+        s.log("msg");
+        assert!(!s.log_entries[0].1);
+        s.log_err("err");
+        assert!(s.log_entries[1].1);
+    }
+
+    #[test]
+    fn test_log_trims_at_200() {
+        let mut s = make_state();
+        for i in 0..210 { s.log(&format!("e{}", i)); }
+        assert_eq!(s.log_entries.len(), 200);
+    }
+
+    // --- Sync messages ---
+
+    #[test]
+    fn test_url_changed() {
+        let mut s = make_state();
+        let _ = update(&mut s, Message::UrlChanged("http://x:1".to_string()));
+        assert_eq!(s.grpc_url, "http://x:1");
+    }
+
+    #[test]
+    fn test_bitfile_changed() {
+        let mut s = make_state();
+        let _ = update(&mut s, Message::BitfileChanged("new.bit".to_string()));
+        assert_eq!(s.bitfile_path, "new.bit");
+    }
+
+    #[test]
+    fn test_select_device() {
+        let mut s = make_state();
+        let _ = update(&mut s, Message::SelectDevice("SN123".to_string()));
+        assert_eq!(s.selected_serial.as_deref(), Some("SN123"));
+    }
+
+    #[test]
+    fn test_poll_interval() {
+        let mut s = make_state();
+        let _ = update(&mut s, Message::PollIntervalChanged(2000));
+        assert_eq!(s.poll_interval_ms, 2000);
+    }
+
+    #[test]
+    fn test_override_lockout_msg() {
+        let mut s = make_state();
+        let _ = update(&mut s, Message::OverrideLockout(true));
+        assert!(s.override_lockout);
+    }
+
+    // --- Result messages ---
+
+    #[test]
+    fn test_connect_ok() {
+        let mut s = make_state();
+        let devs = vec![DeviceInfo { serial: "S1".to_string(), product_name: "P".to_string() }];
+        let _ = update(&mut s, Message::ConnectResult(Ok(devs)));
+        assert_eq!(s.phase, Phase::Connected);
+        assert_eq!(s.selected_serial.as_deref(), Some("S1"));
+    }
+
+    #[test]
+    fn test_connect_err() {
+        let mut s = make_state();
+        let _ = update(&mut s, Message::ConnectResult(Err("fail".to_string())));
+        assert_eq!(s.phase, Phase::Disconnected);
+        assert!(s.log_entries.last().unwrap().1);
+    }
+
+    #[test]
+    fn test_program_ok() {
+        let mut s = make_state();
+        s.phase = Phase::Connected;
+        let _ = update(&mut s, Message::ProgramResult(Ok(())));
+        assert_eq!(s.phase, Phase::Programmed);
+    }
+
+    #[test]
+    fn test_register_ok() {
+        let mut s = make_state();
+        let info = ResourceInfo {
+            id: "r1".to_string(), name: "C".to_string(),
+            device_serial: "S".to_string(), access_mode: "shared".to_string(),
+            holders: vec![], locked_by: None,
+        };
+        let _ = update(&mut s, Message::RegisterResult(Ok(info)));
+        assert_eq!(s.phase, Phase::Registered);
+        assert_eq!(s.resource_id.as_deref(), Some("r1"));
+    }
+
+    #[test]
+    fn test_acquire_ok() {
+        let mut s = make_state();
+        s.phase = Phase::Registered;
+        let _ = update(&mut s, Message::AcquireResult(Ok(())));
+        assert_eq!(s.phase, Phase::Acquired);
+    }
+
+    #[test]
+    fn test_poll_result_ok() {
+        let mut s = make_state();
+        let c = CounterState { count1: 42, count2: 10, ..Default::default() };
+        let _ = update(&mut s, Message::PollResult(Ok((c, None))));
+        assert_eq!(s.counter.count1, 42);
+        assert!(s.last_error.is_none());
+    }
+
+    #[test]
+    fn test_poll_result_err() {
+        let mut s = make_state();
+        let _ = update(&mut s, Message::PollResult(Err("timeout".to_string())));
+        assert_eq!(s.last_error.as_deref(), Some("timeout"));
+    }
+}
