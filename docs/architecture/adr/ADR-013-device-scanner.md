@@ -1,6 +1,6 @@
 # ADR-013: Device Scanner — FFI-to-DeviceManager Bridge
 
-**Status**: Accepted  
+**Status**: Superseded by [ADR-018](ADR-018-device-handle-pool.md) ✅  
 **Date**: 2026-08-16  
 **Deciders**: Architecture Team  
 
@@ -88,9 +88,28 @@ display device info without cross-origin calls to the REST API on port 8080.
 
 ## Open Items / Future Work
 
-- [ ] ADR-002 Phase 2: Wire `FrontPanelManager` callbacks for real-time hot-plug
-- [ ] ADR-002: `okREALM_TEST` integration for Tier 1 emulated tests
-- [ ] Dashboard: periodic refresh or WebSocket push for device list updates
+- [x] ADR-002 Phase 2: Wire `FrontPanelManager` callbacks for real-time hot-plug
+      — **Done**: Implemented as polling in `device_poll_loop` (see ADR-002 addendum,
+      2026-08-17). Callback approach retained as dead code for future Linux support.
+- [x] ADR-002: `okREALM_TEST` integration for Tier 1 emulated tests
+      — **Done**: Wired in `device_monitor.rs` (retained, `#[allow(dead_code)]`).
+- [x] Dashboard: periodic refresh or WebSocket push for device list updates
+      — **Done**: WebSocket `device_connected`/`device_disconnected` events broadcast
+      from `device_poll_loop` (ADR-002 addendum, ADR-018 §5).
+
+## Addendum (2026-08-18): Superseded by ADR-018
+
+This ADR described the **Phase 1** startup-only device scan using
+`FrontPanelDevices` snapshot enumeration. [ADR-018](ADR-018-device-handle-pool.md)
+(Device Handle Pool) fully supersedes it:
+
+- The `DeviceScanner` module (`scanner.rs`) is still used, but the pool now
+  owns the `Arc<FrontPanelDll>` and keeps device handles open persistently
+  instead of the open-read-close pattern described here.
+- The `device_poll_loop` in `main.rs` uses the scanner for periodic polling
+  but the lifecycle is managed by the handle pool, not by this ADR's
+  one-shot scan model.
+- The `GET /mgmt/devices` endpoint from this ADR remains unchanged.
 
 ## References
 
