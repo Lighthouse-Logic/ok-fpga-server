@@ -226,13 +226,16 @@
                 <h1>Server Logs</h1>
                 <div class="log-controls">
                     <!-- Log level selector (ADR-022) -->
-                    <div class="log-level-selector" id="log-level-selector">
-                        <button class="btn-level" data-level="TRACE">TRACE</button>
-                        <button class="btn-level" data-level="DEBUG">DEBUG</button>
-                        <button class="btn-level active" data-level="INFO">INFO</button>
-                        <button class="btn-level" data-level="WARN">WARN</button>
-                        <button class="btn-level" data-level="ERROR">ERROR</button>
-                    </div>
+                    <label class="log-level-label" for="log-level-select">Min Level:</label>
+                    <select id="log-level-select"
+                            class="log-level-select"
+                            title="Show logs at this level and above. Precedence: TRACE → DEBUG → INFO → WARN → ERROR (TRACE shows everything, ERROR shows only errors)">
+                        <option value="TRACE">TRACE</option>
+                        <option value="DEBUG">DEBUG</option>
+                        <option value="INFO" selected>INFO</option>
+                        <option value="WARN">WARN</option>
+                        <option value="ERROR">ERROR</option>
+                    </select>
                     <div class="log-actions">
                         <button class="btn btn-secondary btn-sm" id="btn-clear-logs" title="Clear log file on server">
                             Clear <span id="log-file-size"></span>

@@ -311,16 +311,23 @@ async fn run_scanner_with_pool(
 /// Periodic device polling loop — scans for connected devices every 2 seconds
 /// and synchronizes the `DeviceManager` registry with reality.
 ///
-/// ## How it works
+/// ## How it works (Phase 23 rev2)
 ///
-/// 1. Loads the FrontPanel DLL once
-/// 2. Every 2 seconds, calls `scan_devices()` for a fresh snapshot
-/// 3. **New devices**: any serial in the scan but NOT in the registry → add
-/// 4. **Gone devices**: any serial in the registry but NOT in the scan → remove
-/// 5. Broadcasts `device_connected` / `device_disconnected` WebSocket events
+/// 1. **Disconnect detection** (pool-based): For each device already in the
+///    handle pool, call `pool.is_alive()` which uses `okFrontPanel_IsOpen()`
+///    on the existing handle. This avoids creating a new `okFrontPanelDevices`
+///    snapshot which interfered with open handles on Windows.
 ///
-/// This approach is simple, reliable, and doesn't depend on the
-/// FrontPanelManager callback API (which doesn't fire for hot-plug on Windows).
+/// 2. **Discovery** (scan-based): Call `scan_serials()` to find physically
+///    connected devices. Only devices **not** already in the registry are
+///    processed as new connections.
+///
+/// This two-phase approach avoids the circular dependency that caused the
+/// connect/disconnect cycling bug:
+/// - Phase 23 rev1 used `scan_serials()` for both disconnect and discovery,
+///   but `okFrontPanelDevices_Construct()` on Windows interferes with handles
+///   already opened by the pool → device appears absent → disconnect →
+///   pool closes handle → next scan finds it → connect → cycle repeats.
 async fn device_poll_loop(
     device_manager: Arc<DeviceManager>,
     event_tx: tokio::sync::broadcast::Sender<String>,
@@ -341,49 +348,42 @@ async fn device_poll_loop(
     loop {
         interval.tick().await;
 
-        // Phase 23 fix: Use scan_serials() instead of scan_devices() for
-        // presence detection. scan_serials() calls GetCount + GetSerial
-        // WITHOUT opening any devices, so it correctly detects all physically
-        // connected devices regardless of whether the handle pool has them
-        // open. The previous scan_devices() approach failed because
-        // devices_open() returns null for devices already opened by the pool,
-        // and the in_pool workaround then suppressed all disconnect events.
-        let connected_serials = scanner.scan_serials();
-
-        // Detect gone devices (in registry but not physically connected).
+        // === Phase 1: Disconnect detection via pool liveness ===
         //
-        // This check is done FIRST so that if a device is disconnected and
-        // reconnected within the same poll interval, we process the removal
-        // before the re-addition.
-        let current_devices = device_manager.registry().list();
-        for device in &current_devices {
-            if !connected_serials.contains(&device.info.serial) {
-                info!(
-                    serial = %device.info.serial,
-                    "FPGA device disconnected (hot-unplug detected by polling)"
-                );
-                device_manager.on_device_removed(&device.info.serial);
+        // For each device in the registry, check if its handle pool entry
+        // is still alive (fp_is_open returns true). If not, the device has
+        // been physically disconnected.
+        if let Some(ref pool) = handle_pool {
+            let current_devices = device_manager.registry().list();
+            for device in &current_devices {
+                let serial = &device.info.serial;
 
-                // Close the persistent handle for this device.
-                if let Some(ref pool) = handle_pool {
-                    pool.close(&device.info.serial).await;
+                if !pool.is_alive(serial).await {
+                    info!(
+                        serial = %serial,
+                        "FPGA device disconnected (hot-unplug detected by polling)"
+                    );
+                    device_manager.on_device_removed(serial);
+
+                    // Close the persistent handle for this device.
+                    pool.close(serial).await;
+
+                    // Broadcast WebSocket event.
+                    let event = serde_json::json!({
+                        "type": "device_disconnected",
+                        "serial": serial,
+                    });
+                    let _ = event_tx.send(event.to_string());
                 }
-
-                // Broadcast WebSocket event.
-                let event = serde_json::json!({
-                    "type": "device_disconnected",
-                    "serial": device.info.serial,
-                });
-                let _ = event_tx.send(event.to_string());
             }
         }
 
-        // Detect new devices (physically connected but not in registry).
+        // === Phase 2: Discovery via scan_serials ===
         //
-        // For new devices we need full DeviceInfo (product name, interface
-        // type, firmware version, etc.), so we call scan_devices() which
-        // opens each device to read okTDeviceInfo. This is only done for
-        // genuinely new devices, not on every poll cycle.
+        // Enumerate physically connected serials. Only process devices
+        // that are NOT already in the registry (genuinely new connections).
+        let connected_serials = scanner.scan_serials();
+
         let registry_serials: std::collections::HashSet<String> = device_manager
             .registry()
             .list()

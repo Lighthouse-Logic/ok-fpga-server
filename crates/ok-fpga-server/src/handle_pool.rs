@@ -372,6 +372,36 @@ impl DeviceHandlePool {
         devices.get(serial).cloned()
     }
 
+    /// List all serial numbers currently in the pool.
+    pub async fn list_serials(&self) -> Vec<String> {
+        let devices = self.devices.read().await;
+        devices.keys().cloned().collect()
+    }
+
+    /// Check if a device in the pool is still physically connected.
+    ///
+    /// Uses `okFrontPanel_IsOpen(handle)` on the **existing** pool handle.
+    /// This does NOT create a new `okFrontPanelDevices` snapshot, so it
+    /// won't interfere with the open handle (unlike `scan_serials()`).
+    ///
+    /// Returns `false` if the device is not in the pool.
+    pub async fn is_alive(&self, serial: &str) -> bool {
+        let device_arc = {
+            let devices = self.devices.read().await;
+            match devices.get(serial) {
+                Some(d) => d.clone(),
+                None => return false,
+            }
+        };
+
+        let device = device_arc.lock().await;
+        // SAFETY: device.handle was opened by pool.open() and has not been
+        // freed. fp_is_open is a read-only query on the handle.
+        let is_open = unsafe { (device.dll.fp_is_open)(device.handle) };
+        trace!(serial = %serial, is_open = ?is_open, "pool device liveness check");
+        is_open != 0
+    }
+
     /// Configure an FPGA from a local bitfile path.
     ///
     /// Calls `okFrontPanel_ConfigureFPGA(handle, path)` and then acquires

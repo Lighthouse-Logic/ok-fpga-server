@@ -268,19 +268,17 @@ const autoScrollCheckbox = document.getElementById('log-auto-scroll');
 /** Current log level selected in the UI. */
 let currentLogLevel = 'INFO';
 
-// --- Log Level Selector ---
-document.querySelectorAll('#log-level-selector .btn-level').forEach(btn => {
-    btn.addEventListener('click', () => {
-        // Update active state.
-        document.querySelectorAll('#log-level-selector .btn-level').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        currentLogLevel = btn.dataset.level;
+// --- Log Level Selector (dropdown) ---
+const logLevelSelect = document.getElementById('log-level-select');
+logLevelSelect?.addEventListener('change', () => {
+    currentLogLevel = logLevelSelect.value;
 
-        // Send log level change to server via WebSocket.
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'set_log_level', level: currentLogLevel }));
-        }
-    });
+    // Send log level change to server via WebSocket.
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'set_log_level', level: currentLogLevel }));
+    }
+
+    addLogEntry('INFO', `Log level changed to ${currentLogLevel}`);
 });
 
 // --- Clear Log File ---

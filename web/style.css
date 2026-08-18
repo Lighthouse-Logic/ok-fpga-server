@@ -543,38 +543,36 @@ body {
 .log-trace .log-level { color: var(--purple); opacity: 0.7; }
 .log-trace .log-msg { color: var(--text-muted); opacity: 0.7; font-family: var(--font-mono); }
 
-/* Log level selector button group (ADR-022) */
-.log-level-selector {
-    display: inline-flex;
-    gap: 2px;
-    background: var(--surface);
-    border-radius: 6px;
-    padding: 2px;
-    border: 1px solid var(--border);
-}
-
-.btn-level {
-    padding: 4px 10px;
-    border: none;
-    background: transparent;
+/* Log level dropdown (ADR-022) */
+.log-level-label {
+    font-size: 12px;
     color: var(--text-secondary);
-    font-size: 11px;
-    font-weight: 600;
-    font-family: var(--font-mono);
-    cursor: pointer;
-    border-radius: 4px;
-    transition: all 0.2s ease;
-    letter-spacing: 0.5px;
+    font-weight: 500;
+    white-space: nowrap;
 }
 
-.btn-level:hover {
+.log-level-select {
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
     color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.05);
+    font-size: 12px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.2s ease;
+    -webkit-appearance: auto;
 }
 
-.btn-level.active {
-    color: var(--bg);
-    background: var(--blue);
+.log-level-select:hover {
+    border-color: var(--blue);
+}
+
+.log-level-select:focus {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
 }
 
 /* Log controls layout (ADR-022) */
