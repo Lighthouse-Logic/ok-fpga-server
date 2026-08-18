@@ -222,12 +222,31 @@ Device B ──── Mutex B ──── FFI calls for device B (serialized)
 
 ### Future Work
 
-- **Handle health checks** — periodically verify handles are still valid
-  (e.g., `okFrontPanel_IsOpen()`) and reopen if needed
 - **Request queuing** — priority queue for FFI calls per device (e.g.,
   configure has higher priority than wire reads)
 - **Timeout on lock acquisition** — return 503 if a handler waits too long
   for the device mutex
+
+### Addendum (2026-08-18): Pool Liveness API
+
+The "Handle health checks" future work item has been implemented as part of
+the Phase 23 disconnect detection bug fix.
+
+#### `is_alive(serial) → bool`
+
+Calls `okFrontPanel_IsOpen(handle)` on the pool's existing open handle.
+Returns `true` if the device is still physically connected, `false` if the
+USB device has been unplugged (the handle becomes invalid).
+
+This is the primary mechanism for **disconnect detection** in the
+`device_poll_loop` (see [ADR-002 addendum](ADR-002-device-lifecycle.md)).
+It replaced the `scan_serials()` approach (rev1) which created a new
+`okFrontPanelDevices` snapshot that interfered with open handles on Windows.
+
+#### `list_serials() → Vec<String>`
+
+Returns the serial numbers of all devices currently in the pool. Used by the
+poll loop to iterate over known devices for liveness checks.
 
 ## References
 

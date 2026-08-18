@@ -229,19 +229,20 @@ tracing::trace!(
 
 #### Log Level Selector
 
-A button group is added to the Logs page header, allowing the user to
-select the minimum displayed log level:
+A `<select>` dropdown labeled **"Min Level:"** is added to the Logs page
+header, allowing the user to select the minimum displayed log level:
 
 ```
-[TRACE] [DEBUG] [INFO] [WARN] [ERROR]    [Clear Log (2.4 MB)] [⬇ Download] [☑ Auto-scroll]
+Min Level: [INFO ▾]    [Clear (2.4 KB)] [⬇ Download] [☑ Auto-scroll]
 ```
 
 - **Default**: INFO (configurable via `[dashboard] default_log_level` in TOML)
-- Clicking a level sends a WebSocket control message:
+- Changing the selection sends a WebSocket control message:
   `{"type": "set_log_level", "level": "DEBUG"}`
 - The server's WebSocket handler updates the per-client filter
 - Lower levels include all higher levels (DEBUG shows DEBUG + INFO + WARN + ERROR)
-- Active level button is visually highlighted
+- A tooltip explains the precedence order:
+  `"TRACE → DEBUG → INFO → WARN → ERROR (TRACE shows everything, ERROR shows only errors)"`
 
 #### Log Entry Styling
 

@@ -169,18 +169,58 @@ message loop (Qt, MFC, etc.), which a headless console server does not have.
 ### Decision: Polling-Based Hot-Plug Detection
 
 Given the callback limitation, hot-plug detection uses a **periodic polling**
-approach:
+approach with two distinct phases:
 
-- The `DeviceScanner` (using `FrontPanelDevices` snapshot API) runs every
-  2 seconds on a tokio background task (`device_poll_loop` in `main.rs`)
-- Each scan is diffed against the current `DeviceRegistry`:
-  - **New serials** → `on_device_added()` + WebSocket `device_connected` event
-  - **Gone serials** → `on_device_removed()` + WebSocket `device_disconnected` event
-- Detection latency: ≤2 seconds (acceptable for human-initiated USB connect/disconnect)
-- CPU overhead: negligible (one USB enumeration syscall per poll interval)
+#### Phase 1 — Disconnect detection (pool-based liveness)
 
-This replaces the "zero-latency" benefit described in the Consequences section
-above with a ≤2s latency that is acceptable for the server's use case.
+For each device **already in the handle pool**, the poll loop calls
+`DeviceHandlePool::is_alive(serial)`, which invokes `okFrontPanel_IsOpen()`
+on the **existing** pool handle. This is a lightweight, read-only FFI call
+that returns `FALSE` if the USB device has been physically disconnected.
+
+This approach does **not** create a new `okFrontPanelDevices` snapshot.
+This is critical: on Windows, `okFrontPanelDevices_Construct()` takes an
+exclusive USB enumeration snapshot that **interferes with handles already
+opened by the pool**, causing the device to intermittently appear absent.
+
+> **Rev1 failure (2026-08-18)**: The initial Phase 23 fix used
+> `scan_serials()` (which calls `devices_construct`) for both disconnect
+> detection and discovery. With a device in the pool, the USB snapshot
+> alternated between seeing the device (pool handle not yet acquired) and
+> not seeing it (pool handle active). This caused a connect → disconnect →
+> connect cycle every 2 seconds. Rev2 replaced this with pool-based
+> liveness using `fp_is_open()`.
+
+#### Phase 2 — Discovery (scan-based)
+
+To detect **newly connected** devices, the poll loop calls
+`scanner.scan_serials()` which creates a fresh `FrontPanelDevices` snapshot
+and lists all serials via `GetCount + GetSerial`. Only serials **not
+already in the registry** are processed as new connections (full
+`scan_devices()` is called to obtain `okTDeviceInfo`).
+
+Because there are no open pool handles for genuinely new devices, the
+`devices_construct` snapshot does not conflict.
+
+#### Timing
+
+- Poll interval: 2 seconds
+- Detection latency: ≤2 seconds (acceptable for human-initiated USB
+  connect/disconnect)
+- CPU overhead: negligible (one `fp_is_open` FFI call per pooled device +
+  one USB enumeration per poll cycle)
+
+#### Verified Scenarios (2026-08-18)
+
+All scenarios tested and confirmed working:
+
+| Scenario | Result |
+|----------|--------|
+| Server start with board connected | ✅ Detected on initial scan |
+| Server start with board disconnected | ✅ No false positives |
+| Board connected while server running | ✅ Detected within 2s |
+| Board disconnected while server running | ✅ Detected within 2s |
+| Repeated connect/disconnect cycles | ✅ No cycling, no ghost devices |
 
 ### Retained Code
 
