@@ -105,7 +105,7 @@ class CountersClient:
     # --- Server & Device ---
 
     def get_server_status(self):
-        return self._get("/status")
+        return self._get("/server/status")
 
     def list_devices(self) -> List[DeviceInfo]:
         data = self._get("/devices")
@@ -126,17 +126,13 @@ class CountersClient:
     # --- Classic Data Port: WireIn/WireOut ---
 
     def set_wire_in(self, serial: str, endpoint: int, value: int, mask: int):
+        """PUT /devices/{serial}/classic/wires/in — server calls UpdateWireIns implicitly."""
         return self._put(f"/devices/{serial}/classic/wires/in",
                          {"endpoint": endpoint, "value": value, "mask": mask})
 
-    def update_wire_ins(self, serial: str):
-        return self._post(f"/devices/{serial}/classic/wires/in/update")
-
-    def update_wire_outs(self, serial: str):
-        return self._post(f"/devices/{serial}/classic/wires/out/update")
-
     def get_wire_out_value(self, serial: str, endpoint: int) -> int:
-        data = self._get(f"/devices/{serial}/classic/wires/out/0x{endpoint:02x}")
+        """GET /devices/{serial}/classic/wires/out?endpoint={ep} — server calls UpdateWireOuts implicitly."""
+        data = self._get(f"/devices/{serial}/classic/wires/out?endpoint={endpoint}")
         return (data or {}).get("value", 0)
 
     # --- Classic Data Port: TriggerIn/TriggerOut ---
@@ -146,19 +142,18 @@ class CountersClient:
                           {"endpoint": endpoint, "bit": bit})
 
     def get_trigger_out_vector(self, serial: str, endpoint: int) -> int:
-        data = self._get(f"/devices/{serial}/classic/triggers/out/0x{endpoint:02x}")
+        """GET /devices/{serial}/classic/triggers/out?endpoint={ep} — server calls UpdateTriggerOuts implicitly."""
+        data = self._get(f"/devices/{serial}/classic/triggers/out?endpoint={endpoint}")
         return (data or {}).get("value", 0)
 
     # --- Combined Poll ---
 
     def send_wire_in(self, serial: str, state: WireInState):
-        """Set WireIn 0x00 and commit."""
+        """Set WireIn 0x00. Server calls UpdateWireIns implicitly."""
         self.set_wire_in(serial, 0x00, state.to_value(), 0x07)
-        self.update_wire_ins(serial)
 
     def poll_counter_state(self, serial: str) -> CounterState:
         """Read all counter outputs in one batch."""
-        self.update_wire_outs(serial)
         count1 = self.get_wire_out_value(serial, 0x20) & 0xFF
         count2 = self.get_wire_out_value(serial, 0x21) & 0xFF
         buttons = self.get_wire_out_value(serial, 0x22) & 0x0F

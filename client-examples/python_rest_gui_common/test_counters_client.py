@@ -187,7 +187,7 @@ class TestCountersClientHTTP:
     @responses.activate
     def test_get_server_status_success(self):
         responses.add(
-            responses.GET, "http://localhost:8088/api/v1/status",
+            responses.GET, "http://localhost:8088/api/v1/server/status",
             json={"status": "ok"}, status=200,
         )
         client = CountersClient("http://localhost:8088", "test-user")
@@ -211,7 +211,7 @@ class TestCountersClientHTTP:
     @responses.activate
     def test_server_error_raises_client_error(self):
         responses.add(
-            responses.GET, "http://localhost:8088/api/v1/status",
+            responses.GET, "http://localhost:8088/api/v1/server/status",
             body="Internal Server Error", status=500,
         )
         client = CountersClient("http://localhost:8088", "test-user")
@@ -224,7 +224,7 @@ class TestCountersClientHTTP:
     def test_get_wire_out_value_parses_value(self):
         responses.add(
             responses.GET,
-            "http://localhost:8088/api/v1/devices/SN001/classic/wires/out/0x20",
+            "http://localhost:8088/api/v1/devices/SN001/classic/wires/out",
             json={"value": 42}, status=200,
         )
         client = CountersClient("http://localhost:8088", "test-user")

@@ -227,9 +227,9 @@ impl CountersClient {
     // Server & Device Discovery
     // ========================================================================
 
-    /// `GET /status` — Check if the server is reachable and get status info.
+    /// `GET /server/status` — Check if the server is reachable and get status info.
     pub async fn get_server_status(&self) -> Result<Value, ClientError> {
-        self.get("/status").await
+        self.get("/server/status").await
     }
 
     /// `GET /devices` — List all connected FPGA devices.
@@ -259,9 +259,9 @@ impl CountersClient {
 
     /// `PUT /devices/{serial}/classic/wires/in` — Set WireIn value.
     ///
-    /// Sets the value and mask for a WireIn endpoint. For the Counters demo,
-    /// endpoint 0x00 controls RESET1 (bit 0), DISABLE1 (bit 1), and
-    /// AUTOCOUNT2 (bit 2).
+    /// Sets the value and mask for a WireIn endpoint. The server calls
+    /// `UpdateWireIns()` implicitly. For the Counters demo, endpoint 0x00
+    /// controls RESET1 (bit 0), DISABLE1 (bit 1), and AUTOCOUNT2 (bit 2).
     pub async fn set_wire_in(
         &self,
         serial: &str,
@@ -277,25 +277,11 @@ impl CountersClient {
         self.put(&format!("/devices/{}/classic/wires/in", serial), body).await
     }
 
-    /// `POST /devices/{serial}/classic/wires/in/update` — Commit pending WireIn changes.
+    /// `GET /devices/{serial}/classic/wires/out?endpoint={ep}` — Read a specific WireOut value.
     ///
-    /// Must be called after `set_wire_in` to push the values to the FPGA.
-    /// This corresponds to the FrontPanel `UpdateWireIns()` call.
-    pub async fn update_wire_ins(&self, serial: &str) -> Result<Value, ClientError> {
-        self.post(&format!("/devices/{}/classic/wires/in/update", serial), None).await
-    }
-
-    /// `POST /devices/{serial}/classic/wires/out/update` — Refresh WireOut values from FPGA.
-    ///
-    /// Must be called before reading WireOut values. This corresponds to the
-    /// FrontPanel `UpdateWireOuts()` call.
-    pub async fn update_wire_outs(&self, serial: &str) -> Result<Value, ClientError> {
-        self.post(&format!("/devices/{}/classic/wires/out/update", serial), None).await
-    }
-
-    /// `GET /devices/{serial}/classic/wires/out/{endpoint}` — Read a specific WireOut value.
+    /// The server calls `UpdateWireOuts()` implicitly before reading.
     pub async fn get_wire_out_value(&self, serial: &str, endpoint: u8) -> Result<u32, ClientError> {
-        let val = self.get(&format!("/devices/{}/classic/wires/out/0x{:02x}", serial, endpoint)).await?;
+        let val = self.get(&format!("/devices/{}/classic/wires/out?endpoint={}", serial, endpoint)).await?;
         // Extract the value field from the JSON response.
         Ok(val["value"].as_u64().unwrap_or(0) as u32)
     }
@@ -320,11 +306,12 @@ impl CountersClient {
         self.post(&format!("/devices/{}/classic/triggers/in", serial), Some(body)).await
     }
 
-    /// `GET /devices/{serial}/classic/triggers/out/{endpoint}` — Read TriggerOut vector.
+    /// `GET /devices/{serial}/classic/triggers/out?endpoint={ep}` — Read TriggerOut vector.
     ///
     /// Returns a bitmask of which triggers have fired since the last read.
+    /// The server calls `UpdateTriggerOuts()` implicitly.
     pub async fn get_trigger_out_vector(&self, serial: &str, endpoint: u8) -> Result<u32, ClientError> {
-        let val = self.get(&format!("/devices/{}/classic/triggers/out/0x{:02x}", serial, endpoint)).await?;
+        let val = self.get(&format!("/devices/{}/classic/triggers/out?endpoint={}", serial, endpoint)).await?;
         Ok(val["value"].as_u64().unwrap_or(0) as u32)
     }
 
@@ -334,21 +321,19 @@ impl CountersClient {
 
     /// Read all counter outputs in a single batch.
     ///
-    /// Calls `UpdateWireOuts`, then reads WireOut 0x20 (count1), 0x21 (count2),
-    /// 0x22 (buttons), TriggerOut 0x60 (count1 comparators), and TriggerOut 0x61
-    /// (count2 comparator).
+    /// Reads WireOut 0x20 (count1), 0x21 (count2), 0x22 (buttons),
+    /// TriggerOut 0x60 (count1 comparators), and TriggerOut 0x61
+    /// (count2 comparator). The server calls UpdateWireOuts/UpdateTriggerOuts
+    /// implicitly on each GET.
     ///
     /// This is the main polling method called on each timer tick.
     pub async fn poll_counter_state(&self, serial: &str) -> Result<CounterState, ClientError> {
-        // Step 1: Refresh wire outputs from FPGA.
-        self.update_wire_outs(serial).await?;
-
-        // Step 2: Read all three WireOut endpoints.
+        // Read all three WireOut endpoints.
         let count1 = self.get_wire_out_value(serial, 0x20).await? as u8;
         let count2 = self.get_wire_out_value(serial, 0x21).await? as u8;
         let buttons = self.get_wire_out_value(serial, 0x22).await? as u8;
 
-        // Step 3: Read both TriggerOut endpoints.
+        // Read both TriggerOut endpoints.
         let trig_60 = self.get_trigger_out_vector(serial, 0x60).await?;
         let trig_61 = self.get_trigger_out_vector(serial, 0x61).await?;
 
@@ -364,11 +349,10 @@ impl CountersClient {
 
     /// Send the current WireIn state to the FPGA.
     ///
-    /// Combines `set_wire_in` and `update_wire_ins` into one call.
+    /// The server calls `UpdateWireIns()` implicitly on PUT.
     pub async fn send_wire_in(&self, serial: &str, state: &WireInState) -> Result<(), ClientError> {
         // Mask 0x07 covers bits 0-2 (RESET1, DISABLE1, AUTOCOUNT2).
         self.set_wire_in(serial, 0x00, state.to_value(), 0x07).await?;
-        self.update_wire_ins(serial).await?;
         Ok(())
     }
 
@@ -639,7 +623,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_server_status_success() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("GET", "/api/v1/status")
+        let mock = server.mock("GET", "/api/v1/server/status")
             .with_status(200)
             .with_body(r#"{"status":"ok"}"#)
             .create_async().await;
@@ -690,7 +674,7 @@ mod tests {
     #[tokio::test]
     async fn test_send_wire_in_uses_correct_mask() {
         let mut server = mockito::Server::new_async().await;
-        // send_wire_in calls set_wire_in then update_wire_ins
+        // send_wire_in calls set_wire_in only (server calls UpdateWireIns implicitly)
         let mock_set = server.mock("PUT", "/api/v1/devices/SN001/classic/wires/in")
             .match_body(mockito::Matcher::JsonString(
                 r#"{"endpoint":0,"value":5,"mask":7}"#.to_string()
@@ -698,23 +682,19 @@ mod tests {
             .with_status(200)
             .with_body(r#"{}"#)
             .create_async().await;
-        let mock_update = server.mock("POST", "/api/v1/devices/SN001/classic/wires/in/update")
-            .with_status(204)
-            .create_async().await;
 
         let client = CountersClient::new(&server.url(), "test-user");
         let wire = WireInState { reset1: true, disable1: false, autocount2: true };
         let result = client.send_wire_in("SN001", &wire).await;
 
         mock_set.assert_async().await;
-        mock_update.assert_async().await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_server_error_returns_client_error() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("GET", "/api/v1/status")
+        let mock = server.mock("GET", "/api/v1/server/status")
             .with_status(500)
             .with_body("Internal Server Error")
             .create_async().await;
@@ -736,7 +716,8 @@ mod tests {
     #[tokio::test]
     async fn test_get_wire_out_value_parses_value() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("GET", "/api/v1/devices/SN001/classic/wires/out/0x20")
+        let mock = server.mock("GET", "/api/v1/devices/SN001/classic/wires/out")
+            .match_query(mockito::Matcher::UrlEncoded("endpoint".to_string(), "32".to_string()))
             .with_status(200)
             .with_body(r#"{"value":42}"#)
             .create_async().await;

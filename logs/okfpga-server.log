@@ -887,3 +887,31 @@
 2026-08-18T13:46:33.392699Z  INFO ok_fpga_core::service_manager: service stopped service=rest
 2026-08-18T13:46:33.392753Z  INFO ok_fpga_core::service_manager: all services stopped
 2026-08-18T13:46:33.392796Z  INFO ok_fpga_server: ok-FPGA-Server shut down cleanly.
+2026-08-18T14:30:30.865045Z  INFO ok_fpga_server: configuration loaded config_log_level=info management_port=9090
+2026-08-18T14:30:30.865276Z  INFO ok_fpga_server::scanner: attempting to load FrontPanel DLL dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-18T14:30:30.868995Z  INFO ok_fpga_server::scanner: FrontPanel DLL loaded successfully api_version=6.1.0 dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-18T14:30:30.893698Z  INFO ok_fpga_server: initial device scan complete count=1
+2026-08-18T14:30:30.893848Z  INFO ok_fpga_server: discovered FPGA device (initial scan) serial=22520013CC product=XEM7320-A75T interface=USB 3.0
+2026-08-18T14:30:30.912612Z  INFO ok_fpga_server::handle_pool: device handle opened and added to pool serial=22520013CC
+2026-08-18T14:30:30.912852Z  INFO ok_fpga_server: device polling task started (2s interval)
+2026-08-18T14:30:30.912914Z  INFO ok_fpga_server::scanner: attempting to load FrontPanel DLL dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-18T14:30:30.912958Z  INFO ok_fpga_server: authentication provider initialized provider="none" required=false
+2026-08-18T14:30:30.913038Z  INFO ok_fpga_core::service_manager: registered service service=rest enabled=true
+2026-08-18T14:30:30.913107Z  INFO ok_fpga_server: registered REST service bind=0.0.0.0 port=8088 enabled=true
+2026-08-18T14:30:30.913176Z  INFO ok_fpga_server: compiled features features=["rest", "dashboard"]
+2026-08-18T14:30:30.913251Z  INFO ok_fpga_core::service_manager: starting service service=rest
+2026-08-18T14:30:30.913332Z  INFO ok_fpga_server::scanner: FrontPanel DLL loaded successfully api_version=6.1.0 dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-18T14:30:30.916556Z  INFO ok_fpga_server::rest::managed: REST server bound successfully address=0.0.0.0:8088
+2026-08-18T14:30:30.916702Z  INFO ok_fpga_server::rest::managed: REST server is running address=0.0.0.0:8088
+2026-08-18T14:30:30.916841Z  INFO ok_fpga_core::service_manager: service started service=rest
+2026-08-18T14:30:30.916985Z  INFO ok_fpga_server: service state service=rest status=running compiled=true enabled=true
+2026-08-18T14:30:30.917338Z  INFO ok_fpga_server: management server started (dashboard + mgmt API) address=0.0.0.0:9090
+2026-08-18T14:30:30.917460Z  INFO ok_fpga_server::sweep: starting user session sweep task timeout_secs=60 sweep_interval_secs=10
+2026-08-18T14:30:30.917562Z  INFO ok_fpga_server: ok-FPGA-Server is ready. Press Ctrl+C to shut down.
+2026-08-18T14:35:35.274644Z  WARN ok_fpga_server::rest::errors: Stub endpoint invoked — returning 501 Not Implemented detail=GetDeviceSensors failed with code -15
+2026-08-18T14:41:20.824157Z  INFO ok_fpga_server: shutdown signal received
+2026-08-18T14:41:20.824273Z  INFO ok_fpga_core::service_manager: stopping service service=rest
+2026-08-18T14:41:21.033775Z  INFO ok_fpga_server::rest::managed: REST server stopped
+2026-08-18T14:41:21.033930Z  INFO ok_fpga_core::service_manager: service stopped service=rest
+2026-08-18T14:41:21.034088Z  INFO ok_fpga_core::service_manager: all services stopped
+2026-08-18T14:41:21.034183Z  INFO ok_fpga_server: ok-FPGA-Server shut down cleanly.
