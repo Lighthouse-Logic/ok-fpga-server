@@ -1940,15 +1940,15 @@ Phase 0: Scaffolding
                                                               │    ├── 24C: FFI & request instrumentation ✅
                                                               │    └── 24D: Dashboard UI ✅
                                                               │
-                                                              └── Phase 25: GUI Example Clients (ADR-023) [ ]
-                                                                   ├── 25A: Rust REST GUI (egui) [ ]
-                                                                   ├── 25B: Rust REST GUI (iced) [ ]
-                                                                   ├── 25C: Rust gRPC GUI (egui) [ ]
-                                                                   ├── 25D: Rust gRPC GUI (iced) [ ]
-                                                                   ├── 25E: Python REST GUI (tkinter) [ ]
-                                                                   ├── 25F: Python REST GUI (dearpygui) [ ]
-                                                                   ├── 25G: Python gRPC GUI (tkinter) [ ]
-                                                                   └── 25H: Python gRPC GUI (dearpygui) [ ]
+                                                              └── Phase 25: GUI Example Clients (ADR-023) ✅
+                                                                   ├── 25A: Rust REST GUI (egui) ✅
+                                                                   ├── 25B: Rust REST GUI (iced) ✅
+                                                                   ├── 25C: Rust gRPC GUI (egui) ✅
+                                                                   ├── 25D: Rust gRPC GUI (iced) ✅
+                                                                   ├── 25E: Python REST GUI (tkinter) ✅
+                                                                   ├── 25F: Python REST GUI (dearpygui) ✅
+                                                                   ├── 25G: Python gRPC GUI (tkinter) ✅
+                                                                   └── 25H: Python gRPC GUI (dearpygui) ✅
 ```
 
 Phases 23 and 24 can be executed in parallel — Phase 24 does not depend on 23,

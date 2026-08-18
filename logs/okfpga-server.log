@@ -860,3 +860,24 @@
 2026-08-18T12:32:31.491629Z  INFO ok_fpga_core::service_manager: service stopped service=rest
 2026-08-18T12:32:31.491838Z  INFO ok_fpga_core::service_manager: all services stopped
 2026-08-18T12:32:31.491949Z  INFO ok_fpga_server: ok-FPGA-Server shut down cleanly.
+2026-08-18T13:41:02.876472Z  INFO ok_fpga_server: configuration loaded config_log_level=info management_port=9090
+2026-08-18T13:41:02.877044Z  INFO ok_fpga_server::scanner: attempting to load FrontPanel DLL dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-18T13:41:02.884250Z  INFO ok_fpga_server::scanner: FrontPanel DLL loaded successfully api_version=6.1.0 dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-18T13:41:02.928062Z  INFO ok_fpga_server: initial device scan complete count=1
+2026-08-18T13:41:02.928288Z  INFO ok_fpga_server: discovered FPGA device (initial scan) serial=22520013CC product=XEM7320-A75T interface=USB 3.0
+2026-08-18T13:41:02.964020Z  INFO ok_fpga_server::handle_pool: device handle opened and added to pool serial=22520013CC
+2026-08-18T13:41:02.964385Z  INFO ok_fpga_server: device polling task started (2s interval)
+2026-08-18T13:41:02.964496Z  INFO ok_fpga_server::scanner: attempting to load FrontPanel DLL dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-18T13:41:02.964599Z  INFO ok_fpga_server: authentication provider initialized provider="none" required=false
+2026-08-18T13:41:02.964804Z  INFO ok_fpga_core::service_manager: registered service service=rest enabled=true
+2026-08-18T13:41:02.964941Z  INFO ok_fpga_server: registered REST service bind=0.0.0.0 port=8088 enabled=true
+2026-08-18T13:41:02.965081Z  INFO ok_fpga_server: compiled features features=["rest", "dashboard"]
+2026-08-18T13:41:02.965210Z  INFO ok_fpga_server::scanner: FrontPanel DLL loaded successfully api_version=6.1.0 dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-18T13:41:02.965347Z  INFO ok_fpga_core::service_manager: starting service service=rest
+2026-08-18T13:41:02.969983Z  INFO ok_fpga_server::rest::managed: REST server bound successfully address=0.0.0.0:8088
+2026-08-18T13:41:02.970308Z  INFO ok_fpga_server::rest::managed: REST server is running address=0.0.0.0:8088
+2026-08-18T13:41:02.970513Z  INFO ok_fpga_core::service_manager: service started service=rest
+2026-08-18T13:41:02.970696Z  INFO ok_fpga_server: service state service=rest status=running compiled=true enabled=true
+2026-08-18T13:41:02.971256Z  INFO ok_fpga_server: management server started (dashboard + mgmt API) address=0.0.0.0:9090
+2026-08-18T13:41:02.971445Z  INFO ok_fpga_server::sweep: starting user session sweep task timeout_secs=60 sweep_interval_secs=10
+2026-08-18T13:41:02.971615Z  INFO ok_fpga_server: ok-FPGA-Server is ready. Press Ctrl+C to shut down.
