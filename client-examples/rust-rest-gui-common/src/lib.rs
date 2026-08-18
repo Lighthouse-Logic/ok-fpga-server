@@ -447,3 +447,341 @@ impl CountersClient {
         self.post("/heartbeat", Some(body)).await
     }
 }
+
+// ============================================================================
+// Unit Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========================================================================
+    // WireInState bitmask tests
+    // ========================================================================
+
+    #[test]
+    fn test_wire_in_state_default_is_zero() {
+        let state = WireInState::default();
+        assert_eq!(state.to_value(), 0);
+    }
+
+    #[test]
+    fn test_wire_in_state_reset1_bit() {
+        let state = WireInState { reset1: true, disable1: false, autocount2: false };
+        assert_eq!(state.to_value(), 0x01);
+    }
+
+    #[test]
+    fn test_wire_in_state_disable1_bit() {
+        let state = WireInState { reset1: false, disable1: true, autocount2: false };
+        assert_eq!(state.to_value(), 0x02);
+    }
+
+    #[test]
+    fn test_wire_in_state_autocount2_bit() {
+        let state = WireInState { reset1: false, disable1: false, autocount2: true };
+        assert_eq!(state.to_value(), 0x04);
+    }
+
+    #[test]
+    fn test_wire_in_state_all_bits_set() {
+        let state = WireInState { reset1: true, disable1: true, autocount2: true };
+        assert_eq!(state.to_value(), 0x07);
+    }
+
+    #[test]
+    fn test_wire_in_state_reset1_disable1_combination() {
+        let state = WireInState { reset1: true, disable1: true, autocount2: false };
+        assert_eq!(state.to_value(), 0x03);
+    }
+
+    // ========================================================================
+    // CounterState default tests
+    // ========================================================================
+
+    #[test]
+    fn test_counter_state_default() {
+        let state = CounterState::default();
+        assert_eq!(state.count1, 0);
+        assert_eq!(state.count2, 0);
+        assert_eq!(state.buttons, 0);
+        assert!(!state.count1_eq_00);
+        assert!(!state.count1_eq_80);
+        assert!(!state.count2_eq_ff);
+    }
+
+    // ========================================================================
+    // DeviceInfo construction tests
+    // ========================================================================
+
+    #[test]
+    fn test_device_info_construction() {
+        let info = DeviceInfo {
+            serial: "ABC123".to_string(),
+            product_name: "XEM7320-A75T".to_string(),
+            interface: "USB3".to_string(),
+            usb_speed: "SuperSpeed".to_string(),
+            state: "Ready".to_string(),
+        };
+        assert_eq!(info.serial, "ABC123");
+        assert_eq!(info.product_name, "XEM7320-A75T");
+        assert_eq!(info.interface, "USB3");
+    }
+
+    // ========================================================================
+    // ResourceInfo tests
+    // ========================================================================
+
+    #[test]
+    fn test_resource_info_locked_by_none() {
+        let info = ResourceInfo {
+            id: "res-1".to_string(),
+            name: "Counter Resource".to_string(),
+            device_serial: "ABC123".to_string(),
+            access_mode: "shared".to_string(),
+            holders: vec!["user1".to_string()],
+            locked_by: None,
+        };
+        assert!(info.locked_by.is_none());
+        assert_eq!(info.holders.len(), 1);
+    }
+
+    #[test]
+    fn test_resource_info_locked_by_present() {
+        let info = ResourceInfo {
+            id: "res-1".to_string(),
+            name: "Counter Resource".to_string(),
+            device_serial: "ABC123".to_string(),
+            access_mode: "shared".to_string(),
+            holders: vec![],
+            locked_by: Some("Icy Rester".to_string()),
+        };
+        assert_eq!(info.locked_by.as_deref(), Some("Icy Rester"));
+    }
+
+    #[test]
+    fn test_resource_info_empty_holders() {
+        let info = ResourceInfo {
+            id: "res-1".to_string(),
+            name: "Test".to_string(),
+            device_serial: "S1".to_string(),
+            access_mode: "exclusive".to_string(),
+            holders: vec![],
+            locked_by: None,
+        };
+        assert!(info.holders.is_empty());
+    }
+
+    // ========================================================================
+    // Client URL construction tests
+    // ========================================================================
+
+    #[test]
+    fn test_client_base_url_no_trailing_slash() {
+        let client = CountersClient::new("http://localhost:8088", "test-user");
+        assert_eq!(client.user_id(), "test-user");
+        // base_url should be "{url}/api/v1"
+        assert_eq!(client.base_url, "http://localhost:8088/api/v1");
+    }
+
+    #[test]
+    fn test_client_base_url_with_trailing_slash() {
+        let client = CountersClient::new("http://localhost:8088/", "test-user");
+        // Trailing slash should be stripped before appending /api/v1
+        assert_eq!(client.base_url, "http://localhost:8088/api/v1");
+    }
+
+    #[test]
+    fn test_client_user_id() {
+        let client = CountersClient::new("http://localhost:8088", "Rusty Rester");
+        assert_eq!(client.user_id(), "Rusty Rester");
+    }
+
+    // ========================================================================
+    // ClientError display tests
+    // ========================================================================
+
+    #[test]
+    fn test_client_error_server_display() {
+        let err = ClientError::Server {
+            status: 404,
+            body: "Not Found".to_string(),
+        };
+        let msg = format!("{}", err);
+        assert!(msg.contains("404"));
+        assert!(msg.contains("Not Found"));
+    }
+
+    // ========================================================================
+    // Mock HTTP integration tests (using mockito)
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_list_devices_parses_response() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server.mock("GET", "/api/v1/devices")
+            .match_header("X-User-Id", "test-user")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"[{"serial":"SN001","product_name":"XEM7320","interface":"USB3","usb_speed":"Super","state":"Ready"}]"#)
+            .create_async().await;
+
+        let client = CountersClient::new(&server.url(), "test-user");
+        let devices = client.list_devices().await.unwrap();
+
+        mock.assert_async().await;
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].serial, "SN001");
+        assert_eq!(devices[0].product_name, "XEM7320");
+    }
+
+    #[tokio::test]
+    async fn test_get_server_status_success() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server.mock("GET", "/api/v1/status")
+            .with_status(200)
+            .with_body(r#"{"status":"ok"}"#)
+            .create_async().await;
+
+        let client = CountersClient::new(&server.url(), "test-user");
+        let result = client.get_server_status().await;
+
+        mock.assert_async().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_configure_fpga_sends_bitfile_path() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server.mock("POST", "/api/v1/devices/SN001/configure")
+            .match_header("X-User-Id", "test-user")
+            .match_body(mockito::Matcher::JsonString(r#"{"bitfile_path":"Counters.bit"}"#.to_string()))
+            .with_status(200)
+            .with_body(r#"{"result":"ok"}"#)
+            .create_async().await;
+
+        let client = CountersClient::new(&server.url(), "test-user");
+        let result = client.configure_fpga("SN001", "Counters.bit").await;
+
+        mock.assert_async().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_set_wire_in_sends_correct_body() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server.mock("PUT", "/api/v1/devices/SN001/classic/wires/in")
+            .match_header("X-User-Id", "test-user")
+            .match_body(mockito::Matcher::JsonString(
+                r#"{"endpoint":0,"value":7,"mask":7}"#.to_string()
+            ))
+            .with_status(200)
+            .with_body(r#"{}"#)
+            .create_async().await;
+
+        let client = CountersClient::new(&server.url(), "test-user");
+        let result = client.set_wire_in("SN001", 0x00, 7, 0x07).await;
+
+        mock.assert_async().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_send_wire_in_uses_correct_mask() {
+        let mut server = mockito::Server::new_async().await;
+        // send_wire_in calls set_wire_in then update_wire_ins
+        let mock_set = server.mock("PUT", "/api/v1/devices/SN001/classic/wires/in")
+            .match_body(mockito::Matcher::JsonString(
+                r#"{"endpoint":0,"value":5,"mask":7}"#.to_string()
+            ))
+            .with_status(200)
+            .with_body(r#"{}"#)
+            .create_async().await;
+        let mock_update = server.mock("POST", "/api/v1/devices/SN001/classic/wires/in/update")
+            .with_status(204)
+            .create_async().await;
+
+        let client = CountersClient::new(&server.url(), "test-user");
+        let wire = WireInState { reset1: true, disable1: false, autocount2: true };
+        let result = client.send_wire_in("SN001", &wire).await;
+
+        mock_set.assert_async().await;
+        mock_update.assert_async().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_server_error_returns_client_error() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server.mock("GET", "/api/v1/status")
+            .with_status(500)
+            .with_body("Internal Server Error")
+            .create_async().await;
+
+        let client = CountersClient::new(&server.url(), "test-user");
+        let result = client.get_server_status().await;
+
+        mock.assert_async().await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ClientError::Server { status, body } => {
+                assert_eq!(status, 500);
+                assert_eq!(body, "Internal Server Error");
+            }
+            other => panic!("Expected Server error, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_wire_out_value_parses_value() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server.mock("GET", "/api/v1/devices/SN001/classic/wires/out/0x20")
+            .with_status(200)
+            .with_body(r#"{"value":42}"#)
+            .create_async().await;
+
+        let client = CountersClient::new(&server.url(), "test-user");
+        let value = client.get_wire_out_value("SN001", 0x20).await.unwrap();
+
+        mock.assert_async().await;
+        assert_eq!(value, 42);
+    }
+
+    #[tokio::test]
+    async fn test_activate_trigger_in_sends_endpoint_and_bit() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server.mock("POST", "/api/v1/devices/SN001/classic/triggers/in")
+            .match_body(mockito::Matcher::JsonString(
+                r#"{"endpoint":64,"bit":1}"#.to_string()
+            ))
+            .with_status(200)
+            .with_body(r#"{}"#)
+            .create_async().await;
+
+        let client = CountersClient::new(&server.url(), "test-user");
+        let result = client.activate_trigger_in("SN001", 0x40, 1).await;
+
+        mock.assert_async().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_create_resource_parses_response() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server.mock("POST", "/api/v1/resources")
+            .match_header("X-User-Id", "test-user")
+            .with_status(200)
+            .with_body(r#"{"id":"res-abc","name":"Counter Resource","device_serial":"SN001","access_mode":"shared","holders":[],"locked_by":null}"#)
+            .create_async().await;
+
+        let client = CountersClient::new(&server.url(), "test-user");
+        let info = client.create_resource("Counter Resource", "SN001").await.unwrap();
+
+        mock.assert_async().await;
+        assert_eq!(info.id, "res-abc");
+        assert_eq!(info.name, "Counter Resource");
+        assert_eq!(info.access_mode, "shared");
+        assert!(info.locked_by.is_none());
+    }
+}

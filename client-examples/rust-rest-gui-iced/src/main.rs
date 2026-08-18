@@ -1,13 +1,14 @@
 //! # Counters.bit Interactive Demo — Rust REST + iced
 //!
 //! Same functionality as the egui demo but uses the `iced` GUI framework
-//! (Elm-architecture, function-based API).
+//! (Elm-architecture, function-based API). Uses iced 0.14's reactive
+//! rendering and `iced_test` headless simulator for GUI testing.
 //!
 //! ## User Identity: "Icy Rester"
 
 use iced::widget::{
-    button, checkbox, column, container, horizontal_rule, horizontal_space, pick_list,
-    progress_bar, row, scrollable, text, text_input, Column, Row,
+    button, checkbox, column, container, pick_list,
+    progress_bar, row, rule, scrollable, text, text_input, Column, Row, Space,
 };
 use iced::{Element, Length, Subscription, Task, Theme};
 use rust_rest_gui_common::{CounterState, CountersClient, DeviceInfo, ResourceInfo, WireInState};
@@ -26,40 +27,59 @@ fn main() -> iced::Result {
         )
         .init();
 
-    iced::application("Counters.bit — Icy Rester (REST + iced)", update, view)
-        .theme(|_| Theme::Dark)
+    // iced 0.14: first arg is a boot function (returns initial state + Task),
+    // title is set via the .title() builder method instead of as a string arg.
+    iced::application(boot, update, view)
+        .title("Counters.bit — Icy Rester (REST + iced)")
+        .theme(theme)
         .subscription(subscription)
         .window_size((720.0, 560.0))
-        .run_with(|| {
-            let bitfile = std::env::var("OKFPGA_TEST_BITFILE")
-                .unwrap_or_else(|_| DEFAULT_BITFILE.to_string());
-            (
-                AppState {
-                    rest_url: DEFAULT_REST_URL.to_string(),
-                    bitfile_path: bitfile,
-                    phase: Phase::Disconnected,
-                    devices: vec![],
-                    selected_serial: None,
-                    resource_id: None,
-                    wire_in: WireInState::default(),
-                    poll_interval_ms: 500,
-                    override_lockout: false,
-                    counter: CounterState::default(),
-                    resource_info: None,
-                    log_entries: vec![],
-                    last_error: None,
-                },
-                Task::none(),
-            )
-        })
+        .run()
+}
+
+/// Theme function for iced 0.14 — must be a named function, not a closure,
+/// to satisfy the higher-ranked lifetime bounds required by the builder.
+fn theme(_state: &AppState) -> Theme {
+    Theme::Dark
+}
+
+/// Boot function for iced 0.14 — creates the initial application state.
+///
+/// In iced 0.14, the `application()` constructor takes a function that
+/// returns `(State, Task<Message>)` instead of using `.run_with()`.
+fn boot() -> (AppState, Task<Message>) {
+    let bitfile = std::env::var("OKFPGA_TEST_BITFILE")
+        .unwrap_or_else(|_| DEFAULT_BITFILE.to_string());
+    (
+        AppState {
+            rest_url: DEFAULT_REST_URL.to_string(),
+            bitfile_path: bitfile,
+            phase: Phase::Disconnected,
+            devices: vec![],
+            selected_serial: None,
+            resource_id: None,
+            wire_in: WireInState::default(),
+            poll_interval_ms: 500,
+            override_lockout: false,
+            counter: CounterState::default(),
+            resource_info: None,
+            log_entries: vec![],
+            last_error: None,
+        },
+        Task::none(),
+    )
 }
 
 // ============================================================================
 // State & Messages
 // ============================================================================
 
+/// Application phase — represents the sequential startup flow.
+///
+/// Implements `PartialOrd` so we can compare phases (e.g., `phase >= Programmed`
+/// to determine which buttons should be enabled).
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
-enum Phase {
+pub enum Phase {
     Disconnected,
     Connected,
     Programmed,
@@ -67,27 +87,37 @@ enum Phase {
     Acquired,
 }
 
-struct AppState {
-    rest_url: String,
-    bitfile_path: String,
-    phase: Phase,
-    devices: Vec<DeviceInfo>,
-    selected_serial: Option<String>,
-    resource_id: Option<String>,
-    wire_in: WireInState,
-    poll_interval_ms: u64,
-    override_lockout: bool,
-    counter: CounterState,
-    resource_info: Option<ResourceInfo>,
-    log_entries: Vec<(String, bool)>,
-    last_error: Option<String>,
+/// The complete application state — holds everything the GUI needs.
+pub struct AppState {
+    pub rest_url: String,
+    pub bitfile_path: String,
+    pub phase: Phase,
+    pub devices: Vec<DeviceInfo>,
+    pub selected_serial: Option<String>,
+    pub resource_id: Option<String>,
+    pub wire_in: WireInState,
+    pub poll_interval_ms: u64,
+    pub override_lockout: bool,
+    pub counter: CounterState,
+    pub resource_info: Option<ResourceInfo>,
+    pub log_entries: Vec<(String, bool)>,
+    pub last_error: Option<String>,
 }
 
 impl AppState {
-    fn serial(&self) -> String {
+    /// Get the selected device serial, or empty string if none selected.
+    pub fn serial(&self) -> String {
         self.selected_serial.clone().unwrap_or_default()
     }
-    fn is_locked_out(&self) -> bool {
+
+    /// Check if the resource is locked by another user (not us).
+    ///
+    /// Returns `false` if:
+    /// - The override lockout checkbox is checked
+    /// - No resource info is available
+    /// - The resource is not locked
+    /// - The resource is locked by us (USER_ID)
+    pub fn is_locked_out(&self) -> bool {
         if self.override_lockout { return false; }
         if let Some(ref res) = self.resource_info {
             if let Some(ref locker) = res.locked_by {
@@ -96,21 +126,28 @@ impl AppState {
         }
         false
     }
-    fn log(&mut self, msg: &str) {
+
+    /// Add a normal (non-error) log entry. Keeps at most 200 entries.
+    pub fn log(&mut self, msg: &str) {
         self.log_entries.push((msg.to_string(), false));
         if self.log_entries.len() > 200 { self.log_entries.remove(0); }
     }
-    fn log_err(&mut self, msg: &str) {
+
+    /// Add an error log entry. Keeps at most 200 entries.
+    pub fn log_err(&mut self, msg: &str) {
         self.log_entries.push((msg.to_string(), true));
         if self.log_entries.len() > 200 { self.log_entries.remove(0); }
     }
+
+    /// Create a new REST client using the current URL and USER_ID.
     fn make_client(&self) -> CountersClient {
         CountersClient::new(&self.rest_url, USER_ID)
     }
 }
 
+/// All possible user actions and async operation results.
 #[derive(Debug, Clone)]
-enum Message {
+pub enum Message {
     UrlChanged(String),
     BitfileChanged(String),
     ConnectPressed,
@@ -333,7 +370,8 @@ fn subscription(state: &AppState) -> Subscription<Message> {
 // View
 // ============================================================================
 
-fn view(state: &AppState) -> Element<Message> {
+/// Top-level view — renders connection panel or counter control based on phase.
+pub fn view(state: &AppState) -> Element<'_, Message> {
     let main_content: Element<Message> = match state.phase {
         Phase::Disconnected | Phase::Connected | Phase::Programmed | Phase::Registered => {
             view_connection(state)
@@ -349,15 +387,15 @@ fn view(state: &AppState) -> Element<Message> {
 
     let log_panel = column![
         text("Activity Log").size(14),
-        horizontal_rule(1),
+        rule::horizontal(1),
         scrollable(Column::with_children(log_entries)).height(80),
     ];
 
     container(column![
         text("Counters.bit — Icy Rester").size(20),
-        horizontal_rule(1),
+        rule::horizontal(1),
         main_content,
-        horizontal_rule(1),
+        rule::horizontal(1),
         log_panel,
     ].spacing(8).padding(12))
     .width(Length::Fill)
@@ -365,7 +403,7 @@ fn view(state: &AppState) -> Element<Message> {
     .into()
 }
 
-fn view_connection(state: &AppState) -> Element<Message> {
+fn view_connection(state: &AppState) -> Element<'_, Message> {
     let url_row = row![
         text("Server URL:").width(100),
         text_input("http://localhost:8088", &state.rest_url).on_input(Message::UrlChanged),
@@ -406,22 +444,23 @@ fn view_connection(state: &AppState) -> Element<Message> {
     ].spacing(8).into()
 }
 
-fn view_counters(state: &AppState) -> Element<Message> {
+fn view_counters(state: &AppState) -> Element<'_, Message> {
     let locked_out = state.is_locked_out();
 
     let error_text: Element<Message> = if let Some(ref e) = state.last_error {
         text(e).color(iced::Color::from_rgb(1.0, 0.3, 0.3)).into()
     } else { text("").into() };
 
-    // Counter #1
+    // Counter #1 — iced 0.14: checkbox() takes just the bool value,
+    // label is set via .label() builder method.
     let c1 = column![
         text("Counter #1 (Auto-count)").size(16),
         text(format!("Value: 0x{:02X} ({})", state.counter.count1, state.counter.count1)),
         progress_bar(0.0..=255.0, state.counter.count1 as f32),
-        if locked_out { checkbox("RESET1 (hold at 0x00)", state.wire_in.reset1) }
-        else { checkbox("RESET1 (hold at 0x00)", state.wire_in.reset1).on_toggle(Message::SetReset1) },
-        if locked_out { checkbox("DISABLE1 (freeze)", state.wire_in.disable1) }
-        else { checkbox("DISABLE1 (freeze)", state.wire_in.disable1).on_toggle(Message::SetDisable1) },
+        if locked_out { checkbox(state.wire_in.reset1).label("RESET1 (hold at 0x00)") }
+        else { checkbox(state.wire_in.reset1).label("RESET1 (hold at 0x00)").on_toggle(Message::SetReset1) },
+        if locked_out { checkbox(state.wire_in.disable1).label("DISABLE1 (freeze)") }
+        else { checkbox(state.wire_in.disable1).label("DISABLE1 (freeze)").on_toggle(Message::SetDisable1) },
         text("Triggers:").size(13),
         text(format!("  COUNT1==0x00: {}", if state.counter.count1_eq_00 {"🟢"} else {"⚫"})),
         text(format!("  COUNT1==0x80: {}", if state.counter.count1_eq_80 {"🟢"} else {"⚫"})),
@@ -437,8 +476,8 @@ fn view_counters(state: &AppState) -> Element<Message> {
         text(format!("Value: 0x{:02X} ({})", state.counter.count2, state.counter.count2)),
         progress_bar(0.0..=255.0, state.counter.count2 as f32),
         row![up, dn].spacing(4),
-        row![rst, if locked_out { checkbox("AUTOCOUNT2", state.wire_in.autocount2) }
-             else { checkbox("AUTOCOUNT2", state.wire_in.autocount2).on_toggle(Message::SetAutocount2) }
+        row![rst, if locked_out { checkbox(state.wire_in.autocount2).label("AUTOCOUNT2") }
+             else { checkbox(state.wire_in.autocount2).label("AUTOCOUNT2").on_toggle(Message::SetAutocount2) }
         ].spacing(4),
         text("Triggers:").size(13),
         text(format!("  COUNT2==0xFF: {}", if state.counter.count2_eq_ff {"🟢"} else {"⚫"})),
@@ -464,11 +503,11 @@ fn view_counters(state: &AppState) -> Element<Message> {
     column![
         error_text,
         row![c1, c2].spacing(16),
-        horizontal_rule(1),
+        rule::horizontal(1),
         row![text("Buttons:"), Row::with_children(btn_indicators).spacing(4),
-             horizontal_space(), text("Poll:"), poll_pick, text("ms")].spacing(8),
-        row![lock_btn, checkbox("Override lockout", state.override_lockout).on_toggle(Message::OverrideLockout)].spacing(8),
-        horizontal_rule(1),
+             Space::new().width(Length::Fill), text("Poll:"), poll_pick, text("ms")].spacing(8),
+        row![lock_btn, checkbox(state.override_lockout).label("Override lockout").on_toggle(Message::OverrideLockout)].spacing(8),
+        rule::horizontal(1),
         row![button("Quit — Release").on_press(Message::QuitRelease),
              button("Quit — Leave Held").on_press(Message::QuitLeaveHeld)].spacing(8),
     ].spacing(8).into()

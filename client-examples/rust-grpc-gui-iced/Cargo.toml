@@ -8,8 +8,12 @@ license = "MIT"
 
 [dependencies]
 rust-grpc-gui-common = { path = "../rust-grpc-gui-common" }
-iced = { version = "0.13", features = ["tokio"] }
+iced = { version = "0.14", features = ["tokio"] }
 tokio = { version = "1", features = ["full"] }
 serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Headless GUI testing framework (iced 0.14)
+[dev-dependencies]
+iced_test = "0.14"

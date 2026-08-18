@@ -361,3 +361,176 @@ impl CountersGrpcClient {
         Ok(())
     }
 }
+
+// ============================================================================
+// Unit Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========================================================================
+    // WireInState bitmask tests
+    // ========================================================================
+
+    #[test]
+    fn test_wire_in_state_default_is_zero() {
+        let state = WireInState::default();
+        assert_eq!(state.to_value(), 0);
+    }
+
+    #[test]
+    fn test_wire_in_state_reset1_bit() {
+        let state = WireInState { reset1: true, disable1: false, autocount2: false };
+        assert_eq!(state.to_value(), 0x01);
+    }
+
+    #[test]
+    fn test_wire_in_state_disable1_bit() {
+        let state = WireInState { reset1: false, disable1: true, autocount2: false };
+        assert_eq!(state.to_value(), 0x02);
+    }
+
+    #[test]
+    fn test_wire_in_state_autocount2_bit() {
+        let state = WireInState { reset1: false, disable1: false, autocount2: true };
+        assert_eq!(state.to_value(), 0x04);
+    }
+
+    #[test]
+    fn test_wire_in_state_all_bits_set() {
+        let state = WireInState { reset1: true, disable1: true, autocount2: true };
+        assert_eq!(state.to_value(), 0x07);
+    }
+
+    #[test]
+    fn test_wire_in_state_combinations() {
+        // reset1 + autocount2 = 0x05
+        let state = WireInState { reset1: true, disable1: false, autocount2: true };
+        assert_eq!(state.to_value(), 0x05);
+        // disable1 + autocount2 = 0x06
+        let state = WireInState { reset1: false, disable1: true, autocount2: true };
+        assert_eq!(state.to_value(), 0x06);
+    }
+
+    // ========================================================================
+    // CounterState default tests
+    // ========================================================================
+
+    #[test]
+    fn test_counter_state_default() {
+        let state = CounterState::default();
+        assert_eq!(state.count1, 0);
+        assert_eq!(state.count2, 0);
+        assert_eq!(state.buttons, 0);
+        assert!(!state.count1_eq_00);
+        assert!(!state.count1_eq_80);
+        assert!(!state.count2_eq_ff);
+    }
+
+    #[test]
+    fn test_counter_state_trigger_booleans() {
+        let state = CounterState {
+            count1: 0, count2: 0xFF, buttons: 0,
+            count1_eq_00: true, count1_eq_80: false, count2_eq_ff: true,
+        };
+        assert!(state.count1_eq_00);
+        assert!(!state.count1_eq_80);
+        assert!(state.count2_eq_ff);
+    }
+
+    // ========================================================================
+    // DeviceInfo construction tests
+    // ========================================================================
+
+    #[test]
+    fn test_device_info_construction() {
+        let info = DeviceInfo {
+            serial: "SN001".to_string(),
+            product_name: "XEM7320-A75T".to_string(),
+        };
+        assert_eq!(info.serial, "SN001");
+        assert_eq!(info.product_name, "XEM7320-A75T");
+    }
+
+    // ========================================================================
+    // ResourceInfo tests
+    // ========================================================================
+
+    #[test]
+    fn test_resource_info_locked_by_none() {
+        let info = ResourceInfo {
+            id: "res-1".to_string(),
+            name: "Counter Resource".to_string(),
+            device_serial: "SN001".to_string(),
+            access_mode: "shared".to_string(),
+            holders: vec!["user1".to_string()],
+            locked_by: None,
+        };
+        assert!(info.locked_by.is_none());
+        assert_eq!(info.holders.len(), 1);
+        assert_eq!(info.holders[0], "user1");
+    }
+
+    #[test]
+    fn test_resource_info_locked_by_present() {
+        let info = ResourceInfo {
+            id: "res-1".to_string(),
+            name: "Counter Resource".to_string(),
+            device_serial: "SN001".to_string(),
+            access_mode: "shared".to_string(),
+            holders: vec![],
+            locked_by: Some("Icy Garpac".to_string()),
+        };
+        assert_eq!(info.locked_by.as_deref(), Some("Icy Garpac"));
+    }
+
+    #[test]
+    fn test_resource_info_empty_holders() {
+        let info = ResourceInfo {
+            id: "res-1".to_string(),
+            name: "Test".to_string(),
+            device_serial: "S1".to_string(),
+            access_mode: "exclusive".to_string(),
+            holders: vec![],
+            locked_by: None,
+        };
+        assert!(info.holders.is_empty());
+    }
+
+    // ========================================================================
+    // resource_from_response helper tests
+    // ========================================================================
+
+    #[test]
+    fn test_resource_from_response_with_resource() {
+        let proto_resource = okfpga::v1::Resource {
+            id: "res-abc".to_string(),
+            name: "Counter Resource".to_string(),
+            device_serial: "SN001".to_string(),
+            holders: vec!["user1".to_string(), "user2".to_string()],
+            ..Default::default()
+        };
+        let resp = okfpga::v1::ResourceResponse {
+            resource: Some(proto_resource),
+            error: None,
+        };
+        let info = CountersGrpcClient::resource_from_response(resp);
+        assert_eq!(info.id, "res-abc");
+        assert_eq!(info.name, "Counter Resource");
+        assert_eq!(info.device_serial, "SN001");
+        assert_eq!(info.access_mode, "shared");
+        assert_eq!(info.holders.len(), 2);
+        assert!(info.locked_by.is_none());
+    }
+
+    #[test]
+    fn test_resource_from_response_without_resource() {
+        let resp = okfpga::v1::ResourceResponse { resource: None, error: None };
+        let info = CountersGrpcClient::resource_from_response(resp);
+        assert!(info.id.is_empty());
+        assert!(info.name.is_empty());
+        assert!(info.holders.is_empty());
+    }
+}

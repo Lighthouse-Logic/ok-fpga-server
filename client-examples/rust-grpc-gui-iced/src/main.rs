@@ -1,6 +1,8 @@
 //! # Counters.bit Interactive Demo — Rust gRPC + iced
 //!
 //! Same UI as the REST+iced demo but communicates via gRPC.
+//! Uses iced 0.14's reactive rendering and `iced_test` headless
+//! simulator for GUI testing.
 //!
 //! ## User Identity: "Icy Garpac"
 //!
@@ -11,8 +13,8 @@
 //! This is fine for a demo — production code would use a shared channel.
 
 use iced::widget::{
-    button, checkbox, column, container, horizontal_rule, horizontal_space, pick_list,
-    progress_bar, row, scrollable, text, text_input, Column, Row,
+    button, checkbox, column, container, pick_list,
+    progress_bar, row, rule, scrollable, text, text_input, Column, Row, Space,
 };
 use iced::{Element, Length, Subscription, Task, Theme};
 use rust_grpc_gui_common::{CounterState, CountersGrpcClient, DeviceInfo, ResourceInfo, WireInState};
@@ -31,38 +33,51 @@ fn main() -> iced::Result {
         )
         .init();
 
-    iced::application("Counters.bit — Icy Garpac (gRPC + iced)", update, view)
-        .theme(|_| Theme::Dark)
+    // iced 0.14: first arg is a boot function, title via builder.
+    iced::application(boot, update, view)
+        .title("Counters.bit — Icy Garpac (gRPC + iced)")
+        .theme(theme)
         .subscription(subscription)
         .window_size((720.0, 560.0))
-        .run_with(|| {
-            let bitfile = std::env::var("OKFPGA_TEST_BITFILE")
-                .unwrap_or_else(|_| DEFAULT_BITFILE.to_string());
-            (AppState::new(bitfile), Task::none())
-        })
+        .run()
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-enum Phase { Disconnected, Connected, Programmed, Registered, Acquired }
+/// Theme function — named function required by iced 0.14 lifetime bounds.
+fn theme(_state: &AppState) -> Theme {
+    Theme::Dark
+}
 
-struct AppState {
-    grpc_url: String,
-    bitfile_path: String,
-    phase: Phase,
-    devices: Vec<DeviceInfo>,
-    selected_serial: Option<String>,
-    resource_id: Option<String>,
-    wire_in: WireInState,
-    poll_interval_ms: u64,
-    override_lockout: bool,
-    counter: CounterState,
-    resource_info: Option<ResourceInfo>,
-    log_entries: Vec<(String, bool)>,
-    last_error: Option<String>,
+/// Boot function for iced 0.14 — returns initial state and startup task.
+fn boot() -> (AppState, Task<Message>) {
+    let bitfile = std::env::var("OKFPGA_TEST_BITFILE")
+        .unwrap_or_else(|_| DEFAULT_BITFILE.to_string());
+    (AppState::new(bitfile), Task::none())
+}
+
+/// Application phase — sequential startup flow.
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum Phase { Disconnected, Connected, Programmed, Registered, Acquired }
+
+/// Complete application state.
+pub struct AppState {
+    pub grpc_url: String,
+    pub bitfile_path: String,
+    pub phase: Phase,
+    pub devices: Vec<DeviceInfo>,
+    pub selected_serial: Option<String>,
+    pub resource_id: Option<String>,
+    pub wire_in: WireInState,
+    pub poll_interval_ms: u64,
+    pub override_lockout: bool,
+    pub counter: CounterState,
+    pub resource_info: Option<ResourceInfo>,
+    pub log_entries: Vec<(String, bool)>,
+    pub last_error: Option<String>,
 }
 
 impl AppState {
-    fn new(bitfile: String) -> Self {
+    /// Create a new application state with default values.
+    pub fn new(bitfile: String) -> Self {
         Self {
             grpc_url: DEFAULT_GRPC_URL.to_string(), bitfile_path: bitfile,
             phase: Phase::Disconnected, devices: vec![], selected_serial: None,
@@ -71,13 +86,21 @@ impl AppState {
             log_entries: vec![], last_error: None,
         }
     }
-    fn serial(&self) -> String { self.selected_serial.clone().unwrap_or_default() }
-    fn is_locked_out(&self) -> bool {
+
+    /// Get selected device serial or empty string.
+    pub fn serial(&self) -> String { self.selected_serial.clone().unwrap_or_default() }
+
+    /// Check if locked out by another user.
+    pub fn is_locked_out(&self) -> bool {
         if self.override_lockout { return false; }
         self.resource_info.as_ref().and_then(|r| r.locked_by.as_deref()).map(|l| l != USER_ID).unwrap_or(false)
     }
-    fn log(&mut self, msg: &str) { self.log_entries.push((msg.to_string(), false)); if self.log_entries.len() > 200 { self.log_entries.remove(0); } }
-    fn log_err(&mut self, msg: &str) { self.log_entries.push((msg.to_string(), true)); if self.log_entries.len() > 200 { self.log_entries.remove(0); } }
+
+    /// Add a normal log entry (max 200).
+    pub fn log(&mut self, msg: &str) { self.log_entries.push((msg.to_string(), false)); if self.log_entries.len() > 200 { self.log_entries.remove(0); } }
+
+    /// Add an error log entry (max 200).
+    pub fn log_err(&mut self, msg: &str) { self.log_entries.push((msg.to_string(), true)); if self.log_entries.len() > 200 { self.log_entries.remove(0); } }
 }
 
 /// Helper: create a fresh gRPC client connection.
@@ -85,8 +108,9 @@ async fn connect(url: &str) -> Result<CountersGrpcClient, String> {
     CountersGrpcClient::connect(url, USER_ID).await.map_err(|e| e.to_string())
 }
 
+/// All possible user actions and async operation results.
 #[derive(Debug, Clone)]
-enum Message {
+pub enum Message {
     UrlChanged(String), BitfileChanged(String),
     ConnectPressed, ConnectResult(Result<Vec<DeviceInfo>, String>),
     SelectDevice(String),
@@ -205,18 +229,19 @@ fn subscription(state: &AppState) -> Subscription<Message> {
     else { Subscription::none() }
 }
 
-fn view(state: &AppState) -> Element<Message> {
+/// Top-level view function.
+pub fn view(state: &AppState) -> Element<'_, Message> {
     let main: Element<Message> = if state.phase == Phase::Acquired { view_counters(state) } else { view_connect(state) };
     let log_items: Vec<Element<Message>> = state.log_entries.iter().map(|(m, e)| {
         let t = text(m.clone()).size(12); if *e { t.color(iced::Color::from_rgb(1.0,0.4,0.4)).into() } else { t.color(iced::Color::from_rgb(0.7,0.7,0.7)).into() }
     }).collect();
     container(column![
-        text("Counters.bit — Icy Garpac").size(20), horizontal_rule(1), main, horizontal_rule(1),
+        text("Counters.bit — Icy Garpac").size(20), rule::horizontal(1), main, rule::horizontal(1),
         text("Activity Log").size(14), scrollable(Column::with_children(log_items)).height(80),
     ].spacing(8).padding(12)).width(Length::Fill).height(Length::Fill).into()
 }
 
-fn view_connect(s: &AppState) -> Element<Message> {
+fn view_connect(s: &AppState) -> Element<'_, Message> {
     let con = if s.phase == Phase::Disconnected { button("1. Connect").on_press(Message::ConnectPressed) } else { button("1. Connect ✓") };
     let devs: Vec<Element<Message>> = s.devices.iter().map(|d| button(text(format!("{} — {}", d.serial, d.product_name)).size(14)).on_press(Message::SelectDevice(d.serial.clone())).into()).collect();
     let prog = if s.phase >= Phase::Programmed { button("2. Program ✓") } else if s.phase == Phase::Connected { button("2. Program").on_press(Message::ProgramPressed) } else { button("2. Program") };
@@ -230,26 +255,27 @@ fn view_connect(s: &AppState) -> Element<Message> {
     ].spacing(8).into()
 }
 
-fn view_counters(s: &AppState) -> Element<Message> {
+fn view_counters(s: &AppState) -> Element<'_, Message> {
     let lo = s.is_locked_out();
     let err: Element<Message> = if let Some(ref e) = s.last_error { text(e).color(iced::Color::from_rgb(1.0,0.3,0.3)).into() } else { text("").into() };
+    // iced 0.14: checkbox(bool_value).label("text") instead of checkbox("text", bool_value)
     let c1 = column![text("Counter #1").size(16), text(format!("0x{:02X}", s.counter.count1)), progress_bar(0.0..=255.0, s.counter.count1 as f32),
-        if lo { checkbox("RESET1", s.wire_in.reset1) } else { checkbox("RESET1", s.wire_in.reset1).on_toggle(Message::SetReset1) },
-        if lo { checkbox("DISABLE1", s.wire_in.disable1) } else { checkbox("DISABLE1", s.wire_in.disable1).on_toggle(Message::SetDisable1) },
+        if lo { checkbox(s.wire_in.reset1).label("RESET1") } else { checkbox(s.wire_in.reset1).label("RESET1").on_toggle(Message::SetReset1) },
+        if lo { checkbox(s.wire_in.disable1).label("DISABLE1") } else { checkbox(s.wire_in.disable1).label("DISABLE1").on_toggle(Message::SetDisable1) },
         text(format!("==0x00: {} | ==0x80: {}", if s.counter.count1_eq_00 {"🟢"} else {"⚫"}, if s.counter.count1_eq_80 {"🟢"} else {"⚫"})),
     ].spacing(4).width(Length::FillPortion(1));
     let c2 = column![text("Counter #2").size(16), text(format!("0x{:02X}", s.counter.count2)), progress_bar(0.0..=255.0, s.counter.count2 as f32),
         row![if lo { button("▲") } else { button("▲").on_press(Message::CountUp) }, if lo { button("▼") } else { button("▼").on_press(Message::CountDown) }].spacing(4),
-        row![if lo { button("⟲") } else { button("⟲").on_press(Message::ResetCounter2) }, if lo { checkbox("AUTO", s.wire_in.autocount2) } else { checkbox("AUTO", s.wire_in.autocount2).on_toggle(Message::SetAutocount2) }].spacing(4),
+        row![if lo { button("⟲") } else { button("⟲").on_press(Message::ResetCounter2) }, if lo { checkbox(s.wire_in.autocount2).label("AUTO") } else { checkbox(s.wire_in.autocount2).label("AUTO").on_toggle(Message::SetAutocount2) }].spacing(4),
         text(format!("==0xFF: {}", if s.counter.count2_eq_ff {"🟢"} else {"⚫"})),
     ].spacing(4).width(Length::FillPortion(1));
     let btns: Vec<Element<Message>> = (0..4).map(|i| { let p = (s.counter.buttons >> i) & 1 != 0; if p { text(format!("[{}]",i+1)).color(iced::Color::from_rgb(0.0,0.8,0.4)).into() } else { text(format!("[{}]",i+1)).color(iced::Color::from_rgb(0.3,0.3,0.3)).into() } }).collect();
     let poll_opts: Vec<u64> = vec![100,250,500,1000,2000];
     let me = s.resource_info.as_ref().and_then(|r| r.locked_by.as_deref()).map(|l| l == USER_ID).unwrap_or(false);
     let lock = if me { button("🔓 Unlock").on_press(Message::UnlockPressed) } else { button("🔒 Lock").on_press(Message::LockPressed) };
-    column![err, row![c1, c2].spacing(16), horizontal_rule(1),
-        row![text("Buttons:"), Row::with_children(btns).spacing(4), horizontal_space(), text("Poll:"), pick_list(poll_opts, Some(s.poll_interval_ms), Message::PollIntervalChanged), text("ms")].spacing(8),
-        row![lock, checkbox("Override", s.override_lockout).on_toggle(Message::OverrideLockout)].spacing(8), horizontal_rule(1),
+    column![err, row![c1, c2].spacing(16), rule::horizontal(1),
+        row![text("Buttons:"), Row::with_children(btns).spacing(4), Space::new().width(Length::Fill), text("Poll:"), pick_list(poll_opts, Some(s.poll_interval_ms), Message::PollIntervalChanged), text("ms")].spacing(8),
+        row![lock, checkbox(s.override_lockout).label("Override").on_toggle(Message::OverrideLockout)].spacing(8), rule::horizontal(1),
         row![button("Quit — Release").on_press(Message::QuitRelease), button("Quit — Leave Held").on_press(Message::QuitLeaveHeld)].spacing(8),
     ].spacing(8).into()
 }

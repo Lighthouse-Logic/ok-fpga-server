@@ -11,7 +11,7 @@ license = "MIT"
 rust-rest-gui-common = { path = "../rust-rest-gui-common" }
 
 # GUI framework — Elm-architecture, retained-mode, polished look
-iced = { version = "0.13", features = ["tokio"] }
+iced = { version = "0.14", features = ["tokio"] }
 
 # Async runtime — needed for REST API calls
 tokio = { version = "1", features = ["full"] }
@@ -22,3 +22,7 @@ serde_json = "1"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Headless GUI testing framework (iced 0.14)
+[dev-dependencies]
+iced_test = "0.14"
