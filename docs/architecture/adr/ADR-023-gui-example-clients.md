@@ -218,12 +218,12 @@ Tests are organized in three tiers:
 The 4 shared API client libraries contain all protocol logic and are the
 highest-value test targets. Each library gets comprehensive unit tests:
 
-| Library | Test File | Mock Framework | Focus Areas |
-|---------|-----------|---------------|-------------|
-| `rust-rest-gui-common` | `src/lib.rs` `#[cfg(test)]` | `mockito` | HTTP request construction, URL normalization, bitmask computation, response parsing |
-| `rust-grpc-gui-common` | `src/lib.rs` `#[cfg(test)]` | `tonic` in-process server | gRPC request formation, proto field mapping, enum serialization |
-| `python_rest_gui_common` | `test_counters_client.py` | `responses` / `unittest.mock` | URL construction, bitmask computation, response parsing, error handling |
-| `python_grpc_gui_common` | `test_counters_grpc_client.py` | `unittest.mock` | Data type construction, bitmask logic, field mapping |
+| Library | Test File | Mock Framework | Tests | Focus Areas |
+|---------|-----------|---------------|-------|-------------|
+| `rust-rest-gui-common` | `src/lib.rs` `#[cfg(test)]` | `mockito` + `tokio` | 24 | HTTP request construction, URL normalization, bitmask computation, response parsing, error handling |
+| `rust-grpc-gui-common` | `src/lib.rs` `#[cfg(test)]` | — (data model + proto tests) | 14 | Bitmask computation, proto field mapping, `resource_from_response` helper |
+| `python_rest_gui_common` | `test_counters_client.py` | `responses` | 26 | URL construction, bitmask computation, HTTP mock request/response, error handling |
+| `python_grpc_gui_common` | `test_counters_grpc_client.py` | — (data model tests) | 15 | Data type construction, bitmask logic, field mapping |
 
 Key test categories for common libraries:
 - **WireInState bitmask**: `default() == 0`, individual bits (0x01, 0x02, 0x04), all bits (`0x07`)
@@ -240,52 +240,32 @@ Key test categories for common libraries:
 Each GUI demo application has tests for its state machine logic and, where
 framework support permits, headless GUI interaction testing.
 
-**Rust iced demos** use `iced_test` (0.14) for full headless GUI testing:
+**Rust iced demos** (Icy Rester, Icy Garpac) test the Elm Architecture
+state machine in `#[cfg(test)]` blocks: `boot()` state defaults, `update()`
+message handling (sync and result messages), phase transitions, lockout
+logic, log management, and serial helper. 25 + 23 = 48 tests.
 
-```rust
-// Example: verify counter panel renders after acquisition
-use iced_test::simulator;
+**Rust egui demos** (Rusty Rester, Rusty Garpac) do not currently have unit
+tests. egui does not provide a headless test harness comparable to `iced_test`.
+The egui app state is tightly coupled to `eframe::App` and would need
+refactoring to extract testable logic. This is tracked for a future phase.
 
-#[test]
-fn test_counter_panel_shows_after_acquire() {
-    let mut state = AppState::new("test.bit".into());
-    state.phase = Phase::Acquired;
-    let mut ui = simulator(view(&state));
-    assert!(ui.find("Counter #1").is_ok());
-    assert!(ui.find("Counter #2").is_ok());
-}
+**Python tkinter demos** test state machine logic using mocked `tkinter`
+variables. 17 + 13 = 30 tests.
 
-#[test]
-fn test_connect_button_disabled_after_connect() {
-    let mut state = AppState::new("test.bit".into());
-    state.phase = Phase::Connected;
-    let mut ui = simulator(view(&state));
-    // Connect button should show checkmark
-    assert!(ui.find("1. Connect ✓").is_ok());
-}
-```
+**Python dearpygui demos** test logic layer headlessly (no DearPyGui import
+required). 13 + 12 = 25 tests.
 
-**Rust egui demos** test extracted logic functions (phase ordering, lock
-detection, log truncation) in `#[cfg(test)]` blocks. egui does not provide
-a headless test harness comparable to `iced_test`.
-
-**Python tkinter demos** test state machine logic with `unittest.mock`
-patching `tkinter` calls. No headless GUI rendering.
-
-**Python dearpygui demos** test logic layer with `unittest.mock` patching
-`dearpygui.dearpygui` functions. DearPyGui requires GPU context, so GUI
-integration tests are limited to mock-based verification of `dpg` calls.
-
-| Test Category | What It Verifies |
-|---------------|-----------------|
-| Phase ordering | `Disconnected → Connected → Programmed → Registered → Acquired` |
-| Lock detection | `is_locked_out()` with no resource, self-locked, other-locked, override |
-| Log management | Max 200 entries, truncation, timestamp format |
-| Wire state | UI checkbox state → `WireInState` → bitmask value |
-| Button enable/disable | Buttons disabled in correct phases |
-| Shutdown prompt | Release vs. keep-held logic |
-| *(iced only)* View rendering | Connection panel, counter panel, button labels, progress bars |
-| *(iced only)* Click simulation | Button clicks → correct Messages |
+| Test Category | What It Verifies | Count |
+|---------------|-----------------|-------|
+| Phase ordering | `Disconnected → Connected → Programmed → Registered → Acquired` | 10 |
+| Lock detection | `is_locked_out()` with no resource, self-locked, other-locked, override | 30 |
+| Log management | Max 200 entries, truncation, error vs. normal | 12 |
+| Wire state | `WireInState` bitmask: individual bits, combinations, all-set | 30 |
+| Message handling *(iced only)* | `update()` with sync and result messages | 36 |
+| State defaults | Initial values after `boot()` / construction | 20 |
+| URL / client setup | Base URL normalization, user ID header, session setup | 10 |
+| HTTP/gRPC mocking *(common libs)* | Mock server responses → typed data structures | 34 |
 
 #### Tier 3: Hardware Integration Tests (Run When FPGA Connected)
 

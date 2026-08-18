@@ -1827,9 +1827,9 @@ Two GUI frameworks per language provide framework comparison:
 
 #### Phase 25B: Rust REST GUI (iced) — "Icy Rester"
 
-**Status**: `[x]` Completed (`b72454a`) — using iced 0.13, upgrade to 0.14 pending
+**Status**: `[x]` Completed (`b72454a`, upgraded to iced 0.14 in `1f71ede`)
 
-Same feature set as 25A, using `iced` 0.13 framework.
+Same feature set as 25A, using `iced` 0.14 framework (Elm Architecture).
 
 #### Phase 25C: Rust gRPC GUI (egui) — "Rusty Garpac"
 
@@ -1840,7 +1840,7 @@ Uses `tokio::sync::Mutex` for async-safe client access in spawned tasks.
 
 #### Phase 25D: Rust gRPC GUI (iced) — "Icy Garpac"
 
-**Status**: `[x]` Completed (`b72454a`) — using iced 0.13, upgrade to 0.14 pending
+**Status**: `[x]` Completed (`b72454a`, upgraded to iced 0.14 in `1f71ede`)
 
 Same feature set as 25B, using gRPC API. Creates fresh gRPC connection per
 operation (iced Messages must be `Debug + Clone`, tonic client is not `Clone`).
@@ -1873,7 +1873,7 @@ Same feature set as 25F, using gRPC API.
 
 ### Phase 25-Fix: iced 0.14 Upgrade + Comprehensive Unit Tests
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed (2026-08-18, `1f71ede`, `a3f05c0`, `527938b`, `a7b7d9f`)  
 **Depends on**: Phase 25A–25H  
 **ADR reference**: [ADR-023 §8 Testing Strategy](architecture/adr/ADR-023-gui-example-clients.md)
 
@@ -1888,29 +1888,33 @@ Same feature set as 25F, using gRPC API.
 
 Add comprehensive unit tests to all 4 shared API client libraries using mocks:
 
-| Library | Mock Framework | Estimated Tests |
-|---------|---------------|----------------|
-| `rust-rest-gui-common` | `mockito` | ~12 |
-| `rust-grpc-gui-common` | `tonic` in-process | ~8 |
-| `python_rest_gui_common` | `responses` + `unittest.mock` | ~12 |
-| `python_grpc_gui_common` | `unittest.mock` | ~8 |
+| Library | Mock Framework | Tests |
+|---------|---------------|------|
+| `rust-rest-gui-common` | `mockito` + `tokio` | 24 |
+| `rust-grpc-gui-common` | — (data model tests) | 14 |
+| `python_rest_gui_common` | `responses` | 26 |
+| `python_grpc_gui_common` | — (data model tests) | 15 |
 
 Each Python package gets a `pyproject.toml` with `[project.optional-dependencies.test]`.
 
 #### Phase 25-Fix-C: GUI Application Unit Tests
 
-| Demo | Framework | Test Approach | Estimated Tests |
-|------|-----------|--------------|----------------|
-| Rusty Rester (egui) | `#[cfg(test)]` | Logic tests (phase, lock, log) | ~8 |
-| Icy Rester (iced) | `iced_test` | Full headless GUI tests | ~15 |
-| Rusty Garpac (egui) | `#[cfg(test)]` | Logic tests | ~8 |
-| Icy Garpac (iced) | `iced_test` | Full headless GUI tests | ~15 |
-| Pythos Rester (tkinter) | `unittest.mock` | State machine + mock verification | ~8 |
-| Dear Rester (dearpygui) | `unittest.mock` | State machine + mock `dpg` calls | ~8 |
-| Pythos Garpac (tkinter) | `unittest.mock` | State machine + mock verification | ~8 |
-| Dear Garpac (dearpygui) | `unittest.mock` | State machine + mock `dpg` calls | ~8 |
+| Demo | Framework | Test Approach | Tests |
+|------|-----------|--------------|------|
+| Rusty Rester (egui) | — | *(egui lacks headless harness — future refactor)* | — |
+| Icy Rester (iced) | `#[cfg(test)]` | Elm arch: boot/update/state/lockout/log | 25 |
+| Rusty Garpac (egui) | — | *(egui lacks headless harness — future refactor)* | — |
+| Icy Garpac (iced) | `#[cfg(test)]` | Elm arch: boot/update/state/lockout/log | 23 |
+| Pythos Rester (tkinter) | `unittest.mock` | Mocked tkinter vars, state, phases | 17 |
+| Dear Rester (dearpygui) | — | Headless state/logic + lockout | 13 |
+| Pythos Garpac (tkinter) | — | Headless state/logic + lockout | 13 |
+| Dear Garpac (dearpygui) | — | Headless state/logic + lockout | 12 |
 
-**Estimated total: ~110 new tests across all 12 modules.**
+**Total: 182 tests across 10 modules (4 common + 6 GUI apps).**
+
+> **Note**: Rust egui demos do not yet have unit tests. egui does not provide a
+> headless test harness comparable to iced's `iced_test`. Extracting testable
+> logic from the `eframe::App` trait would require a refactor (tracked separately).
 
 ### Files Created
 
