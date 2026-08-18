@@ -1,0 +1,1 @@
+curl -X POST http://127.0.0.1:8088/api/v1/resources -H "Content-Type: application/json"  -d '{    "name": "counters",    "device_serial": "2237000ETR",    "access_mode": "shared",    "description": "Classic counter endpoints from Counters.bit"  }'

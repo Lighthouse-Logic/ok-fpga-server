@@ -13,6 +13,12 @@ members = [
 exclude = [
     "client-examples/rust-rest-client",
     "client-examples/rust-grpc-client",
+    "client-examples/rust-rest-gui-common",
+    "client-examples/rust-rest-gui-egui",
+    "client-examples/rust-rest-gui-iced",
+    "client-examples/rust-grpc-gui-common",
+    "client-examples/rust-grpc-gui-egui",
+    "client-examples/rust-grpc-gui-iced",
 ]
 
 # Shared workspace dependencies — all crates reference these via

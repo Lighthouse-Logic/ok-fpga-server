@@ -1,0 +1,475 @@
+//! # Counters.bit Interactive Demo — Rust REST + iced
+//!
+//! Same functionality as the egui demo but uses the `iced` GUI framework
+//! (Elm-architecture, function-based API).
+//!
+//! ## User Identity: "Icy Rester"
+
+use iced::widget::{
+    button, checkbox, column, container, horizontal_rule, horizontal_space, pick_list,
+    progress_bar, row, scrollable, text, text_input, Column, Row,
+};
+use iced::{Element, Length, Subscription, Task, Theme};
+use rust_rest_gui_common::{CounterState, CountersClient, DeviceInfo, ResourceInfo, WireInState};
+use std::time::Duration;
+
+const DEFAULT_REST_URL: &str = "http://localhost:8088";
+const DEFAULT_BITFILE: &str =
+    "FrontPanel-6.1.0/ExampleBitfiles/20190501-FP50-XEM7320-A75/XEM7320-A75/Counters.bit";
+const USER_ID: &str = "Icy Rester";
+
+fn main() -> iced::Result {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
+    iced::application("Counters.bit — Icy Rester (REST + iced)", update, view)
+        .theme(|_| Theme::Dark)
+        .subscription(subscription)
+        .window_size((720.0, 560.0))
+        .run_with(|| {
+            let bitfile = std::env::var("OKFPGA_TEST_BITFILE")
+                .unwrap_or_else(|_| DEFAULT_BITFILE.to_string());
+            (
+                AppState {
+                    rest_url: DEFAULT_REST_URL.to_string(),
+                    bitfile_path: bitfile,
+                    phase: Phase::Disconnected,
+                    devices: vec![],
+                    selected_serial: None,
+                    resource_id: None,
+                    wire_in: WireInState::default(),
+                    poll_interval_ms: 500,
+                    override_lockout: false,
+                    counter: CounterState::default(),
+                    resource_info: None,
+                    log_entries: vec![],
+                    last_error: None,
+                },
+                Task::none(),
+            )
+        })
+}
+
+// ============================================================================
+// State & Messages
+// ============================================================================
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+enum Phase {
+    Disconnected,
+    Connected,
+    Programmed,
+    Registered,
+    Acquired,
+}
+
+struct AppState {
+    rest_url: String,
+    bitfile_path: String,
+    phase: Phase,
+    devices: Vec<DeviceInfo>,
+    selected_serial: Option<String>,
+    resource_id: Option<String>,
+    wire_in: WireInState,
+    poll_interval_ms: u64,
+    override_lockout: bool,
+    counter: CounterState,
+    resource_info: Option<ResourceInfo>,
+    log_entries: Vec<(String, bool)>,
+    last_error: Option<String>,
+}
+
+impl AppState {
+    fn serial(&self) -> String {
+        self.selected_serial.clone().unwrap_or_default()
+    }
+    fn is_locked_out(&self) -> bool {
+        if self.override_lockout { return false; }
+        if let Some(ref res) = self.resource_info {
+            if let Some(ref locker) = res.locked_by {
+                return locker != USER_ID;
+            }
+        }
+        false
+    }
+    fn log(&mut self, msg: &str) {
+        self.log_entries.push((msg.to_string(), false));
+        if self.log_entries.len() > 200 { self.log_entries.remove(0); }
+    }
+    fn log_err(&mut self, msg: &str) {
+        self.log_entries.push((msg.to_string(), true));
+        if self.log_entries.len() > 200 { self.log_entries.remove(0); }
+    }
+    fn make_client(&self) -> CountersClient {
+        CountersClient::new(&self.rest_url, USER_ID)
+    }
+}
+
+#[derive(Debug, Clone)]
+enum Message {
+    UrlChanged(String),
+    BitfileChanged(String),
+    ConnectPressed,
+    ConnectResult(Result<Vec<DeviceInfo>, String>),
+    SelectDevice(String),
+    ProgramPressed,
+    ProgramResult(Result<(), String>),
+    RegisterPressed,
+    RegisterResult(Result<ResourceInfo, String>),
+    AcquirePressed,
+    AcquireResult(Result<(), String>),
+    SetReset1(bool),
+    SetDisable1(bool),
+    SetAutocount2(bool),
+    WireInResult(Result<(), String>),
+    CountUp,
+    CountDown,
+    ResetCounter2,
+    TriggerResult(Result<(), String>),
+    PollTick,
+    PollResult(Result<(CounterState, Option<ResourceInfo>), String>),
+    PollIntervalChanged(u64),
+    LockPressed,
+    UnlockPressed,
+    LockResult(Result<(), String>),
+    OverrideLockout(bool),
+    QuitRelease,
+    QuitLeaveHeld,
+}
+
+// ============================================================================
+// Update
+// ============================================================================
+
+fn update(state: &mut AppState, message: Message) -> Task<Message> {
+    match message {
+        Message::UrlChanged(url) => { state.rest_url = url; Task::none() }
+        Message::BitfileChanged(path) => { state.bitfile_path = path; Task::none() }
+
+        Message::ConnectPressed => {
+            let client = state.make_client();
+            Task::perform(
+                async move {
+                    let _s = client.get_server_status().await.map_err(|e| e.to_string())?;
+                    client.list_devices().await.map_err(|e| e.to_string())
+                },
+                Message::ConnectResult,
+            )
+        }
+        Message::ConnectResult(result) => {
+            match result {
+                Ok(devices) => {
+                    state.log(&format!("Connected. Found {} device(s)", devices.len()));
+                    if let Some(first) = devices.first() {
+                        state.selected_serial = Some(first.serial.clone());
+                    }
+                    state.devices = devices;
+                    state.phase = Phase::Connected;
+                }
+                Err(e) => state.log_err(&format!("Connect failed: {}", e)),
+            }
+            Task::none()
+        }
+        Message::SelectDevice(serial) => {
+            state.log(&format!("Selected: {}", serial));
+            state.selected_serial = Some(serial);
+            Task::none()
+        }
+
+        Message::ProgramPressed => {
+            let client = state.make_client();
+            let serial = state.serial();
+            let bitfile = state.bitfile_path.clone();
+            Task::perform(
+                async move { client.configure_fpga(&serial, &bitfile).await.map(|_| ()).map_err(|e| e.to_string()) },
+                Message::ProgramResult,
+            )
+        }
+        Message::ProgramResult(result) => {
+            match result {
+                Ok(()) => { state.log("FPGA programmed"); state.phase = Phase::Programmed; }
+                Err(e) => state.log_err(&format!("Program failed: {}", e)),
+            }
+            Task::none()
+        }
+
+        Message::RegisterPressed => {
+            let client = state.make_client();
+            let serial = state.serial();
+            Task::perform(
+                async move { client.create_resource("Counter Resource", &serial).await.map_err(|e| e.to_string()) },
+                Message::RegisterResult,
+            )
+        }
+        Message::RegisterResult(result) => {
+            match result {
+                Ok(info) => {
+                    state.log(&format!("Resource registered: {}", info.id));
+                    state.resource_id = Some(info.id);
+                    state.phase = Phase::Registered;
+                }
+                Err(e) => state.log_err(&format!("Register failed: {}", e)),
+            }
+            Task::none()
+        }
+
+        Message::AcquirePressed => {
+            let client = state.make_client();
+            let rid = state.resource_id.clone().unwrap_or_default();
+            Task::perform(
+                async move { client.acquire_resource(&rid).await.map(|_| ()).map_err(|e| e.to_string()) },
+                Message::AcquireResult,
+            )
+        }
+        Message::AcquireResult(result) => {
+            match result {
+                Ok(()) => { state.log("Resource acquired — counter control active"); state.phase = Phase::Acquired; }
+                Err(e) => state.log_err(&format!("Acquire failed: {}", e)),
+            }
+            Task::none()
+        }
+
+        Message::SetReset1(v) => {
+            state.wire_in.reset1 = v;
+            let client = state.make_client(); let s = state.serial(); let w = state.wire_in.clone();
+            Task::perform(async move { client.send_wire_in(&s, &w).await.map_err(|e| e.to_string()) }, Message::WireInResult)
+        }
+        Message::SetDisable1(v) => {
+            state.wire_in.disable1 = v;
+            let client = state.make_client(); let s = state.serial(); let w = state.wire_in.clone();
+            Task::perform(async move { client.send_wire_in(&s, &w).await.map_err(|e| e.to_string()) }, Message::WireInResult)
+        }
+        Message::SetAutocount2(v) => {
+            state.wire_in.autocount2 = v;
+            let client = state.make_client(); let s = state.serial(); let w = state.wire_in.clone();
+            Task::perform(async move { client.send_wire_in(&s, &w).await.map_err(|e| e.to_string()) }, Message::WireInResult)
+        }
+        Message::WireInResult(result) => {
+            if let Err(e) = result { state.log_err(&format!("WireIn failed: {}", e)); }
+            Task::none()
+        }
+
+        Message::CountUp => {
+            let c = state.make_client(); let s = state.serial();
+            Task::perform(async move { c.activate_trigger_in(&s, 0x40, 1).await.map(|_| ()).map_err(|e| e.to_string()) }, Message::TriggerResult)
+        }
+        Message::CountDown => {
+            let c = state.make_client(); let s = state.serial();
+            Task::perform(async move { c.activate_trigger_in(&s, 0x40, 2).await.map(|_| ()).map_err(|e| e.to_string()) }, Message::TriggerResult)
+        }
+        Message::ResetCounter2 => {
+            let c = state.make_client(); let s = state.serial();
+            Task::perform(async move { c.activate_trigger_in(&s, 0x40, 0).await.map(|_| ()).map_err(|e| e.to_string()) }, Message::TriggerResult)
+        }
+        Message::TriggerResult(result) => {
+            if let Err(e) = result { state.log_err(&format!("Trigger failed: {}", e)); }
+            Task::none()
+        }
+
+        Message::PollTick => {
+            if state.phase != Phase::Acquired { return Task::none(); }
+            let c = state.make_client(); let s = state.serial(); let rid = state.resource_id.clone();
+            Task::perform(async move {
+                let counter = c.poll_counter_state(&s).await.map_err(|e| e.to_string())?;
+                let res = if let Some(rid) = rid { c.get_resource(&rid).await.ok() } else { None };
+                Ok((counter, res))
+            }, Message::PollResult)
+        }
+        Message::PollResult(result) => {
+            match result {
+                Ok((counter, res)) => { state.counter = counter; state.resource_info = res; state.last_error = None; }
+                Err(e) => state.last_error = Some(e),
+            }
+            Task::none()
+        }
+        Message::PollIntervalChanged(ms) => { state.poll_interval_ms = ms; Task::none() }
+
+        Message::LockPressed => {
+            let c = state.make_client(); let rid = state.resource_id.clone().unwrap_or_default();
+            Task::perform(async move { c.lock_resource(&rid).await.map(|_| ()).map_err(|e| e.to_string()) }, Message::LockResult)
+        }
+        Message::UnlockPressed => {
+            let c = state.make_client(); let rid = state.resource_id.clone().unwrap_or_default();
+            Task::perform(async move { c.unlock_resource(&rid).await.map(|_| ()).map_err(|e| e.to_string()) }, Message::LockResult)
+        }
+        Message::LockResult(result) => {
+            match result {
+                Ok(()) => state.log("Lock/unlock OK"),
+                Err(e) => state.log_err(&format!("Lock/unlock failed: {}", e)),
+            }
+            Task::none()
+        }
+        Message::OverrideLockout(v) => { state.override_lockout = v; Task::none() }
+
+        Message::QuitRelease => {
+            if let Some(ref rid) = state.resource_id {
+                let c = state.make_client(); let rid = rid.clone();
+                tokio::spawn(async move { let _ = c.release_resource(&rid).await; });
+            }
+            iced::exit()
+        }
+        Message::QuitLeaveHeld => iced::exit(),
+    }
+}
+
+// ============================================================================
+// Subscription (polling timer)
+// ============================================================================
+
+fn subscription(state: &AppState) -> Subscription<Message> {
+    if state.phase == Phase::Acquired {
+        iced::time::every(Duration::from_millis(state.poll_interval_ms))
+            .map(|_| Message::PollTick)
+    } else {
+        Subscription::none()
+    }
+}
+
+// ============================================================================
+// View
+// ============================================================================
+
+fn view(state: &AppState) -> Element<Message> {
+    let main_content: Element<Message> = match state.phase {
+        Phase::Disconnected | Phase::Connected | Phase::Programmed | Phase::Registered => {
+            view_connection(state)
+        }
+        Phase::Acquired => view_counters(state),
+    };
+
+    let log_entries: Vec<Element<Message>> = state.log_entries.iter().map(|(msg, is_err)| {
+        let t = text(msg.clone()).size(12);
+        if *is_err { t.color(iced::Color::from_rgb(1.0, 0.4, 0.4)).into() }
+        else { t.color(iced::Color::from_rgb(0.7, 0.7, 0.7)).into() }
+    }).collect();
+
+    let log_panel = column![
+        text("Activity Log").size(14),
+        horizontal_rule(1),
+        scrollable(Column::with_children(log_entries)).height(80),
+    ];
+
+    container(column![
+        text("Counters.bit — Icy Rester").size(20),
+        horizontal_rule(1),
+        main_content,
+        horizontal_rule(1),
+        log_panel,
+    ].spacing(8).padding(12))
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .into()
+}
+
+fn view_connection(state: &AppState) -> Element<Message> {
+    let url_row = row![
+        text("Server URL:").width(100),
+        text_input("http://localhost:8088", &state.rest_url).on_input(Message::UrlChanged),
+    ].spacing(8);
+
+    let connect_btn = if state.phase == Phase::Disconnected {
+        button("1. Connect to Server").on_press(Message::ConnectPressed)
+    } else {
+        button("1. Connect to Server ✓")
+    };
+
+    let device_items: Vec<Element<Message>> = state.devices.iter().map(|d| {
+        let label = format!("{} — {}", d.serial, d.product_name);
+        button(text(label).size(14)).on_press(Message::SelectDevice(d.serial.clone())).into()
+    }).collect();
+
+    let bitfile_row = row![
+        text("Bitfile:").width(100),
+        text_input("path/to/Counters.bit", &state.bitfile_path).on_input(Message::BitfileChanged),
+    ].spacing(8);
+
+    let program_btn = if state.phase >= Phase::Programmed { button("2. Program Bitfile ✓") }
+        else if state.phase == Phase::Connected { button("2. Program Bitfile").on_press(Message::ProgramPressed) }
+        else { button("2. Program Bitfile") };
+
+    let register_btn = if state.phase >= Phase::Registered { button("3. Register Resource ✓") }
+        else if state.phase == Phase::Programmed { button("3. Register Resource").on_press(Message::RegisterPressed) }
+        else { button("3. Register Resource") };
+
+    let acquire_btn = if state.phase >= Phase::Acquired { button("4. Acquire Resource (Shared) ✓") }
+        else if state.phase == Phase::Registered { button("4. Acquire Resource (Shared)").on_press(Message::AcquirePressed) }
+        else { button("4. Acquire Resource (Shared)") };
+
+    column![
+        url_row, connect_btn,
+        Column::with_children(device_items).spacing(2),
+        bitfile_row, program_btn, register_btn, acquire_btn,
+    ].spacing(8).into()
+}
+
+fn view_counters(state: &AppState) -> Element<Message> {
+    let locked_out = state.is_locked_out();
+
+    let error_text: Element<Message> = if let Some(ref e) = state.last_error {
+        text(e).color(iced::Color::from_rgb(1.0, 0.3, 0.3)).into()
+    } else { text("").into() };
+
+    // Counter #1
+    let c1 = column![
+        text("Counter #1 (Auto-count)").size(16),
+        text(format!("Value: 0x{:02X} ({})", state.counter.count1, state.counter.count1)),
+        progress_bar(0.0..=255.0, state.counter.count1 as f32),
+        if locked_out { checkbox("RESET1 (hold at 0x00)", state.wire_in.reset1) }
+        else { checkbox("RESET1 (hold at 0x00)", state.wire_in.reset1).on_toggle(Message::SetReset1) },
+        if locked_out { checkbox("DISABLE1 (freeze)", state.wire_in.disable1) }
+        else { checkbox("DISABLE1 (freeze)", state.wire_in.disable1).on_toggle(Message::SetDisable1) },
+        text("Triggers:").size(13),
+        text(format!("  COUNT1==0x00: {}", if state.counter.count1_eq_00 {"🟢"} else {"⚫"})),
+        text(format!("  COUNT1==0x80: {}", if state.counter.count1_eq_80 {"🟢"} else {"⚫"})),
+    ].spacing(4).width(Length::FillPortion(1));
+
+    // Counter #2
+    let up = if locked_out { button("▲ Up") } else { button("▲ Up").on_press(Message::CountUp) };
+    let dn = if locked_out { button("▼ Down") } else { button("▼ Down").on_press(Message::CountDown) };
+    let rst = if locked_out { button("⟲ Reset") } else { button("⟲ Reset").on_press(Message::ResetCounter2) };
+
+    let c2 = column![
+        text("Counter #2 (Manual)").size(16),
+        text(format!("Value: 0x{:02X} ({})", state.counter.count2, state.counter.count2)),
+        progress_bar(0.0..=255.0, state.counter.count2 as f32),
+        row![up, dn].spacing(4),
+        row![rst, if locked_out { checkbox("AUTOCOUNT2", state.wire_in.autocount2) }
+             else { checkbox("AUTOCOUNT2", state.wire_in.autocount2).on_toggle(Message::SetAutocount2) }
+        ].spacing(4),
+        text("Triggers:").size(13),
+        text(format!("  COUNT2==0xFF: {}", if state.counter.count2_eq_ff {"🟢"} else {"⚫"})),
+    ].spacing(4).width(Length::FillPortion(1));
+
+    // Buttons
+    let btn_indicators: Vec<Element<Message>> = (0..4).map(|i| {
+        let pressed = (state.counter.buttons >> i) & 1 != 0;
+        let lbl = format!("[{}]", i + 1);
+        if pressed { text(lbl).color(iced::Color::from_rgb(0.0, 0.8, 0.4)).into() }
+        else { text(lbl).color(iced::Color::from_rgb(0.3, 0.3, 0.3)).into() }
+    }).collect();
+
+    let poll_opts: Vec<u64> = vec![100, 250, 500, 1000, 2000];
+    let poll_pick = pick_list(poll_opts, Some(state.poll_interval_ms), Message::PollIntervalChanged);
+
+    let locked_by_me = state.resource_info.as_ref()
+        .and_then(|r| r.locked_by.as_deref())
+        .map(|l| l == USER_ID).unwrap_or(false);
+    let lock_btn = if locked_by_me { button("🔓 Unlock").on_press(Message::UnlockPressed) }
+        else { button("🔒 Lock").on_press(Message::LockPressed) };
+
+    column![
+        error_text,
+        row![c1, c2].spacing(16),
+        horizontal_rule(1),
+        row![text("Buttons:"), Row::with_children(btn_indicators).spacing(4),
+             horizontal_space(), text("Poll:"), poll_pick, text("ms")].spacing(8),
+        row![lock_btn, checkbox("Override lockout", state.override_lockout).on_toggle(Message::OverrideLockout)].spacing(8),
+        horizontal_rule(1),
+        row![button("Quit — Release").on_press(Message::QuitRelease),
+             button("Quit — Leave Held").on_press(Message::QuitLeaveHeld)].spacing(8),
+    ].spacing(8).into()
+}

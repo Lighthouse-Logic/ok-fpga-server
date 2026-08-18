@@ -1,0 +1,24 @@
+[package]
+name = "rust-rest-gui-egui"
+version = "0.1.0"
+edition = "2021"
+description = "Interactive Counters.bit GUI demo — Rust REST + egui (Rusty Rester)"
+authors = ["Lighthouse Logic"]
+license = "MIT"
+
+[dependencies]
+# Shared API client for Counters.bit demo
+rust-rest-gui-common = { path = "../rust-rest-gui-common" }
+
+# GUI framework — immediate-mode, pure Rust, single binary
+eframe = "0.29"
+
+# Async runtime — needed for REST API calls from the GUI
+tokio = { version = "1", features = ["full"] }
+
+# JSON handling
+serde_json = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
