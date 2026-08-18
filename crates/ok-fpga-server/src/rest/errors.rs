@@ -73,7 +73,12 @@ impl ProblemDetail {
     }
 
     /// Create a 501 Not Implemented problem.
+    ///
+    /// Logs a WARN-level message so stub invocations are visible in the
+    /// dashboard log viewer (ADR-022 §4).
     pub fn not_implemented(detail: impl Into<String>) -> Self {
+        let detail = detail.into();
+        tracing::warn!(detail = %detail, "Stub endpoint invoked — returning 501 Not Implemented");
         Self::new(StatusCode::NOT_IMPLEMENTED, detail)
     }
 

@@ -30,7 +30,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use tokio::sync::{Mutex, RwLock};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace};
 
 use ok_fpga_ffi::api::FrontPanelDll;
 use ok_fpga_ffi::error::FfiError;
@@ -303,6 +303,8 @@ impl DeviceHandlePool {
         // the snapshot. The returned FrontPanel handle is owned by us.
         let opened_handle = unsafe {
             let mut err_ptr: *mut okError = std::ptr::null_mut();
+
+            trace!(serial = %serial, function = "okFrontPanelDevices_Construct", "FFI call");
             let devices_handle = (self.dll.devices_construct)(realm.as_ptr(), &mut err_ptr);
 
             if devices_handle.is_null() {
@@ -311,25 +313,31 @@ impl DeviceHandlePool {
                         .to_string_lossy()
                         .to_string();
                     (self.dll.error_free)(err_ptr);
+                    trace!(serial = %serial, function = "okFrontPanelDevices_Construct", error = %msg, "FFI error");
                     return Err(FfiError::FrontPanelError {
                         code: -1,
                         message: msg,
                     });
                 }
+                trace!(serial = %serial, function = "okFrontPanelDevices_Construct", "FFI returned null handle");
                 return Err(FfiError::NullHandle {
                     function: "okFrontPanelDevices_Construct".to_string(),
                 });
             }
+            trace!(serial = %serial, function = "okFrontPanelDevices_Construct", "FFI success");
 
+            trace!(serial = %serial, function = "okFrontPanelDevices_Open", "FFI call");
             let handle = (self.dll.devices_open)(devices_handle, serial_c.as_ptr());
             (self.dll.devices_destruct)(devices_handle);
 
             if handle.is_null() {
+                trace!(serial = %serial, function = "okFrontPanelDevices_Open", "FFI returned null (device not available)");
                 return Err(FfiError::FrontPanelError {
                     code: -1,
                     message: format!("could not open device '{}'", serial),
                 });
             }
+            trace!(serial = %serial, function = "okFrontPanelDevices_Open", "FFI success");
             handle
         };
 
@@ -392,9 +400,21 @@ impl DeviceHandlePool {
 
         // SAFETY: device.handle is valid (opened in pool.open()), path_c is
         // a valid null-terminated C string pointing to the bitfile.
+        trace!(
+            serial = %serial,
+            function = "okFrontPanel_ConfigureFPGA",
+            path = %path.display(),
+            "FFI call"
+        );
         let rc = unsafe {
             (device.dll.fp_configure_fpga)(device.handle, path_c.as_ptr())
         };
+        trace!(
+            serial = %serial,
+            function = "okFrontPanel_ConfigureFPGA",
+            result = ?rc,
+            "FFI result"
+        );
 
         FfiError::from_code(rc)?;
 
@@ -425,6 +445,12 @@ impl DeviceHandlePool {
 
         // SAFETY: device.handle is valid, data is a valid byte slice.
         // ConfigureFPGAFromMemory reads `len` bytes from the pointer.
+        trace!(
+            serial = %serial,
+            function = "okFrontPanel_ConfigureFPGAFromMemory",
+            size_bytes = data.len(),
+            "FFI call"
+        );
         let rc = unsafe {
             (device.dll.fp_configure_fpga_from_memory)(
                 device.handle,
@@ -432,6 +458,12 @@ impl DeviceHandlePool {
                 data.len() as std::os::raw::c_ulong,
             )
         };
+        trace!(
+            serial = %serial,
+            function = "okFrontPanel_ConfigureFPGAFromMemory",
+            result = ?rc,
+            "FFI result"
+        );
 
         FfiError::from_code(rc)?;
 
