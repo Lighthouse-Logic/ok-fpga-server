@@ -329,65 +329,23 @@ async fn device_poll_loop(
     loop {
         interval.tick().await;
 
-        let scanned = scanner.scan_devices();
-        let scanned_serials: std::collections::HashSet<String> =
-            scanned.iter().map(|d| d.serial.clone()).collect();
+        // Phase 23 fix: Use scan_serials() instead of scan_devices() for
+        // presence detection. scan_serials() calls GetCount + GetSerial
+        // WITHOUT opening any devices, so it correctly detects all physically
+        // connected devices regardless of whether the handle pool has them
+        // open. The previous scan_devices() approach failed because
+        // devices_open() returns null for devices already opened by the pool,
+        // and the in_pool workaround then suppressed all disconnect events.
+        let connected_serials = scanner.scan_serials();
 
-        // Detect new devices (in scan but not in registry).
-        for device_info in &scanned {
-            if !device_manager.registry().contains(&device_info.serial) {
-                info!(
-                    serial = %device_info.serial,
-                    product = %device_info.product_name,
-                    interface = %device_info.device_interface,
-                    "FPGA device connected (hot-plug detected by polling)"
-                );
-                device_manager.on_device_added(device_info.clone());
-
-                // Open a persistent handle for this device in the pool.
-                if let Some(ref pool) = handle_pool {
-                    if let Err(e) = pool.open(&device_info.serial).await {
-                        warn!(
-                            serial = %device_info.serial,
-                            error = %e,
-                            "could not open persistent handle for hot-plugged device"
-                        );
-                    }
-                }
-
-                // Broadcast WebSocket event.
-                let event = serde_json::json!({
-                    "type": "device_connected",
-                    "serial": device_info.serial,
-                    "product": device_info.product_name,
-                    "interface": device_info.device_interface.to_string(),
-                });
-                let _ = event_tx.send(event.to_string());
-            }
-        }
-
-        // Detect gone devices (in registry but not in scan).
+        // Detect gone devices (in registry but not physically connected).
         //
-        // IMPORTANT: When a device is opened by the handle pool, the
-        // FrontPanelDevices snapshot won't list it (the device is already
-        // exclusively opened). We must NOT treat pool-opened devices as
-        // "gone" — they're still connected, just busy.
+        // This check is done FIRST so that if a device is disconnected and
+        // reconnected within the same poll interval, we process the removal
+        // before the re-addition.
         let current_devices = device_manager.registry().list();
         for device in &current_devices {
-            if !scanned_serials.contains(&device.info.serial) {
-                // Check if the device is in the handle pool — if so, it's
-                // still connected but not visible to the scanner.
-                let in_pool = if let Some(ref pool) = handle_pool {
-                    pool.get(&device.info.serial).await.is_some()
-                } else {
-                    false
-                };
-
-                if in_pool {
-                    // Device is opened by the pool — not actually disconnected.
-                    continue;
-                }
-
+            if !connected_serials.contains(&device.info.serial) {
                 info!(
                     serial = %device.info.serial,
                     "FPGA device disconnected (hot-unplug detected by polling)"
@@ -405,6 +363,62 @@ async fn device_poll_loop(
                     "serial": device.info.serial,
                 });
                 let _ = event_tx.send(event.to_string());
+            }
+        }
+
+        // Detect new devices (physically connected but not in registry).
+        //
+        // For new devices we need full DeviceInfo (product name, interface
+        // type, firmware version, etc.), so we call scan_devices() which
+        // opens each device to read okTDeviceInfo. This is only done for
+        // genuinely new devices, not on every poll cycle.
+        let registry_serials: std::collections::HashSet<String> = device_manager
+            .registry()
+            .list()
+            .iter()
+            .map(|d| d.info.serial.clone())
+            .collect();
+
+        let new_serials: Vec<&String> = connected_serials
+            .iter()
+            .filter(|s| !registry_serials.contains(*s))
+            .collect();
+
+        if !new_serials.is_empty() {
+            // Perform a full scan to get DeviceInfo for the new devices.
+            // This opens each device briefly to read okTDeviceInfo.
+            let scanned = scanner.scan_devices();
+
+            for device_info in &scanned {
+                if new_serials.contains(&&device_info.serial) {
+                    info!(
+                        serial = %device_info.serial,
+                        product = %device_info.product_name,
+                        interface = %device_info.device_interface,
+                        "FPGA device connected (hot-plug detected by polling)"
+                    );
+                    device_manager.on_device_added(device_info.clone());
+
+                    // Open a persistent handle for this device in the pool.
+                    if let Some(ref pool) = handle_pool {
+                        if let Err(e) = pool.open(&device_info.serial).await {
+                            warn!(
+                                serial = %device_info.serial,
+                                error = %e,
+                                "could not open persistent handle for hot-plugged device"
+                            );
+                        }
+                    }
+
+                    // Broadcast WebSocket event.
+                    let event = serde_json::json!({
+                        "type": "device_connected",
+                        "serial": device_info.serial,
+                        "product": device_info.product_name,
+                        "interface": device_info.device_interface.to_string(),
+                    });
+                    let _ = event_tx.send(event.to_string());
+                }
             }
         }
     }

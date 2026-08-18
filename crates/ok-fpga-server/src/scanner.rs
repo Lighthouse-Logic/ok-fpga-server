@@ -205,6 +205,67 @@ impl DeviceScanner {
         devices
     }
 
+    /// Enumerate the serial numbers of all physically connected devices.
+    ///
+    /// Unlike [`scan_devices`], this method does **not** open any devices.
+    /// It only calls `FrontPanelDevices::GetCount()` and `GetSerial()` to
+    /// list serial numbers. This is critical for the `device_poll_loop`:
+    ///
+    /// - `scan_devices()` tries to `devices_open()` each device to read
+    ///   `okTDeviceInfo`. If the device is already opened exclusively by the
+    ///   handle pool, `devices_open()` fails and the device is **not** returned.
+    ///   This made disconnect detection impossible (see Phase 23 bug fix).
+    ///
+    /// - `scan_serials()` never opens any device, so it correctly reports
+    ///   all physically connected devices regardless of handle pool state.
+    ///
+    /// Returns an empty `HashSet` if no devices are connected or the DLL
+    /// fails to enumerate. Never panics.
+    pub fn scan_serials(&self) -> std::collections::HashSet<String> {
+        let mut serials = std::collections::HashSet::new();
+
+        // SAFETY: We call the FrontPanel C API through our validated function
+        // pointers. Only read-only operations (GetCount, GetSerial) are used.
+        unsafe {
+            // Create a FrontPanelDevices snapshot (okREALM_LOCAL).
+            let mut err_ptr: *mut okError = std::ptr::null_mut();
+            let realm = CString::new("").expect("empty CString is always valid");
+            let devices_handle =
+                (self.dll.devices_construct)(realm.as_ptr(), &mut err_ptr);
+
+            if devices_handle.is_null() {
+                if !err_ptr.is_null() {
+                    let msg = CStr::from_ptr((self.dll.error_get_message)(err_ptr))
+                        .to_string_lossy()
+                        .to_string();
+                    (self.dll.error_free)(err_ptr);
+                    warn!(error = %msg, "FrontPanelDevices construction failed (scan_serials)");
+                }
+                return serials;
+            }
+
+            let count = (self.dll.devices_get_count)(devices_handle);
+
+            for i in 0..count {
+                let mut serial_buf = [0i8; 11]; // Max 10 chars + NUL
+                (self.dll.devices_get_serial)(
+                    devices_handle,
+                    i,
+                    serial_buf.as_mut_ptr(),
+                );
+                let serial = cstr_from_char_array(&serial_buf);
+                if !serial.is_empty() {
+                    serials.insert(serial);
+                }
+            }
+
+            // Clean up the snapshot handle.
+            (self.dll.devices_destruct)(devices_handle);
+        }
+
+        serials
+    }
+
     /// Read `okTDeviceInfo` from an open device handle and convert it
     /// to the safe Rust `DeviceInfo` type.
     ///
