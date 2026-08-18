@@ -2035,6 +2035,47 @@ Each GUI demo should be verified with:
 8. **Timeout test**: Exit without releasing → verify server reclaims resource after
    `user_timeout_secs`
 
+#### Phase 25-Fix-F: Iced GUI + Server Bug Fixes
+
+**Status**: `[ ]` Planned  
+**Depends on**: Phase 25-Fix-E  
+**ADR reference**: [ADR-023 Addendum: Phase 25-Fix-F](architecture/adr/ADR-023-gui-example-clients.md)
+
+Manual testing of the Rust REST iced demo against a live server with one device
+revealed 7 bugs. Five are fixed in this phase; two are deferred to Fix-G.
+
+| Bug | Severity | Summary |
+|-----|----------|--------|
+| F1 | CRITICAL | Counter values always 0 — server uses path params for wire-out, spec uses query params |
+| F2 | CRITICAL | Triggers never fire — same path-vs-query mismatch for trigger-out |
+| F3 | HIGH | 409 Conflict on re-register — server doesn't clean resources on re-program |
+| F4 | MEDIUM | No smart skip when device already programmed with matching resource |
+| F5 | LOW | No bitfile mode indicator (server-path vs local-file) |
+
+**Resource cleanup rule**: All resources for a device are cleared whenever the FPGA
+is re-programmed (any `configure_fpga` method, by any user).
+
+**Future work**:
+- In-use protection — prevent re-program when resources are held (shared or exclusive)
+- User privilege levels — admin vs normal-user; only admin can override in-use protection
+
+**Cross-demo note**: Server fixes (F1, F2, F3) benefit all 8 demos. Client library
+fixes (F4) benefit all demos using those libraries. GUI-specific fixes (F3 409-handling,
+F4 smart-skip, F5 bitfile toggle) are iced-specific and must be ported to other demos.
+
+#### Phase 25-Fix-G: Dashboard Fixes
+
+**Status**: `[ ]` Planned  
+**Depends on**: Phase 25-Fix-F  
+**ADR reference**: [ADR-023 Addendum: Phase 25-Fix-F](architecture/adr/ADR-023-gui-example-clients.md)
+
+Dashboard-focused phase for bugs deferred from Fix-F.
+
+| Bug | Severity | Summary |
+|-----|----------|--------|
+| F6 | LOW | Resource panel shows empty table — no `/mgmt/resources` endpoint |
+| F7 | LOW | No users in dashboard — no `/mgmt/users` endpoint |
+
 ---
 
 ## Summary of Dependencies
@@ -2100,6 +2141,16 @@ Phase 0: Scaffolding
                                                                          └── 25-Fix-E: Contract alignment ✅
                                                                               ├── E1-E2-E5-E6: Bug fixes ✅
                                                                               └── E3-E4: gRPC wiring + streaming ✅
+                                                                              │
+                                                                              └── 25-Fix-F: Iced GUI + server bugs [ ]
+                                                                                   ├── F1-F2: Wire/trigger query params [ ]
+                                                                                   ├── F3: Resource cleanup on re-program [ ]
+                                                                                   ├── F4: Smart skip for ready devices [ ]
+                                                                                   ├── F5: Bitfile mode toggle [ ]
+                                                                                   │
+                                                                                   └── 25-Fix-G: Dashboard fixes [ ]
+                                                                                        ├── F6: /mgmt/resources endpoint [ ]
+                                                                                        └── F7: /mgmt/users endpoint [ ]
 ```
 
 Phases 23 and 24 can be executed in parallel — Phase 24 does not depend on 23,

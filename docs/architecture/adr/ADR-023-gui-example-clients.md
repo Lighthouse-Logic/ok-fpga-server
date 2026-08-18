@@ -409,3 +409,53 @@ match the real server's response format** — a contract-mismatch class of bug.
 | E6 | `rust-rest-gui-common/src/lib.rs` | Replace `unwrap_or_default()` with error propagation |
 | Server | `crates/ok-fpga-server/src/rest/devices.rs` | Expand `DeviceSummary` to full `DeviceInfo` per OpenAPI spec |
 | Rule | `.agents/rules/ai-collaboration.md` | New §6: API Specification Authority |
+
+---
+
+## Addendum: Phase 25-Fix-F — Iced GUI Demo + Server Bug Fixes
+
+**Date**: 2026-08-18  
+**Status**: Planned
+
+### Problem
+
+Manual testing of the Rust REST iced demo against a live server with one connected
+device revealed 7 bugs spanning the server, client libraries, and the GUI demo.
+
+### Bugs
+
+| ID | Severity | Summary | Root Cause |
+|----|----------|---------|------------|
+| F1 | CRITICAL | Counter values always read as 0 | Server uses path params `/{address}` for wire-out; OpenAPI spec uses query params `?endpoint=N`. Client follows spec, server doesn't. |
+| F2 | CRITICAL | Triggers never fire | Same path-vs-query mismatch for trigger-out endpoints |
+| F3 | HIGH | 409 Conflict on re-register | Server doesn't clean resources on re-program; GUI doesn't handle 409 gracefully |
+| F4 | MEDIUM | No smart skip for already-programmed devices | GUI requires manual step-through even when device is already ready |
+| F5 | LOW | No bitfile mode indicator | GUI doesn't expose server-path vs local-file toggle |
+| F6 | LOW | Dashboard resource panel empty | No `/mgmt/resources` endpoint (deferred → Fix-G) |
+| F7 | LOW | No users in dashboard | No `/mgmt/users` endpoint (deferred → Fix-G) |
+
+### Decisions
+
+1. **F1/F2 — Server must follow the OpenAPI spec** (per §6 API Specification Authority).
+   The `GET /classic/wires/out` and `GET /classic/triggers/out` handlers must accept
+   `?endpoint=N` query parameters, not `/{address}` path segments.
+
+2. **F3 — Resource cleanup on re-program**: When any `configure_fpga` method is called
+   (REST or gRPC, by any user), the server clears **all** resources for that device.
+   The GUI handles 409 by looking up the existing resource and proceeding.
+
+3. **F6/F7 — Deferred to Phase 25-Fix-G** (dashboard-focused phase). The management
+   API needs `/mgmt/resources` and `/mgmt/users` endpoints.
+
+4. **Cross-demo applicability**: Server fixes (F1, F2, F3) benefit all 8 demos.
+   Client library fixes (F4) benefit all demos using those libraries. GUI-specific
+   fixes (F3 409-handling, F4 smart-skip, F5 bitfile toggle) are iced-specific and
+   must be ported to the other 7 demos later.
+
+### Future Work
+
+- **In-use protection**: Prevent FPGA re-programming when any resource on that device
+  is currently held (shared or exclusive). Return 409 listing active holders.
+- **User privilege levels**: Introduce admin vs normal-user roles. Only admin users
+  can override in-use protection. Full privilege scheme TBD.
+
