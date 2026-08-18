@@ -521,7 +521,10 @@ async fn mgmt_logs_download(
     if log_path.is_empty() {
         return (
             axum::http::StatusCode::NOT_FOUND,
-            [(axum::http::header::CONTENT_TYPE, "text/plain")],
+            [
+                (axum::http::header::CONTENT_TYPE, "text/plain".to_string()),
+                (axum::http::header::CONTENT_DISPOSITION, "inline".to_string()),
+            ],
             "Log file not configured".to_string(),
         );
     }
@@ -529,12 +532,19 @@ async fn mgmt_logs_download(
     match tokio::fs::read_to_string(log_path).await {
         Ok(content) => (
             axum::http::StatusCode::OK,
-            [(axum::http::header::CONTENT_TYPE, "text/plain")],
+            [
+                (axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8".to_string()),
+                (axum::http::header::CONTENT_DISPOSITION,
+                 "attachment; filename=\"okfpga-server.log\"".to_string()),
+            ],
             content,
         ),
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            [(axum::http::header::CONTENT_TYPE, "text/plain")],
+            [
+                (axum::http::header::CONTENT_TYPE, "text/plain".to_string()),
+                (axum::http::header::CONTENT_DISPOSITION, "inline".to_string()),
+            ],
             format!("Could not read log file: {}", e),
         ),
     }
