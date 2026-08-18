@@ -41,11 +41,27 @@ class WireInState:
 
 @dataclass
 class DeviceInfo:
+    """Device info matching the OpenAPI DeviceInfo schema.
+
+    Fields match api/openapi.yaml components/schemas/DeviceInfo.
+    Per ai-collaboration.md §6, clients must parse according to the spec.
+    """
     serial: str = ""
+    device_id: str = ""
     product_name: str = ""
-    interface: str = ""
+    product_id: int = 0
+    device_interface: str = ""
     usb_speed: str = ""
-    state: str = ""
+    device_major_version: int = 0
+    device_minor_version: int = 0
+    wire_width: int = 0
+    trigger_width: int = 0
+    pipe_width: int = 0
+    register_address_width: int = 0
+    register_data_width: int = 0
+    fpga_vendor: str = ""
+    dataport: str = ""
+    is_front_panel_enabled: bool = False
 
 
 @dataclass
@@ -108,14 +124,32 @@ class CountersClient:
         return self._get("/server/status")
 
     def list_devices(self) -> List[DeviceInfo]:
+        """List all connected FPGA devices.
+
+        The server returns ``{"devices": [...]}`` per the OpenAPI spec.
+        Each device dict is mapped to a :class:`DeviceInfo` dataclass.
+        """
         data = self._get("/devices")
+        # Unwrap the {"devices": [...]} wrapper per OpenAPI spec.
+        device_list = (data or {}).get("devices", [])
         return [DeviceInfo(
             serial=d.get("serial", ""),
+            device_id=d.get("device_id", ""),
             product_name=d.get("product_name", ""),
-            interface=d.get("interface", ""),
+            product_id=d.get("product_id", 0),
+            device_interface=d.get("device_interface", ""),
             usb_speed=d.get("usb_speed", ""),
-            state=d.get("state", ""),
-        ) for d in (data or [])]
+            device_major_version=d.get("device_major_version", 0),
+            device_minor_version=d.get("device_minor_version", 0),
+            wire_width=d.get("wire_width", 0),
+            trigger_width=d.get("trigger_width", 0),
+            pipe_width=d.get("pipe_width", 0),
+            register_address_width=d.get("register_address_width", 0),
+            register_data_width=d.get("register_data_width", 0),
+            fpga_vendor=d.get("fpga_vendor", ""),
+            dataport=d.get("dataport", ""),
+            is_front_panel_enabled=d.get("is_front_panel_enabled", False),
+        ) for d in device_list]
 
     # --- FPGA Configuration ---
 

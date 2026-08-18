@@ -92,11 +92,10 @@ class TestCounterState:
 class TestDeviceInfo:
     def test_construction(self):
         info = DeviceInfo(serial="ABC123", product_name="XEM7320-A75T",
-                          interface="USB3", usb_speed="SuperSpeed",
-                          state="Ready")
+                          device_interface="usb3", usb_speed="super")
         assert info.serial == "ABC123"
         assert info.product_name == "XEM7320-A75T"
-        assert info.interface == "USB3"
+        assert info.device_interface == "usb3"
 
     def test_defaults(self):
         info = DeviceInfo()
@@ -172,10 +171,13 @@ class TestCountersClientURL:
 class TestCountersClientHTTP:
     @responses.activate
     def test_list_devices_parses_response(self):
+        # Mock response matches the OpenAPI spec: {"devices": [...]} wrapper
+        # with full DeviceInfo fields (per ai-collaboration.md §6).
         responses.add(
             responses.GET, "http://localhost:8088/api/v1/devices",
-            json=[{"serial": "SN001", "product_name": "XEM7320",
-                   "interface": "USB3", "usb_speed": "Super", "state": "Ready"}],
+            json={"devices": [{"serial": "SN001", "product_name": "XEM7320",
+                               "device_interface": "usb3", "usb_speed": "super",
+                               "is_front_panel_enabled": False}]},
             status=200,
         )
         client = CountersClient("http://localhost:8088", "test-user")
@@ -183,6 +185,18 @@ class TestCountersClientHTTP:
         assert len(devices) == 1
         assert devices[0].serial == "SN001"
         assert devices[0].product_name == "XEM7320"
+        assert devices[0].device_interface == "usb3"
+
+    @responses.activate
+    def test_list_devices_handles_empty_response(self):
+        """Verify that an empty devices list returns an empty list."""
+        responses.add(
+            responses.GET, "http://localhost:8088/api/v1/devices",
+            json={"devices": []}, status=200,
+        )
+        client = CountersClient("http://localhost:8088", "test-user")
+        devices = client.list_devices()
+        assert len(devices) == 0
 
     @responses.activate
     def test_get_server_status_success(self):

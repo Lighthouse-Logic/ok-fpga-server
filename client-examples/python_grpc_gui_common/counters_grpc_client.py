@@ -20,14 +20,17 @@ _gen_dir = os.path.join(os.path.dirname(__file__), "gen")
 if _gen_dir not in sys.path:
     sys.path.insert(0, _gen_dir)
 
-# These imports will work after running generate_stubs.py.
+# These imports require the generated proto stubs in gen/.
+# If missing, run: python generate_stubs.py
 try:
     from gen import okfpga_pb2
     from gen import okfpga_pb2_grpc
-except ImportError:
-    # Allow import without generated stubs for documentation purposes.
-    okfpga_pb2 = None
-    okfpga_pb2_grpc = None
+except ImportError as e:
+    raise ImportError(
+        "gRPC proto stubs not found. Run 'python generate_stubs.py' in "
+        "the python_grpc_gui_common/ directory to generate them. "
+        f"Original error: {e}"
+    ) from e
 
 
 @dataclass

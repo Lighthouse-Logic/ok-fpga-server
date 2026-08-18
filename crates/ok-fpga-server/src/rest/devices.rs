@@ -47,17 +47,84 @@ pub fn routes() -> Router<Arc<AppState>> {
 // ============================================================================
 
 /// Device list response body.
+///
+/// Wraps the device array in a `{"devices": [...]}` object
+/// per the OpenAPI spec (`GET /devices` → `DeviceListBody`).
 #[derive(Serialize)]
 struct DeviceListBody {
-    devices: Vec<DeviceSummary>,
+    devices: Vec<DeviceFullInfo>,
 }
 
-/// Summary of a connected device (used in list responses).
+/// Full device info returned in list and detail responses.
+///
+/// Maps to the OpenAPI `DeviceInfo` schema — every field defined in
+/// `api/openapi.yaml` components/schemas/DeviceInfo is included here.
+/// Per `ai-collaboration.md` §6, the server must return what the spec says.
 #[derive(Serialize)]
-struct DeviceSummary {
+struct DeviceFullInfo {
     serial: String,
+    device_id: String,
     product_name: String,
-    is_programmed: bool,
+    product_id: i32,
+    device_interface: String,
+    usb_speed: String,
+    device_major_version: i32,
+    device_minor_version: i32,
+    wire_width: i32,
+    trigger_width: i32,
+    pipe_width: i32,
+    register_address_width: i32,
+    register_data_width: i32,
+    fpga_vendor: String,
+    dataport: String,
+    /// True if the FPGA has been programmed with a FrontPanel-enabled bitfile.
+    is_front_panel_enabled: bool,
+    /// Bitfile info, present only if the device is programmed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bitfile: Option<BitfileFullInfo>,
+}
+
+/// Bitfile info returned as part of DeviceFullInfo.
+///
+/// Maps to the OpenAPI `BitfileInfo` schema.
+#[derive(Serialize)]
+struct BitfileFullInfo {
+    filename: String,
+    description: String,
+    programmed_at: String,
+    programmed_by: String,
+}
+
+/// Build a `DeviceFullInfo` from a core `FpgaDevice`.
+///
+/// Converts the core domain types (enums) into the string representations
+/// expected by the OpenAPI spec (e.g., `DeviceInterface::Usb3` → `"usb3"`).
+fn device_to_full_info(d: &ok_fpga_core::device::FpgaDevice) -> DeviceFullInfo {
+    let bitfile = d.state.bitfile().map(|b| BitfileFullInfo {
+        filename: b.filename.clone(),
+        description: b.description.clone().unwrap_or_default(),
+        programmed_at: b.programmed_at.to_rfc3339(),
+        programmed_by: b.programmed_by.clone(),
+    });
+    DeviceFullInfo {
+        serial: d.info.serial.clone(),
+        device_id: d.info.device_id.clone(),
+        product_name: d.info.product_name.clone(),
+        product_id: d.info.product_id,
+        device_interface: format!("{:?}", d.info.device_interface).to_lowercase(),
+        usb_speed: format!("{:?}", d.info.usb_speed).to_lowercase(),
+        device_major_version: d.info.device_major_version,
+        device_minor_version: d.info.device_minor_version,
+        wire_width: d.info.wire_width,
+        trigger_width: d.info.trigger_width,
+        pipe_width: d.info.pipe_width,
+        register_address_width: d.info.register_address_width,
+        register_data_width: d.info.register_data_width,
+        fpga_vendor: format!("{:?}", d.info.fpga_vendor).to_lowercase(),
+        dataport: format!("{:?}", d.info.dataport).to_lowercase(),
+        is_front_panel_enabled: d.is_programmed(),
+        bitfile,
+    }
 }
 
 /// Request body for JSON-path-based FPGA configuration.
@@ -145,18 +212,13 @@ fn ffi_error_to_problem(e: &FfiError) -> ProblemDetail {
 // ============================================================================
 
 /// `GET /devices` — List all connected FPGA devices.
+///
+/// Returns the full `DeviceInfo` object for each device, matching the
+/// OpenAPI `DeviceInfo` schema. Response is wrapped in `{"devices": [...]}`.
 async fn list_devices(State(state): State<Arc<AppState>>) -> Json<DeviceListBody> {
     let devices = state.device_manager.registry().list();
-    let summaries = devices
-        .iter()
-        .map(|d| DeviceSummary {
-            serial: d.serial().to_string(),
-            product_name: d.product_name().to_string(),
-            is_programmed: d.is_programmed(),
-        })
-        .collect();
-
-    Json(DeviceListBody { devices: summaries })
+    let full_infos = devices.iter().map(|d| device_to_full_info(d)).collect();
+    Json(DeviceListBody { devices: full_infos })
 }
 
 /// `GET /devices/{serial}` — Get detailed device info.

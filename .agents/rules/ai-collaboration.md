@@ -153,7 +153,7 @@ Do **not** skip the commit step because "it's just a small change."
 This codebase must be **readable and educational** for college-level undergraduates
 who are new to Rust programming. All AI-generated Rust code must follow these rules:
 
-### 8.1 Doc Comments (`///` and `//!`)
+### 9.1 Doc Comments (`///` and `//!`)
 
 - **Every public function, struct, enum, trait, and module** must have a `///` doc
   comment explaining:
@@ -169,7 +169,7 @@ who are new to Rust programming. All AI-generated Rust code must follow these ru
 - **Every crate** (`lib.rs` or `main.rs`) must have a `//!` crate-level doc comment
   explaining the crate's role in the workspace.
 
-### 8.2 Inline Comments (`//`)
+### 9.2 Inline Comments (`//`)
 
 - Use inline comments to explain **why**, not **what**. The code should be readable
   enough that *what* is obvious; comments should explain the reasoning.
@@ -183,7 +183,7 @@ who are new to Rust programming. All AI-generated Rust code must follow these ru
     or ignored.
   - Magic numbers and bitmasks — what each value means.
 
-### 8.3 Audience Awareness
+### 9.3 Audience Awareness
 
 - Assume the reader is a **smart undergraduate** who knows basic programming
   but is **new to Rust**. Do not assume familiarity with:
@@ -196,7 +196,7 @@ who are new to Rust programming. All AI-generated Rust code must follow these ru
 - When a design pattern is used (e.g., RAII, newtype, builder, state machine),
   name the pattern and briefly explain it.
 
-### 8.4 Keeping Documentation Current
+### 9.4 Keeping Documentation Current
 
 - When code is modified, **update all affected doc comments in the same commit**.
 - Never leave stale doc comments that describe old behaviour.
@@ -212,7 +212,7 @@ All code must be developed following a **Test-Driven Development (TDD)** philoso
 Tests are not an afterthought — they are written *before or alongside* the code they
 verify. Every commit must pass `cargo test` with zero failures.
 
-### 9.1 Test Organization
+### 10.1 Test Organization
 
 - **Unit tests**: Live in `#[cfg(test)] mod tests { ... }` blocks at the bottom of
   the same file they test. This keeps tests close to the code they verify.
@@ -221,7 +221,7 @@ verify. Every commit must pass `cargo test` with zero failures.
 - **Hardware tests**: Live in `tests/` with the `#[ignore]` attribute by default.
   They are run explicitly with `cargo test -- --ignored` when hardware is available.
 
-### 9.2 Three Testing Tiers
+### 10.2 Three Testing Tiers
 
 This project has three tiers of tests, each serving a different purpose:
 
@@ -316,7 +316,7 @@ struct MockFrontPanelApi { /* ... */ }
 impl FrontPanelApi for MockFrontPanelApi { /* ... */ }
 ```
 
-### 9.3 Test Naming Convention
+### 10.3 Test Naming Convention
 
 Use descriptive names following the pattern:
 ```
@@ -329,7 +329,7 @@ Examples:
 - `test_syzygy_discovery_with_no_peripherals_returns_empty_list`
 - `test_real_device_sensors_return_plausible_values`
 
-### 9.4 Rules
+### 10.4 Rules
 
 - **Tests first**: Write or update tests *before or alongside* production code.
 - **Zero broken tests**: Never bypass, disable, or `#[allow]` a failing test to

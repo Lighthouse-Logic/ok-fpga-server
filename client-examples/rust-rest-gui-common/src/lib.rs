@@ -38,6 +38,13 @@ pub enum ClientError {
     /// Server returned an error response (4xx or 5xx).
     #[error("Server error {status}: {body}")]
     Server { status: u16, body: String },
+
+    /// JSON deserialization failed — the response body did not match the
+    /// expected schema. This replaces the old `unwrap_or_default()` pattern
+    /// so deserialization failures are visible instead of silently returning
+    /// empty defaults.
+    #[error("Deserialization error: {0}")]
+    Deserialize(#[from] serde_json::Error),
 }
 
 // ============================================================================
@@ -90,13 +97,54 @@ impl WireInState {
 }
 
 /// Summary of a connected device, extracted from the server's JSON response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Field names and types match the OpenAPI `DeviceInfo` schema
+/// (`api/openapi.yaml` lines 1425–1470). Per `ai-collaboration.md` §6,
+/// clients must parse responses according to the spec.
+///
+/// Fields not needed by the Counters demo are kept for completeness and
+/// use `#[serde(default)]` so missing fields don't cause parse failures.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DeviceInfo {
     pub serial: String,
+    #[serde(default)]
+    pub device_id: String,
     pub product_name: String,
-    pub interface: String,
+    #[serde(default)]
+    pub product_id: i32,
+    #[serde(default)]
+    pub device_interface: String,
+    #[serde(default)]
     pub usb_speed: String,
-    pub state: String,
+    #[serde(default)]
+    pub device_major_version: i32,
+    #[serde(default)]
+    pub device_minor_version: i32,
+    #[serde(default)]
+    pub wire_width: i32,
+    #[serde(default)]
+    pub trigger_width: i32,
+    #[serde(default)]
+    pub pipe_width: i32,
+    #[serde(default)]
+    pub register_address_width: i32,
+    #[serde(default)]
+    pub register_data_width: i32,
+    #[serde(default)]
+    pub fpga_vendor: String,
+    #[serde(default)]
+    pub dataport: String,
+    #[serde(default)]
+    pub is_front_panel_enabled: bool,
+}
+
+/// Wrapper for the `GET /devices` response body.
+///
+/// The server returns `{"devices": [...]}` per the OpenAPI spec,
+/// not a bare array. This struct deserializes the wrapper.
+#[derive(Debug, Deserialize)]
+struct DeviceListResponse {
+    devices: Vec<DeviceInfo>,
 }
 
 /// Summary of a resource, extracted from the server's JSON response.
@@ -233,11 +281,15 @@ impl CountersClient {
     }
 
     /// `GET /devices` — List all connected FPGA devices.
+    ///
+    /// The server returns `{"devices": [...]}` per the OpenAPI spec.
+    /// Deserialization errors are propagated (not silently swallowed)
+    /// so contract mismatches are immediately visible.
     pub async fn list_devices(&self) -> Result<Vec<DeviceInfo>, ClientError> {
         let val = self.get("/devices").await?;
-        // The API returns an array of device objects.
-        let devices: Vec<DeviceInfo> = serde_json::from_value(val).unwrap_or_default();
-        Ok(devices)
+        // Unwrap the {"devices": [...]} wrapper per OpenAPI spec.
+        let response: DeviceListResponse = serde_json::from_value(val)?;
+        Ok(response.devices)
     }
 
     // ========================================================================
@@ -504,13 +556,13 @@ mod tests {
         let info = DeviceInfo {
             serial: "ABC123".to_string(),
             product_name: "XEM7320-A75T".to_string(),
-            interface: "USB3".to_string(),
-            usb_speed: "SuperSpeed".to_string(),
-            state: "Ready".to_string(),
+            device_interface: "usb3".to_string(),
+            usb_speed: "super".to_string(),
+            ..Default::default()
         };
         assert_eq!(info.serial, "ABC123");
         assert_eq!(info.product_name, "XEM7320-A75T");
-        assert_eq!(info.interface, "USB3");
+        assert_eq!(info.device_interface, "usb3");
     }
 
     // ========================================================================
@@ -604,11 +656,13 @@ mod tests {
     #[tokio::test]
     async fn test_list_devices_parses_response() {
         let mut server = mockito::Server::new_async().await;
+        // Mock response matches the OpenAPI spec: {"devices": [...]} wrapper
+        // with full DeviceInfo fields (per ai-collaboration.md §6).
         let mock = server.mock("GET", "/api/v1/devices")
             .match_header("X-User-Id", "test-user")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"[{"serial":"SN001","product_name":"XEM7320","interface":"USB3","usb_speed":"Super","state":"Ready"}]"#)
+            .with_body(r#"{"devices":[{"serial":"SN001","product_name":"XEM7320","device_interface":"usb3","usb_speed":"super","is_front_panel_enabled":false}]}"#)
             .create_async().await;
 
         let client = CountersClient::new(&server.url(), "test-user");
@@ -618,6 +672,28 @@ mod tests {
         assert_eq!(devices.len(), 1);
         assert_eq!(devices[0].serial, "SN001");
         assert_eq!(devices[0].product_name, "XEM7320");
+        assert_eq!(devices[0].device_interface, "usb3");
+    }
+
+    #[tokio::test]
+    async fn test_list_devices_rejects_flat_array() {
+        // Verify that a flat array (the OLD wrong format) now causes
+        // a deserialization error instead of silently returning empty.
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server.mock("GET", "/api/v1/devices")
+            .match_header("X-User-Id", "test-user")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"[{"serial":"SN001","product_name":"XEM7320"}]"#)
+            .create_async().await;
+
+        let client = CountersClient::new(&server.url(), "test-user");
+        let result = client.list_devices().await;
+
+        // Should fail with a deserialization error, NOT silently return empty.
+        assert!(result.is_err(), "flat array should be rejected");
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("Deserialization"), "expected Deserialization error, got: {}", err_msg);
     }
 
     #[tokio::test]

@@ -765,8 +765,8 @@ mod tests {
         let mut state = make_state();
         let devices = vec![DeviceInfo {
             serial: "SN001".to_string(), product_name: "XEM7320".to_string(),
-            interface: "USB3".to_string(), usb_speed: "Super".to_string(),
-            state: "Ready".to_string(),
+            device_interface: "usb3".to_string(), usb_speed: "super".to_string(),
+            ..Default::default()
         }];
         let _ = update(&mut state, Message::ConnectResult(Ok(devices)));
         assert_eq!(state.phase, Phase::Connected);
