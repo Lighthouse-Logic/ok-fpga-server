@@ -552,22 +552,153 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
     // Configuration
     // ========================================================================
 
+    /// `ConfigureFPGA` — program the FPGA from a bitfile path on the server.
+    ///
+    /// Delegates to `DeviceHandlePool::configure_from_path()` which calls
+    /// `okFrontPanel_ConfigureFPGA(handle, path)` via FFI.
     async fn configure_fpga(
         &self,
-        _request: Request<proto::ConfigureFpgaRequest>,
+        request: Request<proto::ConfigureFpgaRequest>,
     ) -> Result<Response<proto::ConfigureFpgaResponse>, Status> {
-        Err(Status::unimplemented(
-            "ConfigureFPGA requires FFI integration",
-        ))
+        let req = request.into_inner();
+        let serial = &req.serial;
+        let bitfile_path = &req.bitfile_path;
+
+        // Verify device exists in registry.
+        if !self.state.device_manager.registry().contains(serial) {
+            return Err(Status::not_found(format!("device '{}' not found", serial)));
+        }
+
+        let pool = self
+            .state
+            .handle_pool
+            .as_ref()
+            .ok_or_else(|| Status::unavailable("FrontPanel DLL not loaded"))?;
+
+        let path = std::path::Path::new(bitfile_path);
+        if !path.exists() {
+            return Err(Status::invalid_argument(format!(
+                "bitfile not found: {}", bitfile_path
+            )));
+        }
+
+        pool.configure_from_path(serial, path)
+            .await
+            .map_err(|e| Status::internal(format!("FFI error: {}", e)))?;
+
+        // Update device state in the registry.
+        let now = chrono::Utc::now();
+        self.state.device_manager.registry().update_state(
+            serial,
+            ok_fpga_core::device::DeviceState::Programmed {
+                bitfile: ok_fpga_core::device::BitfileRecord {
+                    filename: path.file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| bitfile_path.to_string()),
+                    description: None,
+                    programmed_at: now,
+                    programmed_by: req.user_id.clone(),
+                },
+            },
+        );
+
+        info!(serial = %serial, path = %bitfile_path, "gRPC ConfigureFPGA succeeded");
+
+        Ok(Response::new(proto::ConfigureFpgaResponse {
+            bitfile: Some(proto::BitfileInfo {
+                filename: bitfile_path.to_string(),
+                description: String::new(),
+                programmed_at: now.to_rfc3339(),
+                programmed_by: req.user_id,
+            }),
+            error: Some(proto::ErrorCluster {
+                status: false,
+                code: 0,
+                source: String::new(),
+            }),
+        }))
     }
 
+    /// `ConfigureFPGAFromMemory` — program the FPGA from streamed bitfile chunks.
+    ///
+    /// Collects all chunks from the client stream, reassembles the bitfile
+    /// in memory, then delegates to `DeviceHandlePool::configure_from_memory()`
+    /// which calls `okFrontPanel_ConfigureFPGAFromMemory(handle, data, len)`.
     async fn configure_fpga_from_memory(
         &self,
-        _request: Request<tonic::Streaming<proto::ConfigureFpgaChunk>>,
+        request: Request<tonic::Streaming<proto::ConfigureFpgaChunk>>,
     ) -> Result<Response<proto::ConfigureFpgaResponse>, Status> {
-        Err(Status::unimplemented(
-            "ConfigureFPGAFromMemory requires FFI integration",
-        ))
+        let mut stream = request.into_inner();
+        let mut serial = String::new();
+        let mut user_id = String::new();
+        let mut bitfile_data = Vec::new();
+
+        // Collect all chunks from the stream.
+        while let Some(chunk) = stream.message().await? {
+            // Serial and user_id are only required in the first chunk.
+            if serial.is_empty() && !chunk.serial.is_empty() {
+                serial = chunk.serial;
+            }
+            if user_id.is_empty() && !chunk.user_id.is_empty() {
+                user_id = chunk.user_id;
+            }
+            bitfile_data.extend_from_slice(&chunk.data);
+        }
+
+        if serial.is_empty() {
+            return Err(Status::invalid_argument(
+                "serial number must be provided in the first chunk",
+            ));
+        }
+
+        // Verify device exists in registry.
+        if !self.state.device_manager.registry().contains(&serial) {
+            return Err(Status::not_found(format!("device '{}' not found", serial)));
+        }
+
+        let pool = self
+            .state
+            .handle_pool
+            .as_ref()
+            .ok_or_else(|| Status::unavailable("FrontPanel DLL not loaded"))?;
+
+        pool.configure_from_memory(&serial, &bitfile_data)
+            .await
+            .map_err(|e| Status::internal(format!("FFI error: {}", e)))?;
+
+        // Update device state in the registry.
+        let now = chrono::Utc::now();
+        self.state.device_manager.registry().update_state(
+            &serial,
+            ok_fpga_core::device::DeviceState::Programmed {
+                bitfile: ok_fpga_core::device::BitfileRecord {
+                    filename: "streamed".to_string(),
+                    description: None,
+                    programmed_at: now,
+                    programmed_by: user_id.clone(),
+                },
+            },
+        );
+
+        info!(
+            serial = %serial,
+            size_bytes = bitfile_data.len(),
+            "gRPC ConfigureFPGAFromMemory succeeded"
+        );
+
+        Ok(Response::new(proto::ConfigureFpgaResponse {
+            bitfile: Some(proto::BitfileInfo {
+                filename: "streamed".to_string(),
+                description: String::new(),
+                programmed_at: now.to_rfc3339(),
+                programmed_by: user_id,
+            }),
+            error: Some(proto::ErrorCluster {
+                status: false,
+                code: 0,
+                source: String::new(),
+            }),
+        }))
     }
 
     async fn clear_fpga_configuration(

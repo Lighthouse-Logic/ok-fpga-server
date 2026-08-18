@@ -296,13 +296,50 @@ impl CountersClient {
     // FPGA Configuration
     // ========================================================================
 
-    /// `POST /devices/{serial}/configure` — Program the FPGA with a bitfile.
+    /// `POST /devices/{serial}/configure` — Program FPGA from a server-side path.
     ///
-    /// The bitfile path is resolved server-side. The client sends the path
-    /// as a string; the server reads and programs the file.
+    /// Sends a JSON body `{"bitfile_path": "..."}` to the server. The bitfile
+    /// must exist on the server's filesystem. Use this when the bitfile is
+    /// hosted on the same machine as the server.
     pub async fn configure_fpga(&self, serial: &str, bitfile_path: &str) -> Result<Value, ClientError> {
         let body = serde_json::json!({ "bitfile_path": bitfile_path });
         self.post(&format!("/devices/{}/configure", serial), Some(body)).await
+    }
+
+    /// `POST /devices/{serial}/configure` — Program FPGA from a local file.
+    ///
+    /// Reads the bitfile from the client's local filesystem and streams it
+    /// to the server as `application/octet-stream`. The server calls
+    /// `ConfigureFPGAFromMemory` with the received bytes.
+    ///
+    /// Use this when the bitfile is on the GUI client's machine, not on the
+    /// server.
+    pub async fn configure_fpga_from_file(
+        &self, serial: &str, local_path: &std::path::Path,
+    ) -> Result<Value, ClientError> {
+        let data = tokio::fs::read(local_path).await.map_err(|e| {
+            ClientError::Server {
+                status: 0,
+                body: format!("failed to read local file '{}': {}", local_path.display(), e),
+            }
+        })?;
+        let url = format!("{}/devices/{}/configure", self.base_url, serial);
+        let resp = self.client.post(&url)
+            .header("X-User-Id", &self.user_id)
+            .header("Content-Type", "application/octet-stream")
+            .body(data)
+            .send().await?;
+        let status = resp.status().as_u16();
+        if status >= 400 {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ClientError::Server { status, body });
+        }
+        let text = resp.text().await.unwrap_or_default();
+        if text.is_empty() {
+            Ok(Value::Null)
+        } else {
+            Ok(serde_json::from_str(&text).unwrap_or(Value::Null))
+        }
     }
 
     // ========================================================================

@@ -141,6 +141,10 @@ impl CountersGrpcClient {
         Ok(devices)
     }
 
+    /// Configure FPGA from a server-side bitfile path.
+    ///
+    /// Sends `ConfigureFPGA` RPC with the path. The bitfile must exist on
+    /// the server's filesystem.
     pub async fn configure_fpga(&mut self, serial: &str, bitfile: &str) -> Result<(), ClientError> {
         self.device
             .configure_fpga(okfpga::v1::ConfigureFpgaRequest {
@@ -148,6 +152,32 @@ impl CountersGrpcClient {
                 bitfile_path: bitfile.to_string(),
                 user_id: self.user_id.clone(),
             })
+            .await?;
+        Ok(())
+    }
+
+    /// Configure FPGA from a local file (client-side streaming).
+    ///
+    /// Reads the bitfile from the client's local filesystem and streams it
+    /// to the server using `ConfigureFPGAFromMemory` RPC. The bitfile is
+    /// sent as a single chunk for simplicity.
+    pub async fn configure_fpga_from_file(
+        &mut self, serial: &str, local_path: &std::path::Path,
+    ) -> Result<(), ClientError> {
+        let data = tokio::fs::read(local_path).await.map_err(|e| {
+            ClientError::Status(tonic::Status::internal(format!(
+                "failed to read local file '{}': {}", local_path.display(), e
+            )))
+        })?;
+        // Send as a single chunk with is_last=true.
+        let chunk = okfpga::v1::ConfigureFpgaChunk {
+            serial: serial.to_string(),
+            data,
+            is_last: true,
+            user_id: self.user_id.clone(),
+        };
+        self.device
+            .configure_fpga_from_memory(tokio_stream::once(chunk))
             .await?;
         Ok(())
     }

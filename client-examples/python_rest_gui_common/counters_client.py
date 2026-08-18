@@ -154,8 +154,31 @@ class CountersClient:
     # --- FPGA Configuration ---
 
     def configure_fpga(self, serial: str, bitfile_path: str):
+        """Program FPGA from a server-side path.
+
+        Sends ``{"bitfile_path": "..."}`` as JSON. The bitfile must exist
+        on the server's filesystem.
+        """
         return self._post(f"/devices/{serial}/configure",
                           {"bitfile_path": bitfile_path})
+
+    def configure_fpga_from_file(self, serial: str, local_path: str):
+        """Program FPGA from a local file.
+
+        Reads the bitfile from the client's local filesystem and uploads
+        it to the server as ``application/octet-stream``. The server calls
+        ``ConfigureFPGAFromMemory`` with the received bytes.
+        """
+        with open(local_path, "rb") as f:
+            data = f.read()
+        url = f"{self.base_url}/devices/{serial}/configure"
+        resp = self.session.post(
+            url, data=data,
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        if resp.status_code >= 400:
+            raise ClientError(resp.status_code, resp.text)
+        return resp.json() if resp.text else None
 
     # --- Classic Data Port: WireIn/WireOut ---
 

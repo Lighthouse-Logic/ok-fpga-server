@@ -97,8 +97,24 @@ class CountersGrpcClient:
                 for d in resp.devices]
 
     def configure_fpga(self, serial: str, bitfile_path: str):
+        """Configure FPGA from a server-side bitfile path."""
         self.device_stub.ConfigureFPGA(okfpga_pb2.ConfigureFPGARequest(
             serial=serial, bitfile_path=bitfile_path, user_id=self.user_id))
+
+    def configure_fpga_from_file(self, serial: str, local_path: str):
+        """Configure FPGA from a local file (client-side streaming).
+
+        Reads the bitfile from the client's local filesystem and streams it
+        to the server using ``ConfigureFPGAFromMemory`` RPC as a single chunk.
+        """
+        with open(local_path, "rb") as f:
+            data = f.read()
+
+        def chunk_iterator():
+            yield okfpga_pb2.ConfigureFPGAChunk(
+                serial=serial, data=data, is_last=True, user_id=self.user_id)
+
+        self.device_stub.ConfigureFPGAFromMemory(chunk_iterator())
 
     # --- Classic Data Port ---
 
