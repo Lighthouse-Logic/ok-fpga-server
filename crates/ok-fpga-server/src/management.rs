@@ -15,10 +15,12 @@ use std::sync::Arc;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Serialize;
 use tokio::sync::broadcast;
+
+use crate::log_broadcast::{self, LogEvent, LogRingBuffer};
 use tracing::{info, warn};
 
 use crate::config::ServerConfig;
@@ -45,11 +47,15 @@ pub fn build_management_router(
     state: Arc<AppState>,
     config: Arc<ServerConfig>,
     event_tx: broadcast::Sender<String>,
+    log_tx: broadcast::Sender<LogEvent>,
+    log_ring_buffer: Arc<LogRingBuffer>,
 ) -> Router {
     let mgmt_state = Arc::new(MgmtState {
         app: state,
         config,
         event_tx,
+        log_tx,
+        log_ring_buffer,
     });
 
     let mut router = Router::new()
@@ -62,6 +68,10 @@ pub fn build_management_router(
         .route("/mgmt/config", get(mgmt_get_config))
         .route("/mgmt/devices", get(mgmt_list_devices))
         .route("/mgmt/shutdown", post(mgmt_shutdown))
+        // Log management endpoints (ADR-022)
+        .route("/mgmt/logs/download", get(mgmt_logs_download))
+        .route("/mgmt/logs/size", get(mgmt_logs_size))
+        .route("/mgmt/logs", delete(mgmt_logs_clear))
         // WebSocket
         .route("/ws/events", get(ws_events))
         .with_state(mgmt_state);
@@ -86,8 +96,14 @@ struct MgmtState {
     /// The loaded server configuration.
     config: Arc<ServerConfig>,
 
-    /// Broadcast channel for WebSocket event streaming.
+    /// Broadcast channel for WebSocket event streaming (device/service events).
     event_tx: broadcast::Sender<String>,
+
+    /// Broadcast channel for log events (ADR-022).
+    log_tx: broadcast::Sender<LogEvent>,
+
+    /// Ring buffer for log backfill on new WebSocket connections (ADR-022).
+    log_ring_buffer: Arc<LogRingBuffer>,
 }
 
 // ============================================================================
@@ -391,15 +407,42 @@ async fn ws_events(ws: WebSocketUpgrade, State(state): State<Arc<MgmtState>>) ->
 
 /// Handle a WebSocket connection.
 ///
-/// Subscribes to the event broadcast channel and forwards events to the
-/// WebSocket client. The connection is closed when the client disconnects
-/// or the broadcast channel is dropped.
+/// Subscribes to both the event broadcast channel (device/service events)
+/// and the log broadcast channel (tracing events). Supports per-client
+/// log level filtering via `set_log_level` control messages.
+///
+/// ## Protocol (ADR-022)
+///
+/// Client → Server:
+/// ```json
+/// { "type": "set_log_level", "level": "DEBUG" }
+/// ```
+///
+/// Server → Client:
+/// - Device/service events (from `event_tx`)
+/// - Log events (from `log_tx`, filtered by client's level)
 async fn handle_ws_connection(mut socket: WebSocket, state: Arc<MgmtState>) {
-    let mut rx = state.event_tx.subscribe();
+    let mut event_rx = state.event_tx.subscribe();
+    let mut log_rx = state.log_tx.subscribe();
+
+    // Per-client log level filter. Default from config.
+    let default_level = &state.config.dashboard.default_log_level;
+    let mut client_level_priority =
+        log_broadcast::level_priority_from_str(default_level).unwrap_or(2); // INFO
+
+    // Send log backfill from the ring buffer.
+    let backfill = state.log_ring_buffer.get_filtered(client_level_priority);
+    for event in backfill {
+        let json = event.to_ws_json();
+        if socket.send(Message::Text(json.into())).await.is_err() {
+            return; // Client disconnected during backfill.
+        }
+    }
 
     loop {
         tokio::select! {
-            event = rx.recv() => {
+            // Device/service events (always forwarded, no level filtering).
+            event = event_rx.recv() => {
                 match event {
                     Ok(msg) => {
                         if socket.send(Message::Text(msg.into())).await.is_err() {
@@ -419,16 +462,136 @@ async fn handle_ws_connection(mut socket: WebSocket, state: Arc<MgmtState>) {
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
+            // Log events (filtered by client's level).
+            log_event = log_rx.recv() => {
+                match log_event {
+                    Ok(event) => {
+                        if event.level_priority() >= client_level_priority {
+                            let json = event.to_ws_json();
+                            if socket.send(Message::Text(json.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        // Log events are less critical — silently skip.
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            // Client messages (control messages + ping/pong).
             msg = socket.recv() => {
                 match msg {
                     Some(Ok(Message::Close(_))) | None => break,
                     Some(Ok(Message::Ping(data))) => {
                         let _ = socket.send(Message::Pong(data)).await;
                     }
+                    Some(Ok(Message::Text(text))) => {
+                        // Parse control messages.
+                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
+                            if parsed.get("type").and_then(|t| t.as_str()) == Some("set_log_level") {
+                                if let Some(level) = parsed.get("level").and_then(|l| l.as_str()) {
+                                    if let Some(priority) = log_broadcast::level_priority_from_str(level) {
+                                        client_level_priority = priority;
+                                        tracing::debug!(
+                                            level = %level,
+                                            "WebSocket client changed log level"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
                     _ => {} // Ignore other messages.
                 }
             }
         }
+    }
+}
+
+// ============================================================================
+// Log Management Endpoints (ADR-022)
+// ============================================================================
+
+/// `GET /mgmt/logs/download` — Download the server log file.
+async fn mgmt_logs_download(
+    State(state): State<Arc<MgmtState>>,
+) -> impl IntoResponse {
+    let log_path = &state.config.server.log_file;
+    if log_path.is_empty() {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            [(axum::http::header::CONTENT_TYPE, "text/plain")],
+            "Log file not configured".to_string(),
+        );
+    }
+
+    match tokio::fs::read_to_string(log_path).await {
+        Ok(content) => (
+            axum::http::StatusCode::OK,
+            [(axum::http::header::CONTENT_TYPE, "text/plain")],
+            content,
+        ),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            [(axum::http::header::CONTENT_TYPE, "text/plain")],
+            format!("Could not read log file: {}", e),
+        ),
+    }
+}
+
+/// `GET /mgmt/logs/size` — Get the log file size in bytes.
+async fn mgmt_logs_size(
+    State(state): State<Arc<MgmtState>>,
+) -> Json<serde_json::Value> {
+    let log_path = &state.config.server.log_file;
+    if log_path.is_empty() {
+        return Json(serde_json::json!({ "size_bytes": 0, "configured": false }));
+    }
+
+    let size = tokio::fs::metadata(log_path)
+        .await
+        .map(|m| m.len())
+        .unwrap_or(0);
+
+    Json(serde_json::json!({
+        "size_bytes": size,
+        "configured": true,
+        "path": log_path,
+    }))
+}
+
+/// `DELETE /mgmt/logs` — Truncate the log file to zero bytes.
+async fn mgmt_logs_clear(
+    State(state): State<Arc<MgmtState>>,
+) -> impl IntoResponse {
+    let log_path = &state.config.server.log_file;
+    if log_path.is_empty() {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": "Log file not configured"
+            })),
+        );
+    }
+
+    match tokio::fs::write(log_path, b"").await {
+        Ok(()) => {
+            info!("log file cleared by dashboard user");
+            (
+                axum::http::StatusCode::OK,
+                Json(serde_json::json!({
+                    "status": "cleared",
+                    "path": log_path,
+                })),
+            )
+        }
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": format!("Could not clear log file: {}", e)
+            })),
+        ),
     }
 }
 
@@ -520,8 +683,10 @@ mod tests {
 
         let config = Arc::new(ServerConfig::default());
         let (event_tx, _) = broadcast::channel::<String>(16);
+        let (log_tx, _) = broadcast::channel::<LogEvent>(16);
+        let log_ring_buffer = Arc::new(LogRingBuffer::new());
 
-        build_management_router(app_state, config, event_tx)
+        build_management_router(app_state, config, event_tx, log_tx, log_ring_buffer)
     }
 
     /// Build a router with a pre-populated device in the registry.
@@ -570,8 +735,10 @@ mod tests {
 
         let config = Arc::new(ServerConfig::default());
         let (event_tx, _) = broadcast::channel::<String>(16);
+        let (log_tx, _) = broadcast::channel::<LogEvent>(16);
+        let log_ring_buffer = Arc::new(LogRingBuffer::new());
 
-        build_management_router(app_state, config, event_tx)
+        build_management_router(app_state, config, event_tx, log_tx, log_ring_buffer)
     }
 
     /// Helper: parse a JSON response body into a serde_json::Value.

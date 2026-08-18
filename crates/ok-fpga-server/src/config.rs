@@ -93,6 +93,12 @@ pub struct CoreConfig {
     /// How often (in seconds) the sweep task checks for expired users.
     /// Only relevant when `user_timeout_secs > 0`.
     pub user_sweep_interval_secs: u64,
+
+    /// Path to the log file. Logs are appended (not truncated) on each server
+    /// start. Set to empty string to disable file logging.
+    ///
+    /// Default: `"logs/okfpga-server.log"`.
+    pub log_file: String,
 }
 
 impl Default for CoreConfig {
@@ -103,6 +109,7 @@ impl Default for CoreConfig {
             management_bind: "0.0.0.0".to_string(),
             user_timeout_secs: 60,
             user_sweep_interval_secs: 10,
+            log_file: "logs/okfpga-server.log".to_string(),
         }
     }
 }
@@ -213,11 +220,21 @@ impl Default for MdnsConfig {
 pub struct DashboardConfig {
     /// Whether the web dashboard should be served.
     pub enabled: bool,
+
+    /// Default log level displayed in the dashboard log viewer.
+    /// Users can change this at runtime via the dashboard UI.
+    ///
+    /// Valid values: `"trace"`, `"debug"`, `"info"`, `"warn"`, `"error"`.
+    /// Default: `"info"`.
+    pub default_log_level: String,
 }
 
 impl Default for DashboardConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            default_log_level: "info".to_string(),
+        }
     }
 }
 

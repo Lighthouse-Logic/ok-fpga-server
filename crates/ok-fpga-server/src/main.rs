@@ -88,6 +88,10 @@ mod handle_pool;
 #[allow(dead_code)]
 mod device_monitor;
 
+/// Log broadcast layer — captures tracing events and broadcasts to WebSocket
+/// clients with per-client level filtering (ADR-022).
+mod log_broadcast;
+
 /// REST API server module — only compiled when `rest` feature is enabled.
 #[cfg(feature = "rest")]
 mod rest;
@@ -133,7 +137,8 @@ async fn main() -> anyhow::Result<()> {
     let cfg = config::load_config();
 
     // Initialize tracing (structured logging) with the configured log level.
-    init_tracing(&cfg);
+    // Returns the broadcast handles needed for the dashboard log viewer.
+    let (log_tx, log_ring_buffer) = init_tracing(&cfg);
 
     // Print startup banner.
     print_banner(&cfg);
@@ -228,7 +233,14 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Start the management server (always-on, serves dashboard + mgmt API).
-    start_management_server(&app_state, &cfg_arc, event_tx.clone()).await;
+    start_management_server(
+        &app_state,
+        &cfg_arc,
+        event_tx.clone(),
+        log_tx,
+        log_ring_buffer,
+    )
+    .await;
 
     // Start the user session sweep task (auto-releases expired users' resources).
     sweep::spawn_sweep_task(
@@ -435,6 +447,8 @@ async fn start_management_server(
     app_state: &Arc<AppState>,
     config: &Arc<ServerConfig>,
     event_tx: tokio::sync::broadcast::Sender<String>,
+    log_tx: tokio::sync::broadcast::Sender<log_broadcast::LogEvent>,
+    log_ring_buffer: std::sync::Arc<log_broadcast::LogRingBuffer>,
 ) {
     let mgmt_addr: std::net::SocketAddr = format!(
         "{}:{}",
@@ -443,7 +457,13 @@ async fn start_management_server(
     .parse()
     .expect("valid management bind address from config");
 
-    let router = management::build_management_router(app_state.clone(), config.clone(), event_tx);
+    let router = management::build_management_router(
+        app_state.clone(),
+        config.clone(),
+        event_tx,
+        log_tx,
+        log_ring_buffer,
+    );
 
     let listener = match tokio::net::TcpListener::bind(mgmt_addr).await {
         Ok(l) => l,
@@ -472,19 +492,92 @@ async fn start_management_server(
 /// 2. `OKFPGA_LOG_LEVEL` environment variable (via config)
 /// 3. `server.log_level` in the TOML config
 /// 4. Built-in default: `"info"`
-fn init_tracing(cfg: &ServerConfig) {
+///
+/// ## Subscriber Stack (ADR-022)
+///
+/// The subscriber is a layered registry with three layers:
+/// 1. **fmt::Layer** — stdout output, filtered by config level
+/// 2. **File appender layer** — writes to `server.log_file`, filtered by config level
+/// 3. **WebSocketBroadcastLayer** — captures ALL events (TRACE+) for dashboard streaming
+///
+/// Returns `(log_tx, ring_buffer)` — the broadcast channel and ring buffer
+/// needed by the management server's WebSocket handler.
+fn init_tracing(
+    cfg: &ServerConfig,
+) -> (
+    tokio::sync::broadcast::Sender<log_broadcast::LogEvent>,
+    std::sync::Arc<log_broadcast::LogRingBuffer>,
+) {
+    use tracing_subscriber::prelude::*;
+
     // If RUST_LOG is set, use it directly (standard tracing convention).
     // Otherwise, use the config's log_level.
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&cfg.server.log_level));
 
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
+    // Layer 1: stdout output (existing behavior).
+    let stdout_layer = tracing_subscriber::fmt::layer()
         .with_target(true)
         .with_thread_ids(false)
         .with_file(false)
         .with_line_number(false)
+        .with_filter(filter);
+
+    // Layer 2: File appender (ADR-022).
+    // Only created if log_file is non-empty.
+    let file_layer = if !cfg.server.log_file.is_empty() {
+        let log_path = std::path::Path::new(&cfg.server.log_file);
+
+        // Ensure the parent directory exists.
+        if let Some(parent) = log_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+        }
+
+        // Open the log file in append mode.
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_path)
+        {
+            Ok(file) => {
+                let file_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| {
+                        tracing_subscriber::EnvFilter::new(&cfg.server.log_level)
+                    });
+                Some(
+                    tracing_subscriber::fmt::layer()
+                        .with_target(true)
+                        .with_ansi(false)
+                        .with_writer(std::sync::Mutex::new(file))
+                        .with_filter(file_filter),
+                )
+            }
+            Err(e) => {
+                eprintln!(
+                    "WARNING: could not open log file '{}': {}",
+                    cfg.server.log_file, e
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // Layer 3: WebSocket broadcast (ADR-022).
+    // Captures ALL events at TRACE level — filtering is per-client.
+    let (broadcast_layer, log_tx, ring_buffer) = log_broadcast::WebSocketBroadcastLayer::new();
+
+    // Compose the subscriber stack.
+    tracing_subscriber::registry()
+        .with(stdout_layer)
+        .with(file_layer)
+        .with(broadcast_layer)
         .init();
+
+    (log_tx, ring_buffer)
 }
 
 /// Register compiled services with the ServiceManager using config values.

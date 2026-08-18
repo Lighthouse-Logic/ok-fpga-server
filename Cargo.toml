@@ -27,7 +27,8 @@ serde_json = "1"
 
 # Logging / tracing — structured logging with async support
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "registry"] }
+tracing-appender = "0.2"
 
 # Error handling — ergonomic error types
 thiserror = "2"
