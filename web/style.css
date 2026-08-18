@@ -536,9 +536,65 @@ body {
 
 .log-info .log-level { color: var(--blue); }
 .log-warn .log-level { color: var(--amber); }
-.log-error .log-level { color: var(--red); }
+.log-error .log-level { color: var(--red); font-weight: 700; }
+.log-error .log-msg { color: var(--red); font-weight: 600; }
 .log-debug .log-level { color: var(--text-muted); }
-.log-trace .log-level { color: var(--purple); }
+.log-debug .log-msg { color: var(--text-muted); }
+.log-trace .log-level { color: var(--purple); opacity: 0.7; }
+.log-trace .log-msg { color: var(--text-muted); opacity: 0.7; font-family: var(--font-mono); }
+
+/* Log level selector button group (ADR-022) */
+.log-level-selector {
+    display: inline-flex;
+    gap: 2px;
+    background: var(--surface);
+    border-radius: 6px;
+    padding: 2px;
+    border: 1px solid var(--border);
+}
+
+.btn-level {
+    padding: 4px 10px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    letter-spacing: 0.5px;
+}
+
+.btn-level:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.btn-level.active {
+    color: var(--bg);
+    background: var(--blue);
+}
+
+/* Log controls layout (ADR-022) */
+.log-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.log-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#log-file-size {
+    font-size: 10px;
+    opacity: 0.7;
+}
 
 /* ============================================================================
  * Toggle Switch

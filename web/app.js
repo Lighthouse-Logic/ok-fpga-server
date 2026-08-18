@@ -259,15 +259,71 @@ async function serviceAction(name, action) {
 window.serviceAction = serviceAction;
 
 // ============================================================================
-// Log Viewer
+// Log Viewer (ADR-022)
 // ============================================================================
 
 const logContainer = document.getElementById('log-container');
 const autoScrollCheckbox = document.getElementById('log-auto-scroll');
 
-document.getElementById('btn-clear-logs')?.addEventListener('click', () => {
-    logContainer.innerHTML = '';
+/** Current log level selected in the UI. */
+let currentLogLevel = 'INFO';
+
+// --- Log Level Selector ---
+document.querySelectorAll('#log-level-selector .btn-level').forEach(btn => {
+    btn.addEventListener('click', () => {
+        // Update active state.
+        document.querySelectorAll('#log-level-selector .btn-level').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentLogLevel = btn.dataset.level;
+
+        // Send log level change to server via WebSocket.
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'set_log_level', level: currentLogLevel }));
+        }
+    });
 });
+
+// --- Clear Log File ---
+document.getElementById('btn-clear-logs')?.addEventListener('click', async () => {
+    if (!confirm('Clear the server log file? This cannot be undone.')) return;
+
+    try {
+        const resp = await fetch('/mgmt/logs', { method: 'DELETE' });
+        if (resp.ok) {
+            logContainer.innerHTML = '';
+            addLogEntry('INFO', 'Log file cleared');
+            updateLogFileSize();
+        } else {
+            addLogEntry('ERROR', `Failed to clear log file: ${resp.statusText}`);
+        }
+    } catch (e) {
+        addLogEntry('ERROR', `Failed to clear log file: ${e.message}`);
+    }
+});
+
+// --- Download Log File ---
+document.getElementById('btn-download-logs')?.addEventListener('click', () => {
+    window.open('/mgmt/logs/download', '_blank');
+});
+
+// --- Log File Size ---
+async function updateLogFileSize() {
+    try {
+        const data = await fetchApi('/mgmt/logs/size');
+        const sizeEl = document.getElementById('log-file-size');
+        if (sizeEl && data.configured) {
+            const kb = (data.size_bytes / 1024).toFixed(1);
+            const mb = (data.size_bytes / (1024 * 1024)).toFixed(1);
+            sizeEl.textContent = data.size_bytes > 1024 * 1024
+                ? `(${mb} MB)` : `(${kb} KB)`;
+        }
+    } catch {
+        // Silently ignore — non-critical.
+    }
+}
+
+// Update log file size every 10 seconds and on page load.
+setInterval(updateLogFileSize, 10000);
 
 /**
  * Add a log entry to the viewer.
@@ -442,4 +498,7 @@ function escapeHtml(str) {
 
     // Show initial log message.
     addLogEntry('INFO', 'Dashboard initialized');
+
+    // Fetch initial log file size (ADR-022).
+    updateLogFileSize();
 })();
