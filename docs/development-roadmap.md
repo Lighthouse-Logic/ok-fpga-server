@@ -1951,7 +1951,7 @@ after connect (user must select explicitly). All 48 iced tests pass.
 
 #### Phase 25-Fix-E: Client-Server Contract Alignment
 
-**Status**: `[ ]` Planned  
+**Status**: `[x]` Completed (2026-08-18, `455d5ba`, `c850110`)  
 **Depends on**: Phase 25-Fix-D  
 **ADR reference**: [ADR-023 Addendum: Phase 25-Fix-E](architecture/adr/ADR-023-gui-example-clients.md)  
 **Rule added**: [ai-collaboration.md §6 — API Specification Authority](../.agents/rules/ai-collaboration.md)
@@ -2097,9 +2097,9 @@ Phase 0: Scaffolding
                                                                         ├── 25-Fix-B: Common lib tests (79) ✅
                                                                         ├── 25-Fix-C: GUI app tests (103) ✅
                                                                         ├── 25-Fix-D: Device dropdown + disconnect ✅
-                                                                         └── 25-Fix-E: Contract alignment [ ]
-                                                                              ├── E1-E2-E5-E6: Bug fixes [ ]
-                                                                              └── E3-E4: gRPC wiring + streaming [ ]
+                                                                         └── 25-Fix-E: Contract alignment ✅
+                                                                              ├── E1-E2-E5-E6: Bug fixes ✅
+                                                                              └── E3-E4: gRPC wiring + streaming ✅
 ```
 
 Phases 23 and 24 can be executed in parallel — Phase 24 does not depend on 23,
