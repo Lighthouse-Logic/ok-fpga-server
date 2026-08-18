@@ -1916,6 +1916,40 @@ Each Python package gets a `pyproject.toml` with `[project.optional-dependencies
 > headless test harness comparable to iced's `iced_test`. Extracting testable
 > logic from the `eframe::App` trait would require a refactor (tracked separately).
 
+#### Phase 25-Fix-D: Device Selection Dropdown + Disconnect Detection
+
+**Status**: `[x]` Completed (2026-08-18)  
+**Depends on**: Phase 25-Fix-C  
+**ADR reference**: [ADR-023 §2 User-Controlled Startup Sequence](architecture/adr/ADR-023-gui-example-clients.md)
+
+All 8 GUI demos were refactored to implement explicit device selection:
+
+1. **Device Dropdown**: Replaced auto-selection (first device) and listbox/button
+   patterns with a proper dropdown widget (`ComboBox`/`pick_list`/`Combobox`).
+   Default value: "No device selected".
+2. **Gated Programming**: The "Program Bitfile" button is disabled until the user
+   explicitly selects a device from the dropdown.
+3. **5-second Device Refresh**: After connecting, the device list is polled every
+   5 seconds to detect hardware changes.
+4. **Disconnect Detection**: If the selected device disappears from the server
+   while in the Acquired phase, the Counter Control Panel is automatically closed,
+   the app resets to Connected phase, and a disconnect warning dialog is shown.
+
+| Demo | Widget | Refresh Mechanism |
+|------|--------|-------------------|
+| Rusty Rester (egui) | `egui::ComboBox` | `Instant` timer in `update()` |
+| Icy Rester (iced) | `iced::pick_list` | `Subscription::batch` 5s tick |
+| Rusty Garpac (egui) | `egui::ComboBox` | `Instant` timer in `update()` |
+| Icy Garpac (iced) | `iced::pick_list` | `Subscription::batch` 5s tick |
+| Pythos Rester (tkinter) | `ttk.Combobox` | `root.after(5000)` |
+| Dear Rester (dearpygui) | `dpg.add_combo` | Thread-based timer |
+| Pythos Garpac (tkinter) | `ttk.Combobox` | `root.after(5000)` |
+| Dear Garpac (dearpygui) | `dpg.add_combo` | Thread-based timer |
+
+**Tests updated**: Iced connect tests changed to assert `selected_serial == None`
+after connect (user must select explicitly). All 48 iced tests pass.
+
+
 ### Files Created
 
 | File | Description | Sub-phase |
@@ -1965,10 +1999,14 @@ Each GUI demo should be verified with:
 
 1. **No device**: GUI launches, connection panel functional, buttons correctly disabled
 2. **With device**: Full startup sequence → counter control → polling → triggers
-3. **Multi-user**: Two GUI clients sharing the same resource simultaneously
-4. **Lock enforcement**: Lock from one client → verify other client is locked out →
+3. **Device selection**: Connect → verify dropdown shows devices → select one → Program enabled
+4. **Device refresh**: Connect → unplug device → verify dropdown updates within 5s
+5. **Disconnect detection**: Acquire → unplug device → verify control panel closes,
+   disconnect warning shown, app resets to Connected phase
+6. **Multi-user**: Two GUI clients sharing the same resource simultaneously
+7. **Lock enforcement**: Lock from one client → verify other client is locked out →
    Override checkbox → verify server rejects writes → error displayed in GUI
-5. **Timeout test**: Exit without releasing → verify server reclaims resource after
+8. **Timeout test**: Exit without releasing → verify server reclaims resource after
    `user_timeout_secs`
 
 ---
@@ -2031,7 +2069,8 @@ Phase 0: Scaffolding
                                                                    └── Phase 25-Fix: iced 0.14 + Tests ✅
                                                                         ├── 25-Fix-A: iced 0.13→0.14 migration ✅
                                                                         ├── 25-Fix-B: Common lib tests (79) ✅
-                                                                        └── 25-Fix-C: GUI app tests (103) ✅
+                                                                        ├── 25-Fix-C: GUI app tests (103) ✅
+                                                                        └── 25-Fix-D: Device dropdown + disconnect ✅
 ```
 
 Phases 23 and 24 can be executed in parallel — Phase 24 does not depend on 23,

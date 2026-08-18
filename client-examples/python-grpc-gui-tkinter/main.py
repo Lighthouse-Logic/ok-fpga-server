@@ -85,9 +85,12 @@ class CountersApp:
         ttk.Entry(row, textvariable=self.grpc_addr, width=40).pack(side=tk.LEFT, padx=4)
         self.connect_btn = ttk.Button(f, text="1. Connect to Server", command=self._on_connect)
         self.connect_btn.pack(anchor=tk.W, pady=2)
-        self.device_listbox = tk.Listbox(f, height=3, bg="#2a2a2a", fg="#d0d0d0", selectmode=tk.SINGLE)
-        self.device_listbox.pack(fill=tk.X, pady=2)
-        self.device_listbox.bind("<<ListboxSelect>>", self._on_device_select)
+        dev_row = ttk.Frame(f); dev_row.pack(fill=tk.X, pady=2)
+        ttk.Label(dev_row, text="Select Device:").pack(side=tk.LEFT)
+        self.device_combo = ttk.Combobox(dev_row, state="readonly", width=50)
+        self.device_combo.set("No device selected")
+        self.device_combo.pack(side=tk.LEFT, padx=4)
+        self.device_combo.bind("<<ComboboxSelected>>", self._on_device_select)
         row2 = ttk.Frame(f); row2.pack(fill=tk.X, pady=2)
         ttk.Label(row2, text="Bitfile:").pack(side=tk.LEFT)
         ttk.Entry(row2, textvariable=self.bitfile_path, width=60).pack(side=tk.LEFT, padx=4)
@@ -136,20 +139,63 @@ class CountersApp:
             self.client.get_server_status()
             self.devices = self.client.list_devices()
             self._log(f"Connected. {len(self.devices)} device(s)")
-            self.device_listbox.delete(0, tk.END)
-            for d in self.devices:
-                self.device_listbox.insert(tk.END, f"{d.serial} — {d.product_name}")
-            if self.devices:
-                self.device_listbox.select_set(0); self.selected_serial.set(self.devices[0].serial)
+            self._update_device_combo()
+            self.selected_serial.set("")  # Force user to select
             self.connect_btn.config(text="1. Connected ✓", state=tk.DISABLED)
-            self.program_btn.config(state=tk.NORMAL); self.phase = "connected"
+            self.phase = "connected"
+            self._start_device_refresh()
         except Exception as e:
             self._log_err(f"Connect: {e}")
 
-    def _on_device_select(self, event):
-        sel = self.device_listbox.curselection()
-        if sel and sel[0] < len(self.devices):
-            self.selected_serial.set(self.devices[sel[0]].serial)
+    def _update_device_combo(self):
+        items = [f"{d.serial} — {d.product_name}" for d in self.devices]
+        self.device_combo["values"] = items
+        current = self.selected_serial.get()
+        if current and not any(d.serial == current for d in self.devices):
+            self.device_combo.set("No device selected")
+            self.selected_serial.set("")
+
+    def _on_device_select(self, event=None):
+        idx = self.device_combo.current()
+        if 0 <= idx < len(self.devices):
+            self.selected_serial.set(self.devices[idx].serial)
+            self._log(f"Selected: {self.devices[idx].serial}")
+            if self.phase == "connected":
+                self.program_btn.config(state=tk.NORMAL)
+
+    def _start_device_refresh(self):
+        self._refresh_devices()
+
+    def _refresh_devices(self):
+        if self.phase == "disconnected" or self.client is None:
+            return
+        try:
+            new_devices = self.client.list_devices()
+            old_serial = self.selected_serial.get()
+            self.devices = new_devices
+            self._update_device_combo()
+            if old_serial and not any(d.serial == old_serial for d in new_devices):
+                self.selected_serial.set("")
+                if self.phase == "acquired":
+                    self._log_err(f"Device {old_serial} disconnected from server")
+                    self.phase = "connected"
+                    self.resource_id = None
+                    self.resource_info = None
+                    if self._polling_id:
+                        self.root.after_cancel(self._polling_id)
+                        self._polling_id = None
+                    self._show_connection_panel()
+                    messagebox.showwarning(
+                        "Device Disconnected",
+                        f"⚠ Device {old_serial} has been disconnected from the server.\n"
+                        "The Counter Control Panel has been closed."
+                    )
+                    return
+                else:
+                    self._log_err(f"Device {old_serial} is no longer available")
+        except Exception as e:
+            self._log_err(f"Device refresh: {e}")
+        self._device_refresh_id = self.root.after(5000, self._refresh_devices)
 
     def _on_program(self):
         try:
@@ -234,6 +280,8 @@ class CountersApp:
                 try: self.client.release_resource(self.resource_id)
                 except: pass
         if self._polling_id: self.root.after_cancel(self._polling_id)
+        if hasattr(self, '_device_refresh_id') and self._device_refresh_id:
+            self.root.after_cancel(self._device_refresh_id)
         self.root.destroy()
 
     def _log(self, msg):

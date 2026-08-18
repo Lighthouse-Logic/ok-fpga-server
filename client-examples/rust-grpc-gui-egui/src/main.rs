@@ -60,7 +60,9 @@ struct CountersApp {
     runtime: tokio::runtime::Runtime,
     log: Vec<(String, String, bool)>,
     last_poll_time: Instant,
+    last_device_refresh: Instant,
     show_quit_dialog: bool,
+    show_disconnect_dialog: bool,
     /// gRPC client behind a tokio::Mutex so MutexGuard can be held across .await.
     client: Option<Arc<TokioMutex<CountersGrpcClient>>>,
 }
@@ -85,7 +87,9 @@ impl CountersApp {
             runtime: tokio::runtime::Runtime::new().expect("Tokio runtime"),
             log: vec![],
             last_poll_time: Instant::now(),
+            last_device_refresh: Instant::now(),
             show_quit_dialog: false,
+            show_disconnect_dialog: false,
             client: None,
         }
     }
@@ -133,6 +137,40 @@ impl eframe::App for CountersApp {
                         }
                     }
                 });
+            }
+        }
+        // --- Device refresh: re-query /devices every 5s when connected ---
+        if self.phase != Phase::Disconnected
+            && self.last_device_refresh.elapsed() >= Duration::from_secs(5)
+        {
+            self.last_device_refresh = Instant::now();
+            if let Some(ref ca) = self.client {
+                let ca = ca.clone();
+                match self.runtime.block_on(async { let mut cl = ca.lock().await; cl.list_devices().await }) {
+                    Ok(new_devices) => {
+                        if let Some(ref serial) = self.selected_serial {
+                            let still_present = new_devices.iter().any(|d| &d.serial == serial);
+                            if !still_present {
+                                let lost = serial.clone();
+                                self.selected_serial = None;
+                                if self.phase == Phase::Acquired {
+                                    self.add_log(&format!("Device {} disconnected from server", lost), true);
+                                    self.phase = Phase::Connected;
+                                    self.resource_id = None;
+                                    self.show_disconnect_dialog = true;
+                                    let mut s = self.shared.lock().unwrap();
+                                    s.counter = CounterState::default();
+                                    s.resource = None;
+                                    s.last_error = None;
+                                } else {
+                                    self.add_log(&format!("Device {} is no longer available", lost), true);
+                                }
+                            }
+                        }
+                        self.devices = new_devices;
+                    }
+                    Err(e) => self.add_log(&format!("Device refresh: {}", e), true),
+                }
             }
         }
 
@@ -188,6 +226,16 @@ impl eframe::App for CountersApp {
                 });
             });
         }
+
+        // Device disconnect dialog.
+        if self.show_disconnect_dialog {
+            egui::Window::new("⚠ Device Disconnected").collapsible(false).resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+                ui.label("The selected device has been disconnected from the server.");
+                ui.label("The Counter Control Panel has been closed.");
+                if ui.button("OK").clicked() { self.show_disconnect_dialog = false; }
+            });
+        }
     }
 }
 
@@ -205,27 +253,47 @@ impl CountersApp {
             }) {
                 Ok((client, devices)) => {
                     self.add_log(&format!("Connected. {} device(s)", devices.len()), false);
-                    if let Some(d) = devices.first() { self.selected_serial = Some(d.serial.clone()); }
                     self.devices = devices;
+                    self.selected_serial = None; // Force user to select
                     self.client = Some(Arc::new(TokioMutex::new(client)));
                     self.phase = Phase::Connected;
+                    self.last_device_refresh = Instant::now();
                 }
                 Err(e) => self.add_log(&format!("Connect failed: {}", e), true),
             }
         }
 
+        // Device selection dropdown.
         if !self.devices.is_empty() {
-            let mut sel: Option<String> = None;
-            for d in &self.devices {
-                let s = self.selected_serial.as_deref() == Some(&d.serial);
-                if ui.selectable_label(s, format!("{} — {}", d.serial, d.product_name)).clicked() { sel = Some(d.serial.clone()); }
+            let mut newly_selected: Option<String> = None;
+            ui.horizontal(|ui| {
+                ui.label("Select Device:");
+                let display = self.selected_serial.as_ref()
+                    .and_then(|s| self.devices.iter().find(|d| &d.serial == s))
+                    .map(|d| format!("{} — {}", d.serial, d.product_name))
+                    .unwrap_or_else(|| "No device selected".to_string());
+                egui::ComboBox::from_id_salt("device_select")
+                    .selected_text(display)
+                    .width(400.0)
+                    .show_ui(ui, |ui| {
+                        for d in &self.devices {
+                            let label = format!("{} — {}", d.serial, d.product_name);
+                            let is_selected = self.selected_serial.as_deref() == Some(&d.serial);
+                            if ui.selectable_label(is_selected, &label).clicked() {
+                                newly_selected = Some(d.serial.clone());
+                            }
+                        }
+                    });
+            });
+            if let Some(serial) = newly_selected {
+                self.add_log(&format!("Selected: {}", serial), false);
+                self.selected_serial = Some(serial);
             }
-            if let Some(s) = sel { self.add_log(&format!("Selected: {}", s), false); self.selected_serial = Some(s); }
         }
 
         ui.horizontal(|ui| { ui.label("Bitfile:"); ui.text_edit_singleline(&mut self.bitfile_path); });
 
-        if ui.add_enabled(self.phase == Phase::Connected, egui::Button::new("2. Program")).clicked() {
+        if ui.add_enabled(self.phase == Phase::Connected && self.selected_serial.is_some(), egui::Button::new("2. Program")).clicked() {
             let ca = self.client.clone().unwrap(); let s = self.serial(); let bf = self.bitfile_path.clone();
             match self.runtime.block_on(async { let mut cl = ca.lock().await; cl.configure_fpga(&s, &bf).await }) {
                 Ok(()) => { self.add_log("FPGA programmed", false); self.phase = Phase::Programmed; }

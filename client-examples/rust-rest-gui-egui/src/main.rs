@@ -131,8 +131,12 @@ struct CountersApp {
     // --- Polling control ---
     last_poll_time: Instant,
 
-    // --- Quit confirmation ---
+    // --- Device refresh (5-second periodic re-query of /devices) ---
+    last_device_refresh: Instant,
+
+    // --- Quit / disconnect dialogs ---
     show_quit_dialog: bool,
+    show_disconnect_dialog: bool,
 }
 
 impl CountersApp {
@@ -159,7 +163,9 @@ impl CountersApp {
             runtime: tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime"),
             log: vec![],
             last_poll_time: Instant::now(),
+            last_device_refresh: Instant::now(),
             show_quit_dialog: false,
+            show_disconnect_dialog: false,
         }
     }
 
@@ -276,6 +282,44 @@ impl eframe::App for CountersApp {
             });
         }
 
+        // --- Device refresh: re-query /devices every 5s when connected ---
+        if self.phase != ConnectionPhase::Disconnected
+            && self.last_device_refresh.elapsed() >= Duration::from_secs(5)
+        {
+            self.last_device_refresh = Instant::now();
+            let client = self.make_client();
+            match self.runtime.block_on(client.list_devices()) {
+                Ok(new_devices) => {
+                    // Check if the selected device has disappeared.
+                    if let Some(ref serial) = self.selected_serial {
+                        let still_present = new_devices.iter().any(|d| &d.serial == serial);
+                        if !still_present {
+                            let lost_serial = serial.clone();
+                            self.selected_serial = None;
+                            if self.phase == ConnectionPhase::Acquired {
+                                // Device disconnected during active use.
+                                self.log_error(&format!("Device {} disconnected from server", lost_serial));
+                                self.phase = ConnectionPhase::Connected;
+                                self.resource_id = None;
+                                self.show_disconnect_dialog = true;
+                                // Reset shared state.
+                                let mut s = self.shared.lock().unwrap();
+                                s.counter = CounterState::default();
+                                s.resource = None;
+                                s.last_error = None;
+                            } else {
+                                self.log_error(&format!("Device {} is no longer available", lost_serial));
+                            }
+                        }
+                    }
+                    self.devices = new_devices;
+                }
+                Err(e) => {
+                    self.log_error(&format!("Device refresh failed: {}", e));
+                }
+            }
+        }
+
         // --- Top panel: title bar ---
         egui::TopBottomPanel::top("title_bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -386,6 +430,22 @@ impl eframe::App for CountersApp {
                     });
                 });
         }
+
+        // --- Device disconnect dialog ---
+        if self.show_disconnect_dialog {
+            egui::Window::new("⚠ Device Disconnected")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.label("The selected device has been disconnected from the server.");
+                    ui.label("The Counter Control Panel has been closed.");
+                    ui.add_space(8.0);
+                    if ui.button("OK").clicked() {
+                        self.show_disconnect_dialog = false;
+                    }
+                });
+        }
     }
 }
 
@@ -415,28 +475,38 @@ impl CountersApp {
             }) {
                 Ok(devices) => {
                     self.log(&format!("Connected. Found {} device(s)", devices.len()));
-                    if let Some(first) = devices.first() {
-                        self.selected_serial = Some(first.serial.clone());
-                        self.log(&format!("Selected device: {} ({})", first.serial, first.product_name));
-                    }
                     self.devices = devices;
+                    self.selected_serial = None; // Force user to select
                     self.phase = ConnectionPhase::Connected;
+                    self.last_device_refresh = Instant::now();
                 }
                 Err(e) => self.log_error(&format!("Connect failed: {}", e)),
             }
         }
 
-        // Show devices if connected.
+        // Device selection dropdown.
         if !self.devices.is_empty() {
             ui.add_space(4.0);
-            ui.label("Connected devices:");
             let mut newly_selected: Option<String> = None;
-            for d in &self.devices {
-                let selected = self.selected_serial.as_deref() == Some(&d.serial);
-                if ui.selectable_label(selected, format!("{} — {}", d.serial, d.product_name)).clicked() {
-                    newly_selected = Some(d.serial.clone());
-                }
-            }
+            ui.horizontal(|ui| {
+                ui.label("Select Device:");
+                let display = self.selected_serial.as_ref()
+                    .and_then(|s| self.devices.iter().find(|d| &d.serial == s))
+                    .map(|d| format!("{} — {}", d.serial, d.product_name))
+                    .unwrap_or_else(|| "No device selected".to_string());
+                egui::ComboBox::from_id_salt("device_select")
+                    .selected_text(display)
+                    .width(400.0)
+                    .show_ui(ui, |ui| {
+                        for d in &self.devices {
+                            let label = format!("{} — {}", d.serial, d.product_name);
+                            let is_selected = self.selected_serial.as_deref() == Some(&d.serial);
+                            if ui.selectable_label(is_selected, &label).clicked() {
+                                newly_selected = Some(d.serial.clone());
+                            }
+                        }
+                    });
+            });
             if let Some(serial) = newly_selected {
                 self.log(&format!("Selected device: {}", serial));
                 self.selected_serial = Some(serial);

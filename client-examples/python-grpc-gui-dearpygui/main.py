@@ -46,6 +46,7 @@ class CountersApp:
         self.poll_interval_ms = 500
         self.override_lockout = False
         self.polling = False
+        self.last_device_refresh = 0.0
         self.grpc_addr = DEFAULT_GRPC_ADDR
         self.bitfile_path = os.environ.get("OKFPGA_TEST_BITFILE", DEFAULT_BITFILE)
 
@@ -60,7 +61,8 @@ class CountersApp:
             with dpg.group(tag="connection_panel"):
                 dpg.add_input_text(label="gRPC Address", default_value=self.grpc_addr, tag="addr_input", width=400)
                 dpg.add_button(label="1. Connect", tag="connect_btn", callback=self._on_connect)
-                dpg.add_listbox([], tag="device_list", width=400, num_items=3, callback=self._on_device_select)
+                dpg.add_combo([], tag="device_combo", width=400, callback=self._on_device_select,
+                              default_value="No device selected")
                 dpg.add_input_text(label="Bitfile", default_value=self.bitfile_path, tag="bitfile_input", width=400)
                 dpg.add_button(label="2. Program", tag="program_btn", callback=self._on_program, enabled=False)
                 dpg.add_button(label="3. Register", tag="register_btn", callback=self._on_register, enabled=False)
@@ -121,19 +123,24 @@ class CountersApp:
             self.client.get_server_status()
             self.devices = self.client.list_devices()
             self._log(f"Connected. {len(self.devices)} device(s)")
-            items = [f"{d.serial} — {d.product_name}" for d in self.devices]
-            dpg.configure_item("device_list", items=items)
-            if self.devices: self.selected_serial = self.devices[0].serial
-            dpg.configure_item("connect_btn", label="1. ✓", enabled=False)
-            dpg.configure_item("program_btn", enabled=True)
+            items = [f"{d.serial} \u2014 {d.product_name}" for d in self.devices]
+            dpg.configure_item("device_combo", items=items, default_value="No device selected")
+            self.selected_serial = ""  # Force user to select
+            dpg.configure_item("connect_btn", label="1. \u2713", enabled=False)
+            # program_btn stays disabled until device is selected
             self.phase = "connected"
+            self.last_device_refresh = time.time()
         except Exception as e:
             self._log_err(f"Connect: {e}")
 
     def _on_device_select(self, s, d):
         for dev in self.devices:
-            if f"{dev.serial} — {dev.product_name}" == d:
-                self.selected_serial = dev.serial; break
+            if f"{dev.serial} \u2014 {dev.product_name}" == d:
+                self.selected_serial = dev.serial
+                self._log(f"Selected: {dev.serial}")
+                if self.phase == "connected":
+                    dpg.configure_item("program_btn", enabled=True)
+                break
 
     def _on_program(self):
         try:
@@ -201,6 +208,34 @@ class CountersApp:
                     self._update()
                 except Exception as e:
                     self._log_err(f"Poll: {e}")
+
+            # Device refresh every 5s when connected.
+            if self.phase != "disconnected" and self.client is not None:
+                if time.time() - self.last_device_refresh >= 5.0:
+                    self.last_device_refresh = time.time()
+                    try:
+                        new_devices = self.client.list_devices()
+                        old_serial = self.selected_serial
+                        self.devices = new_devices
+                        items = [f"{d.serial} \u2014 {d.product_name}" for d in self.devices]
+                        dpg.configure_item("device_combo", items=items)
+                        if old_serial and not any(d.serial == old_serial for d in new_devices):
+                            self.selected_serial = ""
+                            dpg.configure_item("device_combo", default_value="No device selected")
+                            if self.phase == "acquired":
+                                self._log_err(f"Device {old_serial} disconnected from server")
+                                self.phase = "connected"
+                                self.polling = False
+                                self.resource_id = None
+                                self.resource_info = None
+                                dpg.configure_item("counter_panel", show=False)
+                                dpg.configure_item("connection_panel", show=True)
+                                dpg.configure_item("program_btn", enabled=False)
+                            else:
+                                self._log_err(f"Device {old_serial} is no longer available")
+                    except Exception as e:
+                        self._log_err(f"Device refresh: {e}")
+
             time.sleep(self.poll_interval_ms / 1000.0)
 
     def _update(self):

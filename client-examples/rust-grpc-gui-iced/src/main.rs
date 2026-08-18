@@ -73,6 +73,7 @@ pub struct AppState {
     pub resource_info: Option<ResourceInfo>,
     pub log_entries: Vec<(String, bool)>,
     pub last_error: Option<String>,
+    pub show_disconnect_dialog: bool,
 }
 
 impl AppState {
@@ -83,7 +84,7 @@ impl AppState {
             phase: Phase::Disconnected, devices: vec![], selected_serial: None,
             resource_id: None, wire_in: WireInState::default(), poll_interval_ms: 500,
             override_lockout: false, counter: CounterState::default(), resource_info: None,
-            log_entries: vec![], last_error: None,
+            log_entries: vec![], last_error: None, show_disconnect_dialog: false,
         }
     }
 
@@ -124,6 +125,8 @@ pub enum Message {
     LockPressed, UnlockPressed, LockResult(Result<(), String>),
     OverrideLockout(bool),
     QuitRelease, QuitLeaveHeld,
+    RefreshDevicesTick, RefreshDevicesResult(Result<Vec<DeviceInfo>, String>),
+    DismissDisconnect,
 }
 
 fn update(state: &mut AppState, message: Message) -> Task<Message> {
@@ -142,8 +145,9 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             match r {
                 Ok(devices) => {
                     state.log(&format!("Connected. {} device(s)", devices.len()));
-                    if let Some(d) = devices.first() { state.selected_serial = Some(d.serial.clone()); }
-                    state.devices = devices; state.phase = Phase::Connected;
+                    state.devices = devices;
+                    state.selected_serial = None; // Force user to select
+                    state.phase = Phase::Connected;
                 }
                 Err(e) => state.log_err(&format!("Connect: {}", e)),
             } Task::none()
@@ -211,6 +215,42 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             iced::exit()
         }
         Message::QuitLeaveHeld => iced::exit(),
+
+        Message::RefreshDevicesTick => {
+            let url = state.grpc_url.clone();
+            Task::perform(async move {
+                let mut c = connect(&url).await?;
+                c.list_devices().await.map_err(|e| e.to_string())
+            }, Message::RefreshDevicesResult)
+        }
+        Message::RefreshDevicesResult(result) => {
+            match result {
+                Ok(new_devices) => {
+                    if let Some(ref serial) = state.selected_serial {
+                        let still_present = new_devices.iter().any(|d| &d.serial == serial);
+                        if !still_present {
+                            let lost = serial.clone();
+                            state.selected_serial = None;
+                            if state.phase == Phase::Acquired {
+                                state.log_err(&format!("Device {} disconnected from server", lost));
+                                state.phase = Phase::Connected;
+                                state.resource_id = None;
+                                state.counter = CounterState::default();
+                                state.resource_info = None;
+                                state.last_error = None;
+                                state.show_disconnect_dialog = true;
+                            } else {
+                                state.log_err(&format!("Device {} is no longer available", lost));
+                            }
+                        }
+                    }
+                    state.devices = new_devices;
+                }
+                Err(e) => state.log_err(&format!("Device refresh: {}", e)),
+            }
+            Task::none()
+        }
+        Message::DismissDisconnect => { state.show_disconnect_dialog = false; Task::none() }
     }
 }
 
@@ -225,8 +265,14 @@ fn fire(state: &AppState, ep: i32, bit: i32) -> Task<Message> {
 }
 
 fn subscription(state: &AppState) -> Subscription<Message> {
-    if state.phase == Phase::Acquired { iced::time::every(Duration::from_millis(state.poll_interval_ms)).map(|_| Message::PollTick) }
-    else { Subscription::none() }
+    let mut subs = vec![];
+    if state.phase == Phase::Acquired {
+        subs.push(iced::time::every(Duration::from_millis(state.poll_interval_ms)).map(|_| Message::PollTick));
+    }
+    if state.phase != Phase::Disconnected {
+        subs.push(iced::time::every(Duration::from_secs(5)).map(|_| Message::RefreshDevicesTick));
+    }
+    Subscription::batch(subs)
 }
 
 /// Top-level view function.
@@ -243,13 +289,39 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
 
 fn view_connect(s: &AppState) -> Element<'_, Message> {
     let con = if s.phase == Phase::Disconnected { button("1. Connect").on_press(Message::ConnectPressed) } else { button("1. Connect ✓") };
-    let devs: Vec<Element<Message>> = s.devices.iter().map(|d| button(text(format!("{} — {}", d.serial, d.product_name)).size(14)).on_press(Message::SelectDevice(d.serial.clone())).into()).collect();
-    let prog = if s.phase >= Phase::Programmed { button("2. Program ✓") } else if s.phase == Phase::Connected { button("2. Program").on_press(Message::ProgramPressed) } else { button("2. Program") };
+
+    // Device selection dropdown.
+    let device_options: Vec<String> = s.devices.iter().map(|d| format!("{} — {}", d.serial, d.product_name)).collect();
+    let selected_display: Option<String> = s.selected_serial.as_ref()
+        .and_then(|sel| s.devices.iter().find(|d| &d.serial == sel))
+        .map(|d| format!("{} — {}", d.serial, d.product_name));
+    let device_picker = row![
+        text("Select Device:").width(100),
+        pick_list(device_options, selected_display, |picked| {
+            let serial = picked.split(" — ").next().unwrap_or("").to_string();
+            Message::SelectDevice(serial)
+        }).placeholder("No device selected").width(400),
+    ].spacing(8);
+
+    let prog = if s.phase >= Phase::Programmed { button("2. Program ✓") }
+        else if s.phase == Phase::Connected && s.selected_serial.is_some() { button("2. Program").on_press(Message::ProgramPressed) }
+        else { button("2. Program") };
     let reg = if s.phase >= Phase::Registered { button("3. Register ✓") } else if s.phase == Phase::Programmed { button("3. Register").on_press(Message::RegisterPressed) } else { button("3. Register") };
     let acq = if s.phase >= Phase::Acquired { button("4. Acquire ✓") } else if s.phase == Phase::Registered { button("4. Acquire").on_press(Message::AcquirePressed) } else { button("4. Acquire") };
+
+    // Disconnect message.
+    let disconnect_msg: Element<Message> = if s.show_disconnect_dialog {
+        column![
+            text("⚠ The selected device has been disconnected from the server.").color(iced::Color::from_rgb(1.0, 0.6, 0.0)),
+            text("The Counter Control Panel has been closed.").color(iced::Color::from_rgb(1.0, 0.6, 0.0)),
+            button("OK").on_press(Message::DismissDisconnect),
+        ].spacing(4).into()
+    } else { text("").into() };
+
     column![
+        disconnect_msg,
         row![text("gRPC URL:").width(100), text_input("http://localhost:50051", &s.grpc_url).on_input(Message::UrlChanged)].spacing(8),
-        con, Column::with_children(devs).spacing(2),
+        con, device_picker,
         row![text("Bitfile:").width(100), text_input("path", &s.bitfile_path).on_input(Message::BitfileChanged)].spacing(8),
         prog, reg, acq,
     ].spacing(8).into()
@@ -445,7 +517,7 @@ mod tests {
         let devs = vec![DeviceInfo { serial: "S1".to_string(), product_name: "P".to_string() }];
         let _ = update(&mut s, Message::ConnectResult(Ok(devs)));
         assert_eq!(s.phase, Phase::Connected);
-        assert_eq!(s.selected_serial.as_deref(), Some("S1"));
+        assert_eq!(s.selected_serial, None); // User must select explicitly
     }
 
     #[test]

@@ -75,7 +75,8 @@ via buttons, allowing inspection of server state between operations:
 │  Status: Not connected                                  │
 │                                                         │
 │  [1. Connect to Server]     (disabled until server set) │
-│  [2. Program Bitfile]       (disabled until connected)  │
+│  Select Device: [No device selected      ▾]             │
+│  [2. Program Bitfile]       (disabled until device sel) │
 │  [3. Register Resource]     (disabled until programmed) │
 │  [4. Acquire Resource]      (disabled until registered) │
 │                                                         │
@@ -83,13 +84,20 @@ via buttons, allowing inspection of server state between operations:
 └─────────────────────────────────────────────────────────┘
 ```
 
-| Step | Button | Action | API Call |
-|------|--------|--------|---------|
+| Step | UI Element | Action | API Call |
+|------|-----------|--------|---------|
 | 0 | Discover Servers | mDNS browse for `_okfpga._tcp.local.` | mDNS query |
 | 1 | Connect to Server | Verify server reachable, list devices | `GET /status`, `GET /devices` |
-| 2 | Program Bitfile | Configure FPGA with `OKFPGA_TEST_BITFILE` | `POST /devices/{s}/configure` |
+| 1b | Select Device | User picks device from dropdown (default: "No device selected") | — (client-side) |
+| 2 | Program Bitfile | Configure FPGA with `OKFPGA_TEST_BITFILE` (requires device selected) | `POST /devices/{s}/configure` |
 | 3 | Register Resource | Create shared Counter Resource | `POST /resources` |
 | 4 | Acquire Resource | Acquire in shared mode | `POST /resources/{id}/acquire` |
+
+> **Device Refresh**: Once connected, the device list is refreshed every **5 seconds**
+> via `GET /devices`. The dropdown updates automatically. If the currently selected
+> device disappears from the server while in the Acquired phase, the Counter Control
+> Panel is automatically closed, the UI resets to Connected phase, and a disconnect
+> warning dialog is shown.
 
 After step 4 completes, the GUI transitions to the interactive Counter Control
 Panel.

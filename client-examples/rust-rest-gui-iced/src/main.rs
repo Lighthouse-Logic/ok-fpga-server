@@ -65,6 +65,7 @@ fn boot() -> (AppState, Task<Message>) {
             resource_info: None,
             log_entries: vec![],
             last_error: None,
+            show_disconnect_dialog: false,
         },
         Task::none(),
     )
@@ -102,6 +103,7 @@ pub struct AppState {
     pub resource_info: Option<ResourceInfo>,
     pub log_entries: Vec<(String, bool)>,
     pub last_error: Option<String>,
+    pub show_disconnect_dialog: bool,
 }
 
 impl AppState {
@@ -176,6 +178,9 @@ pub enum Message {
     OverrideLockout(bool),
     QuitRelease,
     QuitLeaveHeld,
+    RefreshDevicesTick,
+    RefreshDevicesResult(Result<Vec<DeviceInfo>, String>),
+    DismissDisconnect,
 }
 
 // ============================================================================
@@ -201,10 +206,8 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             match result {
                 Ok(devices) => {
                     state.log(&format!("Connected. Found {} device(s)", devices.len()));
-                    if let Some(first) = devices.first() {
-                        state.selected_serial = Some(first.serial.clone());
-                    }
                     state.devices = devices;
+                    state.selected_serial = None; // Force user to select
                     state.phase = Phase::Connected;
                 }
                 Err(e) => state.log_err(&format!("Connect failed: {}", e)),
@@ -350,6 +353,43 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             iced::exit()
         }
         Message::QuitLeaveHeld => iced::exit(),
+
+        Message::RefreshDevicesTick => {
+            let client = state.make_client();
+            Task::perform(
+                async move { client.list_devices().await.map_err(|e| e.to_string()) },
+                Message::RefreshDevicesResult,
+            )
+        }
+        Message::RefreshDevicesResult(result) => {
+            match result {
+                Ok(new_devices) => {
+                    // Check if selected device disappeared.
+                    if let Some(ref serial) = state.selected_serial {
+                        let still_present = new_devices.iter().any(|d| &d.serial == serial);
+                        if !still_present {
+                            let lost = serial.clone();
+                            state.selected_serial = None;
+                            if state.phase == Phase::Acquired {
+                                state.log_err(&format!("Device {} disconnected from server", lost));
+                                state.phase = Phase::Connected;
+                                state.resource_id = None;
+                                state.counter = CounterState::default();
+                                state.resource_info = None;
+                                state.last_error = None;
+                                state.show_disconnect_dialog = true;
+                            } else {
+                                state.log_err(&format!("Device {} is no longer available", lost));
+                            }
+                        }
+                    }
+                    state.devices = new_devices;
+                }
+                Err(e) => state.log_err(&format!("Device refresh failed: {}", e)),
+            }
+            Task::none()
+        }
+        Message::DismissDisconnect => { state.show_disconnect_dialog = false; Task::none() }
     }
 }
 
@@ -358,12 +398,21 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
 // ============================================================================
 
 fn subscription(state: &AppState) -> Subscription<Message> {
+    let mut subs = vec![];
     if state.phase == Phase::Acquired {
-        iced::time::every(Duration::from_millis(state.poll_interval_ms))
-            .map(|_| Message::PollTick)
-    } else {
-        Subscription::none()
+        subs.push(
+            iced::time::every(Duration::from_millis(state.poll_interval_ms))
+                .map(|_| Message::PollTick)
+        );
     }
+    // Refresh device list every 5s when connected.
+    if state.phase != Phase::Disconnected {
+        subs.push(
+            iced::time::every(Duration::from_secs(5))
+                .map(|_| Message::RefreshDevicesTick)
+        );
+    }
+    Subscription::batch(subs)
 }
 
 // ============================================================================
@@ -415,10 +464,21 @@ fn view_connection(state: &AppState) -> Element<'_, Message> {
         button("1. Connect to Server ✓")
     };
 
-    let device_items: Vec<Element<Message>> = state.devices.iter().map(|d| {
-        let label = format!("{} — {}", d.serial, d.product_name);
-        button(text(label).size(14)).on_press(Message::SelectDevice(d.serial.clone())).into()
-    }).collect();
+    // Device selection dropdown.
+    let device_options: Vec<String> = state.devices.iter()
+        .map(|d| format!("{} — {}", d.serial, d.product_name))
+        .collect();
+    let selected_display: Option<String> = state.selected_serial.as_ref()
+        .and_then(|s| state.devices.iter().find(|d| &d.serial == s))
+        .map(|d| format!("{} — {}", d.serial, d.product_name));
+    let device_picker = row![
+        text("Select Device:").width(100),
+        pick_list(device_options, selected_display, |picked| {
+            // Extract serial from the "serial — product" string.
+            let serial = picked.split(" — ").next().unwrap_or("").to_string();
+            Message::SelectDevice(serial)
+        }).placeholder("No device selected").width(400),
+    ].spacing(8);
 
     let bitfile_row = row![
         text("Bitfile:").width(100),
@@ -426,7 +486,7 @@ fn view_connection(state: &AppState) -> Element<'_, Message> {
     ].spacing(8);
 
     let program_btn = if state.phase >= Phase::Programmed { button("2. Program Bitfile ✓") }
-        else if state.phase == Phase::Connected { button("2. Program Bitfile").on_press(Message::ProgramPressed) }
+        else if state.phase == Phase::Connected && state.selected_serial.is_some() { button("2. Program Bitfile").on_press(Message::ProgramPressed) }
         else { button("2. Program Bitfile") };
 
     let register_btn = if state.phase >= Phase::Registered { button("3. Register Resource ✓") }
@@ -437,9 +497,19 @@ fn view_connection(state: &AppState) -> Element<'_, Message> {
         else if state.phase == Phase::Registered { button("4. Acquire Resource (Shared)").on_press(Message::AcquirePressed) }
         else { button("4. Acquire Resource (Shared)") };
 
+    // Show disconnect dialog if needed.
+    let disconnect_msg: Element<Message> = if state.show_disconnect_dialog {
+        column![
+            text("⚠ The selected device has been disconnected from the server.").color(iced::Color::from_rgb(1.0, 0.6, 0.0)),
+            text("The Counter Control Panel has been closed.").color(iced::Color::from_rgb(1.0, 0.6, 0.0)),
+            button("OK").on_press(Message::DismissDisconnect),
+        ].spacing(4).into()
+    } else { text("").into() };
+
     column![
+        disconnect_msg,
         url_row, connect_btn,
-        Column::with_children(device_items).spacing(2),
+        device_picker,
         bitfile_row, program_btn, register_btn, acquire_btn,
     ].spacing(8).into()
 }
@@ -701,7 +771,7 @@ mod tests {
         let _ = update(&mut state, Message::ConnectResult(Ok(devices)));
         assert_eq!(state.phase, Phase::Connected);
         assert_eq!(state.devices.len(), 1);
-        assert_eq!(state.selected_serial.as_deref(), Some("SN001"));
+        assert_eq!(state.selected_serial, None); // User must select explicitly
     }
 
     #[test]
