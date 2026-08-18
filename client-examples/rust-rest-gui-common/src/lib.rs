@@ -902,4 +902,78 @@ mod tests {
         assert_eq!(info.access_mode, "shared");
         assert!(info.locked_by.is_none());
     }
+
+    // ========================================================================
+    // Phase 25-Fix-F tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_get_trigger_out_vector_reads_vector_field() {
+        // F2: The server now returns {"endpoint": N, "triggered": bool, "vector": V}.
+        // Verify the client reads from the `vector` field (not `value`).
+        let mut server = mockito::Server::new_async().await;
+        let mock = server.mock("GET", "/api/v1/devices/SN001/classic/triggers/out")
+            .match_query(mockito::Matcher::UrlEncoded("endpoint".to_string(), "96".to_string()))
+            .with_status(200)
+            .with_body(r#"{"endpoint":96,"triggered":true,"vector":255}"#)
+            .create_async().await;
+
+        let client = CountersClient::new(&server.url(), "test-user");
+        let vector = client.get_trigger_out_vector("SN001", 0x60).await.unwrap();
+
+        mock.assert_async().await;
+        assert_eq!(vector, 255);
+    }
+
+    #[tokio::test]
+    async fn test_list_resources_parses_response() {
+        // F4: list_resources() should parse the {count, resources: [...]} envelope.
+        let mut server = mockito::Server::new_async().await;
+        let mock = server.mock("GET", "/api/v1/resources")
+            .with_status(200)
+            .with_body(r#"{"count":2,"resources":[{"id":"r1","name":"Resource 1","device_serial":"SN001","access_mode":"shared","holders":["alice"],"locked_by":null},{"id":"r2","name":"Resource 2","device_serial":"SN002","access_mode":"exclusive","holders":[],"locked_by":null}]}"#)
+            .create_async().await;
+
+        let client = CountersClient::new(&server.url(), "test-user");
+        let resources = client.list_resources().await.unwrap();
+
+        mock.assert_async().await;
+        assert_eq!(resources.len(), 2);
+        assert_eq!(resources[0].id, "r1");
+        assert_eq!(resources[0].device_serial, "SN001");
+        assert_eq!(resources[1].id, "r2");
+        assert_eq!(resources[1].access_mode, "exclusive");
+    }
+
+    #[tokio::test]
+    async fn test_list_resources_empty() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server.mock("GET", "/api/v1/resources")
+            .with_status(200)
+            .with_body(r#"{"count":0,"resources":[]}"#)
+            .create_async().await;
+
+        let client = CountersClient::new(&server.url(), "test-user");
+        let resources = client.list_resources().await.unwrap();
+
+        mock.assert_async().await;
+        assert!(resources.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_device_info_returns_json() {
+        // F4: get_device_info() should return the raw JSON value for a device.
+        let mut server = mockito::Server::new_async().await;
+        let mock = server.mock("GET", "/api/v1/devices/SN001")
+            .with_status(200)
+            .with_body(r#"{"serial":"SN001","state":"Programmed","product_name":"XEM7320"}"#)
+            .create_async().await;
+
+        let client = CountersClient::new(&server.url(), "test-user");
+        let info = client.get_device_info("SN001").await.unwrap();
+
+        mock.assert_async().await;
+        assert_eq!(info["serial"].as_str().unwrap(), "SN001");
+        assert_eq!(info["state"].as_str().unwrap(), "Programmed");
+    }
 }

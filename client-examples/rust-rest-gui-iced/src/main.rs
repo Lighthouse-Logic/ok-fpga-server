@@ -961,4 +961,114 @@ mod tests {
         let _ = update(&mut state, Message::PollResult(Err("oops".to_string())));
         assert_eq!(state.last_error.as_deref(), Some("oops"));
     }
+
+    // ========================================================================
+    // Phase 25-Fix-F tests
+    // ========================================================================
+
+    // --- F5: Bitfile mode ---
+
+    #[test]
+    fn test_initial_bitfile_mode_is_server_path() {
+        let state = make_state();
+        assert_eq!(state.bitfile_mode, BitfileMode::ServerPath);
+    }
+
+    #[test]
+    fn test_set_bitfile_mode_to_local_file() {
+        let mut state = make_state();
+        let _ = update(&mut state, Message::SetBitfileMode(BitfileMode::LocalFile));
+        assert_eq!(state.bitfile_mode, BitfileMode::LocalFile);
+    }
+
+    #[test]
+    fn test_set_bitfile_mode_back_to_server_path() {
+        let mut state = make_state();
+        let _ = update(&mut state, Message::SetBitfileMode(BitfileMode::LocalFile));
+        let _ = update(&mut state, Message::SetBitfileMode(BitfileMode::ServerPath));
+        assert_eq!(state.bitfile_mode, BitfileMode::ServerPath);
+    }
+
+    // --- F3: 409 handling in RegisterResult ---
+
+    #[test]
+    fn test_register_result_409_logs_lookup_message() {
+        let mut state = make_state();
+        state.phase = Phase::Programmed;
+        state.selected_serial = Some("SN001".to_string());
+        let _ = update(&mut state, Message::RegisterResult(
+            Err("409 Conflict: resource already exists".to_string()),
+        ));
+        // On 409, it should log a lookup message (not an error).
+        let has_lookup_msg = state.log_entries.iter()
+            .any(|(msg, is_err)| msg.contains("looking up") && !is_err);
+        assert!(has_lookup_msg, "Expected a 'looking up' log entry on 409");
+        // Phase should NOT advance (the lookup is async, so we stay where we are).
+        assert_eq!(state.phase, Phase::Programmed);
+    }
+
+    // --- F4: CheckDeviceStateResult smart-skip ---
+
+    #[test]
+    fn test_check_device_state_programmed_with_resource_skips_to_registered() {
+        let mut state = make_state();
+        state.phase = Phase::Connected;
+        state.selected_serial = Some("SN001".to_string());
+
+        let resource = ResourceInfo {
+            id: "r1".to_string(),
+            name: "Counter Resource".to_string(),
+            device_serial: "SN001".to_string(),
+            access_mode: "shared".to_string(),
+            holders: vec![],
+            locked_by: None,
+        };
+        let _ = update(&mut state, Message::CheckDeviceStateResult(
+            Ok((true, Some(resource))),
+        ));
+        assert_eq!(state.phase, Phase::Registered);
+        assert_eq!(state.resource_id.as_deref(), Some("r1"));
+    }
+
+    #[test]
+    fn test_check_device_state_programmed_no_resource_skips_to_programmed() {
+        let mut state = make_state();
+        state.phase = Phase::Connected;
+        state.selected_serial = Some("SN001".to_string());
+
+        let _ = update(&mut state, Message::CheckDeviceStateResult(
+            Ok((true, None)),
+        ));
+        assert_eq!(state.phase, Phase::Programmed);
+        assert!(state.resource_id.is_none());
+    }
+
+    #[test]
+    fn test_check_device_state_not_programmed_stays_connected() {
+        let mut state = make_state();
+        state.phase = Phase::Connected;
+        state.selected_serial = Some("SN001".to_string());
+
+        let _ = update(&mut state, Message::CheckDeviceStateResult(
+            Ok((false, None)),
+        ));
+        assert_eq!(state.phase, Phase::Connected);
+    }
+
+    #[test]
+    fn test_check_device_state_error_is_non_fatal() {
+        let mut state = make_state();
+        state.phase = Phase::Connected;
+        state.selected_serial = Some("SN001".to_string());
+
+        let _ = update(&mut state, Message::CheckDeviceStateResult(
+            Err("network error".to_string()),
+        ));
+        // Phase stays Connected (non-fatal).
+        assert_eq!(state.phase, Phase::Connected);
+        // But a log entry should exist.
+        let has_log = state.log_entries.iter()
+            .any(|(msg, _)| msg.contains("Could not check device state"));
+        assert!(has_log);
+    }
 }

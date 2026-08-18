@@ -1214,5 +1214,56 @@ mod tests {
         assert!(policy.on_metadata_key(&resource, "custom_key", "any_value").is_ok());
         assert!(policy.on_metadata_key(&resource, "", "").is_ok());
     }
+
+    // ========================================================================
+    // remove_for_device tests (Phase 25-Fix-F, F3)
+    // ========================================================================
+
+    /// Helper: create a resource for a specific device serial.
+    fn test_resource_for_device(id: &str, serial: &str) -> Resource {
+        Resource::new(
+            id.to_string(),
+            format!("resource_{}", id),
+            None,
+            serial.to_string(),
+            AccessMode::Shared,
+        )
+    }
+
+    #[test]
+    fn remove_for_device_removes_matching_resources() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource_for_device("r1", "DEV_A"));
+        registry.register(test_resource_for_device("r2", "DEV_A"));
+        registry.register(test_resource_for_device("r3", "DEV_B"));
+        assert_eq!(registry.count(), 3);
+
+        let removed = registry.remove_for_device("DEV_A");
+        assert_eq!(removed, 2);
+        assert_eq!(registry.count(), 1);
+        // Only DEV_B resource should remain.
+        assert!(registry.get("r3").is_some());
+        assert!(registry.get("r1").is_none());
+        assert!(registry.get("r2").is_none());
+    }
+
+    #[test]
+    fn remove_for_device_returns_zero_when_no_match() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource_for_device("r1", "DEV_A"));
+        assert_eq!(registry.count(), 1);
+
+        let removed = registry.remove_for_device("DEV_NONEXISTENT");
+        assert_eq!(removed, 0);
+        assert_eq!(registry.count(), 1);
+    }
+
+    #[test]
+    fn remove_for_device_on_empty_registry() {
+        let registry = ResourceRegistry::new();
+        let removed = registry.remove_for_device("DEV_A");
+        assert_eq!(removed, 0);
+        assert_eq!(registry.count(), 0);
+    }
 }
 

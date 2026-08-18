@@ -104,11 +104,6 @@ struct TriggerInRequest {
     bit: i32,
 }
 
-#[derive(Deserialize)]
-struct TriggerOutRequest {
-    mask: u32,
-}
-
 /// Query parameters for `GET /devices/{serial}/classic/wires/out`.
 ///
 /// Per OpenAPI spec, `endpoint` is a query parameter. When present,
