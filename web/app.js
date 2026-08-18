@@ -134,9 +134,68 @@ async function fetchStatus() {
     }
 }
 
-// ============================================================================
-// Devices Page
-// ============================================================================
+/**
+ * Map of product name prefixes to image filenames in /assets/images/.
+ *
+ * Product names from the API include an FPGA size suffix (e.g., "XEM7320-A75T")
+ * that the image filenames omit (e.g., "XEM7320-A75_1.0_XEM7320-Top.jpg").
+ * This map uses the base product name (without the FPGA suffix) as the key.
+ */
+const BOARD_IMAGES = {
+    'SZG-HUB1450-AU10P-10G': 'SZG-HUB1450-AU10P-10G_1.0_SZG-HUB1450-AU10P-10G-Top.jpg',
+    'XEM7305-S50':    'XEM7305-S50_1.0_XEM7305-S50-Perspective.jpg',
+    'XEM7310-A200':   'XEM7310-A200_1.0_XEM7310-Top.jpg',
+    'XEM7310-A75':    'XEM7310-A75_1.0_XEM7310-Top.jpg',
+    'XEM7310MT-A200': 'XEM7310MT-A200_1.0_XEM7310MT-Top.jpg',
+    'XEM7310MT-A75':  'XEM7310MT-A75_1.0_XEM7310MT-Top.jpg',
+    'XEM7320-A200':   'XEM7320-A200_1.0_XEM7320-Top.jpg',
+    'XEM7320-A75':    'XEM7320-A75_1.0_XEM7320-Top.jpg',
+    'XEM7350-K160T':  'XEM7350-K160T_1.0_XEM7350-Top.jpg',
+    'XEM7350-K410T-3E':'XEM7350-K410T-3E_1.0_XEM7350-Top.jpg',
+    'XEM7350-K410T':  'XEM7350-K410T_1.0_XEM7350-Top.jpg',
+    'XEM7350-K70T':   'XEM7350-K70T_1.0_XEM7350-Top.jpg',
+    'XEM7360-K160T-3E':'XEM7360-K160T-3E_1.0_XEM7360-Perspective.jpg',
+    'XEM7360-K160T':  'XEM7360-K160T_1.0_XEM7360-Perspective.jpg',
+    'XEM7360-K410T-3E':'XEM7360-K410T-3E_1.0_XEM7360-Perspective.jpg',
+    'XEM7360-K410T':  'XEM7360-K410T_1.0_XEM7360-Perspective.jpg',
+    'XEM8310-AU25P':  'XEM8310-AU25P_1.0_XEM8310-Top.jpg',
+    'XEM8320-AU25P':  'XEM8320-AU25P_1.2_XEM8320-AU25P-Top.jpg',
+    'XEM8350-KU060-3E':'XEM8350-KU060-3E_1.0_XEM8350-Top.jpg',
+    'XEM8350-KU060':  'XEM8350-KU060_1.0_XEM8350-Top.jpg',
+    'XEM8350-KU115':  'XEM8350-KU115_1.0_XEM8350-Top.jpg',
+    'XEM8370-KU11P':  'XEM8370-KU11P_1.0_XEM8370-Top.jpg',
+};
+
+/**
+ * Get the board image URL for a product name.
+ *
+ * Tries an exact match first (e.g., "XEM7320-A75"), then progressively
+ * strips trailing characters to handle FPGA size suffixes
+ * (e.g., "XEM7320-A75T" → "XEM7320-A75").
+ *
+ * @param {string} productName - Product name from the device API
+ * @returns {string|null} Image URL or null if no match
+ */
+function getBoardImageUrl(productName) {
+    if (!productName) return null;
+
+    // Try exact match first.
+    if (BOARD_IMAGES[productName]) {
+        return `/assets/images/${BOARD_IMAGES[productName]}`;
+    }
+
+    // Strip trailing FPGA suffix characters one at a time.
+    // e.g., "XEM7320-A75T" → "XEM7320-A75" → match
+    let name = productName;
+    while (name.length > 3) {
+        name = name.slice(0, -1);
+        if (BOARD_IMAGES[name]) {
+            return `/assets/images/${BOARD_IMAGES[name]}`;
+        }
+    }
+
+    return null;
+}
 
 async function fetchDevices() {
     const devices = await api(`${API_BASE}/devices`);
@@ -153,14 +212,21 @@ async function fetchDevices() {
         table.style.display = 'table';
         empty.style.display = 'none';
 
-        tbody.innerHTML = devices.map(d => `
+        tbody.innerHTML = devices.map(d => {
+            const imgUrl = getBoardImageUrl(d.product_name);
+            const imgHtml = imgUrl
+                ? `<img src="${imgUrl}" alt="${escapeHtml(d.product_name)}" class="board-thumb" title="${escapeHtml(d.product_name)}">`
+                : `<span class="board-thumb-placeholder">▦</span>`;
+            return `
             <tr>
+                <td class="td-thumb">${imgHtml}</td>
                 <td><code>${escapeHtml(d.serial)}</code></td>
                 <td>${escapeHtml(d.product_name)}</td>
                 <td>${escapeHtml(d.interface)}</td>
                 <td>${escapeHtml(d.usb_speed)}</td>
                 <td><span class="badge badge-${d.state.startsWith('Programmed') ? 'success' : 'info'}">${escapeHtml(d.state)}</span></td>
-            </tr>`).join('');
+            </tr>`;
+        }).join('');
     }
 }
 
