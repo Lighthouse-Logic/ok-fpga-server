@@ -465,15 +465,15 @@ body {
  * ========================================================================== */
 
 .td-thumb {
-    width: 56px;
-    padding: 4px 8px !important;
+    width: 44px;
+    padding: 4px 6px !important;
     text-align: center;
     vertical-align: middle;
 }
 
 .board-thumb {
-    width: 48px;
-    height: 48px;
+    width: 36px;
+    height: 36px;
     object-fit: cover;
     border-radius: 6px;
     border: 1px solid var(--border);
@@ -493,12 +493,12 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 48px;
-    height: 48px;
+    width: 36px;
+    height: 36px;
     border-radius: 6px;
     border: 1px dashed var(--border);
     color: var(--text-muted);
-    font-size: 20px;
+    font-size: 16px;
     background: var(--surface);
 }
 
