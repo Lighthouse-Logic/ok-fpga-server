@@ -38,6 +38,8 @@ const WS_EVENT_CHANNEL_CAPACITY: usize = 256;
 /// - `/mgmt/services/{name}/stop` — stop a service
 /// - `/mgmt/services/{name}/restart` — restart a service
 /// - `/mgmt/devices` — list connected FPGA devices with full info
+/// - `/mgmt/resources` — list registered resources with state/holders
+/// - `/mgmt/users` — list active user sessions
 /// - `/mgmt/config` — get current config (sanitized)
 /// - `/mgmt/status` — get server status
 /// - `/mgmt/shutdown` — graceful server shutdown
@@ -67,6 +69,8 @@ pub fn build_management_router(
         .route("/mgmt/services/{name}/restart", post(mgmt_restart_service))
         .route("/mgmt/config", get(mgmt_get_config))
         .route("/mgmt/devices", get(mgmt_list_devices))
+        .route("/mgmt/resources", get(mgmt_list_resources))
+        .route("/mgmt/users", get(mgmt_list_users))
         .route("/mgmt/shutdown", post(mgmt_shutdown))
         // Log management endpoints (ADR-022)
         .route("/mgmt/logs/download", get(mgmt_logs_download))
@@ -182,6 +186,40 @@ struct DeviceInfoResponse {
     device_id: String,
 }
 
+/// Resource information response for the `/mgmt/resources` endpoint.
+///
+/// Provides a JSON-friendly summary of each registered resource.
+/// Used by the dashboard's Resources page (Phase 25-Fix-G, F6).
+#[derive(Serialize)]
+struct ResourceInfoResponse {
+    /// Unique resource identifier.
+    id: String,
+    /// Human-readable resource name.
+    name: String,
+    /// Serial number of the device that hosts this resource.
+    device_serial: String,
+    /// Current state (e.g., "Available", "InUseShared", "InUseLocked").
+    state: String,
+    /// Users currently holding this resource.
+    holders: Vec<String>,
+    /// Who locked the resource (if any).
+    locked_by: Option<String>,
+}
+
+/// User session response for the `/mgmt/users` endpoint.
+///
+/// Provides a JSON-friendly summary of each active user session.
+/// Used by the dashboard's Users page (Phase 25-Fix-G, F7).
+#[derive(Serialize)]
+struct UserSessionResponse {
+    /// User identifier.
+    user_id: String,
+    /// Resource IDs currently held by this user.
+    held_resources: Vec<String>,
+    /// ISO 8601 timestamp of last activity.
+    last_seen_at: String,
+}
+
 // ============================================================================
 // Management API Handlers
 // ============================================================================
@@ -233,6 +271,47 @@ async fn mgmt_list_devices(State(state): State<Arc<MgmtState>>) -> Json<Vec<Devi
         })
         .collect();
     Json(devices)
+}
+
+/// `GET /mgmt/resources` — List all registered resources.
+///
+/// Returns resource state, holders, and lock info for each resource.
+/// Used by the dashboard Resources page (Phase 25-Fix-G, F6).
+async fn mgmt_list_resources(State(state): State<Arc<MgmtState>>) -> Json<Vec<ResourceInfoResponse>> {
+    let resources: Vec<ResourceInfoResponse> = state
+        .app
+        .resource_registry
+        .list()
+        .iter()
+        .map(|r| ResourceInfoResponse {
+            id: r.id.clone(),
+            name: r.name.clone(),
+            device_serial: r.device_serial.clone(),
+            state: format!("{:?}", r.state),
+            holders: r.holders.clone(),
+            locked_by: r.locked_by.clone(),
+        })
+        .collect();
+    Json(resources)
+}
+
+/// `GET /mgmt/users` — List all active user sessions.
+///
+/// Returns user ID, held resources, and last activity timestamp.
+/// Used by the dashboard Users page (Phase 25-Fix-G, F7).
+async fn mgmt_list_users(State(state): State<Arc<MgmtState>>) -> Json<Vec<UserSessionResponse>> {
+    let users: Vec<UserSessionResponse> = state
+        .app
+        .user_sessions
+        .list()
+        .iter()
+        .map(|u| UserSessionResponse {
+            user_id: u.user_id.clone(),
+            held_resources: u.held_resource_ids.clone(),
+            last_seen_at: u.last_seen_at.to_rfc3339(),
+        })
+        .collect();
+    Json(users)
 }
 
 /// `GET /mgmt/services` — List all services and their states.
@@ -972,6 +1051,156 @@ mod tests {
 
         // Axum returns 404 for unmatched routes.
         assert_eq!(response.status(), 404);
+    }
+
+    // ------------------------------------------------------------------
+    // GET /mgmt/resources  (Phase 25-Fix-G, F6)
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn mgmt_resources_returns_empty_list() {
+        let router = test_router();
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/mgmt/resources")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let resources: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert!(resources.is_empty());
+    }
+
+    #[tokio::test]
+    async fn mgmt_resources_returns_registered_resource() {
+        use ok_fpga_core::resource::{Resource, AccessMode};
+
+        let device_manager = Arc::new(DeviceManager::new());
+        let resource_registry = Arc::new(ResourceRegistry::new());
+        let service_manager = Arc::new(ServiceManager::new());
+        let auth_provider: Arc<dyn auth::AuthProvider> =
+            Arc::from(auth::create_provider("none", vec![], None));
+        let session_manager = Arc::new(auth::SessionManager::new(3600));
+
+        // Register a resource.
+        let resource = Resource::new(
+            "res-001".to_string(),
+            "Counter Resource".to_string(),
+            None,
+            "SN001".to_string(),
+            AccessMode::Shared,
+        );
+        resource_registry.register(resource);
+
+        let app_state = Arc::new(AppState::new(
+            device_manager,
+            resource_registry,
+            service_manager,
+            None,
+            auth_provider,
+            session_manager,
+            Arc::new(ok_fpga_core::user::UserSessionRegistry::new()),
+        ));
+        let config = Arc::new(ServerConfig::default());
+        let (event_tx, _) = broadcast::channel::<String>(16);
+        let (log_tx, _) = broadcast::channel::<LogEvent>(16);
+        let log_ring_buffer = Arc::new(LogRingBuffer::new());
+        let router = build_management_router(app_state, config, event_tx, log_tx, log_ring_buffer);
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/mgmt/resources")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let resources: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(resources.len(), 1);
+        assert_eq!(resources[0]["id"], "res-001");
+        assert_eq!(resources[0]["name"], "Counter Resource");
+        assert_eq!(resources[0]["device_serial"], "SN001");
+        assert_eq!(resources[0]["state"], "Available");
+    }
+
+    // ------------------------------------------------------------------
+    // GET /mgmt/users  (Phase 25-Fix-G, F7)
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn mgmt_users_returns_empty_list() {
+        let router = test_router();
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/mgmt/users")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let users: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert!(users.is_empty());
+    }
+
+    #[tokio::test]
+    async fn mgmt_users_returns_active_session() {
+        let device_manager = Arc::new(DeviceManager::new());
+        let resource_registry = Arc::new(ResourceRegistry::new());
+        let service_manager = Arc::new(ServiceManager::new());
+        let auth_provider: Arc<dyn auth::AuthProvider> =
+            Arc::from(auth::create_provider("none", vec![], None));
+        let session_manager = Arc::new(auth::SessionManager::new(3600));
+        let user_sessions = Arc::new(ok_fpga_core::user::UserSessionRegistry::new());
+
+        // Touch a user session so it exists.
+        user_sessions.touch("alice");
+
+        let app_state = Arc::new(AppState::new(
+            device_manager,
+            resource_registry,
+            service_manager,
+            None,
+            auth_provider,
+            session_manager,
+            user_sessions,
+        ));
+        let config = Arc::new(ServerConfig::default());
+        let (event_tx, _) = broadcast::channel::<String>(16);
+        let (log_tx, _) = broadcast::channel::<LogEvent>(16);
+        let log_ring_buffer = Arc::new(LogRingBuffer::new());
+        let router = build_management_router(app_state, config, event_tx, log_tx, log_ring_buffer);
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/mgmt/users")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let users: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(users.len(), 1);
+        assert_eq!(users[0]["user_id"], "alice");
+        assert!(users[0]["last_seen_at"].as_str().is_some());
     }
 }
 

@@ -65,6 +65,7 @@ function navigateTo(page) {
         case 'overview': fetchStatus(); break;
         case 'devices': fetchDevices(); break;
         case 'resources': fetchResources(); break;
+        case 'users': fetchUsers(); break;
         case 'services': fetchServices(); break;
     }
 }
@@ -238,19 +239,75 @@ document.getElementById('btn-refresh-devices')?.addEventListener('click', fetchD
 // ============================================================================
 
 async function fetchResources() {
-    const data = await api(`${API_BASE}/status`);
+    const data = await api(`${API_BASE}/resources`);
     if (!data) return;
 
     const table = document.getElementById('resources-table');
     const empty = document.getElementById('resources-empty');
+    const tbody = document.getElementById('resources-tbody');
 
-    if (data.active_resources === 0) {
+    if (!data.length) {
         table.style.display = 'none';
         empty.style.display = 'block';
-    } else {
-        table.style.display = 'table';
-        empty.style.display = 'none';
+        return;
     }
+
+    empty.style.display = 'none';
+    table.style.display = 'table';
+    tbody.innerHTML = '';
+
+    data.forEach(res => {
+        const tr = document.createElement('tr');
+        const holdersStr = res.holders.length
+            ? res.holders.join(', ')
+            : '<span style="color: var(--text-muted)">none</span>';
+        const stateBadge = res.state === 'Available'
+            ? '<span class="badge badge-true">Available</span>'
+            : `<span class="badge badge-warning">${res.state}</span>`;
+        tr.innerHTML = `
+            <td><code>${res.id.substring(0, 8)}…</code></td>
+            <td><strong>${res.name}</strong></td>
+            <td>${res.device_serial}</td>
+            <td>${stateBadge}</td>
+            <td>${holdersStr}</td>`;
+        tbody.appendChild(tr);
+    });
+}
+
+// ============================================================================
+// Users Page
+// ============================================================================
+
+async function fetchUsers() {
+    const data = await api(`${API_BASE}/users`);
+    if (!data) return;
+
+    const table = document.getElementById('users-table');
+    const empty = document.getElementById('users-empty');
+    const tbody = document.getElementById('users-tbody');
+
+    if (!data.length) {
+        table.style.display = 'none';
+        empty.style.display = 'block';
+        return;
+    }
+
+    empty.style.display = 'none';
+    table.style.display = 'table';
+    tbody.innerHTML = '';
+
+    data.forEach(user => {
+        const tr = document.createElement('tr');
+        const resourcesStr = user.held_resources.length
+            ? user.held_resources.map(r => `<code>${r.substring(0, 8)}…</code>`).join(', ')
+            : '<span style="color: var(--text-muted)">none</span>';
+        const lastSeen = new Date(user.last_seen_at).toLocaleString();
+        tr.innerHTML = `
+            <td><strong>${user.user_id}</strong></td>
+            <td>${resourcesStr}</td>
+            <td>${lastSeen}</td>`;
+        tbody.appendChild(tr);
+    });
 }
 
 // ============================================================================
