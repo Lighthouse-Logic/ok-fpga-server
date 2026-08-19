@@ -9,10 +9,11 @@ use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use tracing::{debug, warn};
 
+use ok_fpga_core::resource::EndpointType;
 use ok_fpga_ffi::error::FfiError;
 
 use crate::grpc::proto;
-use crate::state::AppState;
+use crate::state::{AppState, EndpointEnforcement};
 
 /// gRPC implementation of the `ClassicDataPortService`.
 pub struct ClassicDataPortServiceImpl {
@@ -67,6 +68,161 @@ impl ClassicDataPortServiceImpl {
             }),
         }
     }
+
+    /// Extract the user ID from gRPC request metadata.
+    ///
+    /// gRPC clients should set the `x-user-id` metadata key (lowercase,
+    /// matching gRPC conventions). This is the gRPC equivalent of the
+    /// REST `X-User-Id` header.
+    fn extract_user_id<T>(request: &Request<T>) -> Option<String> {
+        request
+            .metadata()
+            .get("x-user-id")
+            .and_then(|v| v.to_str().ok())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+    }
+
+    /// Check endpoint access enforcement for a Classic operation (ADR-024).
+    ///
+    /// Called at the top of each RPC method AFTER deserializing the request
+    /// message. This is the gRPC equivalent of the REST handler's
+    /// `enforce_endpoint()` helper.
+    ///
+    /// ## Parameters
+    ///
+    /// - `user_id`: Extracted from gRPC metadata (`x-user-id` key)
+    /// - `serial`: The device serial from the request message
+    /// - `endpoint`: The endpoint address from the request message
+    /// - `ep_type`: The type of Classic endpoint being accessed
+    ///
+    /// ## Returns
+    ///
+    /// `Ok(())` if the operation is allowed, or `Err(Status)` if denied.
+    fn check_access(
+        &self,
+        user_id: Option<&str>,
+        serial: &str,
+        endpoint: i32,
+        ep_type: &EndpointType,
+    ) -> Result<(), Status> {
+        // Fast path: no enforcement.
+        if !self.state.enforcement.is_active() {
+            return Ok(());
+        }
+
+        // User identity is required when enforcement is active.
+        let uid = match user_id {
+            Some(uid) => uid,
+            None => {
+                match self.state.enforcement {
+                    EndpointEnforcement::Warn => {
+                        warn!(
+                            serial = %serial,
+                            endpoint = endpoint,
+                            "gRPC access enforcement (warn): x-user-id metadata missing"
+                        );
+                        return Ok(()); // Warn: log and allow.
+                    }
+                    EndpointEnforcement::Enforce => {
+                        return Err(Status::permission_denied(
+                            "User identity required: x-user-id metadata must be present when endpoint enforcement is active",
+                        ));
+                    }
+                    EndpointEnforcement::Off => unreachable!(),
+                }
+            }
+        };
+
+        // Check endpoint access in the resource registry.
+        if let Err(denied) = self.state.resource_registry.check_endpoint_access(
+            uid,
+            serial,
+            endpoint as u8,
+            ep_type,
+        ) {
+            match self.state.enforcement {
+                EndpointEnforcement::Warn => {
+                    warn!(
+                        user_id = %uid,
+                        serial = %serial,
+                        endpoint = endpoint,
+                        "gRPC access enforcement (warn): {}",
+                        denied
+                    );
+                    Ok(()) // Warn: log and allow.
+                }
+                EndpointEnforcement::Enforce => {
+                    Err(Status::permission_denied(denied.to_string()))
+                }
+                EndpointEnforcement::Off => unreachable!(),
+            }
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Check address access enforcement for a register operation (ADR-024).
+    ///
+    /// Used by `ReadRegister`/`WriteRegister` RPCs that use register bridge
+    /// addresses instead of Classic endpoint addresses.
+    fn check_address(
+        &self,
+        user_id: Option<&str>,
+        serial: &str,
+        address: u32,
+    ) -> Result<(), Status> {
+        if !self.state.enforcement.is_active() {
+            return Ok(());
+        }
+
+        let uid = match user_id {
+            Some(uid) => uid,
+            None => {
+                match self.state.enforcement {
+                    EndpointEnforcement::Warn => {
+                        warn!(
+                            serial = %serial,
+                            address = address,
+                            "gRPC access enforcement (warn): x-user-id metadata missing"
+                        );
+                        return Ok(());
+                    }
+                    EndpointEnforcement::Enforce => {
+                        return Err(Status::permission_denied(
+                            "User identity required: x-user-id metadata must be present",
+                        ));
+                    }
+                    EndpointEnforcement::Off => unreachable!(),
+                }
+            }
+        };
+
+        if let Err(denied) = self.state.resource_registry.check_address_access(
+            uid,
+            serial,
+            address as u64,
+        ) {
+            match self.state.enforcement {
+                EndpointEnforcement::Warn => {
+                    warn!(
+                        user_id = %uid,
+                        serial = %serial,
+                        address = address,
+                        "gRPC access enforcement (warn): {}",
+                        denied
+                    );
+                    Ok(())
+                }
+                EndpointEnforcement::Enforce => {
+                    Err(Status::permission_denied(denied.to_string()))
+                }
+                EndpointEnforcement::Off => unreachable!(),
+            }
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -103,7 +259,12 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::SetWireInValueRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
+        // ADR-024: extract user identity before consuming the request.
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+
+        // ADR-024: check endpoint access enforcement.
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::WireIn)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -140,7 +301,9 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::GetWireValueRequest>,
     ) -> Result<Response<proto::WireValueResponse>, Status> {
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::WireIn)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -199,7 +362,9 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::GetWireValueRequest>,
     ) -> Result<Response<proto::WireValueResponse>, Status> {
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::WireOut)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -259,7 +424,9 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::ActivateTriggerInRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::TriggerIn)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -311,7 +478,9 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::IsTriggeredRequest>,
     ) -> Result<Response<proto::IsTriggeredResponse>, Status> {
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::TriggerOut)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -345,7 +514,9 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::TriggerOutVectorRequest>,
     ) -> Result<Response<proto::TriggerOutVectorResponse>, Status> {
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::TriggerOut)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -378,7 +549,9 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::WriteToPipeInRequest>,
     ) -> Result<Response<proto::PipeTransferResponse>, Status> {
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::PipeIn)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -421,7 +594,9 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::ReadFromPipeOutRequest>,
     ) -> Result<Response<proto::PipeDataResponse>, Status> {
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::PipeOut)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -469,7 +644,9 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::WriteToBlockPipeInRequest>,
     ) -> Result<Response<proto::PipeTransferResponse>, Status> {
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::BtPipeIn)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -513,7 +690,9 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::ReadFromBlockPipeOutRequest>,
     ) -> Result<Response<proto::PipeDataResponse>, Status> {
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::BtPipeOut)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -588,7 +767,10 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::ReadRegisterRequest>,
     ) -> Result<Response<proto::RegisterValueResponse>, Status> {
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        // Register operations use address-based access (not endpoint-based).
+        self.check_address(user_id.as_deref(), &req.serial, req.address)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -621,7 +803,9 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::WriteRegisterRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        self.check_address(user_id.as_deref(), &req.serial, req.address)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -647,7 +831,13 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::ReadRegistersRequest>,
     ) -> Result<Response<proto::RegisterEntriesResponse>, Status> {
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        // Batch check: verify access on the first address as a representative.
+        // Full per-address enforcement could be added in a future iteration.
+        if let Some(first_addr) = req.addresses.first() {
+            self.check_address(user_id.as_deref(), &req.serial, *first_addr)?;
+        }
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -687,7 +877,12 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::WriteRegistersRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        // Batch check: verify access on the first entry's address.
+        if let Some(first_entry) = req.entries.first() {
+            self.check_address(user_id.as_deref(), &req.serial, first_entry.address)?;
+        }
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)

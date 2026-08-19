@@ -2,6 +2,13 @@
 //!
 //! Implements the `AXIDataPortService` from `okfpga.proto` (ADR-005 §3).
 //! All RPCs require FFI integration and return `Unimplemented` until complete.
+//!
+//! ## ADR-024 Enforcement
+//!
+//! When AXI FFI integration is implemented, each RPC must extract `x-user-id`
+//! from metadata and call `check_address_access()` on the resource registry
+//! (same pattern as `classic_service.rs::check_address`). The stubs below
+//! do not enforce because they never reach any FPGA hardware.
 
 use std::sync::Arc;
 

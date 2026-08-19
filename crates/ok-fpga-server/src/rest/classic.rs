@@ -213,6 +213,161 @@ fn ffi_error_to_problem(e: &FfiError) -> ProblemDetail {
     }
 }
 
+/// Enforce endpoint access for a Classic operation (ADR-024 §4, handler-level).
+///
+/// This is the REST handler counterpart to the gRPC `check_access()` method.
+/// It is called at the top of each Classic handler AFTER the request body has
+/// been deserialized. The middleware has already done:
+/// - Tier 1/2: identity check (X-User-Id present)
+/// - Tier 3: device-level gating (user holds any resource on this device)
+///
+/// This function does the fine-grained endpoint-level check: does the user's
+/// resource cover the specific endpoint address and type being accessed?
+///
+/// ## Returns
+///
+/// `Ok(())` if allowed, or `Err(ProblemDetail)` with 403 status if denied.
+fn enforce_endpoint(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+    serial: &str,
+    endpoint: i32,
+    ep_type: &ok_fpga_core::resource::EndpointType,
+) -> Result<(), ProblemDetail> {
+    use crate::state::EndpointEnforcement;
+
+    if !state.enforcement.is_active() {
+        return Ok(());
+    }
+
+    let user_id = headers
+        .get(crate::rest::heartbeat_middleware::USER_ID_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty());
+
+    let uid = match user_id {
+        Some(uid) => uid,
+        None => {
+            // The middleware should have already rejected this request if
+            // enforcement is Enforce. But for defense-in-depth:
+            match state.enforcement {
+                EndpointEnforcement::Warn => {
+                    tracing::warn!(
+                        serial = %serial,
+                        endpoint = endpoint,
+                        "REST access enforcement (warn): X-User-Id header missing in handler"
+                    );
+                    return Ok(());
+                }
+                EndpointEnforcement::Enforce => {
+                    return Err(ProblemDetail::new(
+                        axum::http::StatusCode::FORBIDDEN,
+                        "User identity required: X-User-Id header must be present",
+                    ));
+                }
+                EndpointEnforcement::Off => return Ok(()),
+            }
+        }
+    };
+
+    if let Err(denied) = state.resource_registry.check_endpoint_access(
+        uid,
+        serial,
+        endpoint as u8,
+        ep_type,
+    ) {
+        match state.enforcement {
+            EndpointEnforcement::Warn => {
+                tracing::warn!(
+                    user_id = %uid,
+                    serial = %serial,
+                    endpoint = endpoint,
+                    "REST access enforcement (warn): {}",
+                    denied
+                );
+                Ok(())
+            }
+            EndpointEnforcement::Enforce => Err(ProblemDetail::new(
+                axum::http::StatusCode::FORBIDDEN,
+                denied.to_string(),
+            )),
+            EndpointEnforcement::Off => Ok(()),
+        }
+    } else {
+        Ok(())
+    }
+}
+
+/// Enforce address access for a register operation (ADR-024 §4, handler-level).
+///
+/// Same as [`enforce_endpoint`] but for address-based access (register bridge).
+fn enforce_address(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+    serial: &str,
+    address: u32,
+) -> Result<(), ProblemDetail> {
+    use crate::state::EndpointEnforcement;
+
+    if !state.enforcement.is_active() {
+        return Ok(());
+    }
+
+    let user_id = headers
+        .get(crate::rest::heartbeat_middleware::USER_ID_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty());
+
+    let uid = match user_id {
+        Some(uid) => uid,
+        None => {
+            match state.enforcement {
+                EndpointEnforcement::Warn => {
+                    tracing::warn!(
+                        serial = %serial,
+                        address = address,
+                        "REST access enforcement (warn): X-User-Id header missing in handler"
+                    );
+                    return Ok(());
+                }
+                EndpointEnforcement::Enforce => {
+                    return Err(ProblemDetail::new(
+                        axum::http::StatusCode::FORBIDDEN,
+                        "User identity required: X-User-Id header must be present",
+                    ));
+                }
+                EndpointEnforcement::Off => return Ok(()),
+            }
+        }
+    };
+
+    if let Err(denied) = state.resource_registry.check_address_access(
+        uid,
+        serial,
+        address as u64,
+    ) {
+        match state.enforcement {
+            EndpointEnforcement::Warn => {
+                tracing::warn!(
+                    user_id = %uid,
+                    serial = %serial,
+                    address = address,
+                    "REST access enforcement (warn): {}",
+                    denied
+                );
+                Ok(())
+            }
+            EndpointEnforcement::Enforce => Err(ProblemDetail::new(
+                axum::http::StatusCode::FORBIDDEN,
+                denied.to_string(),
+            )),
+            EndpointEnforcement::Off => Ok(()),
+        }
+    } else {
+        Ok(())
+    }
+}
+
 /// Helper macro to get the handle pool and device, or return an error.
 macro_rules! get_device {
     ($state:expr, $serial:expr) => {{
@@ -238,8 +393,11 @@ macro_rules! get_device {
 async fn set_wire_in(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<WireInRequest>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
+    // ADR-024: endpoint-level enforcement.
+    enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::WireIn)?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -318,8 +476,12 @@ async fn update_wire_outs(
 async fn get_wire_out(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
     Query(query): Query<WireOutQuery>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
+    if let Some(endpoint) = query.endpoint {
+        enforce_endpoint(&state, &headers, &serial, endpoint, &ok_fpga_core::resource::EndpointType::WireOut)?;
+    }
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -356,8 +518,10 @@ async fn get_wire_out(
 async fn activate_trigger_in(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<TriggerInRequest>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
+    enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::TriggerIn)?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -407,8 +571,12 @@ async fn update_trigger_outs(
 async fn get_trigger_out(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
     Query(query): Query<TriggerOutQuery>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
+    if let Some(endpoint) = query.endpoint {
+        enforce_endpoint(&state, &headers, &serial, endpoint, &ok_fpga_core::resource::EndpointType::TriggerOut)?;
+    }
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -453,8 +621,10 @@ async fn get_trigger_out(
 async fn write_to_pipe_in(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<PipeRequest>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
+    enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::PipeIn)?;
     let data = req.data.as_deref().unwrap_or("");
     let bytes = base64_decode(data)?;
 
@@ -489,8 +659,10 @@ async fn write_to_pipe_in(
 async fn read_from_pipe_out(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<PipeRequest>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
+    enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::PipeOut)?;
     let length = req.length;
 
     let device_arc = get_device!(state, &serial);
@@ -609,8 +781,10 @@ async fn read_from_block_pipe_out(
 async fn read_register(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<RegisterResponse>, ProblemDetail> {
+    enforce_address(&state, &headers, &serial, req.address)?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -635,8 +809,10 @@ async fn read_register(
 async fn write_register(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
+    enforce_address(&state, &headers, &serial, req.address)?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
