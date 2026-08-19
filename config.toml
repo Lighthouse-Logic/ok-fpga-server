@@ -1,155 +1,54 @@
-# =============================================================================
-# ok-FPGA-Server Configuration
-# =============================================================================
-#
-# This file configures the ok-FPGA-Server. All values shown below are the
-# built-in defaults — you only need to include sections you want to change.
-#
-# Configuration priority (highest to lowest):
-#   1. Environment variables (OKFPGA_* prefix)
-#   2. This config file
-#   3. Built-in defaults
-#
-# Config file resolution:
-#   --config <path>  or  -c <path>     (CLI argument)
-#   OKFPGA_CONFIG=<path>               (environment variable)
-#   ./config.toml                      (default, working directory)
-#
-# Environment variable overrides:
-#   OKFPGA_LOG_LEVEL          → server.log_level
-#   OKFPGA_MANAGEMENT_PORT    → server.management_port
-#   OKFPGA_REST_PORT          → rest.port
-#   OKFPGA_REST_ENABLED       → rest.enabled
-#   OKFPGA_GRPC_PORT          → grpc.port
-#   OKFPGA_GRPC_ENABLED       → grpc.enabled
-#   OKFPGA_MQTT_BROKER_URL    → mqtt.broker_url
-#   OKFPGA_MQTT_ENABLED       → mqtt.enabled
-#   OKFPGA_MDNS_ENABLED       → mdns.enabled
-
-# -----------------------------------------------------------------------------
-# Core Server Settings
-# -----------------------------------------------------------------------------
 [server]
-# Port for the management server (always-on). Serves the web dashboard
-# and the management API (service start/stop/restart, config, shutdown).
 management_port = 9090
-
-# Bind address for the management server.
-management_bind = "0.0.0.0"
-
-# Log level filter. Supports tracing filter syntax:
-#   "trace", "debug", "info", "warn", "error"
-#   Per-module: "ok_fpga_server=debug,ok_fpga_core=info"
 log_level = "info"
-
-# User session liveness settings (ADR-020 §5).
-# After user_timeout_secs of inactivity (no heartbeat, no API calls with
-# X-User-Id header), the sweep task auto-releases that user's held resources.
-# Set user_timeout_secs = 0 to disable the sweep task.
+management_bind = "0.0.0.0"
 user_timeout_secs = 60
 user_sweep_interval_secs = 10
+log_file = "logs/okfpga-server.log"
+description = "Melody"
 
-# -----------------------------------------------------------------------------
-# REST API Server (feature: rest)
-# -----------------------------------------------------------------------------
 [rest]
-# Start the REST API server on launch. Requires the 'rest' feature to be
-# compiled. If enabled but not compiled, a warning is logged.
 enabled = true
-
-# Bind address and port for the REST API.
 bind = "0.0.0.0"
 port = 8088
 
-# -----------------------------------------------------------------------------
-# gRPC API Server (feature: grpc)
-# -----------------------------------------------------------------------------
 [grpc]
-# Start the gRPC server on launch. Requires the 'grpc' feature to be
-# compiled. If enabled but not compiled, a warning is logged.
 enabled = true
-
-# Bind address and port for the gRPC API.
 bind = "0.0.0.0"
 port = 50051
 
-# -----------------------------------------------------------------------------
-# MQTT Status Publisher (feature: mqtt)
-# -----------------------------------------------------------------------------
 [mqtt]
-# Enable MQTT status publishing. Requires the 'mqtt' feature and an
-# external MQTT broker (e.g., Mosquitto).
 enabled = false
-
-# MQTT broker connection URL.
 broker_url = "mqtt://localhost:1883"
-
-# Client ID for this server instance. Must be unique per broker.
 client_id = "okfpga-server-01"
-
-# Topic prefix. All messages are published under this prefix:
-#   {topic_prefix}/status     — periodic server status
-#   {topic_prefix}/devices    — device connect/disconnect events
-#   {topic_prefix}/services   — service state changes
 topic_prefix = "okfpga/server01"
-
-# How often to publish periodic status messages (seconds).
 publish_interval_secs = 5
 
-# -----------------------------------------------------------------------------
-# mDNS/DNS-SD Discovery (feature: mdns)
-# -----------------------------------------------------------------------------
 [mdns]
-# Advertise the server on the local network via mDNS/DNS-SD.
-# Requires the 'mdns' feature.
-enabled = false
-
-# Human-readable instance name for mDNS service records.
-# This appears in service browsers (e.g., Bonjour, Avahi).
+enabled = true
 instance_name = "okfpga-server"
 
-# -----------------------------------------------------------------------------
-# Web Dashboard (feature: dashboard)
-# -----------------------------------------------------------------------------
 [dashboard]
-# Serve the web dashboard on the management port.
-# Requires the 'dashboard' feature.
 enabled = true
+default_log_level = "info"
+expose_settings = true
 
-# -----------------------------------------------------------------------------
-# Authentication (ADR-008)
-# -----------------------------------------------------------------------------
 [auth]
-# Provider: "none" (default), "local", or "ldap"
-# - "none"  — No login required, all users are anonymous
-# - "local" — Users defined below with bcrypt password hashes
-# - "ldap"  — LDAP/LDAPS authentication
 provider = "none"
-
-# Session expiry in seconds (default: 8 hours).
-# Only applies when provider is "local" or "ldap".
 session_expiry_secs = 28800
 
-# --- Local auth users (only used when provider = "local") ---
-# [[auth.local.users]]
-# username = "admin"
-# password_hash = "$2b$12$..."   # bcrypt hash
-# display_name = "Administrator"
-# groups = ["admin"]
-#
-# [[auth.local.users]]
-# username = "user1"
-# password_hash = "$2b$12$..."
-# display_name = "Test User"
-# groups = ["users"]
+[auth.local]
+users = []
 
-# --- LDAP auth settings (only used when provider = "ldap") ---
-# [auth.ldap]
-# url = "ldaps://ldap.example.com:636"
-# use_ssl = true
-# domain_components = ["example", "com"]
-# organizational_units = ["Users"]
-# uid_attribute = "uid"
-# bind_dn = "cn=service,DC=example,DC=com"   # optional service account
-# bind_password = "..."                       # optional
-# group_attribute = "memberOf"                # optional
+[auth.ldap]
+url = "ldaps://ldap.example.com:636"
+use_ssl = true
+domain_components = [
+    "example",
+    "com",
+]
+organizational_units = ["Users"]
+uid_attribute = "uid"
+
+[access_control]
+endpoint_enforcement = "off"

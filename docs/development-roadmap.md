@@ -41,14 +41,66 @@
 
 | Horizon | Focus Area | ADR | Status |
 |---------|-----------|-----|--------|
+| **Phase 28D (Now)** | Dashboard Reliability, Expanded Views & SYZYGY Board Catalog | — | 🟢 Active |
 | **Phase 29 (Next)** | Address Range Enforcement for Classic/okRegisterBridge | ADR-024 | 🟡 Planned |
 | **Phase 30+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
-## 🟢 Now
+## 🟢 Now: Phase 28D — Dashboard Reliability, Expanded Views & SYZYGY Board Catalog
 
-*No active phase. Use `/grill-me` or request promotion of a Next item.*
+*Focus: Fix WebSocket auto-refresh bugs (REST + gRPC), add expandable
+device/resource rows, server identity on Overview, SYZYGY board catalog
+with About links, font readability, and upgrade mdns-sd to 0.13.*
+
+### 1. WebSocket Event Audit & Fixes
+
+Fix missing `broadcast_event()` calls that prevent the dashboard from
+auto-refreshing on state changes:
+
+- **REST**: `lock_resource` and `unlock_resource` missing WS broadcasts;
+  `configure_fpga` missing `device_programmed` event.
+- **gRPC**: **Zero** `broadcast_event()` calls across all gRPC handlers.
+  Root cause of "second gRPC user not appearing on Users page."
+  Fix: add broadcasts to gRPC heartbeat interceptor (`user_connected`),
+  `Disconnect` (`user_disconnected`), `ConfigureFpga`
+  (`device_programmed`), and all resource RPCs.
+
+### 2. Overview Page: Description & Hostname
+
+- Add `description` and `hostname` to the `/mgmt/status` response.
+- Display description in Server Details table on Overview page.
+- Show `Host: <hostname>` under the logo in the sidebar.
+
+### 3. Font Readability
+
+- Brighten `--text-muted` from `#5a6178` → `#8b92a8`.
+
+### 4. Expandable Device Rows
+
+- Enrich `/mgmt/devices` with `is_programmed` and `bitfile` info.
+- Add `GET /mgmt/devices/{serial}/syzygy` (management port).
+- Click a device row to expand: larger image, bitfile details, SYZYGY
+  ports, About links from catalog.
+
+### 5. Expandable Resource Rows
+
+- Enrich `/mgmt/resources` with full resource detail (description,
+  access_mode, interfaces, endpoints, address_ranges, metadata).
+- Click a resource row to expand and show all fields.
+
+### 6. SYZYGY Board Catalog (TOML)
+
+- New `[catalog]` section in `okfpga-server.toml` with known SYZYGY
+  boards, devices, and bitfiles — each with optional About URLs.
+- `GET /mgmt/catalog` endpoint for dashboard-only consumption.
+- Matching: `product_name` required; `product_model`/`product_version`
+  optional (partial match when omitted).
+
+### 7. mDNS: Upgrade mdns-sd to 0.13
+
+- Upgrade from 0.11.5 → 0.13. Newer versions handle IPv6 AAAA on
+  Windows better. Falls back to tracing filter if needed.
 
 ---
 
