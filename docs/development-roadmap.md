@@ -62,6 +62,30 @@ require the caller to hold a resource covering the target endpoint.*
 
 Features in this section represent uncommitted research or long-term capabilities:
 
+* **gRPC AXI FFI wiring** — all 14 AXI RPCs in `AXIDataPortService` (Lite, Full,
+  Stream) are `UNIMPLEMENTED` stubs. REST AXI is fully wired, but gRPC was not
+  connected because no hardware with `FPGADataPortAXI` (Gen3-USB /
+  `OK_DATAPORT_AXI`) is available for testing. Implement and test when a
+  Gen3-USB device is accessible.
+
+* **okREALM_TEST simulation mode** — explore FrontPanel's `okREALM_TEST`
+  capability for testing without a physical device. Would enable CI test
+  coverage in environments with no hardware access.
+
+* **Hardware integration verification pass** — verify all server endpoints
+  against a live server with connected hardware. Includes gRPC reflection,
+  REST status/services endpoints, mDNS discovery, and running all 4 example
+  client libraries (Rust REST, Rust gRPC, Python REST, Python gRPC) end-to-end.
+
+* **Server-side static resources (bitfile-aware auto-registration)** — imbue
+  the server with knowledge of specific bitfiles' capabilities so that when a
+  known bitfile is programmed, the server automatically creates the appropriate
+  resources without client involvement.
+
+* **In-use protection on re-program** — prevent FPGA re-programming when
+  resources are held (shared or exclusive) by any user. Requires user privilege
+  levels (admin can override).
+
 * **Read-only resource acquisition** — `AccessMode::ReadOnly` for observe-without-modify
   access. See [ADR-024 Future Work](architecture/adr/ADR-024-endpoint-access-enforcement.md).
 
@@ -83,6 +107,10 @@ Features in this section represent uncommitted research or long-term capabilitie
 
 * **FPGA dynamic partial reconfiguration** — safe remote flashing with hardware
   fallback recovery.
+
+* **Rust egui demo unit tests** — egui does not provide a built-in test harness
+  like iced's `iced_test`; implementing headless UI tests will require
+  significant effort.
 
 ---
 
