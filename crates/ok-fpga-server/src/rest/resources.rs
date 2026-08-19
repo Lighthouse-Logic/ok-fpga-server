@@ -608,6 +608,12 @@ async fn lock_resource(
         },
     );
 
+    // Broadcast event for dashboard auto-refresh (Phase 28D — was missing).
+    state.broadcast_event(&format!(
+        r#"{{"type":"resource_locked","resource_id":"{}","user_id":"{}"}}"#,
+        id, body.user_id
+    ));
+
     Ok(Json(ResourceView::from(&resource)))
 }
 
@@ -634,6 +640,12 @@ async fn unlock_resource(
             timestamp: chrono::Utc::now(),
         },
     );
+
+    // Broadcast event for dashboard auto-refresh (Phase 28D — was missing).
+    state.broadcast_event(&format!(
+        r#"{{"type":"resource_unlocked","resource_id":"{}","user_id":"{}"}}"#,
+        id, body.user_id
+    ));
 
     Ok(Json(ResourceView::from(&resource)))
 }

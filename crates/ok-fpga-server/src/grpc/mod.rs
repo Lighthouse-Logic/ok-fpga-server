@@ -76,12 +76,25 @@ pub async fn start_grpc_server(
 
     // Build the heartbeat interceptor that touches user sessions on every
     // gRPC request that includes the `x-user-id` metadata key.
+    // Phase 28D: Also broadcasts `user_connected` for new users so the
+    // dashboard Users page auto-refreshes (matching the REST middleware).
     let heartbeat_state = state.clone();
     let heartbeat_interceptor = move |req: tonic::Request<()>| -> Result<tonic::Request<()>, tonic::Status> {
         if let Some(user_id) = req.metadata().get("x-user-id") {
             if let Ok(user_id_str) = user_id.to_str() {
                 if !user_id_str.is_empty() {
+                    // Check if this is a new user (first time we've seen them).
+                    let is_new = heartbeat_state.user_sessions.get(user_id_str).is_none();
+
                     heartbeat_state.user_sessions.touch(user_id_str);
+
+                    // Broadcast user_connected for dashboard auto-refresh.
+                    if is_new {
+                        heartbeat_state.broadcast_event(&format!(
+                            r#"{{"type":"user_connected","user_id":"{}"}}"#,
+                            user_id_str
+                        ));
+                    }
                 }
             }
         }

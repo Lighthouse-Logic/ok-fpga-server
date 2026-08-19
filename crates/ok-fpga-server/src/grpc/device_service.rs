@@ -604,10 +604,21 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
 
         info!(serial = %serial, path = %bitfile_path, "gRPC ConfigureFPGA succeeded");
 
+        // Broadcast events for dashboard auto-refresh (Phase 28D).
+        self.state.broadcast_event(&format!(
+            r#"{{"type":"device_programmed","device_serial":"{}"}}"#,
+            serial
+        ));
+
         // Clear stale resources for this device (Phase 25-Fix-F, F3).
         let cleared = self.state.resource_registry.remove_for_device(serial);
         if cleared > 0 {
             info!(serial = %serial, cleared, "Cleared resources for re-programmed device");
+
+            self.state.broadcast_event(&format!(
+                r#"{{"type":"resources_cleared","device_serial":"{}","cleared_count":{}}}"#,
+                serial, cleared
+            ));
         }
 
         Ok(Response::new(proto::ConfigureFpgaResponse {
@@ -939,6 +950,12 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             .get(&req.resource_id)
             .ok_or_else(|| Status::internal("Resource vanished after acquire"))?;
 
+        // Broadcast event for dashboard auto-refresh (Phase 28D).
+        self.state.broadcast_event(&format!(
+            r#"{{"type":"resource_acquired","resource_id":"{}","user_id":"{}"}}"#,
+            req.resource_id, req.user_id
+        ));
+
         Ok(Response::new(proto::ResourceResponse {
             resource: Some(Self::resource_to_proto(&resource)),
             error: Some(proto::ErrorCluster {
@@ -972,6 +989,12 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
                 req.user_id, req.resource_id
             )));
         }
+
+        // Broadcast event for dashboard auto-refresh (Phase 28D).
+        self.state.broadcast_event(&format!(
+            r#"{{"type":"resource_released","resource_id":"{}","user_id":"{}"}}"#,
+            req.resource_id, req.user_id
+        ));
 
         Ok(Response::new(proto::StatusResponse {
             error: Some(proto::ErrorCluster {
@@ -1144,6 +1167,12 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             .get(&req.resource_id)
             .ok_or_else(|| Status::internal("Resource disappeared after lock"))?;
 
+        // Broadcast event for dashboard auto-refresh (Phase 28D).
+        self.state.broadcast_event(&format!(
+            r#"{{"type":"resource_locked","resource_id":"{}","user_id":"{}"}}"#,
+            req.resource_id, req.user_id
+        ));
+
         Ok(Response::new(proto::ResourceResponse {
             resource: Some(Self::resource_to_proto(&resource)),
             error: Some(proto::ErrorCluster {
@@ -1177,6 +1206,12 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             .resource_registry
             .get(&req.resource_id)
             .ok_or_else(|| Status::internal("Resource disappeared after unlock"))?;
+
+        // Broadcast event for dashboard auto-refresh (Phase 28D).
+        self.state.broadcast_event(&format!(
+            r#"{{"type":"resource_unlocked","resource_id":"{}","user_id":"{}"}}"#,
+            req.resource_id, req.user_id
+        ));
 
         Ok(Response::new(proto::ResourceResponse {
             resource: Some(Self::resource_to_proto(&resource)),
@@ -1250,6 +1285,12 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             released_count = released,
             "User disconnected via gRPC Disconnect"
         );
+
+        // Broadcast event for dashboard auto-refresh (Phase 28D).
+        self.state.broadcast_event(&format!(
+            r#"{{"type":"user_disconnected","user_id":"{}"}}"#,
+            req.user_id
+        ));
 
         Ok(Response::new(proto::DisconnectResponse {
             user_id: req.user_id,

@@ -562,19 +562,24 @@ function handleWsEvent(data) {
 
         case 'device_connected':
         case 'device_disconnected':
-            addLogEntry('INFO', `Device ${data.serial}: ${type.replace('device_', '')}`, data.timestamp);
+        case 'device_programmed':
+            addLogEntry('INFO', `Device ${data.device_serial || data.serial}: ${type.replace('device_', '')}`, data.timestamp);
             if (currentPage === 'devices') fetchDevices();
             if (currentPage === 'overview') fetchStatus();
             break;
 
-        // Resource lifecycle events (Phase 25-Fix-H, F9).
+        // Resource lifecycle events (Phase 25-Fix-H, F9 + Phase 28D).
         case 'resource_registered':
         case 'resource_acquired':
         case 'resource_released':
         case 'resource_deleted':
+        case 'resource_locked':
+        case 'resource_unlocked':
         case 'resources_cleared':
             addLogEntry('INFO', `Resource event: ${type}`, data.timestamp);
+            // Cross-page refresh: resource changes affect both Resources and Users pages.
             if (currentPage === 'resources') fetchResources();
+            if (currentPage === 'users') fetchUsers();
             if (currentPage === 'overview') fetchStatus();
             break;
 
@@ -582,7 +587,9 @@ function handleWsEvent(data) {
         case 'user_connected':
         case 'user_disconnected':
             addLogEntry('INFO', `User event: ${type} (${data.user_id || ''})`, data.timestamp);
+            // Cross-page refresh: user changes affect both Users and Resources pages.
             if (currentPage === 'users') fetchUsers();
+            if (currentPage === 'resources') fetchResources();
             if (currentPage === 'overview') fetchStatus();
             break;
 

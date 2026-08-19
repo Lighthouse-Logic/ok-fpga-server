@@ -777,6 +777,12 @@ async fn configure_fpga(
         },
     );
 
+    // Broadcast device_programmed event for dashboard auto-refresh (Phase 28D).
+    state.broadcast_event(&format!(
+        r#"{{"type":"device_programmed","device_serial":"{}"}}"#,
+        serial
+    ));
+
     // Clear any existing resources for this device — the old bitfile's
     // resources are invalid after re-programming (Phase 25-Fix-F, F3).
     let cleared = state.resource_registry.remove_for_device(&serial);
