@@ -7,16 +7,29 @@
 
 ---
 
+## 📜 Roadmap Rules
+
+1. **Three horizons** — The roadmap always maintains three sections: **Now**
+   (active work), **Next** (planned milestones), and **Later** (future
+   horizons). None of these sections may be dropped, even if empty.
+2. **One "Now" at a time** — Only one phase should be in "Now" at any given
+   time. When it completes, the first item from "Next" is promoted.
+3. **Living document** — Update this file whenever plans change, phases
+   complete, or new features are identified.
+
+---
+
 ## 🧭 Horizon Overview
 
 | Horizon | Focus Area | ADR | Status |
 |---------|-----------|-----|--------|
-| **Phase 27 (Now)** | OpenAPI spec gaps + hardening | — | 🟡 Planned |
-| **Phase 28+ (Later)** | Read-only resources, TLS, persistent storage, packaging | — | 🔵 Exploratory |
+| **Phase 27 (Now)** | OpenAPI spec gaps | — | 🟢 In Progress |
+| **Phase 28 (Next)** | mDNS-Powered GUI Discovery + Dashboard Settings | ADR-025 (TBD) | 🟡 Planned |
+| **Phase 29+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
-## 🟢 Now: Phase 27 — OpenAPI Spec Gaps & Hardening
+## 🟢 Now: Phase 27 — OpenAPI Spec Gaps
 
 *Focus: Address the spec gaps identified during ADR-004/005 alignment.*
 
@@ -29,7 +42,53 @@
 * [ ] **Python gRPC demo unit tests** — requires proto generation step;
       deferred from Phase 25-Fix
 
-* [ ] **Cross-platform CI** — GitHub Actions matrix for Windows + Ubuntu
+---
+
+## 🟡 Next: Phase 28 — mDNS-Powered GUI Discovery + Dashboard Settings
+
+*Focus: All GUI example clients discover servers via mDNS before connecting.
+The server gains a runtime-editable Settings panel in the Web Dashboard.*
+
+### 28A — GUI mDNS Server Discovery
+
+All four GUI demos (Rust REST/iced, Rust REST/egui, Python REST/DearPyGui,
+Python gRPC/DearPyGui) currently require the user to manually enter a server
+URL. This phase adds an mDNS listener that discovers `_okfpga._tcp` services
+on the local subnet and presents them in a dropdown **before** the manual
+"Connect to Board" flow.
+
+* [ ] **mDNS browser in GUI demos** — each demo listens for `_okfpga._tcp`
+      announcements and populates a "Discovered Servers (mDNS)" dropdown.
+      Selecting a server auto-fills the URL/port fields from the TXT records.
+* [ ] **Server `description` TXT field** — add a `description` key to the
+      mDNS TXT record so the dropdown can show a human-readable label
+      (e.g., "Lab Bench 1 — XEM8320"). The description is configured via
+      `[server] description = "..."` in `okfpga-server.toml` and defaults to
+      the `instance_name`.
+* [ ] **Server config: `[server] description`** — add a `description` field
+      to `ServerConfig` (TOML), defaulting to `instance_name`. Propagate to
+      mDNS TXT records and the `GET /server/info` REST response.
+
+### 28B — Web Dashboard Settings Panel
+
+The SPA Web Dashboard gains a new "Settings" panel exposing runtime-
+configurable server settings.
+
+* [ ] **Settings panel UI** — new tab/page in the dashboard exposing:
+  - **Server description** (`server.description`) — editable text field
+  - **Endpoint enforcement level** (`access_control.endpoint_enforcement`) —
+    dropdown: off / warn / enforce
+  - **Other runtime settings** as they are added in future phases
+* [ ] **REST API for settings** — `GET /server/settings` and
+      `PUT /server/settings` endpoints for reading and updating runtime config.
+* [ ] **Unauthenticated access warning** — when `endpoint_enforcement` is
+      shown in the dashboard, display a prominent warning:
+      > ⚠️ Any user with dashboard access can change this setting.
+      > For production environments, disable dashboard settings exposure
+      > via `[dashboard] expose_settings = false` in `okfpga-server.toml`.
+* [ ] **`expose_settings` config switch** — `[dashboard] expose_settings`
+      (boolean, default `true`). When `false`, the Settings panel is hidden
+      and the `PUT /server/settings` endpoint returns `403 Forbidden`.
 
 ---
 
@@ -77,6 +136,8 @@ Features in this section represent uncommitted research or long-term capabilitie
 * **Role-based access control** — Admin vs Normal user authority levels;
   restrict `ConfigureFPGA` to admins.
 
+* **Cross-platform CI** — GitHub Actions matrix for Windows + Ubuntu.
+
 * **Cross-platform packaging** — Windows service installer, systemd unit file,
   Docker image.
 
@@ -86,6 +147,16 @@ Features in this section represent uncommitted research or long-term capabilitie
 * **Rust egui demo unit tests** — egui does not provide a built-in test harness
   like iced's `iced_test`; implementing headless UI tests will require
   significant effort.
+
+* **MQTT server discovery messages** — extend the MQTT heartbeat/status
+  payload to include full server connectivity information (REST host:port,
+  gRPC host:port, dashboard URL, server description, device count). This
+  would allow any MQTT subscriber to discover and connect to the server even
+  across subnets — provided both the server and the subscriber share the same
+  MQTT broker. Unlike mDNS (which is link-local only), MQTT-based discovery
+  works across routed networks. The MQTT topic should be
+  `{prefix}/server/announce` with a retained message so new subscribers
+  receive the server info immediately upon connecting to the broker.
 
 ---
 
