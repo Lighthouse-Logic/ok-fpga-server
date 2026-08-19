@@ -274,3 +274,151 @@ class TestCountersClientHTTP:
         assert info.name == "Counter Resource"
         assert info.access_mode == "shared"
         assert info.locked_by is None
+
+
+# ============================================================================
+# Phase 25-Fix-F: Tests for new methods (F3/F4/F5)
+# ============================================================================
+
+
+class TestGetDeviceInfo:
+    """Tests for get_device_info() — used by F4 smart-skip."""
+
+    @responses.activate
+    def test_get_device_info_returns_dict(self):
+        responses.add(
+            responses.GET, "http://localhost:8088/api/v1/devices/SN001",
+            json={"serial": "SN001", "product_name": "XEM7320", "state": "Programmed"},
+            status=200,
+        )
+        client = CountersClient("http://localhost:8088", "test-user")
+        info = client.get_device_info("SN001")
+        assert isinstance(info, dict)
+        assert info["serial"] == "SN001"
+        assert info["state"] == "Programmed"
+
+    @responses.activate
+    def test_get_device_info_not_programmed(self):
+        responses.add(
+            responses.GET, "http://localhost:8088/api/v1/devices/SN001",
+            json={"serial": "SN001", "product_name": "XEM7320", "state": "NotProgrammed"},
+            status=200,
+        )
+        client = CountersClient("http://localhost:8088", "test-user")
+        info = client.get_device_info("SN001")
+        assert info.get("state", "") != "Programmed"
+
+    @responses.activate
+    def test_get_device_info_404_raises(self):
+        responses.add(
+            responses.GET, "http://localhost:8088/api/v1/devices/UNKNOWN",
+            body="Not found", status=404,
+        )
+        client = CountersClient("http://localhost:8088", "test-user")
+        with pytest.raises(ClientError) as exc_info:
+            client.get_device_info("UNKNOWN")
+        assert exc_info.value.status == 404
+
+
+class TestListResources:
+    """Tests for list_resources() — used by F3 (409 conflict) and F4 (smart-skip)."""
+
+    @responses.activate
+    def test_list_resources_returns_list(self):
+        responses.add(
+            responses.GET, "http://localhost:8088/api/v1/resources",
+            json={"resources": [
+                {"id": "res-1", "name": "Counter Resource", "device_serial": "SN001",
+                 "access_mode": "shared", "holders": ["user1"], "locked_by": None},
+                {"id": "res-2", "name": "Other Resource", "device_serial": "SN002",
+                 "access_mode": "exclusive", "holders": [], "locked_by": None},
+            ]},
+            status=200,
+        )
+        client = CountersClient("http://localhost:8088", "test-user")
+        resources = client.list_resources()
+        assert len(resources) == 2
+        assert resources[0].id == "res-1"
+        assert resources[0].device_serial == "SN001"
+        assert resources[1].id == "res-2"
+
+    @responses.activate
+    def test_list_resources_empty(self):
+        responses.add(
+            responses.GET, "http://localhost:8088/api/v1/resources",
+            json={"resources": []},
+            status=200,
+        )
+        client = CountersClient("http://localhost:8088", "test-user")
+        resources = client.list_resources()
+        assert len(resources) == 0
+
+    @responses.activate
+    def test_list_resources_can_find_by_device_serial(self):
+        """Verify the F3/F4 lookup pattern: find resource by device serial."""
+        responses.add(
+            responses.GET, "http://localhost:8088/api/v1/resources",
+            json={"resources": [
+                {"id": "res-1", "name": "Counter", "device_serial": "SN001",
+                 "access_mode": "shared", "holders": [], "locked_by": None},
+                {"id": "res-2", "name": "Other", "device_serial": "SN002",
+                 "access_mode": "shared", "holders": [], "locked_by": None},
+            ]},
+            status=200,
+        )
+        client = CountersClient("http://localhost:8088", "test-user")
+        resources = client.list_resources()
+        # Simulate the F3/F4 lookup pattern used in all demos.
+        existing = next((r for r in resources if r.device_serial == "SN001"), None)
+        assert existing is not None
+        assert existing.id == "res-1"
+        # Non-existent serial returns None.
+        missing = next((r for r in resources if r.device_serial == "SN999"), None)
+        assert missing is None
+
+
+class TestConfigureFpgaFromFile:
+    """Tests for configure_fpga_from_file() — F5 Local File mode."""
+
+    @responses.activate
+    def test_configure_fpga_from_file_sends_binary(self, tmp_path):
+        """F5: Local File mode reads file and uploads as octet-stream."""
+        responses.add(
+            responses.POST,
+            "http://localhost:8088/api/v1/devices/SN001/configure",
+            json={"result": "ok"}, status=200,
+        )
+        # Create a small temp bitfile.
+        bitfile = tmp_path / "test.bit"
+        bitfile.write_bytes(b"\x00\x09\x0f\x01\x00\x00\x01\x0d")
+
+        client = CountersClient("http://localhost:8088", "test-user")
+        client.configure_fpga_from_file("SN001", str(bitfile))
+
+        # Verify binary payload was sent.
+        assert responses.calls[0].request.headers["Content-Type"] == "application/octet-stream"
+        assert responses.calls[0].request.body == b"\x00\x09\x0f\x01\x00\x00\x01\x0d"
+
+    def test_configure_fpga_from_file_missing_file_raises(self):
+        """F5: Non-existent local file raises FileNotFoundError."""
+        client = CountersClient("http://localhost:8088", "test-user")
+        with pytest.raises(FileNotFoundError):
+            client.configure_fpga_from_file("SN001", "/no/such/file.bit")
+
+
+class TestCreateResource409:
+    """Tests for F3: 409 Conflict → list_resources fallback."""
+
+    @responses.activate
+    def test_create_resource_409_raises_client_error(self):
+        """F3: Verify that a 409 response raises ClientError with '409' in message."""
+        responses.add(
+            responses.POST, "http://localhost:8088/api/v1/resources",
+            body='{"error":"resource already exists for device SN001"}',
+            status=409,
+        )
+        client = CountersClient("http://localhost:8088", "test-user")
+        with pytest.raises(ClientError) as exc_info:
+            client.create_resource("Counter", "SN001")
+        assert exc_info.value.status == 409
+        assert "409" in str(exc_info.value)

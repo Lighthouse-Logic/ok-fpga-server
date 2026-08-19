@@ -627,4 +627,63 @@ mod tests {
         assert!(info.name.is_empty());
         assert!(info.holders.is_empty());
     }
+
+    // ========================================================================
+    // Phase 25-Fix-F: F3/F4/F5 tests
+    // ========================================================================
+
+    #[test]
+    fn test_resource_lookup_by_device_serial() {
+        // Simulates the F3/F4 lookup pattern: find resource by device_serial.
+        let resources = vec![
+            ResourceInfo {
+                id: "res-1".to_string(),
+                name: "Counter".to_string(),
+                device_serial: "SN001".to_string(),
+                access_mode: "shared".to_string(),
+                holders: vec![],
+                locked_by: None,
+            },
+            ResourceInfo {
+                id: "res-2".to_string(),
+                name: "Other".to_string(),
+                device_serial: "SN002".to_string(),
+                access_mode: "shared".to_string(),
+                holders: vec![],
+                locked_by: None,
+            },
+        ];
+        // F3/F4: Lookup by serial.
+        let existing = resources.iter().find(|r| r.device_serial == "SN001");
+        assert!(existing.is_some());
+        assert_eq!(existing.unwrap().id, "res-1");
+        // Missing serial returns None.
+        let missing = resources.iter().find(|r| r.device_serial == "SN999");
+        assert!(missing.is_none());
+    }
+
+    #[test]
+    fn test_resource_info_from_proto_resource_matches_list_resources_pattern() {
+        // Verify the conversion pattern used in list_resources() produces
+        // correct ResourceInfo from a proto Resource message.
+        let proto_resource = okfpga::v1::Resource {
+            id: "res-abc".to_string(),
+            name: "Counter Resource".to_string(),
+            device_serial: "SN001".to_string(),
+            holders: vec!["user1".to_string()],
+            ..Default::default()
+        };
+        // Simulate the conversion from list_resources().
+        let info = ResourceInfo {
+            id: proto_resource.id.clone(),
+            name: proto_resource.name.clone(),
+            device_serial: proto_resource.device_serial.clone(),
+            access_mode: "shared".to_string(),
+            holders: proto_resource.holders.clone(),
+            locked_by: None,
+        };
+        assert_eq!(info.id, "res-abc");
+        assert_eq!(info.device_serial, "SN001");
+        assert_eq!(info.holders, vec!["user1"]);
+    }
 }

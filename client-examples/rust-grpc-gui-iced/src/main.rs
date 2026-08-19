@@ -692,4 +692,97 @@ mod tests {
         let _ = update(&mut s, Message::PollResult(Err("timeout".to_string())));
         assert_eq!(s.last_error.as_deref(), Some("timeout"));
     }
+
+    // ====================================================================
+    // Phase 25-Fix-F: F3/F4/F5 tests
+    // ====================================================================
+
+    #[test]
+    fn test_initial_bitfile_mode_is_server_path() {
+        let s = make_state();
+        assert_eq!(s.bitfile_mode, BitfileMode::ServerPath);
+    }
+
+    #[test]
+    fn test_set_bitfile_mode_to_local_file() {
+        let mut s = make_state();
+        let _ = update(&mut s, Message::SetBitfileMode(BitfileMode::LocalFile));
+        assert_eq!(s.bitfile_mode, BitfileMode::LocalFile);
+    }
+
+    #[test]
+    fn test_set_bitfile_mode_back_to_server_path() {
+        let mut s = make_state();
+        s.bitfile_mode = BitfileMode::LocalFile;
+        let _ = update(&mut s, Message::SetBitfileMode(BitfileMode::ServerPath));
+        assert_eq!(s.bitfile_mode, BitfileMode::ServerPath);
+    }
+
+    #[test]
+    fn test_register_result_409_logs_lookup_message() {
+        let mut s = make_state();
+        s.phase = Phase::Programmed;
+        // Simulate a 409 / AlreadyExists error from RegisterResult.
+        let _ = update(
+            &mut s,
+            Message::RegisterResult(Err("AlreadyExists: resource already exists".to_string())),
+        );
+        // Should log a lookup message, not crash.
+        let has_lookup = s.log_entries.iter().any(|(msg, _)| msg.contains("already exists"));
+        assert!(has_lookup, "Expected 'already exists' in log entries");
+    }
+
+    #[test]
+    fn test_check_device_state_programmed_with_resource_skips_to_registered() {
+        let mut s = make_state();
+        s.phase = Phase::Connected;
+        let resource = ResourceInfo {
+            id: "res-1".to_string(),
+            name: "Counter Resource".to_string(),
+            device_serial: "SN001".to_string(),
+            access_mode: "shared".to_string(),
+            holders: vec![],
+            locked_by: None,
+        };
+        let _ = update(
+            &mut s,
+            Message::CheckDeviceStateResult(Ok((true, Some(resource)))),
+        );
+        assert_eq!(s.phase, Phase::Registered);
+        assert_eq!(s.resource_id.as_deref(), Some("res-1"));
+    }
+
+    #[test]
+    fn test_check_device_state_programmed_no_resource_skips_to_programmed() {
+        let mut s = make_state();
+        s.phase = Phase::Connected;
+        let _ = update(
+            &mut s,
+            Message::CheckDeviceStateResult(Ok((true, None))),
+        );
+        assert_eq!(s.phase, Phase::Programmed);
+    }
+
+    #[test]
+    fn test_check_device_state_not_programmed_stays_connected() {
+        let mut s = make_state();
+        s.phase = Phase::Connected;
+        let _ = update(
+            &mut s,
+            Message::CheckDeviceStateResult(Ok((false, None))),
+        );
+        assert_eq!(s.phase, Phase::Connected);
+    }
+
+    #[test]
+    fn test_check_device_state_error_is_non_fatal() {
+        let mut s = make_state();
+        s.phase = Phase::Connected;
+        let _ = update(
+            &mut s,
+            Message::CheckDeviceStateResult(Err("network error".to_string())),
+        );
+        // Phase should remain unchanged; error is logged but not fatal.
+        assert_eq!(s.phase, Phase::Connected);
+    }
 }
