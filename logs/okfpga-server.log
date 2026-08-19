@@ -1229,3 +1229,5 @@
 2026-08-19T13:03:09.293592Z  INFO ok_fpga_server::sweep: starting user session sweep task timeout_secs=60 sweep_interval_secs=10
 2026-08-19T13:03:09.293799Z  INFO ok_fpga_server: ok-FPGA-Server is ready. Press Ctrl+C to shut down.
 2026-08-19T14:12:47.090776Z  WARN ok_fpga_server::rest::errors: Stub endpoint invoked — returning 501 Not Implemented detail=GetDeviceSensors failed with code -15
+2026-08-19T14:39:25.191104Z  INFO ok_fpga_server: FPGA device disconnected (hot-unplug detected by polling) serial=22520013CC
+2026-08-19T14:39:25.191564Z  INFO ok_fpga_server::handle_pool: device handle closed and removed from pool serial=22520013CC

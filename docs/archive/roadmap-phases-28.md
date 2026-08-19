@@ -1,4 +1,4 @@
-# Archived Roadmap Phases — Phase 28
+# Archived Roadmap Phases — Phase 28 / 28C
 
 > Archived from the active roadmap after completion.
 
@@ -59,3 +59,31 @@ runtime-configurable server settings with TOML write-back persistence.
 - `[dashboard] expose_settings = false` hides the Settings nav item and returns 403
 - Unauthenticated access warning displayed prominently on the Settings page
 - `settings_updated` WebSocket event triggers dashboard auto-refresh
+
+---
+
+## Phase 28C: Settings Lockdown
+
+*Completed: 2026-08-19*
+
+Phase 28B incorrectly exposed `GET/PUT /server/settings` on the client-facing
+REST API (port 8088), allowing any network client to change server settings.
+Phase 28C removes those endpoints and refines the `expose_settings` behavior.
+
+### Changes
+
+| Component | Change |
+|-----------|--------|
+| Server `rest/server.rs` | Removed `GET/PUT /server/settings` routes and handlers |
+| `api/openapi.yaml` | Removed `/server/settings` path and `ServerSettings` schema |
+| Server `management.rs` | Refined: `SettingsBody.endpoint_enforcement` is now `Option<String>`, only included when `expose_settings = true` |
+| Server `config.rs` | Updated `expose_settings` docstring — controls enforcement visibility only, not description |
+| Dashboard `index.html` | Wrapped warning banner + Access Control panel in `enforcement-section` div |
+| Dashboard `app.js` | Settings nav always visible; enforcement section conditionally shown based on API response |
+
+### Key design decisions
+
+- **Description always accessible** — server description can be read/changed from the dashboard regardless of `expose_settings`
+- **`expose_settings` = enforcement visibility** — when `false`, the enforcement dropdown is hidden and enforcement changes in PUT are silently ignored
+- **No REST settings API** — settings are management-only (`/mgmt/settings` on port 9090), used exclusively by the dashboard
+- **`ServerSettings` removed from OpenAPI** — management API is internal and not part of the public API spec
