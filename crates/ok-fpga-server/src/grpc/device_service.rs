@@ -1216,6 +1216,47 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             }),
         }))
     }
+
+    // ========================================================================
+    // Disconnect (Phase 25-Fix-H, F10)
+    // ========================================================================
+
+    /// `Disconnect` RPC — User-initiated disconnect.
+    ///
+    /// Releases all resources held by the specified user across all devices,
+    /// removes the user session, and ceases heartbeat checking. This is the
+    /// recommended way for clients to end their session cleanly.
+    async fn disconnect(
+        &self,
+        request: Request<proto::DisconnectRequest>,
+    ) -> Result<Response<proto::DisconnectResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.user_id.is_empty() {
+            return Err(Status::invalid_argument("user_id is required"));
+        }
+
+        // Release all resources held by this user across all devices.
+        let released = self
+            .state
+            .resource_registry
+            .release_all_for_user(&req.user_id);
+
+        // Remove the user session entirely.
+        self.state.user_sessions.remove(&req.user_id);
+
+        info!(
+            user_id = %req.user_id,
+            released_count = released,
+            "User disconnected via gRPC Disconnect"
+        );
+
+        Ok(Response::new(proto::DisconnectResponse {
+            user_id: req.user_id,
+            released_resources: released as i32,
+            message: "Disconnected successfully".to_string(),
+        }))
+    }
 }
 
 /// Extract a Rust `String` from a C `char` array (null-terminated).

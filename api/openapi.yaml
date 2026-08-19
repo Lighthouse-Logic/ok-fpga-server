@@ -1296,6 +1296,52 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
 
+  /disconnect:
+    post:
+      tags: [Users]
+      summary: Disconnect the current user
+      operationId: disconnect
+      description: |
+        Initiates a clean user disconnect. All resources held by this user
+        (on any device) are released, the user session is removed, and a
+        `user_disconnected` event is broadcast. This is the recommended way
+        to end a client session.
+
+        Unlike simply letting the heartbeat expire, this provides immediate
+        cleanup — the dashboard and other clients see the change right away.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id:
+                  type: string
+                  description: The user identifier to disconnect.
+      responses:
+        '200':
+          description: User disconnected successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                  released_resources:
+                    type: integer
+                    description: Number of resources that were released.
+                  message:
+                    type: string
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
   # ---- Events ----
 
   /events/stream:

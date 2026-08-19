@@ -809,6 +809,49 @@ impl ResourceRegistry {
         count
     }
 
+    /// Release all resources held by a specific user, across all devices.
+    ///
+    /// Used by the `POST /disconnect` endpoint (Phase 25-Fix-H, F10) to
+    /// cleanly release everything a user holds in one atomic operation.
+    /// Each resource transitions back to `Available` if no other holders
+    /// remain, following the same logic as `release()`.
+    ///
+    /// Returns the number of resources that were actually released.
+    pub fn release_all_for_user(&self, user_id: &UserId) -> usize {
+        let mut map = self.resources.write().unwrap();
+        let mut released = 0;
+
+        for resource in map.values_mut() {
+            let before = resource.holders.len();
+            resource.holders.retain(|h| h != user_id);
+            let removed = resource.holders.len() < before;
+
+            if !removed {
+                continue;
+            }
+
+            released += 1;
+
+            // If the releasing user was the locker, clear the lock.
+            if resource.locked_by.as_deref() == Some(user_id) {
+                resource.locked_by = None;
+            }
+
+            if resource.holders.is_empty() {
+                // No more holders — transition back to Available.
+                resource.state = ResourceState::Available;
+                resource.locked_by = None;
+            } else if resource.locked_by.is_none()
+                && resource.access_mode == Some(AccessMode::Shared)
+            {
+                // Shared resource, locker left, back to InUseShared.
+                resource.state = ResourceState::InUseShared;
+            }
+        }
+
+        released
+    }
+
     /// Attempt to acquire a resource for a user (ADR-020 §3).
     ///
     /// The access mode is determined by the resource's `access_mode` field
@@ -1264,6 +1307,82 @@ mod tests {
         let removed = registry.remove_for_device("DEV_A");
         assert_eq!(removed, 0);
         assert_eq!(registry.count(), 0);
+    }
+
+    // ========================================================================
+    // release_all_for_user tests (Phase 25-Fix-H, F10)
+    // ========================================================================
+
+    #[test]
+    fn release_all_for_user_releases_multiple_resources() {
+        let registry = ResourceRegistry::new();
+        let r1 = test_resource_for_device("r1", "DEV_A");
+        let r2 = test_resource_for_device("r2", "DEV_B");
+        registry.register(r1);
+        registry.register(r2);
+        registry.acquire("r1", &"alice".to_string(), AccessMode::Shared).unwrap();
+        registry.acquire("r2", &"alice".to_string(), AccessMode::Shared).unwrap();
+
+        let released = registry.release_all_for_user(&"alice".to_string());
+        assert_eq!(released, 2);
+        // Both should be back to Available.
+        assert_eq!(registry.get("r1").unwrap().state, ResourceState::Available);
+        assert_eq!(registry.get("r2").unwrap().state, ResourceState::Available);
+    }
+
+    #[test]
+    fn release_all_for_user_only_releases_held_resources() {
+        let registry = ResourceRegistry::new();
+        let r1 = test_resource_for_device("r1", "DEV_A");
+        let r2 = test_resource_for_device("r2", "DEV_A");
+        registry.register(r1);
+        registry.register(r2);
+        registry.acquire("r1", &"alice".to_string(), AccessMode::Shared).unwrap();
+        registry.acquire("r2", &"bob".to_string(), AccessMode::Shared).unwrap();
+
+        let released = registry.release_all_for_user(&"alice".to_string());
+        assert_eq!(released, 1);
+        // r1 is Available (alice released), r2 still held by bob.
+        assert_eq!(registry.get("r1").unwrap().state, ResourceState::Available);
+        assert!(registry.get("r2").unwrap().holders.contains(&"bob".to_string()));
+    }
+
+    #[test]
+    fn release_all_for_user_returns_zero_when_not_holding() {
+        let registry = ResourceRegistry::new();
+        let r1 = test_resource_for_device("r1", "DEV_A");
+        registry.register(r1);
+        registry.acquire("r1", &"bob".to_string(), AccessMode::Shared).unwrap();
+
+        let released = registry.release_all_for_user(&"alice".to_string());
+        assert_eq!(released, 0);
+        // bob still holds r1.
+        assert!(registry.get("r1").unwrap().holders.contains(&"bob".to_string()));
+    }
+
+    #[test]
+    fn release_all_for_user_clears_lock_if_locker() {
+        let registry = ResourceRegistry::new();
+        let r1 = test_resource_for_device("r1", "DEV_A");
+        registry.register(r1);
+        registry.acquire("r1", &"alice".to_string(), AccessMode::Shared).unwrap();
+        registry.acquire("r1", &"bob".to_string(), AccessMode::Shared).unwrap();
+        registry.lock("r1", &"alice".to_string()).unwrap();
+
+        let released = registry.release_all_for_user(&"alice".to_string());
+        assert_eq!(released, 1);
+        // Lock should be cleared, bob still holds.
+        let r = registry.get("r1").unwrap();
+        assert!(r.locked_by.is_none());
+        assert!(r.holders.contains(&"bob".to_string()));
+        assert_eq!(r.state, ResourceState::InUseShared);
+    }
+
+    #[test]
+    fn release_all_for_user_on_empty_registry() {
+        let registry = ResourceRegistry::new();
+        let released = registry.release_all_for_user(&"alice".to_string());
+        assert_eq!(released, 0);
     }
 }
 

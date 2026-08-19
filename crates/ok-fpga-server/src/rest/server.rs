@@ -10,6 +10,7 @@ use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use ok_fpga_core::service::ServiceInfo;
 
@@ -26,6 +27,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/server/services/{name}/stop", post(stop_service))
         .route("/server/services/{name}/restart", post(restart_service))
         .route("/heartbeat", post(heartbeat))
+        .route("/disconnect", post(disconnect))
 }
 
 // ============================================================================
@@ -191,5 +193,64 @@ async fn heartbeat(
     Ok(Json(HeartbeatResponse {
         server_time,
         user_id: body.user_id,
+    }))
+}
+
+// ============================================================================
+// Disconnect
+// ============================================================================
+
+/// Request body for the disconnect endpoint.
+#[derive(Deserialize)]
+struct DisconnectRequest {
+    /// User identifier to disconnect.
+    user_id: String,
+}
+
+/// Response body for the disconnect endpoint.
+#[derive(Serialize)]
+struct DisconnectResponse {
+    /// The user that was disconnected.
+    user_id: String,
+    /// Number of resources that were released during disconnect.
+    released_resources: usize,
+    /// Human-readable status message.
+    message: String,
+}
+
+/// `POST /disconnect` — User-initiated disconnect (Phase 25-Fix-H, F10).
+///
+/// Releases all resources held by the specified user across all devices,
+/// removes the user session, and ceases heartbeat checking. This is the
+/// recommended way for clients to end their session cleanly.
+///
+/// This is preferred over simply letting the heartbeat expire because:
+/// - Resources are released immediately (no timeout delay)
+/// - The dashboard reflects the change right away
+/// - Other clients can acquire those resources without waiting
+async fn disconnect(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<DisconnectRequest>,
+) -> Result<Json<DisconnectResponse>, ProblemDetail> {
+    if body.user_id.is_empty() {
+        return Err(ProblemDetail::bad_request("user_id is required"));
+    }
+
+    // Release all resources held by this user across all devices.
+    let released = state.resource_registry.release_all_for_user(&body.user_id);
+
+    // Remove the user session entirely.
+    state.user_sessions.remove(&body.user_id);
+
+    info!(
+        user_id = %body.user_id,
+        released_count = released,
+        "User disconnected via POST /disconnect"
+    );
+
+    Ok(Json(DisconnectResponse {
+        user_id: body.user_id,
+        released_resources: released,
+        message: "Disconnected successfully".to_string(),
     }))
 }
