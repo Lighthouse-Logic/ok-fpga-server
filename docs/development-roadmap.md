@@ -13,7 +13,7 @@
    (active work), **Next** (planned milestones), and **Later** (future
    horizons). None of these sections may be dropped, even if empty.
 2. **One "Now" at a time** — Only one phase should be in "Now" at any given
-   time. When it completes, the first item from "Next" is promoted.
+   time.
 3. **Living document** — Update this file whenever plans change, phases
    complete, or new features are identified.
 4. **Archive completed phases** — When a phase is completed, its detailed
@@ -31,6 +31,9 @@
    - Archive files are named `roadmap-phases-NN-MM.md` where NN–MM is the
      range of phases contained.
    - Update the completed phases table in this file to link to the archive.
+5. **No auto-promotion** — When a "Now" phase completes, do **not**
+   automatically promote the first "Next" item to "Now". The user must
+   explicitly request promotion.
 
 ---
 
@@ -39,7 +42,7 @@
 | Horizon | Focus Area | ADR | Status |
 |---------|-----------|-----|--------|
 | **Phase 28 (Complete)** | mDNS-Powered GUI Discovery + Dashboard Settings | ADR-025 (TBD) | ✅ Complete |
-| **Phase 29 (Now)** | Address Range Enforcement for Classic/okRegisterBridge | ADR-024 | 🟡 Planned |
+| **Phase 29 (Next)** | Address Range Enforcement for Classic/okRegisterBridge | ADR-024 | 🟡 Planned |
 | **Phase 30+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
@@ -126,7 +129,7 @@ configurable server settings.
 
 ---
 
-## 🟢 Now: Phase 29 — Address Range Enforcement for Classic/okRegisterBridge
+## 🟡 Next: Phase 29 — Address Range Enforcement for Classic/okRegisterBridge
 
 *Focus: Extend ADR-024 endpoint enforcement to cover memory-mapped address
 ranges used by Classic `okRegisterBridge` designs.*
@@ -223,6 +226,12 @@ Features in this section represent uncommitted research or long-term capabilitie
   works across routed networks. The MQTT topic should be
   `{prefix}/server/announce` with a retained message so new subscribers
   receive the server info immediately upon connecting to the broker.
+
+* **mDNS browser unit tests** — deferred from Phase 28A. Test the
+  `mdns_browser` module in each of the 4 common libraries (Rust + Python,
+  REST + gRPC) with mock service announcements where possible. Also test
+  `[server] description` config default/override and TXT record generation
+  with the description field.
 
 ---
 
