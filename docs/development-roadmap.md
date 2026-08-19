@@ -51,15 +51,40 @@ The server gains a runtime-editable Settings panel in the Web Dashboard.*
 
 ### 28A — GUI mDNS Server Discovery
 
-All four GUI demos (Rust REST/iced, Rust REST/egui, Python REST/DearPyGui,
-Python gRPC/DearPyGui) currently require the user to manually enter a server
+All **eight** GUI demos currently require the user to manually enter a server
 URL. This phase adds an mDNS listener that discovers `_okfpga._tcp` services
 on the local subnet and presents them in a dropdown **before** the manual
 "Connect to Board" flow.
 
-* [ ] **mDNS browser in GUI demos** — each demo listens for `_okfpga._tcp`
-      announcements and populates a "Discovered Servers (mDNS)" dropdown.
-      Selecting a server auto-fills the URL/port fields from the TXT records.
+**Affected demos** (4 toolkits × 2 protocols):
+
+| # | Demo | Common Library | mDNS Crate |
+|---|------|---------------|------------|
+| 1 | `rust-rest-gui-iced` | `rust-rest-gui-common` | `mdns-sd` (same as server) |
+| 2 | `rust-rest-gui-egui` | `rust-rest-gui-common` | `mdns-sd` |
+| 3 | `rust-grpc-gui-iced` | `rust-grpc-gui-common` | `mdns-sd` |
+| 4 | `rust-grpc-gui-egui` | `rust-grpc-gui-common` | `mdns-sd` |
+| 5 | `python-rest-gui-dearpygui` | `python_rest_gui_common` | `zeroconf` (Python) |
+| 6 | `python-rest-gui-tkinter` | `python_rest_gui_common` | `zeroconf` |
+| 7 | `python-grpc-gui-dearpygui` | `python_grpc_gui_common` | `zeroconf` |
+| 8 | `python-grpc-gui-tkinter` | `python_grpc_gui_common` | `zeroconf` |
+
+**Implementation note**: mDNS browsing logic should live in the 4 **common
+libraries** (not duplicated in each demo). Each demo's UI layer calls the
+common library's discovery API and renders the results.
+
+* [ ] **Rust common libraries: mDNS browser module** — add an `mdns_browser`
+      module to `rust-rest-gui-common` and `rust-grpc-gui-common` that browses
+      for `_okfpga._tcp.local.` services and returns a list of discovered
+      servers with their TXT properties (host, rest port, grpc port, dashboard
+      port, description, device count).
+* [ ] **Python common libraries: mDNS browser module** — add an `mdns_browser`
+      module to `python_rest_gui_common` and `python_grpc_gui_common` using
+      the `zeroconf` Python package. Same discovery contract.
+* [ ] **GUI integration** — all 8 demos show a "Discovered Servers (mDNS)"
+      dropdown above the manual URL input. Selecting a server auto-fills the
+      URL/port fields from the TXT records. The dropdown updates in real-time
+      as servers appear/disappear.
 * [ ] **Server `description` TXT field** — add a `description` key to the
       mDNS TXT record so the dropdown can show a human-readable label
       (e.g., "Lab Bench 1 — XEM8320"). The description is configured via
@@ -67,28 +92,37 @@ on the local subnet and presents them in a dropdown **before** the manual
       the `instance_name`.
 * [ ] **Server config: `[server] description`** — add a `description` field
       to `ServerConfig` (TOML), defaulting to `instance_name`. Propagate to
-      mDNS TXT records and the `GET /server/info` REST response.
+      mDNS TXT records and the `GET /server/status` REST response.
+* [ ] **Unit tests** — test mDNS browser module in each common library
+      (mock service announcements where possible), test `description`
+      config default/override, test TXT record generation with description.
 
 ### 28B — Web Dashboard Settings Panel
 
-The SPA Web Dashboard gains a new "Settings" panel exposing runtime-
+The SPA Web Dashboard (currently 6 pages: Overview, Devices, Resources,
+Users, Services, Logs) gains a new **Settings** page exposing runtime-
 configurable server settings.
 
-* [ ] **Settings panel UI** — new tab/page in the dashboard exposing:
+* [ ] **Settings page UI** — new sidebar nav entry + page in the dashboard
+      exposing:
   - **Server description** (`server.description`) — editable text field
   - **Endpoint enforcement level** (`access_control.endpoint_enforcement`) —
     dropdown: off / warn / enforce
   - **Other runtime settings** as they are added in future phases
 * [ ] **REST API for settings** — `GET /server/settings` and
       `PUT /server/settings` endpoints for reading and updating runtime config.
+      Settings changes are **ephemeral** (lost on restart); the TOML file
+      remains the persistent source of truth.
 * [ ] **Unauthenticated access warning** — when `endpoint_enforcement` is
       shown in the dashboard, display a prominent warning:
       > ⚠️ Any user with dashboard access can change this setting.
       > For production environments, disable dashboard settings exposure
       > via `[dashboard] expose_settings = false` in `okfpga-server.toml`.
 * [ ] **`expose_settings` config switch** — `[dashboard] expose_settings`
-      (boolean, default `true`). When `false`, the Settings panel is hidden
+      (boolean, default `true`). When `false`, the Settings page is hidden
       and the `PUT /server/settings` endpoint returns `403 Forbidden`.
+* [ ] **OpenAPI spec update** — add `GET /server/settings` and
+      `PUT /server/settings` to `openapi.yaml`.
 
 ---
 
