@@ -248,6 +248,12 @@ async fn disconnect(
         "User disconnected via POST /disconnect"
     );
 
+    // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
+    state.broadcast_event(&format!(
+        r#"{{"type":"user_disconnected","user_id":"{}"}}"#,
+        body.user_id
+    ));
+
     Ok(Json(DisconnectResponse {
         user_id: body.user_id,
         released_resources: released,

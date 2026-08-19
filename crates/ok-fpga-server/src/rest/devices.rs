@@ -782,6 +782,12 @@ async fn configure_fpga(
     let cleared = state.resource_registry.remove_for_device(&serial);
     if cleared > 0 {
         tracing::info!(serial = %serial, cleared, "Cleared resources for re-programmed device");
+
+        // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
+        state.broadcast_event(&format!(
+            r#"{{"type":"resources_cleared","device_serial":"{}","cleared_count":{}}}"#,
+            serial, cleared
+        ));
     }
 
     Ok(Json(ConfigureResponse {

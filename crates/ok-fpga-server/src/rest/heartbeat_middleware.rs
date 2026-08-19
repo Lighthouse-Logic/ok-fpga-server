@@ -63,7 +63,18 @@ pub async fn heartbeat_middleware(
         .and_then(|v| v.to_str().ok())
     {
         if !user_id.is_empty() {
+            // Check if this is a new user (first time we've seen them).
+            let is_new = state.user_sessions.get(user_id).is_none();
+
             state.user_sessions.touch(user_id);
+
+            // Broadcast user_connected event for dashboard (Phase 25-Fix-H, F9).
+            if is_new {
+                state.broadcast_event(&format!(
+                    r#"{{"type":"user_connected","user_id":"{}"}}"#,
+                    user_id
+                ));
+            }
         }
     }
 

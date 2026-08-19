@@ -566,6 +566,25 @@ function handleWsEvent(data) {
             if (currentPage === 'overview') fetchStatus();
             break;
 
+        // Resource lifecycle events (Phase 25-Fix-H, F9).
+        case 'resource_registered':
+        case 'resource_acquired':
+        case 'resource_released':
+        case 'resource_deleted':
+        case 'resources_cleared':
+            addLogEntry('INFO', `Resource event: ${type}`, data.timestamp);
+            if (currentPage === 'resources') fetchResources();
+            if (currentPage === 'overview') fetchStatus();
+            break;
+
+        // User lifecycle events (Phase 25-Fix-H, F9).
+        case 'user_connected':
+        case 'user_disconnected':
+            addLogEntry('INFO', `User event: ${type} (${data.user_id || ''})`, data.timestamp);
+            if (currentPage === 'users') fetchUsers();
+            if (currentPage === 'overview') fetchStatus();
+            break;
+
         case 'log':
             addLogEntry(data.level || 'INFO', data.message || '', data.timestamp);
             break;

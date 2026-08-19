@@ -14,6 +14,8 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use tokio::sync::broadcast;
+
 use ok_fpga_core::manager::DeviceManager;
 use ok_fpga_core::resource::ResourceRegistry;
 use ok_fpga_core::service_manager::ServiceManager;
@@ -72,6 +74,13 @@ pub struct AppState {
     /// Used by the heartbeat middleware and sweep task for liveness tracking.
     pub user_sessions: Arc<UserSessionRegistry>,
 
+    /// Broadcast channel for real-time events (WebSocket dashboard).
+    ///
+    /// Resource and user lifecycle events are sent through this channel
+    /// so the dashboard auto-refreshes when state changes (Phase 25-Fix-H, F9).
+    /// `None` in unit tests that don't need event broadcasting.
+    pub event_tx: Option<broadcast::Sender<String>>,
+
     /// When the server process started. Used to calculate uptime.
     pub start_time: Instant,
 
@@ -100,6 +109,7 @@ impl AppState {
             auth_provider,
             session_manager,
             user_sessions,
+            event_tx: None,
             start_time: Instant::now(),
             api_version: env!("CARGO_PKG_VERSION"),
         }
@@ -108,5 +118,17 @@ impl AppState {
     /// Returns the server uptime in seconds.
     pub fn uptime_secs(&self) -> u64 {
         self.start_time.elapsed().as_secs()
+    }
+
+    /// Broadcast an event to all connected WebSocket clients.
+    ///
+    /// This is a fire-and-forget operation — if no subscribers are
+    /// listening (or `event_tx` is `None` in tests), the event is silently
+    /// dropped. The JSON string should contain a `type` field that the
+    /// dashboard's `handleWsEvent()` uses to dispatch actions.
+    pub fn broadcast_event(&self, json: &str) {
+        if let Some(ref tx) = self.event_tx {
+            let _ = tx.send(json.to_string());
+        }
     }
 }

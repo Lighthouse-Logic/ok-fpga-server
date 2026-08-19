@@ -429,6 +429,13 @@ async fn create_resource(
 
     if state.resource_registry.register(resource) {
         let created = state.resource_registry.get(&resource_id).unwrap();
+
+        // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
+        state.broadcast_event(&format!(
+            r#"{{"type":"resource_registered","resource_id":"{}","device_serial":"{}"}}"#,
+            resource_id, body.device_serial
+        ));
+
         Ok((StatusCode::CREATED, Json(ResourceView::from(&created))))
     } else {
         Err(ProblemDetail::conflict(&format!(
@@ -466,6 +473,13 @@ async fn delete_resource(
     }
 
     state.resource_registry.remove(&id);
+
+    // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
+    state.broadcast_event(&format!(
+        r#"{{"type":"resource_deleted","resource_id":"{}"}}"#,
+        id
+    ));
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -515,6 +529,12 @@ async fn acquire_resource(
         },
     );
 
+    // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
+    state.broadcast_event(&format!(
+        r#"{{"type":"resource_acquired","resource_id":"{}","user_id":"{}"}}"#,
+        id, body.user_id
+    ));
+
     Ok(Json(ResourceView::from(&resource)))
 }
 
@@ -543,6 +563,12 @@ async fn release_resource(
                 timestamp: chrono::Utc::now(),
             },
         );
+
+        // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
+        state.broadcast_event(&format!(
+            r#"{{"type":"resource_released","resource_id":"{}","user_id":"{}"}}"#,
+            id, body.user_id
+        ));
 
         Ok(Json(serde_json::json!({
             "status": "released",

@@ -48,12 +48,14 @@ use tracing::{debug, info, warn};
 /// * `device_manager` — Used to broadcast ResourceChanged events (Option B)
 /// * `timeout_secs` — Seconds of inactivity before expiration
 /// * `sweep_interval_secs` — How often to run the sweep (seconds)
+/// * `event_tx` — Optional broadcast channel for dashboard events (F9)
 pub fn spawn_sweep_task(
     user_sessions: Arc<UserSessionRegistry>,
     resource_registry: Arc<ResourceRegistry>,
     device_manager: Arc<DeviceManager>,
     timeout_secs: u64,
     sweep_interval_secs: u64,
+    event_tx: Option<tokio::sync::broadcast::Sender<String>>,
 ) {
     // Don't start the sweep task if the timeout is 0 (disabled).
     if timeout_secs == 0 {
@@ -129,6 +131,14 @@ pub fn spawn_sweep_task(
                         "removed expired user session (no held resources)"
                     );
                 }
+
+                // Broadcast user_disconnected event (Phase 25-Fix-H, F9).
+                if let Some(ref tx) = event_tx {
+                    let _ = tx.send(format!(
+                        r#"{{"type":"user_disconnected","user_id":"{}"}}"#,
+                        session.user_id
+                    ));
+                }
             }
         }
     });
@@ -159,6 +169,7 @@ mod tests {
                 Arc::new(DeviceManager::new()),
                 0,  // disabled
                 10,
+                None, // no event broadcasting in tests
             );
             // If we get here without panic, the disabled path works.
         });

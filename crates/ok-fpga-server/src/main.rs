@@ -199,7 +199,7 @@ async fn main() -> anyhow::Result<()> {
     let user_sessions = Arc::new(ok_fpga_core::user::UserSessionRegistry::new());
 
     // Create shared application state.
-    let app_state = Arc::new(AppState::new(
+    let mut app_state_inner = AppState::new(
         device_manager.clone(),
         resource_registry.clone(),
         service_manager.clone(),
@@ -207,7 +207,11 @@ async fn main() -> anyhow::Result<()> {
         auth_provider,
         session_manager,
         user_sessions,
-    ));
+    );
+    // Wire the event broadcast channel so resource/user lifecycle events
+    // reach the WebSocket dashboard (Phase 25-Fix-H, F9).
+    app_state_inner.event_tx = Some(event_tx.clone());
+    let app_state = Arc::new(app_state_inner);
 
     // Wrap config in Arc (needed by management server and mDNS service).
     let cfg_arc = Arc::new(cfg);
@@ -249,6 +253,7 @@ async fn main() -> anyhow::Result<()> {
         app_state.device_manager.clone(),
         cfg_arc.server.user_timeout_secs,
         cfg_arc.server.user_sweep_interval_secs,
+        Some(event_tx.clone()),
     );
 
     info!("ok-FPGA-Server is ready. Press Ctrl+C to shut down.");
