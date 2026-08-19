@@ -543,6 +543,18 @@ impl CountersClient {
         let body = serde_json::json!({ "user_id": self.user_id });
         self.post("/heartbeat", Some(body)).await
     }
+
+    /// `POST /disconnect` — Cleanly disconnect this user from the server.
+    ///
+    /// Releases all resources held by this user on any device, removes
+    /// the user session, and stops heartbeat tracking. This is the
+    /// recommended way to end a client session (Phase 25-Fix-H, F10).
+    ///
+    /// Returns the server response with `released_resources` count.
+    pub async fn disconnect(&self) -> Result<Value, ClientError> {
+        let body = serde_json::json!({ "user_id": self.user_id });
+        self.post("/disconnect", Some(body)).await
+    }
 }
 
 // ============================================================================

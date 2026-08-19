@@ -272,3 +272,12 @@ class CountersClient:
 
     def heartbeat(self):
         return self._post("/heartbeat", {"user_id": self.user_id})
+
+    def disconnect(self):
+        """Cleanly disconnect this user from the server (Phase 25-Fix-H, F10).
+
+        Releases all resources held by this user on any device, removes
+        the user session, and stops heartbeat tracking. This is the
+        recommended way to end a client session.
+        """
+        return self._post("/disconnect", {"user_id": self.user_id})

@@ -390,6 +390,20 @@ impl CountersGrpcClient {
             .await?;
         Ok(())
     }
+
+    /// Cleanly disconnect this user from the server (Phase 25-Fix-H, F10).
+    ///
+    /// Releases all resources held by this user on any device, removes
+    /// the user session, and stops heartbeat tracking. This is the
+    /// recommended way to end a client session.
+    pub async fn disconnect(&mut self) -> Result<(), ClientError> {
+        self.user_mgmt
+            .disconnect(okfpga::v1::DisconnectRequest {
+                user_id: self.user_id.clone(),
+            })
+            .await?;
+        Ok(())
+    }
 }
 
 // ============================================================================

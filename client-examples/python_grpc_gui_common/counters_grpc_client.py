@@ -201,3 +201,13 @@ class CountersGrpcClient:
 
     def heartbeat(self):
         self.device_stub.Ping(okfpga_pb2.PingRequest(user_id=self.user_id))
+
+    def disconnect(self):
+        """Cleanly disconnect this user from the server (Phase 25-Fix-H, F10).
+
+        Releases all resources held by this user on any device, removes
+        the user session, and stops heartbeat tracking. This is the
+        recommended way to end a client session.
+        """
+        self.user_mgmt_stub.Disconnect(
+            okfpga_pb2.DisconnectRequest(user_id=self.user_id))
