@@ -45,7 +45,7 @@ document.querySelectorAll('.nav-link').forEach(link => {
 
 /**
  * Navigate to a page by name.
- * @param {string} page - One of: overview, devices, resources, users, services, logs
+ * @param {string} page - One of: overview, devices, resources, users, services, logs, settings
  */
 function navigateTo(page) {
     // Update nav active state.
@@ -67,6 +67,7 @@ function navigateTo(page) {
         case 'resources': fetchResources(); break;
         case 'users': fetchUsers(); break;
         case 'services': fetchServices(); break;
+        case 'settings': fetchSettings(); break;
     }
 }
 
@@ -597,6 +598,12 @@ function handleWsEvent(data) {
             addLogEntry('ERROR', 'Server is shutting down', data.timestamp);
             break;
 
+        // Settings update event (Phase 28B).
+        case 'settings_updated':
+            addLogEntry('INFO', 'Server settings updated', data.timestamp);
+            if (currentPage === 'settings') fetchSettings();
+            break;
+
         default:
             addLogEntry('DEBUG', JSON.stringify(data));
     }
@@ -641,6 +648,94 @@ function escapeHtml(str) {
 }
 
 // ============================================================================
+// Settings (Phase 28B)
+// ============================================================================
+
+/**
+ * Fetch current server settings and populate the Settings form.
+ */
+async function fetchSettings() {
+    try {
+        const res = await fetch(`${API_BASE}/settings`);
+        if (res.status === 403) {
+            // Settings are disabled — hide the nav item.
+            const navItem = document.getElementById('nav-settings-item');
+            if (navItem) navItem.style.display = 'none';
+            return;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        document.getElementById('setting-description').value = data.description || '';
+        document.getElementById('setting-enforcement').value = data.endpoint_enforcement || 'off';
+
+        // Ensure the nav item is visible.
+        const navItem = document.getElementById('nav-settings-item');
+        if (navItem) navItem.style.display = '';
+    } catch (err) {
+        console.error('Failed to load settings:', err);
+    }
+}
+
+/**
+ * Save settings to the server via PUT.
+ */
+async function saveSettings() {
+    const description = document.getElementById('setting-description').value;
+    const enforcement = document.getElementById('setting-enforcement').value;
+    const statusPanel = document.getElementById('settings-status-panel');
+    const statusMsg = document.getElementById('settings-status-msg');
+
+    try {
+        const res = await fetch(`${API_BASE}/settings`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                description: description,
+                endpoint_enforcement: enforcement,
+            }),
+        });
+
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text || `HTTP ${res.status}`);
+        }
+
+        statusMsg.textContent = '\u2714 Settings saved successfully and persisted to config file.';
+        statusMsg.className = 'settings-status success';
+        statusPanel.style.display = '';
+
+        // Auto-hide after 5 seconds.
+        setTimeout(() => { statusPanel.style.display = 'none'; }, 5000);
+    } catch (err) {
+        statusMsg.textContent = `\u2718 Failed to save settings: ${err.message}`;
+        statusMsg.className = 'settings-status error';
+        statusPanel.style.display = '';
+    }
+}
+
+// Wire the Save button.
+document.getElementById('btn-save-settings')?.addEventListener('click', saveSettings);
+
+/**
+ * Check if settings are exposed and hide the nav item if not.
+ * Called once at init to handle the case where the page loads on a non-settings page.
+ */
+async function checkSettingsVisibility() {
+    try {
+        const res = await fetch(`${API_BASE}/settings`);
+        const navItem = document.getElementById('nav-settings-item');
+        if (res.status === 403) {
+            if (navItem) navItem.style.display = 'none';
+        } else {
+            if (navItem) navItem.style.display = '';
+        }
+    } catch (_) {
+        // Network error — leave the nav item visible.
+    }
+}
+
+// ============================================================================
 // Initialization
 // ============================================================================
 
@@ -659,4 +754,7 @@ function escapeHtml(str) {
 
     // Fetch initial log file size (ADR-022).
     updateLogFileSize();
+
+    // Check if Settings page should be visible (Phase 28B).
+    checkSettingsVisibility();
 })();

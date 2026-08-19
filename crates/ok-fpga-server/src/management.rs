@@ -15,9 +15,9 @@ use std::sync::Arc;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
 use crate::log_broadcast::{self, LogEvent, LogRingBuffer};
@@ -76,6 +76,9 @@ pub fn build_management_router(
         .route("/mgmt/logs/download", get(mgmt_logs_download))
         .route("/mgmt/logs/size", get(mgmt_logs_size))
         .route("/mgmt/logs", delete(mgmt_logs_clear))
+        // Settings (Phase 28B)
+        .route("/mgmt/settings", get(mgmt_get_settings))
+        .route("/mgmt/settings", put(mgmt_put_settings))
         // WebSocket
         .route("/ws/events", get(ws_events))
         .with_state(mgmt_state);
@@ -721,6 +724,104 @@ fn compiled_features() -> Vec<String> {
     #[cfg(feature = "mdns")]
     features.push("mdns".to_string());
     features
+}
+
+// ============================================================================
+// Settings (Phase 28B)
+// ============================================================================
+
+/// Response/request body for `/mgmt/settings`.
+#[derive(Serialize, Deserialize)]
+struct SettingsBody {
+    /// Human-readable server description.
+    description: String,
+    /// Endpoint enforcement level: "off", "warn", or "enforce".
+    endpoint_enforcement: String,
+}
+
+/// `GET /mgmt/settings` — Read current runtime settings.
+async fn mgmt_get_settings(
+    State(state): State<Arc<MgmtState>>,
+) -> Result<Json<SettingsBody>, (axum::http::StatusCode, String)> {
+    let cfg = state.app.config.read().unwrap();
+    if !cfg.dashboard.expose_settings {
+        return Err((
+            axum::http::StatusCode::FORBIDDEN,
+            "Settings exposure is disabled".to_string(),
+        ));
+    }
+
+    let description = if cfg.server.description.is_empty() {
+        cfg.mdns.instance_name.clone()
+    } else {
+        cfg.server.description.clone()
+    };
+
+    Ok(Json(SettingsBody {
+        description,
+        endpoint_enforcement: cfg.access_control.endpoint_enforcement.clone(),
+    }))
+}
+
+/// `PUT /mgmt/settings` — Update runtime settings and persist to TOML.
+async fn mgmt_put_settings(
+    State(state): State<Arc<MgmtState>>,
+    Json(body): Json<SettingsBody>,
+) -> Result<Json<SettingsBody>, (axum::http::StatusCode, String)> {
+    // Check the expose_settings guard.
+    {
+        let cfg = state.app.config.read().unwrap();
+        if !cfg.dashboard.expose_settings {
+            return Err((
+                axum::http::StatusCode::FORBIDDEN,
+                "Settings exposure is disabled".to_string(),
+            ));
+        }
+    }
+
+    // Validate enforcement value.
+    let enforcement_lower = body.endpoint_enforcement.to_lowercase();
+    if !matches!(enforcement_lower.as_str(), "off" | "warn" | "enforce") {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            format!("Invalid endpoint_enforcement value '{}'", body.endpoint_enforcement),
+        ));
+    }
+
+    // Apply changes to the in-memory config.
+    {
+        let mut cfg = state.app.config.write().unwrap();
+        cfg.server.description = body.description.clone();
+        cfg.access_control.endpoint_enforcement = enforcement_lower.clone();
+    }
+
+    // Persist to TOML file.
+    if let Some(ref path) = state.app.config_path {
+        let cfg = state.app.config.read().unwrap();
+        if let Err(e) = crate::config::save_config(&cfg, path) {
+            warn!(error = %e, "Failed to persist settings to TOML");
+            return Err((
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Settings applied but could not be saved to disk".to_string(),
+            ));
+        }
+    }
+
+    info!(
+        description = %body.description,
+        endpoint_enforcement = %enforcement_lower,
+        "Server settings updated via management API"
+    );
+
+    // Broadcast event so the dashboard auto-refreshes.
+    let _ = state.event_tx.send(
+        r#"{"type":"settings_updated"}"#.to_string(),
+    );
+
+    Ok(Json(SettingsBody {
+        description: body.description,
+        endpoint_enforcement: enforcement_lower,
+    }))
 }
 
 // ============================================================================
