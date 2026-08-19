@@ -15,7 +15,9 @@ from typing import Optional, List
 
 import grpc
 
-# Add the generated proto directory to the path.
+# The generated gRPC stubs in gen/ use absolute imports internally
+# (e.g., `import okfpga_pb2`), so gen/ must be on sys.path regardless
+# of whether we use relative or absolute imports here.
 _gen_dir = os.path.join(os.path.dirname(__file__), "gen")
 if _gen_dir not in sys.path:
     sys.path.insert(0, _gen_dir)
@@ -23,14 +25,22 @@ if _gen_dir not in sys.path:
 # These imports require the generated proto stubs in gen/.
 # If missing, run: python generate_stubs.py
 try:
-    from gen import okfpga_pb2
-    from gen import okfpga_pb2_grpc
-except ImportError as e:
-    raise ImportError(
-        "gRPC proto stubs not found. Run 'python generate_stubs.py' in "
-        "the python_grpc_gui_common/ directory to generate them. "
-        f"Original error: {e}"
-    ) from e
+    # Relative import — works when imported as part of the
+    # python_grpc_gui_common package (normal usage from test/demo code).
+    from .gen import okfpga_pb2
+    from .gen import okfpga_pb2_grpc
+except ImportError:
+    try:
+        # Absolute import fallback — works when running the module directly
+        # or when the package context is unavailable.
+        from gen import okfpga_pb2  # type: ignore[no-redef]
+        from gen import okfpga_pb2_grpc  # type: ignore[no-redef]
+    except ImportError as e:
+        raise ImportError(
+            "gRPC proto stubs not found. Run 'python generate_stubs.py' in "
+            "the python_grpc_gui_common/ directory to generate them. "
+            f"Original error: {e}"
+        ) from e
 
 
 @dataclass

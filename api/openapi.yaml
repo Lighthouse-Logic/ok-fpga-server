@@ -1255,6 +1255,95 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
 
+  /resources/{resource_id}/lock:
+    post:
+      tags: [Resources]
+      summary: Lock a shared resource for exclusive use
+      description: |
+        A holder of a shared resource can temporarily lock it for exclusive use.
+        Other holders remain in the holders list but cannot operate on the
+        resource until it is unlocked. Only works on resources in `InUseShared`
+        state.
+      operationId: lockResource
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id:
+                  type: string
+                  description: The user requesting the lock. Must be a current holder of the resource.
+      responses:
+        '200':
+          description: Resource locked successfully. Returns the updated resource state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resource'
+        '404':
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '409':
+          description: |
+            Conflict — resource is not in a lockable state (e.g., not shared,
+            already locked by another user, or user is not a holder).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /resources/{resource_id}/unlock:
+    post:
+      tags: [Resources]
+      summary: Unlock a previously locked resource
+      description: |
+        Unlocks a resource that was previously locked via `/lock`. Only the user
+        who holds the lock can unlock it. The resource returns to `InUseShared`
+        state.
+      operationId: unlockResource
+      parameters:
+        - $ref: '#/components/parameters/resourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id:
+                  type: string
+                  description: The user who holds the lock.
+      responses:
+        '200':
+          description: Resource unlocked successfully. Returns the updated resource state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resource'
+        '404':
+          description: Resource not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '409':
+          description: |
+            Conflict — resource is not locked, or the requesting user does not
+            hold the lock.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
   # ---- Users ----
 
   /users:
@@ -1291,6 +1380,54 @@ paths:
                 $ref: '#/components/schemas/UserSession'
         '404':
           description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /heartbeat:
+    post:
+      tags: [Users]
+      summary: User liveness heartbeat
+      description: |
+        Clients should call this periodically (recommended: every 30 seconds)
+        to keep their session alive. The server updates the user's
+        `last_seen_at` timestamp.
+
+        If a user's heartbeat expires (no activity for the configured timeout),
+        the server will automatically disconnect them and release all held
+        resources. This endpoint provides an explicit ping; the implicit
+        heartbeat middleware also touches the session on every REST request
+        that includes an `X-User-Id` header.
+      operationId: heartbeat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id:
+                  type: string
+                  description: The user identifier sending the heartbeat.
+      responses:
+        '200':
+          description: Heartbeat acknowledged
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  server_time:
+                    type: string
+                    format: date-time
+                    description: Server timestamp (ISO 8601) when the ping was received.
+                  user_id:
+                    type: string
+                    description: Echoed back user ID for confirmation.
+        '400':
+          description: Missing or empty user_id
           content:
             application/json:
               schema:

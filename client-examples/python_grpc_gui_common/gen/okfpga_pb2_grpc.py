@@ -206,6 +206,11 @@ class DeviceServiceStub:
                 request_serializer=okfpga__pb2.PingRequest.SerializeToString,
                 response_deserializer=okfpga__pb2.PingResponse.FromString,
                 _registered_method=True)
+        self.Disconnect = channel.unary_unary(
+                '/okFPGAService.v1.DeviceService/Disconnect',
+                request_serializer=okfpga__pb2.DisconnectRequest.SerializeToString,
+                response_deserializer=okfpga__pb2.DisconnectResponse.FromString,
+                _registered_method=True)
 
 
 class DeviceServiceServicer:
@@ -475,6 +480,16 @@ class DeviceServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Disconnect(self, request, context):
+        """User-initiated disconnect (Phase 25-Fix-H, F10).
+        Releases all resources held by this user on any device,
+        removes the user session, and ceases heartbeat checking.
+        This is the recommended way to end a client session.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_DeviceServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -642,6 +657,11 @@ def add_DeviceServiceServicer_to_server(servicer, server):
                     servicer.Ping,
                     request_deserializer=okfpga__pb2.PingRequest.FromString,
                     response_serializer=okfpga__pb2.PingResponse.SerializeToString,
+            ),
+            'Disconnect': grpc.unary_unary_rpc_method_handler(
+                    servicer.Disconnect,
+                    request_deserializer=okfpga__pb2.DisconnectRequest.FromString,
+                    response_serializer=okfpga__pb2.DisconnectResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -1542,6 +1562,33 @@ class DeviceService:
             '/okFPGAService.v1.DeviceService/Ping',
             okfpga__pb2.PingRequest.SerializeToString,
             okfpga__pb2.PingResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Disconnect(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/okFPGAService.v1.DeviceService/Disconnect',
+            okfpga__pb2.DisconnectRequest.SerializeToString,
+            okfpga__pb2.DisconnectResponse.FromString,
             options,
             channel_credentials,
             insecure,
