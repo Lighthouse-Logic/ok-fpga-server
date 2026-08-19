@@ -23,28 +23,12 @@
 
 | Horizon | Focus Area | ADR | Status |
 |---------|-----------|-----|--------|
-| **Phase 27 (Now)** | OpenAPI spec gaps | — | 🟢 In Progress |
-| **Phase 28 (Next)** | mDNS-Powered GUI Discovery + Dashboard Settings | ADR-025 (TBD) | 🟡 Planned |
+| **Phase 28 (Now)** | mDNS-Powered GUI Discovery + Dashboard Settings | ADR-025 (TBD) | 🟡 Planned |
 | **Phase 29+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
-## 🟢 Now: Phase 27 — OpenAPI Spec Gaps
-
-*Focus: Address the spec gaps identified during ADR-004/005 alignment.*
-
-* [ ] **Add `POST /heartbeat` to `openapi.yaml`** — explicit liveness endpoint
-      (currently only in ADR-020 and gRPC proto `Ping` RPC)
-
-* [ ] **Add `POST /resources/{id}/lock` and `/unlock` to `openapi.yaml`** —
-      currently only in ADR-020 and gRPC proto `LockResource`/`UnlockResource`
-
-* [ ] **Python gRPC demo unit tests** — requires proto generation step;
-      deferred from Phase 25-Fix
-
----
-
-## 🟡 Next: Phase 28 — mDNS-Powered GUI Discovery + Dashboard Settings
+## 🟢 Now: Phase 28 — mDNS-Powered GUI Discovery + Dashboard Settings
 
 *Focus: All GUI example clients discover servers via mDNS before connecting.
 The server gains a runtime-editable Settings panel in the Web Dashboard.*
@@ -89,6 +73,13 @@ configurable server settings.
 * [ ] **`expose_settings` config switch** — `[dashboard] expose_settings`
       (boolean, default `true`). When `false`, the Settings panel is hidden
       and the `PUT /server/settings` endpoint returns `403 Forbidden`.
+
+---
+
+## 🟡 Next: Planned Milestones
+
+*No planned milestones at this time. Items will be promoted from Later as
+priorities are identified.*
 
 ---
 
@@ -195,6 +186,7 @@ implementation details, verification steps, and acceptance criteria.
 | 24 | Dashboard Log Streaming | 2026-08-18 | ADR-022 | [phases 23–25](archive/roadmap-phases-23-25.md) |
 | 25 | GUI Example Clients | 2026-08-18 | ADR-023 | [phases 23–25](archive/roadmap-phases-23-25.md) |
 | 26 | Endpoint Access Enforcement | 2026-08-19 | ADR-024 | — |
+| 27 | OpenAPI Spec Gaps | 2026-08-19 | — | — |
 
 ---
 
