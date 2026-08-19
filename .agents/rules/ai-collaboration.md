@@ -106,14 +106,6 @@ REST and gRPC APIs respectively.
 The project maintains a rolling log of architectural decisions in
 `docs/architecture/`. **This log must be kept current.**
 
-**When to write or update an ADR:**
-- Any change to the FFI binding strategy or new C API functions exposed.
-- Any change to the REST API (OpenAPI spec) or gRPC API (proto3 spec).
-- Any change to the resource management model or state transitions.
-- Any new data port type, device support, or SYZYGY discovery changes.
-- Any change to the authentication architecture.
-- Any bug fix that reveals a design flaw worth documenting for future AI sessions.
-
 **How to write an ADR:**
 1. Number sequentially (next = highest existing number + 1).
 2. Use the filename pattern `ADR-NNN-short-slug.md`.
@@ -128,8 +120,21 @@ The project maintains a rolling log of architectural decisions in
 - Files changed
 - Open items / future work
 
+### 7.1 ADR Editing 
+
+**When to write or update an ADR:**
+- Any change to the FFI binding strategy or new C API functions exposed.
+- Any change to the REST API (OpenAPI spec) or gRPC API (proto3 spec).
+- Any change to the resource management model or state transitions.
+- Any new data port type, device support, or SYZYGY discovery changes.
+- Any change to the authentication architecture.
+- Any bug fix that reveals a design flaw worth documenting for future AI sessions.
+
 ADRs are **never deleted** — they are amended with addenda if a decision is later
-revised or superseded.
+revised or they are superseded by new ADRs, or deprecated.
+
+### 7.2 Ignore ADRs that are not Accepted.  
+When referencing architecture decisions in docs/architecture/adr/, only follow ADRs with status Accepted. Ignore ADRs marked Superseded or Deprecated except for historical context.
 
 ---
 
