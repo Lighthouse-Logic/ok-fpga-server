@@ -11,7 +11,11 @@ use iced::widget::{
     progress_bar, row, rule, scrollable, text, text_input, Column, Row, Space,
 };
 use iced::{Element, Length, Subscription, Task, Theme};
-use rust_rest_gui_common::{CounterState, CountersClient, DeviceInfo, ResourceInfo, WireInState};
+use rust_rest_gui_common::{
+    CounterState, CountersClient, DeviceInfo, ResourceInfo, WireInState,
+    mdns_browser::DiscoveredServer,
+};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const DEFAULT_REST_URL: &str = "http://localhost:8088";
@@ -67,8 +71,25 @@ fn boot() -> (AppState, Task<Message>) {
             log_entries: vec![],
             last_error: None,
             show_disconnect_dialog: false,
+            discovered_servers: vec![],
         },
-        Task::none(),
+        // Start mDNS discovery on boot.
+        Task::perform(
+            async {
+                match rust_rest_gui_common::mdns_browser::MdnsBrowser::new() {
+                    Ok(browser) => {
+                        let servers = browser.browse_for(Duration::from_secs(3)).await;
+                        browser.stop();
+                        servers
+                    }
+                    Err(e) => {
+                        tracing::warn!("mDNS browse failed: {}", e);
+                        vec![]
+                    }
+                }
+            },
+            Message::MdnsDiscovered,
+        ),
     )
 }
 
@@ -115,6 +136,8 @@ pub struct AppState {
     pub log_entries: Vec<(String, bool)>,
     pub last_error: Option<String>,
     pub show_disconnect_dialog: bool,
+    /// Discovered ok-FPGA servers via mDNS (Phase 28A).
+    pub discovered_servers: Vec<DiscoveredServer>,
 }
 
 impl AppState {
@@ -197,6 +220,9 @@ pub enum Message {
     SetBitfileMode(BitfileMode),
     CheckDeviceState,
     CheckDeviceStateResult(Result<(bool, Option<ResourceInfo>), String>),
+    // Phase 28A: mDNS discovery.
+    MdnsDiscovered(Vec<DiscoveredServer>),
+    MdnsSelectServer(String),
 }
 
 // ============================================================================
@@ -207,6 +233,17 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
     match message {
         Message::UrlChanged(url) => { state.rest_url = url; Task::none() }
         Message::BitfileChanged(path) => { state.bitfile_path = path; Task::none() }
+
+        // Phase 28A: mDNS discovery results.
+        Message::MdnsDiscovered(servers) => {
+            state.log(&format!("mDNS: discovered {} server(s)", servers.len()));
+            state.discovered_servers = servers;
+            Task::none()
+        }
+        Message::MdnsSelectServer(url) => {
+            state.rest_url = url;
+            Task::none()
+        }
 
         Message::ConnectPressed => {
             let client = state.make_client();
@@ -628,8 +665,32 @@ fn view_connection(state: &AppState) -> Element<'_, Message> {
         ].spacing(4).into()
     } else { text("").into() };
 
+    // Phase 28A: mDNS discovered servers dropdown.
+    let mdns_section: Element<Message> = if !state.discovered_servers.is_empty() {
+        let options: Vec<String> = state.discovered_servers.iter()
+            .map(|s| {
+                let port_str = s.rest_port.map(|p| format!(":{}", p)).unwrap_or_default();
+                format!("{} — http://{}{}" , s.description, s.host, port_str)
+            })
+            .collect();
+        row![
+            text("Discovered (mDNS):").width(100),
+            pick_list(options, Option::<String>::None, |picked| {
+                // Extract the URL from the display string.
+                if let Some(url) = picked.split(" — ").nth(1) {
+                    Message::MdnsSelectServer(url.to_string())
+                } else {
+                    Message::MdnsSelectServer(picked)
+                }
+            }).placeholder("Select a discovered server...").width(400),
+        ].spacing(8).into()
+    } else {
+        text("").into()
+    };
+
     column![
         disconnect_msg,
+        mdns_section,
         url_row, connect_btn,
         device_picker,
         bitfile_row, mode_row, program_btn, register_btn, acquire_btn,

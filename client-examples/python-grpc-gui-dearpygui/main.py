@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from python_grpc_gui_common.counters_grpc_client import (
     CountersGrpcClient, CounterState, WireInState, DeviceInfo, ResourceInfo,
 )
+from python_grpc_gui_common.mdns_browser import MdnsBrowser, DiscoveredServer
 
 DEFAULT_GRPC_ADDR = "localhost:50051"
 DEFAULT_BITFILE = (
@@ -50,6 +51,11 @@ class CountersApp:
         self.grpc_addr = DEFAULT_GRPC_ADDR
         self.bitfile_path = os.environ.get("OKFPGA_TEST_BITFILE", DEFAULT_BITFILE)
 
+        # Phase 28A: mDNS discovery.
+        self.discovered_servers: list[DiscoveredServer] = []
+        self._mdns_browser = MdnsBrowser()
+        self._mdns_browser.start()
+
     def run(self):
         dpg.create_context()
         dpg.create_viewport(title="Counters.bit — Dear Garpac (gRPC + DearPyGui)",
@@ -59,6 +65,21 @@ class CountersApp:
             dpg.add_text("Counters.bit — Dear Garpac (gRPC)")
 
             with dpg.group(tag="connection_panel"):
+                # Phase 28A: mDNS discovered servers.
+                import time
+                time.sleep(2)
+                self.discovered_servers = self._mdns_browser.get_servers()
+                self._mdns_browser.stop()
+                if self.discovered_servers:
+                    mdns_labels = [
+                        f"{s.description} — {s.host}:{s.grpc_port or s.port}"
+                        for s in self.discovered_servers
+                    ]
+                    dpg.add_combo(mdns_labels, tag="mdns_combo", width=400,
+                                  label="Discovered (mDNS)",
+                                  default_value="Select a discovered server...",
+                                  callback=self._on_mdns_select)
+
                 dpg.add_input_text(label="gRPC Address", default_value=self.grpc_addr, tag="addr_input", width=400)
                 dpg.add_button(label="1. Connect", tag="connect_btn", callback=self._on_connect)
                 dpg.add_combo([], tag="device_combo", width=400, callback=self._on_device_select,
@@ -128,6 +149,14 @@ class CountersApp:
                 pass
 
         dpg.destroy_context()
+
+    def _on_mdns_select(self, sender, app_data):
+        """Handle mDNS server selection — extract address and fill the input."""
+        parts = app_data.split(" \u2014 ", 1)
+        if len(parts) == 2:
+            addr = parts[1]
+            dpg.set_value("addr_input", addr)
+            self.grpc_addr = addr
 
     def _on_connect(self):
         try:

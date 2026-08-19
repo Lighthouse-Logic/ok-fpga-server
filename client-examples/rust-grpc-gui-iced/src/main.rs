@@ -17,7 +17,10 @@ use iced::widget::{
     progress_bar, row, rule, scrollable, text, text_input, Column, Row, Space,
 };
 use iced::{Element, Length, Subscription, Task, Theme};
-use rust_grpc_gui_common::{CounterState, CountersGrpcClient, DeviceInfo, ResourceInfo, WireInState};
+use rust_grpc_gui_common::{
+    CounterState, CountersGrpcClient, DeviceInfo, ResourceInfo, WireInState,
+    mdns_browser::DiscoveredServer,
+};
 use std::time::Duration;
 
 const DEFAULT_GRPC_URL: &str = "http://localhost:50051";
@@ -51,7 +54,19 @@ fn theme(_state: &AppState) -> Theme {
 fn boot() -> (AppState, Task<Message>) {
     let bitfile = std::env::var("OKFPGA_TEST_BITFILE")
         .unwrap_or_else(|_| DEFAULT_BITFILE.to_string());
-    (AppState::new(bitfile), Task::none())
+    (AppState::new(bitfile), Task::perform(
+        async {
+            match rust_grpc_gui_common::mdns_browser::MdnsBrowser::new() {
+                Ok(browser) => {
+                    let servers = browser.browse_for(Duration::from_secs(3)).await;
+                    browser.stop();
+                    servers
+                }
+                Err(_) => vec![],
+            }
+        },
+        Message::MdnsDiscovered,
+    ))
 }
 
 /// Application phase — sequential startup flow.
@@ -85,6 +100,8 @@ pub struct AppState {
     pub log_entries: Vec<(String, bool)>,
     pub last_error: Option<String>,
     pub show_disconnect_dialog: bool,
+    /// Discovered ok-FPGA servers via mDNS (Phase 28A).
+    pub discovered_servers: Vec<DiscoveredServer>,
 }
 
 impl AppState {
@@ -97,6 +114,7 @@ impl AppState {
             resource_id: None, wire_in: WireInState::default(), poll_interval_ms: 500,
             override_lockout: false, counter: CounterState::default(), resource_info: None,
             log_entries: vec![], last_error: None, show_disconnect_dialog: false,
+            discovered_servers: vec![],
         }
     }
 
@@ -143,12 +161,24 @@ pub enum Message {
     SetBitfileMode(BitfileMode),
     CheckDeviceState,
     CheckDeviceStateResult(Result<(bool, Option<ResourceInfo>), String>),
+    // Phase 28A: mDNS discovery.
+    MdnsDiscovered(Vec<DiscoveredServer>),
+    MdnsSelectServer(String),
 }
 
 fn update(state: &mut AppState, message: Message) -> Task<Message> {
     match message {
         Message::UrlChanged(u) => { state.grpc_url = u; Task::none() }
         Message::BitfileChanged(p) => { state.bitfile_path = p; Task::none() }
+        Message::MdnsDiscovered(servers) => {
+            state.log(&format!("mDNS: discovered {} server(s)", servers.len()));
+            state.discovered_servers = servers;
+            Task::none()
+        }
+        Message::MdnsSelectServer(url) => {
+            state.grpc_url = url;
+            Task::none()
+        }
         Message::ConnectPressed => {
             let url = state.grpc_url.clone();
             Task::perform(async move {
@@ -437,8 +467,31 @@ fn view_connect(s: &AppState) -> Element<'_, Message> {
             .on_press(Message::SetBitfileMode(BitfileMode::LocalFile)),
     ].spacing(8);
 
+    // Phase 28A: mDNS discovered servers dropdown.
+    let mdns_section: Element<Message> = if !s.discovered_servers.is_empty() {
+        let options: Vec<String> = s.discovered_servers.iter()
+            .map(|srv| {
+                let port_str = srv.grpc_port.map(|p| format!(":{}", p)).unwrap_or_default();
+                format!("{} — http://{}{}" , srv.description, srv.host, port_str)
+            })
+            .collect();
+        row![
+            text("Discovered (mDNS):").width(100),
+            pick_list(options, Option::<String>::None, |picked| {
+                if let Some(url) = picked.split(" — ").nth(1) {
+                    Message::MdnsSelectServer(url.to_string())
+                } else {
+                    Message::MdnsSelectServer(picked)
+                }
+            }).placeholder("Select a discovered server...").width(400),
+        ].spacing(8).into()
+    } else {
+        text("").into()
+    };
+
     column![
         disconnect_msg,
+        mdns_section,
         row![text("gRPC URL:").width(100), text_input("http://localhost:50051", &s.grpc_url).on_input(Message::UrlChanged)].spacing(8),
         con, device_picker,
         row![text("Bitfile:").width(100), text_input("path", &s.bitfile_path).on_input(Message::BitfileChanged)].spacing(8),

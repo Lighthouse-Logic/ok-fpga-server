@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from python_rest_gui_common.counters_client import (
     CountersClient, CounterState, WireInState, DeviceInfo, ResourceInfo, ClientError,
 )
+from python_rest_gui_common.mdns_browser import MdnsBrowser, DiscoveredServer
 
 DEFAULT_REST_URL = "http://localhost:8088"
 DEFAULT_BITFILE = (
@@ -49,6 +50,11 @@ class CountersApp:
         self.rest_url = DEFAULT_REST_URL
         self.bitfile_path = os.environ.get("OKFPGA_TEST_BITFILE", DEFAULT_BITFILE)
 
+        # Phase 28A: mDNS discovery.
+        self.discovered_servers: list[DiscoveredServer] = []
+        self._mdns_browser = MdnsBrowser()
+        self._mdns_browser.start()
+
     def run(self):
         dpg.create_context()
         dpg.create_viewport(title="Counters.bit — Dear Rester (REST + DearPyGui)",
@@ -59,6 +65,21 @@ class CountersApp:
 
             # Connection panel.
             with dpg.group(tag="connection_panel"):
+                # Phase 28A: mDNS discovered servers.
+                import time
+                time.sleep(2)  # Brief pause to let mDNS discover.
+                self.discovered_servers = self._mdns_browser.get_servers()
+                self._mdns_browser.stop()
+                if self.discovered_servers:
+                    mdns_labels = [
+                        f"{s.description} — http://{s.host}:{s.rest_port or s.port}"
+                        for s in self.discovered_servers
+                    ]
+                    dpg.add_combo(mdns_labels, tag="mdns_combo", width=400,
+                                  label="Discovered (mDNS)",
+                                  default_value="Select a discovered server...",
+                                  callback=self._on_mdns_select)
+
                 dpg.add_input_text(label="Server URL", default_value=self.rest_url, tag="url_input", width=400)
                 dpg.add_button(label="1. Connect to Server", tag="connect_btn", callback=self._on_connect)
                 dpg.add_combo([], tag="device_combo", width=400, callback=self._on_device_select,
@@ -141,6 +162,15 @@ class CountersApp:
     # ========================================================================
     # Event Handlers
     # ========================================================================
+
+    def _on_mdns_select(self, sender, app_data):
+        """Handle mDNS server selection — extract URL and fill the URL input."""
+        # Extract URL from "description — http://host:port" label.
+        parts = app_data.split(" \u2014 ", 1)
+        if len(parts) == 2:
+            url = parts[1]
+            dpg.set_value("url_input", url)
+            self.rest_url = url
 
     def _on_connect(self):
         try:

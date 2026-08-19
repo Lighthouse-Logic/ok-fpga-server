@@ -26,7 +26,10 @@
 //! ```
 
 use eframe::egui;
-use rust_rest_gui_common::{CounterState, CountersClient, DeviceInfo, ResourceInfo, WireInState};
+use rust_rest_gui_common::{
+    CounterState, CountersClient, DeviceInfo, ResourceInfo, WireInState,
+    mdns_browser::DiscoveredServer,
+};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -148,6 +151,8 @@ struct CountersApp {
     // --- Quit / disconnect dialogs ---
     show_quit_dialog: bool,
     show_disconnect_dialog: bool,
+    /// Discovered ok-FPGA servers via mDNS (Phase 28A).
+    discovered_servers: Vec<DiscoveredServer>,
 }
 
 impl CountersApp {
@@ -178,7 +183,27 @@ impl CountersApp {
             last_device_refresh: Instant::now(),
             show_quit_dialog: false,
             show_disconnect_dialog: false,
+            discovered_servers: vec![],
+        };
+
+        // Start mDNS discovery in background.
+        let runtime = &app.runtime;
+        let servers = runtime.block_on(async {
+            match rust_rest_gui_common::mdns_browser::MdnsBrowser::new() {
+                Ok(browser) => {
+                    let found = browser.browse_for(Duration::from_secs(3)).await;
+                    browser.stop();
+                    found
+                }
+                Err(_) => vec![],
+            }
+        });
+        if !servers.is_empty() {
+            app.log(&format!("mDNS: discovered {} server(s)", servers.len()));
+            app.discovered_servers = servers;
         }
+
+        app
     }
 
     /// Add a message to the activity log.
@@ -466,6 +491,27 @@ impl eframe::App for CountersApp {
 impl CountersApp {
     fn draw_connection_panel(&mut self, ui: &mut egui::Ui) {
         ui.add_space(8.0);
+
+        // Phase 28A: mDNS discovered servers dropdown.
+        if !self.discovered_servers.is_empty() {
+            ui.horizontal(|ui| {
+                ui.label("Discovered (mDNS):");
+                let mut selected_label = "Select a discovered server...".to_string();
+                egui::ComboBox::from_id_salt("mdns_servers")
+                    .selected_text(&selected_label)
+                    .show_ui(ui, |ui| {
+                        for server in &self.discovered_servers {
+                            let port_str = server.rest_port.map(|p| format!(":{}", p)).unwrap_or_default();
+                            let label = format!("{} — http://{}{}" , server.description, server.host, port_str);
+                            let url = format!("http://{}{}", server.host, port_str);
+                            if ui.selectable_label(false, &label).clicked() {
+                                self.rest_url = url;
+                            }
+                        }
+                    });
+            });
+            ui.add_space(4.0);
+        }
 
         // Server URL input.
         ui.horizontal(|ui| {

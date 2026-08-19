@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from python_grpc_gui_common.counters_grpc_client import (
     CountersGrpcClient, CounterState, WireInState, DeviceInfo, ResourceInfo,
 )
+from python_grpc_gui_common.mdns_browser import MdnsBrowser, DiscoveredServer
 
 DEFAULT_GRPC_ADDR = "localhost:50051"
 DEFAULT_BITFILE = (
@@ -59,7 +60,14 @@ class CountersApp:
         self.autocount2_var = tk.BooleanVar(value=False)
         self._polling_id = None
 
+        # Phase 28A: mDNS discovery.
+        self.discovered_servers: list[DiscoveredServer] = []
+        self._mdns_browser = MdnsBrowser()
+        self._mdns_browser.start()
+
         self._build_ui()
+        # Schedule mDNS results after 2s.
+        self.root.after(2000, self._populate_mdns)
 
     def _build_ui(self):
         main = ttk.Frame(self.root, padding=8)
@@ -82,6 +90,15 @@ class CountersApp:
     def _show_connection_panel(self):
         self._clear_content()
         f = self.content_frame
+
+        # Phase 28A: mDNS discovered servers.
+        mdns_row = ttk.Frame(f); mdns_row.pack(fill=tk.X, pady=2)
+        ttk.Label(mdns_row, text="Discovered (mDNS):").pack(side=tk.LEFT)
+        self.mdns_combo = ttk.Combobox(mdns_row, state="readonly", width=50)
+        self.mdns_combo.set("Scanning...")
+        self.mdns_combo.pack(side=tk.LEFT, padx=4)
+        self.mdns_combo.bind("<<ComboboxSelected>>", self._on_mdns_select)
+
         row = ttk.Frame(f); row.pack(fill=tk.X, pady=2)
         ttk.Label(row, text="gRPC Address:").pack(side=tk.LEFT)
         ttk.Entry(row, textvariable=self.grpc_addr, width=40).pack(side=tk.LEFT, padx=4)
@@ -139,6 +156,28 @@ class CountersApp:
         self.lock_btn = ttk.Button(lock_frame, text="🔒 Lock", command=self._on_lock); self.lock_btn.pack(side=tk.LEFT)
         ttk.Checkbutton(lock_frame, text="Override", variable=self.override_lockout).pack(side=tk.LEFT, padx=8)
         self._start_polling()
+
+    def _populate_mdns(self):
+        """Populate the mDNS combo after discovery period."""
+        self.discovered_servers = self._mdns_browser.get_servers()
+        self._mdns_browser.stop()
+        if self.discovered_servers:
+            labels = [
+                f"{s.description} \u2014 {s.host}:{s.grpc_port or s.port}"
+                for s in self.discovered_servers
+            ]
+            self.mdns_combo["values"] = labels
+            self.mdns_combo.set("Select a discovered server...")
+            self._log(f"mDNS: discovered {len(self.discovered_servers)} server(s)")
+        else:
+            self.mdns_combo.set("No servers found")
+
+    def _on_mdns_select(self, event):
+        """Handle mDNS server selection — extract address and fill the entry."""
+        selected = self.mdns_combo.get()
+        parts = selected.split(" \u2014 ", 1)
+        if len(parts) == 2:
+            self.grpc_addr.set(parts[1])
 
     def _on_connect(self):
         try:

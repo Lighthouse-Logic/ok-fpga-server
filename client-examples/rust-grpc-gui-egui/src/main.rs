@@ -5,7 +5,10 @@
 //! ## User Identity: "Rusty Garpac"
 
 use eframe::egui;
-use rust_grpc_gui_common::{CounterState, CountersGrpcClient, DeviceInfo, ResourceInfo, WireInState};
+use rust_grpc_gui_common::{
+    CounterState, CountersGrpcClient, DeviceInfo, ResourceInfo, WireInState,
+    mdns_browser::DiscoveredServer,
+};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex as TokioMutex;
@@ -76,6 +79,8 @@ struct CountersApp {
     show_disconnect_dialog: bool,
     /// gRPC client behind a tokio::Mutex so MutexGuard can be held across .await.
     client: Option<Arc<TokioMutex<CountersGrpcClient>>>,
+    /// Discovered ok-FPGA servers via mDNS (Phase 28A).
+    discovered_servers: Vec<DiscoveredServer>,
 }
 
 impl CountersApp {
@@ -103,7 +108,27 @@ impl CountersApp {
             show_quit_dialog: false,
             show_disconnect_dialog: false,
             client: None,
+            discovered_servers: vec![],
+        };
+
+        // Start mDNS discovery in background.
+        let runtime = &app.runtime;
+        let servers = runtime.block_on(async {
+            match rust_grpc_gui_common::mdns_browser::MdnsBrowser::new() {
+                Ok(browser) => {
+                    let found = browser.browse_for(Duration::from_secs(3)).await;
+                    browser.stop();
+                    found
+                }
+                Err(_) => vec![],
+            }
+        });
+        if !servers.is_empty() {
+            app.add_log(&format!("mDNS: discovered {} server(s)", servers.len()), false);
+            app.discovered_servers = servers;
         }
+
+        app
     }
 
     fn add_log(&mut self, msg: &str, is_err: bool) {
@@ -255,6 +280,26 @@ impl eframe::App for CountersApp {
 
 impl CountersApp {
     fn draw_connection_panel(&mut self, ui: &mut egui::Ui) {
+        // Phase 28A: mDNS discovered servers dropdown.
+        if !self.discovered_servers.is_empty() {
+            ui.horizontal(|ui| {
+                ui.label("Discovered (mDNS):");
+                egui::ComboBox::from_id_salt("mdns_servers")
+                    .selected_text("Select a discovered server...")
+                    .show_ui(ui, |ui| {
+                        for server in &self.discovered_servers {
+                            let port_str = server.grpc_port.map(|p| format!(":{}", p)).unwrap_or_default();
+                            let label = format!("{} — http://{}{}" , server.description, server.host, port_str);
+                            let url = format!("http://{}{}", server.host, port_str);
+                            if ui.selectable_label(false, &label).clicked() {
+                                self.grpc_url = url;
+                            }
+                        }
+                    });
+            });
+            ui.add_space(4.0);
+        }
+
         ui.horizontal(|ui| { ui.label("gRPC URL:"); ui.text_edit_singleline(&mut self.grpc_url); });
 
         if ui.add_enabled(self.phase == Phase::Disconnected, egui::Button::new("1. Connect")).clicked() {

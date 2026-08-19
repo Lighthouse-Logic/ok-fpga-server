@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from python_rest_gui_common.counters_client import (
     CountersClient, CounterState, WireInState, DeviceInfo, ResourceInfo, ClientError,
 )
+from python_rest_gui_common.mdns_browser import MdnsBrowser, DiscoveredServer
 
 DEFAULT_REST_URL = "http://localhost:8088"
 DEFAULT_BITFILE = (
@@ -66,6 +67,13 @@ class CountersApp:
         self._polling_id = None
         self._device_refresh_id = None
 
+        # Phase 28A: mDNS discovery.
+        self.discovered_servers: list[DiscoveredServer] = []
+        self._mdns_browser = MdnsBrowser()
+        self._mdns_browser.start()
+        # Schedule mDNS results after 2s.
+        self.root.after(2000, self._populate_mdns)
+
     def _build_ui(self):
         """Build the tkinter UI."""
         # Main frame.
@@ -97,6 +105,14 @@ class CountersApp:
     def _show_connection_panel(self):
         self._clear_content()
         f = self.content_frame
+
+        # Phase 28A: mDNS discovered servers.
+        self.mdns_row = ttk.Frame(f); self.mdns_row.pack(fill=tk.X, pady=2)
+        ttk.Label(self.mdns_row, text="Discovered (mDNS):").pack(side=tk.LEFT)
+        self.mdns_combo = ttk.Combobox(self.mdns_row, state="readonly", width=50)
+        self.mdns_combo.set("Scanning...")
+        self.mdns_combo.pack(side=tk.LEFT, padx=4)
+        self.mdns_combo.bind("<<ComboboxSelected>>", self._on_mdns_select)
 
         # URL.
         row = ttk.Frame(f); row.pack(fill=tk.X, pady=2)
@@ -190,6 +206,28 @@ class CountersApp:
     # ========================================================================
     # Event Handlers
     # ========================================================================
+
+    def _populate_mdns(self):
+        """Populate the mDNS combo after discovery period."""
+        self.discovered_servers = self._mdns_browser.get_servers()
+        self._mdns_browser.stop()
+        if self.discovered_servers:
+            labels = [
+                f"{s.description} \u2014 http://{s.host}:{s.rest_port or s.port}"
+                for s in self.discovered_servers
+            ]
+            self.mdns_combo["values"] = labels
+            self.mdns_combo.set("Select a discovered server...")
+            self._log(f"mDNS: discovered {len(self.discovered_servers)} server(s)")
+        else:
+            self.mdns_combo.set("No servers found")
+
+    def _on_mdns_select(self, event):
+        """Handle mDNS server selection — extract URL and fill the URL entry."""
+        selected = self.mdns_combo.get()
+        parts = selected.split(" \u2014 ", 1)
+        if len(parts) == 2:
+            self.rest_url.set(parts[1])
 
     def _on_connect(self):
         try:
