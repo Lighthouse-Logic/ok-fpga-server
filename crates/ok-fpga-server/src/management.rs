@@ -80,6 +80,8 @@ pub fn build_management_router(
         // Settings (Phase 28B)
         .route("/mgmt/settings", get(mgmt_get_settings))
         .route("/mgmt/settings", put(mgmt_put_settings))
+        // Catalog (Phase 28D)
+        .route("/mgmt/catalog", get(mgmt_get_catalog))
         // WebSocket
         .route("/ws/events", get(ws_events))
         .with_state(mgmt_state);
@@ -936,6 +938,20 @@ async fn mgmt_put_settings(
             None
         },
     }))
+}
+
+// ============================================================================
+// Catalog (Phase 28D)
+// ============================================================================
+
+/// `GET /mgmt/catalog` — Return the SYZYGY/device/bitfile catalog.
+///
+/// The dashboard fetches this once at init and caches it locally. Used to
+/// render "About" links in device, SYZYGY, and bitfile detail rows.
+async fn mgmt_get_catalog(
+    State(state): State<Arc<MgmtState>>,
+) -> Json<crate::config::CatalogConfig> {
+    Json(state.config.catalog.clone())
 }
 
 // ============================================================================

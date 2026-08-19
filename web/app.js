@@ -31,6 +31,9 @@ let ws = null;
 let statusPollTimer = null;
 let currentPage = 'overview';
 
+/** Cached catalog data (fetched once, used for "About" links). */
+let catalogCache = null;
+
 // ============================================================================
 // Navigation
 // ============================================================================
@@ -104,6 +107,52 @@ async function apiPost(path) {
         console.error(`API POST error: ${path}`, err);
         return null;
     }
+}
+
+// ============================================================================
+// Catalog Helpers (Phase 28D)
+// ============================================================================
+
+/**
+ * Look up a device "About" URL from the catalog cache.
+ * Matches product_name as a prefix (e.g., "XEM8320" matches "XEM8320-AU25P").
+ */
+function catalogDeviceUrl(productName) {
+    if (!catalogCache || !catalogCache.devices) return null;
+    const entry = catalogCache.devices.find(d =>
+        productName && productName.startsWith(d.product_name)
+    );
+    return entry ? entry.about_url : null;
+}
+
+/**
+ * Look up a SYZYGY board "About" URL from the catalog cache.
+ * Matches product_name, optionally refined by product_model.
+ */
+function catalogSyzygyUrl(productName, productModel) {
+    if (!catalogCache || !catalogCache.syzygy_boards) return null;
+    const entry = catalogCache.syzygy_boards.find(b => {
+        if (b.product_name !== productName) return false;
+        if (b.product_model && b.product_model !== productModel) return false;
+        return true;
+    });
+    return entry ? entry.about_url : null;
+}
+
+/**
+ * Look up a bitfile catalog entry (description + URL).
+ */
+function catalogBitfile(filename) {
+    if (!catalogCache || !catalogCache.bitfiles) return null;
+    return catalogCache.bitfiles.find(b => b.filename === filename) || null;
+}
+
+/**
+ * Render an "About" link if URL is present, otherwise empty string.
+ */
+function aboutLink(url, label) {
+    if (!url) return '';
+    return ` <a href="${url}" target="_blank" rel="noopener" class="about-link">${label || 'About ↗'}</a>`;
 }
 
 // ============================================================================
@@ -256,7 +305,7 @@ async function fetchDevices() {
                         <div class="detail-panel-grid">
                             <div class="detail-panel-image">${imgLargeHtml}</div>
                             <div class="detail-panel-info">
-                                <h4>Device Details</h4>
+                                <h4>Device Details${aboutLink(catalogDeviceUrl(d.product_name))}</h4>
                                 <table class="detail-mini-table">
                                     <tr><td class="label">Serial</td><td><code>${escapeHtml(d.serial)}</code></td></tr>
                                     <tr><td class="label">Device ID</td><td>${escapeHtml(d.device_id || '—')}</td></tr>
@@ -297,15 +346,19 @@ async function toggleDeviceDetail(idx, serial) {
             if (data && data.length > 0) {
                 container.innerHTML = `
                     <table class="detail-mini-table">
-                        <thead><tr><th>Port</th><th>Status (mV)</th><th>Product</th><th>Model</th><th>Manufacturer</th></tr></thead>
-                        <tbody>${data.map(p => `
+                        <thead><tr><th>Port</th><th>Status (mV)</th><th>Product</th><th>Model</th><th>Manufacturer</th><th></th></tr></thead>
+                        <tbody>${data.map(p => {
+                            const syzygyUrl = catalogSyzygyUrl(p.product_name, p.product_model);
+                            return `
                             <tr>
                                 <td>${p.index}</td>
                                 <td>${p.port_status_mv}${p.is_populated ? ' ✓' : ''}</td>
                                 <td>${escapeHtml(p.product_name || '—')}</td>
                                 <td>${escapeHtml(p.product_model || '—')}</td>
                                 <td>${escapeHtml(p.manufacturer_name || '—')}</td>
-                            </tr>`).join('')}
+                                <td>${aboutLink(syzygyUrl)}</td>
+                            </tr>`;
+                        }).join('')}
                         </tbody>
                     </table>`;
             } else {
@@ -882,4 +935,9 @@ async function checkSettingsVisibility() {
 
     // Check if Settings page should be visible (Phase 28B).
     checkSettingsVisibility();
+
+    // Fetch and cache the catalog (Phase 28D).
+    api(`${API_BASE}/catalog`).then(data => {
+        if (data) catalogCache = data;
+    });
 })();

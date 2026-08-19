@@ -71,6 +71,10 @@ pub struct ServerConfig {
 
     /// Access control configuration (ADR-024).
     pub access_control: AccessControlConfig,
+
+    /// Catalog of known boards, devices, and bitfiles (Phase 28D).
+    /// Dashboard-only beautification — adds "About" links to detail panels.
+    pub catalog: CatalogConfig,
 }
 
 /// Core server settings.
@@ -332,6 +336,92 @@ impl Default for AccessControlConfig {
             endpoint_enforcement: "off".to_string(),
         }
     }
+}
+
+// ============================================================================
+// Catalog Configuration (Phase 28D)
+// ============================================================================
+
+/// Catalog of known SYZYGY boards, FPGA devices, and bitfiles.
+///
+/// This is purely for dashboard beautification — it adds "About" links
+/// and human-readable descriptions to device/SYZYGY/bitfile detail rows.
+/// Catalog data is served ONLY through `GET /mgmt/catalog`.
+///
+/// ## Example
+///
+/// ```toml
+/// [[catalog.syzygy_boards]]
+/// product_name = "SZG-DAC-AD9116"
+/// about_url = "https://docs.opalkelly.com/syzygy/szg-dac-ad9116/"
+///
+/// [[catalog.devices]]
+/// product_name = "XEM8320"
+/// about_url = "https://docs.opalkelly.com/xem8320/"
+///
+/// [[catalog.bitfiles]]
+/// filename = "counters.bit"
+/// description = "Simple counter design for testing"
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CatalogConfig {
+    /// Known SYZYGY peripheral boards.
+    #[serde(default)]
+    pub syzygy_boards: Vec<SyzygyBoardEntry>,
+
+    /// Known FPGA devices (for "About" links in the device detail panel).
+    #[serde(default)]
+    pub devices: Vec<DeviceCatalogEntry>,
+
+    /// Known bitfiles (for descriptions and "About" links).
+    #[serde(default)]
+    pub bitfiles: Vec<BitfileCatalogEntry>,
+}
+
+/// A known SYZYGY peripheral board in the catalog.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyzygyBoardEntry {
+    /// Product name to match against (e.g., "SZG-DAC-AD9116").
+    pub product_name: String,
+
+    /// Optional model qualifier for finer matching (e.g., "A").
+    #[serde(default)]
+    pub product_model: Option<String>,
+
+    /// Optional version qualifier.
+    #[serde(default)]
+    pub product_version: Option<String>,
+
+    /// URL for more information about this board.
+    #[serde(default)]
+    pub about_url: Option<String>,
+}
+
+/// A known FPGA device in the catalog.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceCatalogEntry {
+    /// Product name to match against (e.g., "XEM8320").
+    pub product_name: String,
+
+    /// URL for more information about this device.
+    #[serde(default)]
+    pub about_url: Option<String>,
+}
+
+/// A known bitfile in the catalog.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BitfileCatalogEntry {
+    /// Filename to match against (e.g., "counters.bit").
+    pub filename: String,
+
+    /// Human-readable description of the bitfile.
+    #[serde(default)]
+    pub description: Option<String>,
+
+    /// URL for more information about this bitfile.
+    #[serde(default)]
+    pub about_url: Option<String>,
 }
 
 // ============================================================================
