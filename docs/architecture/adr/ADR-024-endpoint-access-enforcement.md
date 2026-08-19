@@ -117,31 +117,138 @@ without schema changes.
 
 ### 4. Where Enforcement Hooks In
 
-#### REST: Axum Middleware Layer
+#### Design Principles
 
-A new middleware layer sits between the heartbeat middleware and the Classic/AXI
-route handlers:
+1. **Lowest latency critical path** — minimize middleware between Request and
+   Handler. Once a command is authorized and initiated, data streams to the
+   handler without additional checks (see §5).
+2. **Heartbeat decoupled from access control** — the heartbeat middleware
+   (`touch()`) is an independent liveness concern (ADR-020 §5). It tracks
+   when a user was last active. Access enforcement is a separate, independent
+   layer. They do NOT serialize through each other.
+3. **Access control on ALL routes** — the access middleware applies to all
+   `/api/v1/*` routes, not just Classic/AXI. This ensures any future route
+   (e.g., a hypothetical "TechX" data port) is automatically intercepted.
+
+#### REST: Hybrid Enforcement (Middleware + In-Handler)
+
+The access enforcement middleware is a lightweight layer on all `/api/v1/*`
+routes. It handles user identity validation and route-level gating. Detailed
+endpoint-level checks are performed inside each handler after deserialization.
 
 ```
-Request → Heartbeat MW (extracts user_id) → Access MW (checks resource) → Handler
+Request ──┬──→ Access MW (user_id + route-level gating) ──→ Handler (endpoint-level check) ──→ Response
+          │
+          └──→ Heartbeat MW (async touch, independent liveness concern)
 ```
 
-The middleware intercepts routes matching:
-- `/devices/{serial}/classic/wires/**`
-- `/devices/{serial}/classic/triggers/**`
-- `/devices/{serial}/classic/pipes/**`
-- `/devices/{serial}/axi/**`
+The access MW and heartbeat MW are **independent layers**. The heartbeat MW
+must NOT be in the critical path to the handler.
 
-It extracts `{serial}` from the path and `endpoint` from query params or JSON body,
-then calls `ResourceRegistry::check_endpoint_access()`.
+##### Route Classification — Three Enforcement Tiers
 
-#### gRPC: Interceptor
+**Tier 1 — Management routes (no `{serial}`):**
 
-A tonic interceptor on `ClassicDataPortService` and `AXIDataPortService` performs
-the same check using the `serial` and `endpoint` fields from the request message
-and `user_id` from gRPC metadata.
+Routes: `/server/*`, `/devices` (list all), `/resources/*`, `/users/*`,
+`/events/*`, `/disconnect`, `/heartbeat`.
 
-#### Core: New Registry Method
+| Level | Behavior |
+|-------|----------|
+| `off` | Pass through. No checks. |
+| `warn` | Validate `X-User-Id` is present. Log warning if absent. Allow. |
+| `enforce` | Validate `X-User-Id` is present. Reject with 403 if absent. |
+
+> **Note**: `warn` and `enforce` enable **user identity enforcement only** on
+> management routes — no restrictions on which management operations the user
+> may perform. Any authenticated user may call any management endpoint.
+
+**Tier 2 — Device-level routes (have `{serial}`, but not data port):**
+
+Routes: `/devices/{serial}` (info), `/devices/{serial}/configure`,
+`/devices/{serial}/settings/*`, `/devices/{serial}/sensors`,
+`/devices/{serial}/syzygy`.
+
+| Level | Behavior |
+|-------|----------|
+| `off` | Pass through. |
+| `warn` | Validate `X-User-Id` is present. No resource check. |
+| `enforce` | Validate `X-User-Id` is present. No resource check. |
+
+> **Note**: Device info, configuration, settings, sensors, and SYZYGY
+> operations do not require resource ownership. Per §10, `ConfigureFPGA`
+> is explicitly excluded from endpoint enforcement (resources cannot exist
+> until the FPGA is programmed). `warn` and `enforce` enable **user identity
+> enforcement only** on these routes.
+
+**Tier 3 — Data port routes (have `{serial}` + Classic or AXI path):**
+
+Routes: `/devices/{serial}/classic/**`, `/devices/{serial}/axi/**`.
+
+| Level | Behavior |
+|-------|----------|
+| `off` | Pass through. |
+| `warn` | MW validates `X-User-Id`, checks `check_device_access()`. Logs violation if denied. Passes to handler. Handler checks endpoint coverage, logs if denied, allows. |
+| `enforce` | MW validates `X-User-Id`, checks `check_device_access()`. Rejects with 403 if denied. Handler checks endpoint coverage. Rejects with 403 if denied. |
+
+The middleware performs a **device-level gate** — does the user hold ANY
+resource on this device? This is a fast, lightweight check that rejects
+obviously unauthorized requests before the handler runs.
+
+The handler then performs the **endpoint-level check** — does the user's
+resource cover the specific endpoint or address being accessed? This check
+requires the deserialized request body (endpoint address from JSON body or
+query params), which is only available inside the handler.
+
+##### REST Handler Enforcement Helper
+
+Each Classic and AXI handler calls a shared helper function at the top of
+the handler, after extracting the endpoint address from the request:
+
+```rust
+/// Check endpoint access for a Classic operation.
+/// Called inside each handler after extracting endpoint from query/body.
+fn enforce_endpoint(
+    state: &AppState,
+    user_id: Option<&str>,
+    serial: &str,
+    endpoint: u8,
+    ep_type: &EndpointType,
+) -> Result<(), ProblemDetail> { ... }
+```
+
+#### gRPC: In-Handler Enforcement
+
+gRPC enforcement is performed inside each RPC method after deserializing the
+request message. This matches the REST handler approach — the check happens
+at the same logical point (after deserialization, before the FFI call), and
+provides the same three-level enforcement behavior.
+
+```
+Request ──→ RPC method (deserialize → check_access() → FFI call) ──→ Response
+```
+
+Each `ClassicDataPortService` and `AXIDataPortService` RPC method calls a
+shared helper:
+
+```rust
+fn check_access(
+    &self,
+    serial: &str,
+    user_id: Option<&str>,
+    endpoint: u8,
+    ep_type: &EndpointType,
+) -> Result<(), Status> { ... }
+```
+
+User identity is extracted from gRPC metadata (`x-user-id` key). Denied
+operations return `Status::permission_denied()` (in `enforce` mode) or log
+a warning (in `warn` mode).
+
+> **Note**: The gRPC `Ping` RPC (heartbeat) is in `ServerService`, not in
+> `ClassicDataPortService` or `AXIDataPortService`. It is naturally decoupled
+> from endpoint access enforcement.
+
+#### Core: New Registry Methods
 
 ```rust
 impl ResourceRegistry {
@@ -156,7 +263,7 @@ impl ResourceRegistry {
         ep_type: &EndpointType,
     ) -> Result<(), AccessDenied> {
         // 1. Find resources on this device held by this user
-        // 2. Check endpoint coverage
+        // 2. Check endpoint coverage (§2 authorization rule)
         // 3. Delegate to policy.validate_endpoint_access() for custom logic
     }
 
@@ -167,7 +274,16 @@ impl ResourceRegistry {
         device_serial: &str,
         address: u64,
     ) -> Result<(), AccessDenied> { ... }
+
+    /// Device-level check: does the user hold ANY resource on this device?
+    /// Used by the REST middleware for Tier 3 early gating.
+    pub fn check_device_access(
+        &self,
+        user_id: &str,
+        device_serial: &str,
+    ) -> Result<(), AccessDenied> { ... }
 }
+```
 ```
 
 ### 5. Enforcement Scope: Command-Level, Not Transfer-Level
@@ -283,8 +399,10 @@ resource to hold before programming. Any connected user may program any device.
   lookup (expected to be negligible with in-memory registry and <100 resources)
 - **Client migration** — existing clients that don't acquire resources will break in
   `enforce` mode (mitigated by default `off` and `warn` migration period)
-- **Complexity** — the middleware must parse endpoint addresses from heterogeneous
-  request formats (JSON body, query params, path segments)
+- **Handler modification** — each Classic and AXI handler must call the enforcement
+  helper at the top. This is simple (one function call) but requires updating every
+  handler. The benefit is that the handler has full deserialized context, avoiding
+  the complexity of parsing endpoint addresses from raw HTTP requests in middleware
 
 ### Future Work
 
@@ -331,7 +449,13 @@ resource to hold before programming. Any connected user may program any device.
 
 ### To ADR-004 / ADR-005
 
-- No new endpoints are added — enforcement is middleware-level, not API-level
+- No new endpoints are added — enforcement is middleware-level (REST) and
+  in-handler (both REST and gRPC), not API-level
+- REST: lightweight access middleware on all `/api/v1/*` routes provides
+  user identity enforcement (Tiers 1–2) and device-level gating (Tier 3);
+  endpoint-level checks are inside handlers
+- gRPC: enforcement is inside each RPC method after deserialization, using
+  `x-user-id` metadata for identity
 - New error responses: `403 Forbidden` / `PERMISSION_DENIED` on Classic and AXI
   endpoints when `endpoint_enforcement` is `"enforce"`
 
