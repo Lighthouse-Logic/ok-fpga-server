@@ -292,6 +292,25 @@ resource to hold before programming. Any connected user may program any device.
   `GetWireOutValue`, `UpdateWireOuts`, `GetTriggerOutVector`, `ReadFromPipeOut` etc.
   but denies all write operations. This gives "observe but don't touch" access
   without full acquire
+- **Address range enforcement for Classic endpoints and okRegisterBridge** —
+  ADR-020's `address_ranges` field is not exclusive to AXI (`FPGADataPortAXI`)
+  endpoints. Classic (`FPGADataPortClassic`) designs may also expose a
+  memory-mapped address space accessed via wires, triggers, and pipes in a
+  design-specific manner — or via the `okRegisterBridge` module. Since this
+  generic server cannot know the specifics of an arbitrary HDL design, two
+  mechanisms should be provided:
+  1. **Developer-defined custom stubs** — extend `ResourceAccessPolicy` with a
+     hook that lets the developer specify how their Classic FrontPanel endpoints
+     map to address ranges (e.g., "WireIn 0x01 selects the address, PipeIn 0x80
+     writes data at that address"). The server calls this stub before Classic
+     operations, passing the endpoint and the resource's declared address ranges.
+  2. **okRegisterBridge direct checking** — when a resource declares that it uses
+     `okRegisterBridge`, the server can directly intercept register read/write
+     calls and validate the target register address against the resource's
+     declared `address_ranges`. If any range is `exclusive`, operations targeting
+     addresses within that range are denied for non-holders.
+  This enforcement is only necessary when a resource registers an address range
+  **and** at least one range is declared `exclusive`.
 - **Dashboard "Access Audit" panel** — visualize who accessed what
 - **Per-resource enforcement override** — allow individual resources to opt out of
   enforcement
