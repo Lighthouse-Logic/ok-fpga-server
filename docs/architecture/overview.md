@@ -139,6 +139,7 @@ All decisions are recorded as ADRs in `docs/architecture/adr/`:
 | [ADR-021](adr/ADR-021-settings-ffi-wiring.md) | Device Settings FFI Wiring | Accepted |
 | [ADR-022](adr/ADR-022-dashboard-logging.md) | Dashboard Log Streaming & Level Filtering | Accepted |
 | [ADR-023](adr/ADR-023-gui-example-clients.md) | GUI Example Clients — Interactive Counters.bit Demo | Accepted |
+| [ADR-024](adr/ADR-024-endpoint-access-enforcement.md) | Endpoint Access Enforcement | Accepted |
 
 ## 6. Technology Stack
 
