@@ -39,7 +39,8 @@
 | Horizon | Focus Area | ADR | Status |
 |---------|-----------|-----|--------|
 | **Phase 28 (Now)** | mDNS-Powered GUI Discovery + Dashboard Settings | ADR-025 (TBD) | 🟡 Planned |
-| **Phase 29+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
+| **Phase 29 (Next)** | Address Range Enforcement for Classic/okRegisterBridge | ADR-024 | 🟡 Planned |
+| **Phase 30+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
@@ -91,10 +92,38 @@ configurable server settings.
 
 ---
 
-## 🟡 Next: Planned Milestones
+## 🟡 Next: Phase 29 — Address Range Enforcement for Classic/okRegisterBridge
 
-*No planned milestones at this time. Items will be promoted from Later as
-priorities are identified.*
+*Focus: Extend ADR-024 endpoint enforcement to cover memory-mapped address
+ranges used by Classic `okRegisterBridge` designs.*
+
+ADR-024 currently enforces access on Classic **endpoint numbers** (wire, trigger,
+pipe addresses 0x00–0xFF) and AXI **address ranges**. However, Classic designs
+that use the `okRegisterBridge` HDL module expose a 32-bit register address
+space accessed via `ReadRegister` / `WriteRegister` REST and gRPC operations.
+These register addresses are **not** Classic endpoint numbers — they are
+memory-mapped addresses that pass through the `okRegisterBridge` on the FPGA.
+
+The `address_ranges` field already exists on `Resource` (used for AXI today).
+This phase extends enforcement so that `ReadRegister` / `WriteRegister`
+operations are also checked against `address_ranges` when a resource declares
+them.
+
+* [ ] **`check_address_access()` for register operations** — the existing
+      `check_address_access()` in `resource.rs` already validates AXI addresses
+      against `address_ranges`. Wire it into the REST `registers/read` and
+      `registers/write` handlers and the gRPC `ReadRegister` / `WriteRegister` /
+      `ReadRegisters` / `WriteRegisters` RPCs.
+* [ ] **Developer-defined Classic endpoint → address mapping hook** — add an
+      optional `ResourceAccessPolicy` trait/stub that lets developers specify
+      how their Classic FrontPanel endpoints map to address ranges (e.g.,
+      "WireIn 0x01 selects the address, PipeIn 0x80 writes data"). The server
+      calls this before Classic wire/pipe operations, passing the endpoint and
+      the resource's declared address ranges. Default impl: pass-through
+      (no mapping, current behavior preserved).
+* [ ] **Unit tests** — test register address enforcement on/off/warn modes,
+      test address-in-range vs out-of-range, test legacy resources (no
+      `address_ranges` = covers all), test lock exclusivity for address ranges.
 
 ---
 
@@ -129,9 +158,6 @@ Features in this section represent uncommitted research or long-term capabilitie
 * **Read-only resource acquisition** — `AccessMode::ReadOnly` for observe-without-modify
   access. See [ADR-024 Future Work](architecture/adr/ADR-024-endpoint-access-enforcement.md).
 
-* **Address range enforcement for Classic/okRegisterBridge** — developer-defined
-  stubs for HDL-specific memory-map enforcement.
-  See [ADR-024 Future Work](architecture/adr/ADR-024-endpoint-access-enforcement.md).
 
 * **Native TLS termination** — embedded `rustls` for secure lab deployments
   without a reverse proxy.
