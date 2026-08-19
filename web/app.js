@@ -648,30 +648,33 @@ function escapeHtml(str) {
 }
 
 // ============================================================================
-// Settings (Phase 28B)
+// Settings (Phase 28B/28C)
 // ============================================================================
 
 /**
  * Fetch current server settings and populate the Settings form.
+ *
+ * The server description is always returned. The endpoint_enforcement field
+ * is only included when `[dashboard] expose_settings = true` — if absent,
+ * the enforcement section is hidden from the UI.
  */
 async function fetchSettings() {
     try {
         const res = await fetch(`${API_BASE}/settings`);
-        if (res.status === 403) {
-            // Settings are disabled — hide the nav item.
-            const navItem = document.getElementById('nav-settings-item');
-            if (navItem) navItem.style.display = 'none';
-            return;
-        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 
+        // Description — always available.
         document.getElementById('setting-description').value = data.description || '';
-        document.getElementById('setting-enforcement').value = data.endpoint_enforcement || 'off';
 
-        // Ensure the nav item is visible.
-        const navItem = document.getElementById('nav-settings-item');
-        if (navItem) navItem.style.display = '';
+        // Enforcement — only shown when expose_settings is true (field present).
+        const enforcementSection = document.getElementById('enforcement-section');
+        if (data.endpoint_enforcement !== undefined && data.endpoint_enforcement !== null) {
+            document.getElementById('setting-enforcement').value = data.endpoint_enforcement;
+            if (enforcementSection) enforcementSection.style.display = '';
+        } else {
+            if (enforcementSection) enforcementSection.style.display = 'none';
+        }
     } catch (err) {
         console.error('Failed to load settings:', err);
     }
@@ -679,21 +682,28 @@ async function fetchSettings() {
 
 /**
  * Save settings to the server via PUT.
+ *
+ * Always sends the description. Only includes endpoint_enforcement if the
+ * enforcement section is visible (i.e., expose_settings is true).
  */
 async function saveSettings() {
     const description = document.getElementById('setting-description').value;
-    const enforcement = document.getElementById('setting-enforcement').value;
     const statusPanel = document.getElementById('settings-status-panel');
     const statusMsg = document.getElementById('settings-status-msg');
+
+    const payload = { description };
+
+    // Only include enforcement if the section is visible.
+    const enforcementSection = document.getElementById('enforcement-section');
+    if (enforcementSection && enforcementSection.style.display !== 'none') {
+        payload.endpoint_enforcement = document.getElementById('setting-enforcement').value;
+    }
 
     try {
         const res = await fetch(`${API_BASE}/settings`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                description: description,
-                endpoint_enforcement: enforcement,
-            }),
+            body: JSON.stringify(payload),
         });
 
         if (!res.ok) {
@@ -718,21 +728,14 @@ async function saveSettings() {
 document.getElementById('btn-save-settings')?.addEventListener('click', saveSettings);
 
 /**
- * Check if settings are exposed and hide the nav item if not.
- * Called once at init to handle the case where the page loads on a non-settings page.
+ * Check settings visibility for the enforcement section.
+ * The Settings nav item is always visible since the description is always
+ * accessible. This function is called at init to pre-check whether the
+ * enforcement dropdown should be shown.
  */
 async function checkSettingsVisibility() {
-    try {
-        const res = await fetch(`${API_BASE}/settings`);
-        const navItem = document.getElementById('nav-settings-item');
-        if (res.status === 403) {
-            if (navItem) navItem.style.display = 'none';
-        } else {
-            if (navItem) navItem.style.display = '';
-        }
-    } catch (_) {
-        // Network error — leave the nav item visible.
-    }
+    // No-op: Settings page is always accessible (description is always available).
+    // The enforcement section visibility is handled by fetchSettings().
 }
 
 // ============================================================================

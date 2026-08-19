@@ -273,17 +273,6 @@
                 <button class="btn btn-primary" id="btn-save-settings">✔ Save Settings</button>
             </header>
 
-            <div class="settings-warning" id="settings-warning">
-                <span class="warning-icon">⚠️</span>
-                <div class="warning-text">
-                    <strong>Unauthenticated Access</strong>
-                    <p>Any user with dashboard access can change these settings.
-                    For production environments, disable dashboard settings exposure
-                    via <code>[dashboard] expose_settings = false</code> in
-                    <code>okfpga-server.toml</code>.</p>
-                </div>
-            </div>
-
             <div class="panel">
                 <h2>Server Identity</h2>
                 <div class="settings-field">
@@ -294,16 +283,27 @@
                 </div>
             </div>
 
-            <div class="panel">
-                <h2>Access Control</h2>
-                <div class="settings-field">
-                    <label for="setting-enforcement">Endpoint Enforcement Level</label>
-                    <select id="setting-enforcement" class="settings-select">
-                        <option value="off">Off — no enforcement (default)</option>
-                        <option value="warn">Warn — log violations but allow</option>
-                        <option value="enforce">Enforce — reject unauthorized operations</option>
-                    </select>
-                    <span class="settings-hint">Controls whether FPGA data port operations require resource ownership (ADR-024).</span>
+            <div id="enforcement-section">
+                <div class="panel warning-panel">
+                    <div class="warning-icon">⚠️</div>
+                    <div class="warning-content">
+                        <p>Any user with dashboard access can change the endpoint enforcement level.
+                        To hide this control, set <code>[dashboard] expose_settings = false</code> in
+                        <code>okfpga-server.toml</code>.</p>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h2>Access Control</h2>
+                    <div class="settings-field">
+                        <label for="setting-enforcement">Endpoint Enforcement Level</label>
+                        <select id="setting-enforcement" class="settings-select">
+                            <option value="off">Off — no enforcement (default)</option>
+                            <option value="warn">Warn — log violations but allow</option>
+                            <option value="enforce">Enforce — reject unauthorized operations</option>
+                        </select>
+                        <span class="settings-hint">Controls whether FPGA data port operations require resource ownership (ADR-024).</span>
+                    </div>
                 </div>
             </div>
 

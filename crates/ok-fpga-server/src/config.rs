@@ -241,10 +241,11 @@ pub struct DashboardConfig {
     /// Default: `"info"`.
     pub default_log_level: String,
 
-    /// Whether the Settings page is visible in the dashboard.
+    /// Whether the Access Control section is visible on the dashboard Settings page.
     ///
-    /// When `false`, the Settings nav entry is hidden and the
-    /// `PUT /server/settings` endpoint returns `403 Forbidden`.
+    /// When `false`, the endpoint enforcement dropdown is hidden from the
+    /// dashboard and enforcement changes via `PUT /mgmt/settings` are silently
+    /// ignored. The server description is always editable regardless of this flag.
     /// Default: `true`.
     pub expose_settings: bool,
 }

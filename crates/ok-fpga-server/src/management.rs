@@ -727,29 +727,33 @@ fn compiled_features() -> Vec<String> {
 }
 
 // ============================================================================
-// Settings (Phase 28B)
+// Settings (Phase 28B/28C)
 // ============================================================================
 
 /// Response/request body for `/mgmt/settings`.
+///
+/// The `description` field is always present and editable.
+/// The `endpoint_enforcement` field is only included when
+/// `[dashboard] expose_settings = true`. When omitted from a PUT request
+/// (or when expose_settings is false), the enforcement level is unchanged.
 #[derive(Serialize, Deserialize)]
 struct SettingsBody {
-    /// Human-readable server description.
+    /// Human-readable server description — always available.
     description: String,
     /// Endpoint enforcement level: "off", "warn", or "enforce".
-    endpoint_enforcement: String,
+    /// Only present when `[dashboard] expose_settings = true`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    endpoint_enforcement: Option<String>,
 }
 
 /// `GET /mgmt/settings` — Read current runtime settings.
+///
+/// The server description is always returned. The endpoint enforcement level
+/// is only included when `[dashboard] expose_settings = true`.
 async fn mgmt_get_settings(
     State(state): State<Arc<MgmtState>>,
 ) -> Result<Json<SettingsBody>, (axum::http::StatusCode, String)> {
     let cfg = state.app.config.read().unwrap();
-    if !cfg.dashboard.expose_settings {
-        return Err((
-            axum::http::StatusCode::FORBIDDEN,
-            "Settings exposure is disabled".to_string(),
-        ));
-    }
 
     let description = if cfg.server.description.is_empty() {
         cfg.mdns.instance_name.clone()
@@ -757,42 +761,58 @@ async fn mgmt_get_settings(
         cfg.server.description.clone()
     };
 
+    let endpoint_enforcement = if cfg.dashboard.expose_settings {
+        Some(cfg.access_control.endpoint_enforcement.clone())
+    } else {
+        None
+    };
+
     Ok(Json(SettingsBody {
         description,
-        endpoint_enforcement: cfg.access_control.endpoint_enforcement.clone(),
+        endpoint_enforcement,
     }))
 }
 
 /// `PUT /mgmt/settings` — Update runtime settings and persist to TOML.
+///
+/// The server description can always be updated. The endpoint enforcement
+/// level can only be changed when `[dashboard] expose_settings = true`;
+/// if `expose_settings` is false, any `endpoint_enforcement` value in the
+/// request body is silently ignored.
 async fn mgmt_put_settings(
     State(state): State<Arc<MgmtState>>,
     Json(body): Json<SettingsBody>,
 ) -> Result<Json<SettingsBody>, (axum::http::StatusCode, String)> {
-    // Check the expose_settings guard.
-    {
+    let expose_settings = {
         let cfg = state.app.config.read().unwrap();
-        if !cfg.dashboard.expose_settings {
-            return Err((
-                axum::http::StatusCode::FORBIDDEN,
-                "Settings exposure is disabled".to_string(),
-            ));
-        }
-    }
+        cfg.dashboard.expose_settings
+    };
 
-    // Validate enforcement value.
-    let enforcement_lower = body.endpoint_enforcement.to_lowercase();
-    if !matches!(enforcement_lower.as_str(), "off" | "warn" | "enforce") {
-        return Err((
-            axum::http::StatusCode::BAD_REQUEST,
-            format!("Invalid endpoint_enforcement value '{}'", body.endpoint_enforcement),
-        ));
-    }
+    // Validate enforcement value if provided and allowed.
+    let new_enforcement = if expose_settings {
+        if let Some(ref val) = body.endpoint_enforcement {
+            let lower = val.to_lowercase();
+            if !matches!(lower.as_str(), "off" | "warn" | "enforce") {
+                return Err((
+                    axum::http::StatusCode::BAD_REQUEST,
+                    format!("Invalid endpoint_enforcement value '{}'", val),
+                ));
+            }
+            Some(lower)
+        } else {
+            None
+        }
+    } else {
+        None // Silently ignore enforcement changes when expose_settings is off.
+    };
 
     // Apply changes to the in-memory config.
     {
         let mut cfg = state.app.config.write().unwrap();
         cfg.server.description = body.description.clone();
-        cfg.access_control.endpoint_enforcement = enforcement_lower.clone();
+        if let Some(ref enforcement) = new_enforcement {
+            cfg.access_control.endpoint_enforcement = enforcement.clone();
+        }
     }
 
     // Persist to TOML file.
@@ -809,7 +829,7 @@ async fn mgmt_put_settings(
 
     info!(
         description = %body.description,
-        endpoint_enforcement = %enforcement_lower,
+        enforcement_changed = new_enforcement.is_some(),
         "Server settings updated via management API"
     );
 
@@ -818,9 +838,15 @@ async fn mgmt_put_settings(
         r#"{"type":"settings_updated"}"#.to_string(),
     );
 
+    // Return the response — enforcement included only if expose_settings is on.
+    let cfg = state.app.config.read().unwrap();
     Ok(Json(SettingsBody {
         description: body.description,
-        endpoint_enforcement: enforcement_lower,
+        endpoint_enforcement: if expose_settings {
+            Some(cfg.access_control.endpoint_enforcement.clone())
+        } else {
+            None
+        },
     }))
 }
 
