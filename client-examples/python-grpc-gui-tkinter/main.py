@@ -52,6 +52,8 @@ class CountersApp:
         self.bitfile_path = tk.StringVar(
             value=os.environ.get("OKFPGA_TEST_BITFILE", DEFAULT_BITFILE)
         )
+        # F5: Bitfile mode — "server_path" or "local_file".
+        self.bitfile_mode = tk.StringVar(value="server_path")
         self.reset1_var = tk.BooleanVar(value=False)
         self.disable1_var = tk.BooleanVar(value=False)
         self.autocount2_var = tk.BooleanVar(value=False)
@@ -94,6 +96,11 @@ class CountersApp:
         row2 = ttk.Frame(f); row2.pack(fill=tk.X, pady=2)
         ttk.Label(row2, text="Bitfile:").pack(side=tk.LEFT)
         ttk.Entry(row2, textvariable=self.bitfile_path, width=60).pack(side=tk.LEFT, padx=4)
+        # F5: Bitfile mode toggle.
+        mode_row = ttk.Frame(f); mode_row.pack(fill=tk.X, pady=2)
+        ttk.Label(mode_row, text="Mode:").pack(side=tk.LEFT)
+        ttk.Radiobutton(mode_row, text="Server Path", variable=self.bitfile_mode, value="server_path").pack(side=tk.LEFT, padx=4)
+        ttk.Radiobutton(mode_row, text="Local File", variable=self.bitfile_mode, value="local_file").pack(side=tk.LEFT, padx=4)
         self.program_btn = ttk.Button(f, text="2. Program Bitfile", command=self._on_program, state=tk.DISABLED)
         self.program_btn.pack(anchor=tk.W, pady=2)
         self.register_btn = ttk.Button(f, text="3. Register Resource", command=self._on_register, state=tk.DISABLED)
@@ -158,10 +165,33 @@ class CountersApp:
     def _on_device_select(self, event=None):
         idx = self.device_combo.current()
         if 0 <= idx < len(self.devices):
-            self.selected_serial.set(self.devices[idx].serial)
-            self._log(f"Selected: {self.devices[idx].serial}")
+            serial = self.devices[idx].serial
+            self.selected_serial.set(serial)
+            self._log(f"Selected: {serial}")
             if self.phase == "connected":
                 self.program_btn.config(state=tk.NORMAL)
+
+            # F4: Smart-skip — probe device state on selection.
+            try:
+                dev_info = self.client.get_device_info(serial)
+                state_str = dev_info.get("state", "") if isinstance(dev_info, dict) else ""
+                is_programmed = "Programmed" in str(state_str)
+                resources = self.client.list_resources()
+                existing = next((r for r in resources if r.device_serial == serial), None)
+                if is_programmed and existing:
+                    self._log(f"Device already programmed, resource '{existing.name}' — skipping to Registered")
+                    self.resource_id = existing.id
+                    self.phase = "registered"
+                    self.program_btn.config(text="2. ✓", state=tk.DISABLED)
+                    self.register_btn.config(text="3. ✓", state=tk.DISABLED)
+                    self.acquire_btn.config(state=tk.NORMAL)
+                elif is_programmed:
+                    self._log("Device already programmed — skipping to Register")
+                    self.phase = "programmed"
+                    self.program_btn.config(text="2. ✓", state=tk.DISABLED)
+                    self.register_btn.config(state=tk.NORMAL)
+            except Exception as e:
+                self._log(f"Could not check device state: {e}")
 
     def _start_device_refresh(self):
         self._refresh_devices()
@@ -199,8 +229,15 @@ class CountersApp:
 
     def _on_program(self):
         try:
-            self.client.configure_fpga(self.selected_serial.get(), self.bitfile_path.get())
-            self._log("Programmed"); self.program_btn.config(text="2. ✓", state=tk.DISABLED)
+            serial = self.selected_serial.get()
+            bitfile = self.bitfile_path.get()
+            mode = self.bitfile_mode.get()
+            # F5: Branch on bitfile mode.
+            if mode == "local_file":
+                self.client.configure_fpga_from_file(serial, bitfile)
+            else:
+                self.client.configure_fpga(serial, bitfile)
+            self._log(f"Programmed ({mode})"); self.program_btn.config(text="2. ✓", state=tk.DISABLED)
             self.register_btn.config(state=tk.NORMAL); self.phase = "programmed"
         except Exception as e:
             self._log_err(f"Program: {e}")
@@ -212,7 +249,26 @@ class CountersApp:
             self.register_btn.config(text="3. ✓", state=tk.DISABLED)
             self.acquire_btn.config(state=tk.NORMAL); self.phase = "registered"
         except Exception as e:
-            self._log_err(f"Register: {e}")
+            err_str = str(e)
+            # F3: AlreadyExists / conflict — look up the existing resource.
+            if "AlreadyExists" in err_str or "already exists" in err_str.lower() or "409" in err_str:
+                self._log("Resource already exists — looking up...")
+                try:
+                    resources = self.client.list_resources()
+                    serial = self.selected_serial.get()
+                    existing = next((r for r in resources if r.device_serial == serial), None)
+                    if existing:
+                        self._log(f"Found existing: {existing.id}")
+                        self.resource_id = existing.id
+                        self.register_btn.config(text="3. ✓", state=tk.DISABLED)
+                        self.acquire_btn.config(state=tk.NORMAL)
+                        self.phase = "registered"
+                    else:
+                        self._log_err("No matching resource found")
+                except Exception as e2:
+                    self._log_err(f"Lookup: {e2}")
+            else:
+                self._log_err(f"Register: {err_str}")
 
     def _on_acquire(self):
         try:

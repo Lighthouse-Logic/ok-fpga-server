@@ -64,6 +64,11 @@ class CountersApp:
                 dpg.add_combo([], tag="device_combo", width=400, callback=self._on_device_select,
                               default_value="No device selected")
                 dpg.add_input_text(label="Bitfile", default_value=self.bitfile_path, tag="bitfile_input", width=400)
+                # F5: Bitfile mode toggle.
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Mode:")
+                    dpg.add_radio_button(["Server Path", "Local File"], tag="bitfile_mode",
+                                          default_value="Server Path", horizontal=True)
                 dpg.add_button(label="2. Program Bitfile", tag="program_btn", callback=self._on_program, enabled=False)
                 dpg.add_button(label="3. Register Resource", tag="register_btn", callback=self._on_register, enabled=False)
                 dpg.add_button(label="4. Acquire Resource (Shared)", tag="acquire_btn", callback=self._on_acquire, enabled=False)
@@ -162,13 +167,40 @@ class CountersApp:
                 self._log(f"Selected device: {d.serial}")
                 if self.phase == "connected":
                     dpg.configure_item("program_btn", enabled=True)
+
+                # F4: Smart-skip — probe device state on selection.
+                try:
+                    dev_info = self.client.get_device_info(d.serial)
+                    state_str = dev_info.get("state", "") if isinstance(dev_info, dict) else ""
+                    is_programmed = "Programmed" in str(state_str)
+                    resources = self.client.list_resources()
+                    existing = next((r for r in resources if r.device_serial == d.serial), None)
+                    if is_programmed and existing:
+                        self._log(f"Device already programmed, resource '{existing.name}' available — skipping to Registered")
+                        self.resource_id = existing.id
+                        self.phase = "registered"
+                        dpg.configure_item("program_btn", label="2. Programmed ✓", enabled=False)
+                        dpg.configure_item("register_btn", label="3. Registered ✓", enabled=False)
+                        dpg.configure_item("acquire_btn", enabled=True)
+                    elif is_programmed:
+                        self._log("Device already programmed — skipping to Register")
+                        self.phase = "programmed"
+                        dpg.configure_item("program_btn", label="2. Programmed ✓", enabled=False)
+                        dpg.configure_item("register_btn", enabled=True)
+                except Exception as e:
+                    self._log(f"Could not check device state: {e}")
                 break
 
     def _on_program(self):
         try:
             self.bitfile_path = dpg.get_value("bitfile_input")
-            self.client.configure_fpga(self.selected_serial, self.bitfile_path)
-            self._log("FPGA programmed")
+            mode = dpg.get_value("bitfile_mode")
+            # F5: Branch on bitfile mode.
+            if mode == "Local File":
+                self.client.configure_fpga_from_file(self.selected_serial, self.bitfile_path)
+            else:
+                self.client.configure_fpga(self.selected_serial, self.bitfile_path)
+            self._log(f"FPGA programmed ({mode})")
             dpg.configure_item("program_btn", label="2. Programmed ✓", enabled=False)
             dpg.configure_item("register_btn", enabled=True)
             self.phase = "programmed"
@@ -184,7 +216,25 @@ class CountersApp:
             dpg.configure_item("acquire_btn", enabled=True)
             self.phase = "registered"
         except Exception as e:
-            self._log_err(f"Register: {e}")
+            err_str = str(e)
+            # F3: 409 Conflict — resource already exists. Look it up.
+            if "409" in err_str or "already exists" in err_str.lower():
+                self._log("Resource already exists — looking up...")
+                try:
+                    resources = self.client.list_resources()
+                    existing = next((r for r in resources if r.device_serial == self.selected_serial), None)
+                    if existing:
+                        self._log(f"Found existing: {existing.id}")
+                        self.resource_id = existing.id
+                        dpg.configure_item("register_btn", label="3. Registered ✓", enabled=False)
+                        dpg.configure_item("acquire_btn", enabled=True)
+                        self.phase = "registered"
+                    else:
+                        self._log_err("No matching resource found")
+                except Exception as e2:
+                    self._log_err(f"Lookup: {e2}")
+            else:
+                self._log_err(f"Register: {err_str}")
 
     def _on_acquire(self):
         try:

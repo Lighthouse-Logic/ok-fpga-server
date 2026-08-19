@@ -58,10 +58,21 @@ fn boot() -> (AppState, Task<Message>) {
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Phase { Disconnected, Connected, Programmed, Registered, Acquired }
 
+/// Bitfile configuration mode — server-side path or client-side upload (F5).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BitfileMode {
+    /// Send the path to the server (server reads the file).
+    ServerPath,
+    /// Read the file locally and upload as binary.
+    LocalFile,
+}
+
 /// Complete application state.
 pub struct AppState {
     pub grpc_url: String,
     pub bitfile_path: String,
+    /// Whether to send the bitfile path or upload local file (F5).
+    pub bitfile_mode: BitfileMode,
     pub phase: Phase,
     pub devices: Vec<DeviceInfo>,
     pub selected_serial: Option<String>,
@@ -81,6 +92,7 @@ impl AppState {
     pub fn new(bitfile: String) -> Self {
         Self {
             grpc_url: DEFAULT_GRPC_URL.to_string(), bitfile_path: bitfile,
+            bitfile_mode: BitfileMode::ServerPath,
             phase: Phase::Disconnected, devices: vec![], selected_serial: None,
             resource_id: None, wire_in: WireInState::default(), poll_interval_ms: 500,
             override_lockout: false, counter: CounterState::default(), resource_info: None,
@@ -127,6 +139,10 @@ pub enum Message {
     QuitRelease, QuitLeaveHeld, DisconnectResult(Result<(), String>),
     RefreshDevicesTick, RefreshDevicesResult(Result<Vec<DeviceInfo>, String>),
     DismissDisconnect,
+    // Phase 25-Fix-F additions
+    SetBitfileMode(BitfileMode),
+    CheckDeviceState,
+    CheckDeviceStateResult(Result<(bool, Option<ResourceInfo>), String>),
 }
 
 fn update(state: &mut AppState, message: Message) -> Task<Message> {
@@ -152,12 +168,22 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 Err(e) => state.log_err(&format!("Connect: {}", e)),
             } Task::none()
         }
-        Message::SelectDevice(s) => { state.log(&format!("Selected: {}", s)); state.selected_serial = Some(s); Task::none() }
+        Message::SelectDevice(s) => {
+            state.log(&format!("Selected: {}", s));
+            state.selected_serial = Some(s);
+            // F4: Probe device state and existing resources (smart-skip).
+            update(state, Message::CheckDeviceState)
+        }
         Message::ProgramPressed => {
             let url = state.grpc_url.clone(); let s = state.serial(); let bf = state.bitfile_path.clone();
+            let mode = state.bitfile_mode;
             Task::perform(async move {
                 let mut c = connect(&url).await?;
-                c.configure_fpga(&s, &bf).await.map_err(|e| e.to_string())
+                // F5: Branch on bitfile mode.
+                match mode {
+                    BitfileMode::ServerPath => c.configure_fpga(&s, &bf).await.map_err(|e| e.to_string()),
+                    BitfileMode::LocalFile => c.configure_fpga_from_file(&s, std::path::Path::new(&bf)).await.map_err(|e| e.to_string()),
+                }
             }, Message::ProgramResult)
         }
         Message::ProgramResult(r) => { match r { Ok(()) => { state.log("Programmed"); state.phase = Phase::Programmed; } Err(e) => state.log_err(&e) } Task::none() }
@@ -168,7 +194,29 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 c.create_resource("Counter Resource", &s).await.map_err(|e| e.to_string())
             }, Message::RegisterResult)
         }
-        Message::RegisterResult(r) => { match r { Ok(i) => { state.log(&format!("Registered: {}", i.id)); state.resource_id = Some(i.id); state.phase = Phase::Registered; } Err(e) => state.log_err(&e) } Task::none() }
+        Message::RegisterResult(r) => {
+            match r {
+                Ok(i) => {
+                    state.log(&format!("Registered: {}", i.id));
+                    state.resource_id = Some(i.id);
+                    state.phase = Phase::Registered;
+                }
+                // F3: AlreadyExists / 409 Conflict — look up the existing resource.
+                Err(e) if e.contains("AlreadyExists") || e.contains("409") || e.contains("already exists") => {
+                    state.log("Resource already exists — looking up...");
+                    let url = state.grpc_url.clone();
+                    let serial = state.serial();
+                    return Task::perform(async move {
+                        let mut c = connect(&url).await?;
+                        let resources = c.list_resources().await.map_err(|e| e.to_string())?;
+                        resources.into_iter().find(|r| r.device_serial == serial)
+                            .ok_or_else(|| "No matching resource found".to_string())
+                    }, Message::RegisterResult);
+                }
+                Err(e) => state.log_err(&e),
+            }
+            Task::none()
+        }
         Message::AcquirePressed => {
             let url = state.grpc_url.clone(); let rid = state.resource_id.clone().unwrap();
             Task::perform(async move {
@@ -256,6 +304,63 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::DismissDisconnect => { state.show_disconnect_dialog = false; Task::none() }
+
+        // ================================================================
+        // Phase 25-Fix-F: Bitfile mode toggle + device state check
+        // ================================================================
+
+        Message::SetBitfileMode(mode) => {
+            state.bitfile_mode = mode;
+            state.log(&format!("Bitfile mode: {:?}", mode));
+            Task::none()
+        }
+
+        Message::CheckDeviceState => {
+            let url = state.grpc_url.clone();
+            let serial = state.serial();
+            if serial.is_empty() {
+                return Task::none();
+            }
+            Task::perform(
+                async move {
+                    let mut c = connect(&url).await?;
+                    // Check if device is programmed.
+                    let dev_info = c.get_device_info(&serial).await.map_err(|e| e.to_string())?;
+                    let is_programmed = dev_info.get("state")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.contains("Programmed"))
+                        .unwrap_or(false);
+                    // Check for existing resource.
+                    let resources = c.list_resources().await.map_err(|e| e.to_string())?;
+                    let existing = resources.into_iter().find(|r| r.device_serial == serial);
+                    Ok((is_programmed, existing))
+                },
+                Message::CheckDeviceStateResult,
+            )
+        }
+        Message::CheckDeviceStateResult(result) => {
+            match result {
+                Ok((true, Some(resource))) => {
+                    state.log(&format!(
+                        "Device already programmed, resource '{}' available — skipping to Registered",
+                        resource.name
+                    ));
+                    state.resource_id = Some(resource.id);
+                    state.phase = Phase::Registered;
+                }
+                Ok((true, None)) => {
+                    state.log("Device already programmed — skipping to Register");
+                    state.phase = Phase::Programmed;
+                }
+                Ok((false, _)) => {
+                    // Not programmed — normal flow.
+                }
+                Err(e) => {
+                    state.log(&format!("Could not check device state: {}", e));
+                }
+            }
+            Task::none()
+        }
     }
 }
 
@@ -323,11 +428,21 @@ fn view_connect(s: &AppState) -> Element<'_, Message> {
         ].spacing(4).into()
     } else { text("").into() };
 
+    // F5: Bitfile mode toggle — Server Path vs Local File.
+    let mode_row = row![
+        text("Mode:").width(100),
+        button(if s.bitfile_mode == BitfileMode::ServerPath { "● Server Path" } else { "○ Server Path" })
+            .on_press(Message::SetBitfileMode(BitfileMode::ServerPath)),
+        button(if s.bitfile_mode == BitfileMode::LocalFile { "● Local File" } else { "○ Local File" })
+            .on_press(Message::SetBitfileMode(BitfileMode::LocalFile)),
+    ].spacing(8);
+
     column![
         disconnect_msg,
         row![text("gRPC URL:").width(100), text_input("http://localhost:50051", &s.grpc_url).on_input(Message::UrlChanged)].spacing(8),
         con, device_picker,
         row![text("Bitfile:").width(100), text_input("path", &s.bitfile_path).on_input(Message::BitfileChanged)].spacing(8),
+        mode_row,
         prog, reg, acq,
     ].spacing(8).into()
 }

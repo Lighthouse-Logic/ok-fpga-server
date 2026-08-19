@@ -141,6 +141,56 @@ impl CountersGrpcClient {
         Ok(devices)
     }
 
+    /// `GetDeviceInfo` RPC — get full device info for a single device.
+    ///
+    /// Returns the response as a `serde_json::Value` for flexibility.
+    /// Used by F4 smart-skip to check if a device is already programmed.
+    pub async fn get_device_info(&mut self, serial: &str) -> Result<serde_json::Value, ClientError> {
+        let resp = self
+            .device
+            .get_device_info(okfpga::v1::DeviceRequest {
+                serial: serial.to_string(),
+            })
+            .await?;
+        let inner = resp.into_inner();
+        // Convert to JSON Value for compatibility with the REST client API.
+        // Derive "state" from whether a bitfile is loaded (DeviceInfo.bitfile
+        // is an optional field — present means programmed).
+        let device = inner.device.unwrap_or_default();
+        let state = if device.bitfile.is_some() { "Programmed" } else { "NotProgrammed" };
+        let json = serde_json::json!({
+            "serial": device.serial,
+            "product_name": device.product_name,
+            "state": state,
+        });
+        Ok(json)
+    }
+
+    /// `ListResources` RPC — list all resources across all devices.
+    ///
+    /// Used by F3 (409 conflict recovery) and F4 (smart-skip) to look up
+    /// existing resources on a device.
+    pub async fn list_resources(&mut self) -> Result<Vec<ResourceInfo>, ClientError> {
+        let resp = self
+            .device
+            .list_resources(okfpga::v1::ListResourcesRequest {})
+            .await?;
+        let resources = resp
+            .into_inner()
+            .resources
+            .into_iter()
+            .map(|r| ResourceInfo {
+                id: r.id,
+                name: r.name,
+                device_serial: r.device_serial,
+                access_mode: "shared".to_string(),
+                holders: r.holders,
+                locked_by: None,
+            })
+            .collect();
+        Ok(resources)
+    }
+
     /// Configure FPGA from a server-side bitfile path.
     ///
     /// Sends `ConfigureFPGA` RPC with the path. The bitfile must exist on
@@ -397,7 +447,7 @@ impl CountersGrpcClient {
     /// the user session, and stops heartbeat tracking. This is the
     /// recommended way to end a client session.
     pub async fn disconnect(&mut self) -> Result<(), ClientError> {
-        self.user_mgmt
+        self.device
             .disconnect(okfpga::v1::DisconnectRequest {
                 user_id: self.user_id.clone(),
             })

@@ -96,6 +96,39 @@ class CountersGrpcClient:
         return [DeviceInfo(serial=d.serial, product_name=d.product_name)
                 for d in resp.devices]
 
+    def get_device_info(self, serial: str) -> dict:
+        """``GetDeviceInfo`` RPC — get full device info for a single device.
+
+        Returns a dict with at least ``state`` derived from whether a bitfile
+        is loaded. Used by F4 smart-skip.
+        """
+        resp = self.device_stub.GetDeviceInfo(
+            okfpga_pb2.DeviceRequest(serial=serial))
+        device = resp.device
+        state = "Programmed" if device.HasField("bitfile") else "NotProgrammed"
+        return {
+            "serial": device.serial,
+            "product_name": device.product_name,
+            "state": state,
+        }
+
+    def list_resources(self) -> list:
+        """``ListResources`` RPC — list all resources across all devices.
+
+        Used by F3 (409 conflict recovery) and F4 (smart-skip).
+        """
+        from python_rest_gui_common.counters_client import ResourceInfo
+        resp = self.device_stub.ListResources(
+            okfpga_pb2.ListResourcesRequest())
+        return [ResourceInfo(
+            id=r.id,
+            name=r.name,
+            device_serial=r.device_serial,
+            access_mode="shared",
+            holders=list(r.holders),
+            locked_by=None,
+        ) for r in resp.resources]
+
     def configure_fpga(self, serial: str, bitfile_path: str):
         """Configure FPGA from a server-side bitfile path."""
         self.device_stub.ConfigureFPGA(okfpga_pb2.ConfigureFPGARequest(

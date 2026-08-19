@@ -102,11 +102,22 @@ struct LogEntry {
     is_error: bool,
 }
 
+/// Bitfile configuration mode — server-side path or client-side upload (F5).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum BitfileMode {
+    /// Send the path to the server (server reads the file).
+    ServerPath,
+    /// Read the file locally and upload as binary.
+    LocalFile,
+}
+
 /// Main application state for the egui GUI.
 struct CountersApp {
     // --- Connection settings ---
     rest_url: String,
     bitfile_path: String,
+    /// Whether to send the bitfile path or upload local file (F5).
+    bitfile_mode: BitfileMode,
     phase: ConnectionPhase,
 
     // --- Device / resource state ---
@@ -147,6 +158,7 @@ impl CountersApp {
         Self {
             rest_url: DEFAULT_REST_URL.to_string(),
             bitfile_path: bitfile,
+            bitfile_mode: BitfileMode::ServerPath,
             phase: ConnectionPhase::Disconnected,
             devices: vec![],
             selected_serial: None,
@@ -507,7 +519,39 @@ impl CountersApp {
             });
             if let Some(serial) = newly_selected {
                 self.log(&format!("Selected device: {}", serial));
-                self.selected_serial = Some(serial);
+                self.selected_serial = Some(serial.clone());
+
+                // F4: Smart-skip — probe device state and skip phases if
+                // the FPGA is already programmed or a resource exists.
+                let client = self.make_client();
+                match self.runtime.block_on(async {
+                    let dev_info = client.get_device_info(&serial).await.map_err(|e| e.to_string())?;
+                    let is_programmed = dev_info["state"].as_str()
+                        .map(|s| s.contains("Programmed"))
+                        .unwrap_or(false);
+                    let resources = client.list_resources().await.map_err(|e| e.to_string())?;
+                    let existing = resources.into_iter().find(|r| r.device_serial == serial);
+                    Ok::<_, String>((is_programmed, existing))
+                }) {
+                    Ok((true, Some(resource))) => {
+                        self.log(&format!(
+                            "Device already programmed, resource '{}' available — skipping to Registered",
+                            resource.name
+                        ));
+                        self.resource_id = Some(resource.id);
+                        self.phase = ConnectionPhase::Registered;
+                    }
+                    Ok((true, None)) => {
+                        self.log("Device already programmed — skipping to Register");
+                        self.phase = ConnectionPhase::Programmed;
+                    }
+                    Ok((false, _)) => {
+                        // Not programmed — normal flow.
+                    }
+                    Err(e) => {
+                        self.log(&format!("Could not check device state: {}", e));
+                    }
+                }
             }
         }
 
@@ -519,13 +563,35 @@ impl CountersApp {
             ui.label("Bitfile:");
             ui.text_edit_singleline(&mut self.bitfile_path);
         });
+
+        // F5: Bitfile mode toggle — Server Path vs Local File.
+        ui.horizontal(|ui| {
+            ui.label("Mode:");
+            ui.radio_value(&mut self.bitfile_mode, BitfileMode::ServerPath, "Server Path");
+            ui.radio_value(&mut self.bitfile_mode, BitfileMode::LocalFile, "Local File");
+        });
+
         if ui.add_enabled(can_program, egui::Button::new("2. Program Bitfile")).clicked() {
             let client = self.make_client();
             let serial = self.serial();
             let bitfile = self.bitfile_path.clone();
-            match self.runtime.block_on(client.configure_fpga(&serial, &bitfile)) {
-                Ok(_) => {
-                    self.log(&format!("FPGA programmed: {}", bitfile));
+            let mode = self.bitfile_mode;
+            // F5: Branch on bitfile mode.
+            let result = self.runtime.block_on(async {
+                match mode {
+                    BitfileMode::ServerPath => {
+                        client.configure_fpga(&serial, &bitfile).await
+                            .map(|_| ()).map_err(|e| e.to_string())
+                    }
+                    BitfileMode::LocalFile => {
+                        client.configure_fpga_from_file(&serial, std::path::Path::new(&bitfile)).await
+                            .map(|_| ()).map_err(|e| e.to_string())
+                    }
+                }
+            });
+            match result {
+                Ok(()) => {
+                    self.log(&format!("FPGA programmed: {} ({:?})", bitfile, mode));
                     self.phase = ConnectionPhase::Programmed;
                 }
                 Err(e) => self.log_error(&format!("Program failed: {}", e)),
@@ -545,7 +611,28 @@ impl CountersApp {
                     self.resource_id = Some(info.id);
                     self.phase = ConnectionPhase::Registered;
                 }
-                Err(e) => self.log_error(&format!("Register failed: {}", e)),
+                Err(e) => {
+                    let err_str = e.to_string();
+                    // F3: 409 Conflict — resource already exists. Look it up.
+                    if err_str.contains("409") || err_str.contains("already exists") {
+                        self.log("Resource already exists — looking up...");
+                        let client2 = self.make_client();
+                        match self.runtime.block_on(client2.list_resources()) {
+                            Ok(resources) => {
+                                if let Some(existing) = resources.into_iter().find(|r| r.device_serial == serial) {
+                                    self.log(&format!("Found existing resource: {}", existing.id));
+                                    self.resource_id = Some(existing.id);
+                                    self.phase = ConnectionPhase::Registered;
+                                } else {
+                                    self.log_error("No matching resource found");
+                                }
+                            }
+                            Err(e2) => self.log_error(&format!("Lookup failed: {}", e2)),
+                        }
+                    } else {
+                        self.log_error(&format!("Register failed: {}", err_str));
+                    }
+                }
             }
         }
 

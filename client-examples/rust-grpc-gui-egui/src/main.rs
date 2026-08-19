@@ -46,9 +46,20 @@ struct SharedState {
     last_error: Option<String>,
 }
 
+/// Bitfile configuration mode — server-side path or client-side upload (F5).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum BitfileMode {
+    /// Send the path to the server (server reads the file).
+    ServerPath,
+    /// Read the file locally and stream via ConfigureFPGAFromMemory.
+    LocalFile,
+}
+
 struct CountersApp {
     grpc_url: String,
     bitfile_path: String,
+    /// Whether to send the bitfile path or upload local file (F5).
+    bitfile_mode: BitfileMode,
     phase: Phase,
     devices: Vec<DeviceInfo>,
     selected_serial: Option<String>,
@@ -74,6 +85,7 @@ impl CountersApp {
         Self {
             grpc_url: DEFAULT_GRPC_URL.to_string(),
             bitfile_path: bitfile,
+            bitfile_mode: BitfileMode::ServerPath,
             phase: Phase::Disconnected,
             devices: vec![],
             selected_serial: None,
@@ -289,16 +301,59 @@ impl CountersApp {
             });
             if let Some(serial) = newly_selected {
                 self.add_log(&format!("Selected: {}", serial), false);
-                self.selected_serial = Some(serial);
+                self.selected_serial = Some(serial.clone());
+
+                // F4: Smart-skip — probe device state on selection.
+                if let Some(ca) = self.client.clone() {
+                    match self.runtime.block_on(async {
+                        let mut cl = ca.lock().await;
+                        let dev_info = cl.get_device_info(&serial).await.map_err(|e| e.to_string())?;
+                        let is_programmed = dev_info.get("state")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.contains("Programmed"))
+                            .unwrap_or(false);
+                        let resources = cl.list_resources().await.map_err(|e| e.to_string())?;
+                        let existing = resources.into_iter().find(|r| r.device_serial == serial);
+                        Ok::<_, String>((is_programmed, existing))
+                    }) {
+                        Ok((true, Some(resource))) => {
+                            self.add_log(&format!("Device already programmed, resource '{}' available — skipping to Registered", resource.name), false);
+                            self.resource_id = Some(resource.id);
+                            self.phase = Phase::Registered;
+                        }
+                        Ok((true, None)) => {
+                            self.add_log("Device already programmed — skipping to Register", false);
+                            self.phase = Phase::Programmed;
+                        }
+                        Ok((false, _)) => {}
+                        Err(e) => self.add_log(&format!("Could not check device state: {}", e), false),
+                    }
+                }
             }
         }
 
         ui.horizontal(|ui| { ui.label("Bitfile:"); ui.text_edit_singleline(&mut self.bitfile_path); });
 
+        // F5: Bitfile mode toggle.
+        ui.horizontal(|ui| {
+            ui.label("Mode:");
+            ui.radio_value(&mut self.bitfile_mode, BitfileMode::ServerPath, "Server Path");
+            ui.radio_value(&mut self.bitfile_mode, BitfileMode::LocalFile, "Local File");
+        });
+
         if ui.add_enabled(self.phase == Phase::Connected && self.selected_serial.is_some(), egui::Button::new("2. Program")).clicked() {
             let ca = self.client.clone().unwrap(); let s = self.serial(); let bf = self.bitfile_path.clone();
-            match self.runtime.block_on(async { let mut cl = ca.lock().await; cl.configure_fpga(&s, &bf).await }) {
-                Ok(()) => { self.add_log("FPGA programmed", false); self.phase = Phase::Programmed; }
+            let mode = self.bitfile_mode;
+            // F5: Branch on bitfile mode.
+            let result = self.runtime.block_on(async {
+                let mut cl = ca.lock().await;
+                match mode {
+                    BitfileMode::ServerPath => cl.configure_fpga(&s, &bf).await.map_err(|e| e.to_string()),
+                    BitfileMode::LocalFile => cl.configure_fpga_from_file(&s, std::path::Path::new(&bf)).await.map_err(|e| e.to_string()),
+                }
+            });
+            match result {
+                Ok(()) => { self.add_log(&format!("FPGA programmed ({:?})", mode), false); self.phase = Phase::Programmed; }
                 Err(e) => self.add_log(&format!("Program: {}", e), true),
             }
         }
@@ -307,7 +362,32 @@ impl CountersApp {
             let ca = self.client.clone().unwrap(); let s = self.serial();
             match self.runtime.block_on(async { let mut cl = ca.lock().await; cl.create_resource("Counter Resource", &s).await }) {
                 Ok(info) => { self.add_log(&format!("Registered: {}", info.id), false); self.resource_id = Some(info.id); self.phase = Phase::Registered; }
-                Err(e) => self.add_log(&format!("Register: {}", e), true),
+                Err(e) => {
+                    let err_str = e.to_string();
+                    // F3: AlreadyExists / conflict — look up the existing resource.
+                    if err_str.contains("AlreadyExists") || err_str.contains("already exists") {
+                        self.add_log("Resource already exists — looking up...", false);
+                        if let Some(ca2) = self.client.clone() {
+                            match self.runtime.block_on(async {
+                                let mut cl = ca2.lock().await;
+                                cl.list_resources().await.map_err(|e| e.to_string())
+                            }) {
+                                Ok(resources) => {
+                                    if let Some(existing) = resources.into_iter().find(|r| r.device_serial == s) {
+                                        self.add_log(&format!("Found existing: {}", existing.id), false);
+                                        self.resource_id = Some(existing.id);
+                                        self.phase = Phase::Registered;
+                                    } else {
+                                        self.add_log("No matching resource found", true);
+                                    }
+                                }
+                                Err(e2) => self.add_log(&format!("Lookup: {}", e2), true),
+                            }
+                        }
+                    } else {
+                        self.add_log(&format!("Register: {}", err_str), true);
+                    }
+                }
             }
         }
 

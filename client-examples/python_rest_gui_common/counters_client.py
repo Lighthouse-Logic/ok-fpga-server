@@ -227,6 +227,32 @@ class CountersClient:
 
     # --- Resource Management ---
 
+    def get_device_info(self, serial: str) -> dict:
+        """``GET /devices/{serial}`` — get full device info for a single device.
+
+        Used by F4 smart-skip to check if a device is already programmed.
+        Returns the raw JSON dict.
+        """
+        return self._get(f"/devices/{serial}")
+
+    def list_resources(self) -> list:
+        """``GET /resources`` — list all resources across all devices.
+
+        Used by F3 (409 conflict recovery) and F4 (smart-skip) to look up
+        existing resources on a device.
+        """
+        data = self._get("/resources")
+        resources_list = data.get("resources", []) if isinstance(data, dict) else []
+        return [ResourceInfo(
+            id=r.get("id", ""),
+            name=r.get("name", ""),
+            device_serial=r.get("device_serial", ""),
+            access_mode=r.get("access_mode", ""),
+            holders=r.get("holders", []),
+            locked_by=r.get("locked_by"),
+        ) for r in resources_list]
+
+
     def create_resource(self, name: str, device_serial: str) -> ResourceInfo:
         data = self._post("/resources", {
             "name": name,
