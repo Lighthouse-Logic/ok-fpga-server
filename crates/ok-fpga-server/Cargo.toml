@@ -107,7 +107,7 @@ rumqttc = { version = "0.24", optional = true }
 
 # mdns-sd is a pure-Rust mDNS/DNS-SD library. Used for zero-config
 # network discovery — clients browse for `_okfpga._tcp` services.
-mdns-sd = { version = "0.11", optional = true }
+mdns-sd = { version = "0.13", optional = true }
 
 # ============================================================================
 # Build Dependencies
