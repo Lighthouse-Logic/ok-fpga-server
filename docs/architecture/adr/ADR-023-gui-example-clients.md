@@ -505,3 +505,104 @@ Add two new management API endpoints that follow the same pattern as the existin
 - `mgmt_users_returns_empty_list` — no sessions → `[]`
 - `mgmt_users_returns_active_session` — verifies user_id and last_seen_at
 
+---
+
+## Addendum: Phase 25-Fix-H — QuitRelease Race, Auto-Refresh, Disconnect
+
+**Date**: 2026-08-18
+
+### Background
+
+Manual testing of the Fix-G dashboard with the iced GUI demo revealed three
+bugs — a race condition in quit-release (F8), missing dashboard auto-refresh
+(F9), and user sessions lingering until heartbeat timeout on close (F10).
+
+F8 was "overtaken by events" — the disconnect endpoint introduced in F10
+eliminates the race entirely, as disconnect releases all resources in a
+single server-side call and the client quit handler just awaits that call.
+
+### Bugs
+
+| Bug | Severity | Summary | Resolution |
+|-----|----------|---------|------------|
+| F8 | HIGH | `iced::exit()` kills process before `release_resource()` completes | Replaced with `disconnect()` via `Task::perform` |
+| F9 | MEDIUM | Dashboard Resources/Users panels don't auto-update | Added WebSocket event broadcasts |
+| F10 | LOW | User session not cleaned up on app close | Added `POST /disconnect` + `Disconnect` RPC |
+| F11 | — | No endpoint access enforcement for FPGA operations | Documented as future work (ADR-024 candidate) |
+
+### Changes
+
+#### Spec Changes (F10)
+
+- **OpenAPI**: Added `POST /disconnect` endpoint under Users tag
+- **Proto**: Added `Disconnect` RPC to `UserManagementService`, plus
+  `DisconnectRequest` and `DisconnectResponse` messages
+
+#### Core (`ok-fpga-core`)
+
+- `ResourceRegistry::release_all_for_user(user_id)` — releases all resources
+  held by a user across all devices, following the same state transition logic
+  as `release()`. 5 unit tests.
+
+#### Server (`ok-fpga-server`)
+
+- **REST**: `POST /disconnect` handler in `server.rs`
+- **gRPC**: `Disconnect` handler in `device_service.rs`
+- **AppState**: Added `event_tx: Option<broadcast::Sender<String>>` field +
+  `broadcast_event()` helper method
+- **Event broadcasts (F9)**:
+  - `resources.rs`: `resource_registered`, `resource_acquired`,
+    `resource_released`, `resource_deleted`
+  - `devices.rs`: `resources_cleared` (on FPGA re-program)
+  - `heartbeat_middleware.rs`: `user_connected` (first API call)
+  - `server.rs`: `user_disconnected` (explicit disconnect)
+  - `sweep.rs`: `user_disconnected` (heartbeat timeout expiry)
+- **Sweep task**: Added `event_tx` parameter for dashboard events
+
+#### Dashboard (`web/app.js`)
+
+- `handleWsEvent()`: Added cases for `resource_*`, `resources_cleared`,
+  `user_connected`, `user_disconnected` — triggers `fetchResources()` or
+  `fetchUsers()` to auto-refresh the active panel
+
+#### Client Libraries (F10)
+
+All 4 shared libraries received a `disconnect()` method:
+
+- `rust-rest-gui-common`: `pub async fn disconnect()`
+- `rust-grpc-gui-common`: `pub async fn disconnect()`
+- `python_rest_gui_common`: `def disconnect()`
+- `python_grpc_gui_common`: `def disconnect()`
+
+#### GUI Demos (F8+F10)
+
+All 8 demos updated to use `disconnect()` in their quit handlers:
+
+| Demo | Before | After |
+|------|--------|-------|
+| rust-rest-gui-iced | `tokio::spawn(release) + iced::exit()` | `Task::perform(disconnect) → DisconnectResult → exit` |
+| rust-grpc-gui-iced | `tokio::spawn(release) + iced::exit()` | `Task::perform(disconnect) → DisconnectResult → exit` |
+| rust-rest-gui-egui | `block_on(release_resource)` | `block_on(disconnect)` |
+| rust-grpc-gui-egui | `block_on(release_resource)` | `block_on(disconnect)` |
+| python-rest-gui-tkinter | `release_resource()` | `disconnect()` |
+| python-grpc-gui-tkinter | `release_resource()` | `disconnect()` |
+| python-rest-gui-dearpygui | (none) | `disconnect()` before `destroy_context()` |
+| python-grpc-gui-dearpygui | (none) | `disconnect()` before `destroy_context()` |
+
+### Future Work: F11 — Endpoint Access Enforcement (ADR-024 Candidate)
+
+Currently, once a user has connected and acquired a resource, there is no
+server-side enforcement that only holders of a resource can communicate with
+the FPGA via that resource's endpoints. Any authenticated user can call
+wire/trigger/pipe operations on any endpoint without having acquired the
+corresponding resource.
+
+This is documented as a conscious v1 simplification in ADR-020. A future
+ADR-024 should design and implement runtime endpoint access gating:
+
+- Verify that the calling user is a current holder of a resource whose
+  `endpoints` list includes the target endpoint address
+- Return 403/PERMISSION_DENIED for unauthorized operations
+- Consider performance implications of per-operation lookups
+
+
