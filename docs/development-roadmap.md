@@ -41,8 +41,50 @@
 
 | Horizon | Focus Area | ADR | Status |
 |---------|-----------|-----|--------|
+| **Phase 28C (Now)** | Settings Lockdown — Remove External REST Settings API | — | 🟢 Active |
 | **Phase 29 (Next)** | Address Range Enforcement for Classic/okRegisterBridge | ADR-024 | 🟡 Planned |
 | **Phase 30+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
+
+---
+
+## 🟢 Now: Phase 28C — Settings Lockdown
+
+*Focus: Server settings (description, endpoint enforcement level) must not be
+controllable by external REST API clients. Only the Web Dashboard — which uses
+the management port (9090) — should be able to read/modify settings.*
+
+### Problem
+
+Phase 28B added `GET /server/settings` and `PUT /server/settings` on the
+**REST API** (port 8088), making server configuration changes available to
+any client that can reach the REST endpoint. This is a security concern:
+
+- Clients should not be able to change the server's endpoint enforcement level
+- Clients should not be able to rename the server description
+- The `expose_settings` guard mitigates this, but the endpoints shouldn't
+  exist on the client-facing REST API at all
+
+The **management API** (port 9090, `GET/PUT /mgmt/settings`) is already
+local-only and is what the Web Dashboard uses (`API_BASE = '/mgmt'`).
+That path is correct and should remain.
+
+### Tasks
+
+* [ ] **Remove `GET /server/settings` from REST router** — delete the route
+      and handler from `rest/server.rs`. Clients have no legitimate need to
+      read server configuration.
+* [ ] **Remove `PUT /server/settings` from REST router** — delete the route
+      and handler from `rest/server.rs`. Settings changes must only go through
+      the management API.
+* [ ] **Remove `/server/settings` from OpenAPI spec** — remove the path and
+      clean up any orphaned schema references from `api/openapi.yaml`.
+* [ ] **Verify dashboard still works** — confirm the dashboard uses
+      `/mgmt/settings` (management port) exclusively, unaffected by the
+      REST removal.
+* [ ] **Update `expose_settings` guard scope** — the `expose_settings` config
+      switch should only apply to the management API endpoints (controlling
+      whether the dashboard Settings page is available). It no longer needs
+      to guard REST endpoints since they won't exist.
 
 ---
 
@@ -149,6 +191,12 @@ Features in this section represent uncommitted research or long-term capabilitie
   REST + gRPC) with mock service announcements where possible. Also test
   `[server] description` config default/override and TXT record generation
   with the description field.
+
+* **mDNS dynamic bitfile announcements** — update the mDNS TXT records to
+  include the currently loaded bitfile description (or "Not Programmed" if the
+  device has no bitfile loaded). This would allow GUI clients to see at a
+  glance what each discovered server is running before connecting. Requires
+  re-announcing the mDNS service whenever the FPGA is programmed or reset.
 
 ---
 
