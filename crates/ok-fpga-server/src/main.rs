@@ -199,6 +199,12 @@ async fn main() -> anyhow::Result<()> {
     let user_sessions = Arc::new(ok_fpga_core::user::UserSessionRegistry::new());
 
     // Create shared application state.
+    // Parse the endpoint enforcement level from config (ADR-024 §1).
+    let enforcement = crate::state::EndpointEnforcement::from_config(
+        &cfg.access_control.endpoint_enforcement,
+    );
+    info!("Endpoint access enforcement: {}", enforcement);
+
     let mut app_state_inner = AppState::new(
         device_manager.clone(),
         resource_registry.clone(),
@@ -207,6 +213,7 @@ async fn main() -> anyhow::Result<()> {
         auth_provider,
         session_manager,
         user_sessions,
+        enforcement,
     );
     // Wire the event broadcast channel so resource/user lifecycle events
     // reach the WebSocket dashboard (Phase 25-Fix-H, F9).

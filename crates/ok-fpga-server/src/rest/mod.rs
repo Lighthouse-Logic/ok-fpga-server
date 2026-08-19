@@ -20,6 +20,7 @@
 //! Each route handler extracts `State<Arc<AppState>>` and delegates to
 //! `ok-fpga-core` domain types. Responses use JSON serialization via serde.
 
+pub mod access_middleware;
 pub mod axi;
 pub mod classic;
 pub mod devices;
@@ -54,8 +55,16 @@ use crate::state::AppState;
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .nest("/api/v1", api_v1_routes())
-        // Layer the implicit heartbeat middleware on all /api/v1/* routes.
-        // This updates user_sessions.last_seen_at on every request that
+        // Access enforcement MW — on ALL /api/v1/* routes (ADR-024).
+        // Three-tier enforcement: identity-only on management/device routes,
+        // identity + device-level gating on Classic/AXI data port routes.
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            access_middleware::access_enforcement_middleware,
+        ))
+        // Heartbeat MW — independent liveness concern (ADR-020 §5).
+        // Decoupled from access control per ADR-024 design principle 2.
+        // Updates user_sessions.last_seen_at on every request that
         // includes the X-User-Id header.
         .layer(middleware::from_fn_with_state(
             state.clone(),

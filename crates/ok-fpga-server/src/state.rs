@@ -11,6 +11,7 @@
 //! tasks. All interior types use their own synchronization (RwLock, broadcast
 //! channels, etc.).
 
+use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -22,6 +23,73 @@ use ok_fpga_core::service_manager::ServiceManager;
 use ok_fpga_core::user::UserSessionRegistry;
 
 use crate::handle_pool::DeviceHandlePool;
+
+// ============================================================================
+// Endpoint Access Enforcement Level (ADR-024 §1)
+// ============================================================================
+
+/// Controls whether FPGA data port operations require resource ownership.
+///
+/// This enum is the runtime representation of the `endpoint_enforcement`
+/// config key. It is stored on [`AppState`] so that middleware and handlers
+/// can do a cheap enum comparison instead of parsing a string on every request.
+///
+/// ## Levels
+///
+/// - **`Off`**: No checks. Current v1 behavior. `X-User-Id` is not required.
+/// - **`Warn`**: Check passes, but violations are logged at WARN level.
+///   `X-User-Id` is required on all requests.
+/// - **`Enforce`**: Unauthorized operations are rejected with `403 Forbidden`
+///   (REST) or `PERMISSION_DENIED` (gRPC). `X-User-Id` is required.
+///
+/// Default: `Off` — preserves backward compatibility.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndpointEnforcement {
+    /// No enforcement. All operations pass through without checks.
+    Off,
+    /// Log violations at WARN level but allow the operation to proceed.
+    Warn,
+    /// Reject unauthorized operations.
+    Enforce,
+}
+
+impl EndpointEnforcement {
+    /// Parse the enforcement level from a config string.
+    ///
+    /// Accepts `"off"`, `"warn"`, or `"enforce"` (case-insensitive).
+    /// Returns `Off` for unrecognized values (with a logged warning).
+    pub fn from_config(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "warn" => EndpointEnforcement::Warn,
+            "enforce" => EndpointEnforcement::Enforce,
+            "off" => EndpointEnforcement::Off,
+            other => {
+                tracing::warn!(
+                    "Unknown endpoint_enforcement value '{}', defaulting to 'off'",
+                    other
+                );
+                EndpointEnforcement::Off
+            }
+        }
+    }
+
+    /// Returns `true` if enforcement is active (i.e., not `Off`).
+    ///
+    /// When active, `X-User-Id` must be present on all requests.
+    pub fn is_active(&self) -> bool {
+        *self != EndpointEnforcement::Off
+    }
+}
+
+impl fmt::Display for EndpointEnforcement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EndpointEnforcement::Off => write!(f, "off"),
+            EndpointEnforcement::Warn => write!(f, "warn"),
+            EndpointEnforcement::Enforce => write!(f, "enforce"),
+        }
+    }
+}
 
 /// Shared application state passed to all request handlers.
 ///
@@ -86,6 +154,13 @@ pub struct AppState {
 
     /// Server API version string (from Cargo.toml).
     pub api_version: &'static str,
+
+    /// Endpoint access enforcement level (ADR-024 §1).
+    ///
+    /// Controls whether FPGA data port operations (Classic wires/triggers/pipes,
+    /// AXI reads/writes) require the caller to hold a resource covering the
+    /// target endpoint. See [`EndpointEnforcement`] for level descriptions.
+    pub enforcement: EndpointEnforcement,
 }
 
 impl AppState {
@@ -100,6 +175,7 @@ impl AppState {
         auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider>,
         session_manager: Arc<ok_fpga_core::auth::SessionManager>,
         user_sessions: Arc<UserSessionRegistry>,
+        enforcement: EndpointEnforcement,
     ) -> Self {
         Self {
             device_manager,
@@ -112,6 +188,7 @@ impl AppState {
             event_tx: None,
             start_time: Instant::now(),
             api_version: env!("CARGO_PKG_VERSION"),
+            enforcement,
         }
     }
 

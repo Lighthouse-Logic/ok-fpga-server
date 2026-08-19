@@ -68,6 +68,9 @@ pub struct ServerConfig {
 
     /// Authentication configuration (ADR-008).
     pub auth: AuthConfig,
+
+    /// Access control configuration (ADR-024).
+    pub access_control: AccessControlConfig,
 }
 
 /// Core server settings.
@@ -272,6 +275,44 @@ impl Default for AuthConfig {
 pub struct LocalAuthConfig {
     /// List of local user accounts.
     pub users: Vec<ok_fpga_core::auth::LocalUser>,
+}
+
+// ============================================================================
+// Access Control Configuration (ADR-024)
+// ============================================================================
+
+/// Access control configuration (ADR-024).
+///
+/// Controls whether FPGA data port operations require the calling user to
+/// hold a resource covering the target endpoint.
+///
+/// ## Example
+///
+/// ```toml
+/// [access_control]
+/// endpoint_enforcement = "off"  # "off", "warn", or "enforce"
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AccessControlConfig {
+    /// Enforcement level for endpoint access checks.
+    ///
+    /// - `"off"`: No checks. Current v1 behavior. User ID not required.
+    /// - `"warn"`: Log violations at WARN level but allow operations.
+    ///   User ID is required on all requests.
+    /// - `"enforce"`: Reject unauthorized operations with 403 / PERMISSION_DENIED.
+    ///   User ID is required on all requests.
+    ///
+    /// Default: `"off"`.
+    pub endpoint_enforcement: String,
+}
+
+impl Default for AccessControlConfig {
+    fn default() -> Self {
+        Self {
+            endpoint_enforcement: "off".to_string(),
+        }
+    }
 }
 
 // ============================================================================

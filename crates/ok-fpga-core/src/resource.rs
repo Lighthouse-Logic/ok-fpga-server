@@ -471,6 +471,104 @@ impl fmt::Display for AcquisitionDenied {
 }
 
 // ============================================================================
+// Access Denied Error (ADR-024)
+// ============================================================================
+
+/// Reason why an endpoint or address access check was denied.
+///
+/// This error type is used by the runtime enforcement system (ADR-024) to
+/// explain why a user's FPGA operation was rejected. It is distinct from
+/// [`AcquisitionDenied`], which covers resource *acquisition* decisions.
+///
+/// ## When is this used?
+///
+/// When `endpoint_enforcement` is set to `"warn"` or `"enforce"`, every
+/// Classic endpoint operation (wire/trigger/pipe) and AXI address operation
+/// is checked against the resource registry. If the check fails, an
+/// `AccessDenied` error is returned with a human-readable explanation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AccessDenied {
+    /// No user identity was provided on the request.
+    ///
+    /// When enforcement is active (`warn` or `enforce`), every request must
+    /// include a user identity (`X-User-Id` header for REST, `x-user-id`
+    /// metadata for gRPC).
+    NoUserId,
+
+    /// The user does not hold any resource on the target device.
+    ///
+    /// This means the user has not acquired any resource on the device they
+    /// are trying to operate on.
+    NoResourceOnDevice {
+        user_id: String,
+        device_serial: String,
+    },
+
+    /// The user holds a resource on the device, but it does not cover the
+    /// specific endpoint or address being accessed.
+    NoCoveringResource {
+        user_id: String,
+        device_serial: String,
+        /// Human-readable description of what was denied, e.g.,
+        /// "endpoint 0x00 (wire_in)" or "AXI address 0x44A60000".
+        detail: String,
+    },
+
+    /// The resource covering this endpoint is locked by another user.
+    ///
+    /// A locked resource can ONLY be used by the user who holds the lock.
+    /// Other holders remain in the holders list but their operations are
+    /// rejected until the resource is unlocked.
+    LockedByOther {
+        user_id: String,
+        locked_by: String,
+        resource_id: String,
+    },
+}
+
+impl fmt::Display for AccessDenied {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AccessDenied::NoUserId => {
+                write!(f, "User identity required (X-User-Id header missing)")
+            }
+            AccessDenied::NoResourceOnDevice {
+                user_id,
+                device_serial,
+            } => {
+                write!(
+                    f,
+                    "User '{}' does not hold any resource on device '{}'",
+                    user_id, device_serial
+                )
+            }
+            AccessDenied::NoCoveringResource {
+                user_id,
+                device_serial,
+                detail,
+            } => {
+                write!(
+                    f,
+                    "User '{}' does not hold a resource covering {} on device '{}'",
+                    user_id, detail, device_serial
+                )
+            }
+            AccessDenied::LockedByOther {
+                user_id,
+                locked_by,
+                resource_id,
+            } => {
+                write!(
+                    f,
+                    "Resource '{}' is locked by '{}' — user '{}' cannot access it",
+                    resource_id, locked_by, user_id
+                )
+            }
+        }
+    }
+}
+
+// ============================================================================
 // Resource Access Policy Trait
 // ============================================================================
 
@@ -1023,6 +1121,236 @@ impl ResourceRegistry {
 
         deleted
     }
+
+    // ========================================================================
+    // Endpoint Access Enforcement (ADR-024)
+    // ========================================================================
+
+    /// Check if a user holds ANY resource on the given device.
+    ///
+    /// This is the **device-level gate** used by the REST middleware (ADR-024
+    /// §4, Tier 3) for early rejection. It answers: "Has this user acquired
+    /// at least one resource on this device?"
+    ///
+    /// It does NOT check endpoint coverage or lock status — that is the
+    /// handler's job via [`check_endpoint_access()`] or [`check_address_access()`].
+    ///
+    /// Returns `Ok(())` if the user holds at least one resource on the device,
+    /// or `Err(AccessDenied::NoResourceOnDevice)` if not.
+    pub fn check_device_access(
+        &self,
+        user_id: &str,
+        device_serial: &str,
+    ) -> Result<(), AccessDenied> {
+        let map = self.resources.read().unwrap();
+
+        // Look for ANY resource on this device where the user is a holder.
+        let has_resource = map.values().any(|r| {
+            r.device_serial == device_serial && r.holders.contains(&user_id.to_string())
+        });
+
+        if has_resource {
+            Ok(())
+        } else {
+            Err(AccessDenied::NoResourceOnDevice {
+                user_id: user_id.to_string(),
+                device_serial: device_serial.to_string(),
+            })
+        }
+    }
+
+    /// Check if a user is authorized to access a specific Classic endpoint.
+    ///
+    /// This implements the **authorization rule** from ADR-024 §2:
+    ///
+    /// 1. Find all resources on `device_serial` where `user_id ∈ holders`
+    /// 2. For each held resource:
+    ///    - If `InUseLocked` and `locked_by != user_id` → DENY (locked by other)
+    ///    - Check endpoint coverage:
+    ///      - No `endpoints` field (legacy resource) → ALLOW (covers all EPs)
+    ///      - Explicit entry with matching address → ALLOW
+    ///      - No matching entry, but `default_access` exists → ALLOW
+    ///      - `entries` is empty and `default_access` exists → ALLOW
+    /// 3. If no held resource covers the endpoint → DENY
+    ///
+    /// Returns `Ok(())` if authorized, or `Err(AccessDenied)` with the reason.
+    pub fn check_endpoint_access(
+        &self,
+        user_id: &str,
+        device_serial: &str,
+        endpoint: u8,
+        ep_type: &EndpointType,
+    ) -> Result<(), AccessDenied> {
+        let map = self.resources.read().unwrap();
+
+        // Find all resources on this device held by this user.
+        let held_resources: Vec<&Resource> = map
+            .values()
+            .filter(|r| {
+                r.device_serial == device_serial
+                    && r.holders.contains(&user_id.to_string())
+            })
+            .collect();
+
+        if held_resources.is_empty() {
+            return Err(AccessDenied::NoResourceOnDevice {
+                user_id: user_id.to_string(),
+                device_serial: device_serial.to_string(),
+            });
+        }
+
+        // Check each held resource for endpoint coverage.
+        for resource in &held_resources {
+            // Lock enforcement (ADR-024 §6): if the resource is locked by
+            // someone else, this user cannot use it even though they are a
+            // holder. Skip to the next resource.
+            if resource.state == ResourceState::InUseLocked {
+                if let Some(ref locker) = resource.locked_by {
+                    if locker != user_id {
+                        // This resource is locked by another user — skip it.
+                        // We don't immediately deny because the user might hold
+                        // another resource that covers this endpoint.
+                        continue;
+                    }
+                }
+            }
+
+            // Check endpoint coverage (ADR-024 §2 + §3).
+            match &resource.endpoints {
+                None => {
+                    // Legacy resource: no endpoint declarations at all.
+                    // Covers ALL endpoints on the device (ADR-024 §3).
+                    return Ok(());
+                }
+                Some(ep_decl) => {
+                    // Check explicit entries first.
+                    let explicit_match = ep_decl.entries.iter().any(|entry| {
+                        entry.address == endpoint && entry.ep_type == *ep_type
+                    });
+                    if explicit_match {
+                        return Ok(());
+                    }
+
+                    // No explicit match — check if default_access covers it.
+                    // If there IS an EndpointDeclaration with a default_access,
+                    // then any endpoint not explicitly listed is covered by the
+                    // default. Even if entries is empty, the default covers all.
+                    // (The EndpointDeclaration always has a default_access field.)
+                    return Ok(());
+                }
+            }
+        }
+
+        // If we got here, every held resource was either locked by someone
+        // else, or didn't cover the endpoint.
+        //
+        // Check if ALL held resources were locked-by-other (distinct error).
+        let all_locked = held_resources.iter().all(|r| {
+            r.state == ResourceState::InUseLocked
+                && r.locked_by.as_deref() != Some(user_id)
+        });
+
+        if all_locked {
+            // Report the first locked resource for the error message.
+            let first = held_resources[0];
+            Err(AccessDenied::LockedByOther {
+                user_id: user_id.to_string(),
+                locked_by: first
+                    .locked_by
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
+                resource_id: first.id.clone(),
+            })
+        } else {
+            Err(AccessDenied::NoCoveringResource {
+                user_id: user_id.to_string(),
+                device_serial: device_serial.to_string(),
+                detail: format!("endpoint 0x{:02X} ({})", endpoint, ep_type),
+            })
+        }
+    }
+
+    /// Check if a user is authorized to access a specific AXI address.
+    ///
+    /// Same logic as [`check_endpoint_access()`] but for AXI address ranges
+    /// instead of Classic endpoints. Uses the resource's `address_ranges`
+    /// field to determine coverage.
+    ///
+    /// For resources without `address_ranges`, the resource is considered to
+    /// cover ALL addresses (legacy mode, same as §3 for endpoints).
+    pub fn check_address_access(
+        &self,
+        user_id: &str,
+        device_serial: &str,
+        address: u64,
+    ) -> Result<(), AccessDenied> {
+        let map = self.resources.read().unwrap();
+
+        let held_resources: Vec<&Resource> = map
+            .values()
+            .filter(|r| {
+                r.device_serial == device_serial
+                    && r.holders.contains(&user_id.to_string())
+            })
+            .collect();
+
+        if held_resources.is_empty() {
+            return Err(AccessDenied::NoResourceOnDevice {
+                user_id: user_id.to_string(),
+                device_serial: device_serial.to_string(),
+            });
+        }
+
+        for resource in &held_resources {
+            // Lock enforcement — same as check_endpoint_access.
+            if resource.state == ResourceState::InUseLocked {
+                if let Some(ref locker) = resource.locked_by {
+                    if locker != user_id {
+                        continue;
+                    }
+                }
+            }
+
+            // Address coverage check.
+            if resource.address_ranges.is_empty() {
+                // No address ranges declared — legacy resource covers all
+                // addresses (same logic as §3 for endpoints).
+                return Ok(());
+            }
+
+            // Check if the requested address falls within any declared range.
+            let in_range = resource.address_ranges.iter().any(|range| {
+                address >= range.start as u64 && address <= range.end as u64
+            });
+            if in_range {
+                return Ok(());
+            }
+        }
+
+        // Same locked-by-other vs not-covering distinction.
+        let all_locked = held_resources.iter().all(|r| {
+            r.state == ResourceState::InUseLocked
+                && r.locked_by.as_deref() != Some(user_id)
+        });
+
+        if all_locked {
+            let first = held_resources[0];
+            Err(AccessDenied::LockedByOther {
+                user_id: user_id.to_string(),
+                locked_by: first
+                    .locked_by
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
+                resource_id: first.id.clone(),
+            })
+        } else {
+            Err(AccessDenied::NoCoveringResource {
+                user_id: user_id.to_string(),
+                device_serial: device_serial.to_string(),
+                detail: format!("AXI address 0x{:08X}", address),
+            })
+        }
+    }
 }
 
 impl Default for ResourceRegistry {
@@ -1383,6 +1711,301 @@ mod tests {
         let registry = ResourceRegistry::new();
         let released = registry.release_all_for_user(&"alice".to_string());
         assert_eq!(released, 0);
+    }
+
+    // ========================================================================
+    // ADR-024 Endpoint Access Enforcement tests
+    // ========================================================================
+
+    // --- check_device_access ---
+
+    #[test]
+    fn check_device_access_allows_holder() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource_for_device("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // Alice holds a resource on DEV_A — should be allowed.
+        assert!(registry.check_device_access("alice", "DEV_A").is_ok());
+    }
+
+    #[test]
+    fn check_device_access_denies_non_holder() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource_for_device("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // Bob does NOT hold a resource on DEV_A — should be denied.
+        let err = registry.check_device_access("bob", "DEV_A").unwrap_err();
+        assert!(matches!(err, AccessDenied::NoResourceOnDevice { .. }));
+    }
+
+    #[test]
+    fn check_device_access_denies_wrong_device() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource_for_device("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // Alice holds a resource on DEV_A, NOT on DEV_B.
+        let err = registry.check_device_access("alice", "DEV_B").unwrap_err();
+        assert!(matches!(err, AccessDenied::NoResourceOnDevice { .. }));
+    }
+
+    #[test]
+    fn check_device_access_on_empty_registry() {
+        let registry = ResourceRegistry::new();
+        let err = registry.check_device_access("alice", "DEV_A").unwrap_err();
+        assert!(matches!(err, AccessDenied::NoResourceOnDevice { .. }));
+    }
+
+    // --- check_endpoint_access ---
+
+    #[test]
+    fn check_endpoint_access_legacy_resource_covers_all() {
+        // Legacy resource: no endpoints field → covers ALL endpoints.
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource_for_device("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // Any endpoint should be allowed because the resource has no
+        // endpoint declarations (legacy mode, ADR-024 §3).
+        assert!(registry
+            .check_endpoint_access("alice", "DEV_A", 0x00, &EndpointType::WireIn)
+            .is_ok());
+        assert!(registry
+            .check_endpoint_access("alice", "DEV_A", 0xA0, &EndpointType::PipeOut)
+            .is_ok());
+    }
+
+    #[test]
+    fn check_endpoint_access_denies_non_holder() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource_for_device("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        let err = registry
+            .check_endpoint_access("bob", "DEV_A", 0x00, &EndpointType::WireIn)
+            .unwrap_err();
+        assert!(matches!(err, AccessDenied::NoResourceOnDevice { .. }));
+    }
+
+    #[test]
+    fn check_endpoint_access_with_explicit_endpoints() {
+        let registry = ResourceRegistry::new();
+        let mut resource = test_resource_for_device("r1", "DEV_A");
+        // Declare that this resource covers WireIn at 0x00 and PipeOut at 0xA0.
+        resource.endpoints = Some(EndpointDeclaration {
+            default_access: AccessMode::Shared,
+            entries: vec![
+                EndpointEntry {
+                    address: 0x00,
+                    ep_type: EndpointType::WireIn,
+                    access: AccessMode::Shared,
+                    description: Some("Control register".to_string()),
+                },
+                EndpointEntry {
+                    address: 0xA0,
+                    ep_type: EndpointType::PipeOut,
+                    access: AccessMode::Shared,
+                    description: Some("Data readout".to_string()),
+                },
+            ],
+        });
+        registry.register(resource);
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // Declared endpoint — allowed.
+        assert!(registry
+            .check_endpoint_access("alice", "DEV_A", 0x00, &EndpointType::WireIn)
+            .is_ok());
+        // Also declared — allowed.
+        assert!(registry
+            .check_endpoint_access("alice", "DEV_A", 0xA0, &EndpointType::PipeOut)
+            .is_ok());
+        // Not declared, but EndpointDeclaration has default_access → allowed.
+        assert!(registry
+            .check_endpoint_access("alice", "DEV_A", 0x01, &EndpointType::WireIn)
+            .is_ok());
+    }
+
+    #[test]
+    fn check_endpoint_access_locked_by_holder_allowed() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource_for_device("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("r1", &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+        // Alice locks the resource.
+        registry.lock("r1", &"alice".to_string()).unwrap();
+
+        // Alice (lock holder) can still access.
+        assert!(registry
+            .check_endpoint_access("alice", "DEV_A", 0x00, &EndpointType::WireIn)
+            .is_ok());
+    }
+
+    #[test]
+    fn check_endpoint_access_locked_by_other_denied() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource_for_device("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("r1", &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+        // Alice locks the resource.
+        registry.lock("r1", &"alice".to_string()).unwrap();
+
+        // Bob is a holder but the resource is locked by Alice — denied.
+        let err = registry
+            .check_endpoint_access("bob", "DEV_A", 0x00, &EndpointType::WireIn)
+            .unwrap_err();
+        assert!(matches!(err, AccessDenied::LockedByOther { .. }));
+    }
+
+    #[test]
+    fn check_endpoint_access_exclusive_resource_allows_holder() {
+        // Exclusive resources are always implicitly locked by their holder.
+        let registry = ResourceRegistry::new();
+        let r = test_exclusive_resource_for_device("r1", "DEV_A");
+        registry.register(r);
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Exclusive)
+            .unwrap();
+
+        assert!(registry
+            .check_endpoint_access("alice", "DEV_A", 0x00, &EndpointType::WireIn)
+            .is_ok());
+    }
+
+    // --- check_address_access ---
+
+    #[test]
+    fn check_address_access_legacy_covers_all() {
+        // Legacy resource: no address_ranges → covers ALL addresses.
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource_for_device("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        assert!(registry
+            .check_address_access("alice", "DEV_A", 0x44A6_0000)
+            .is_ok());
+    }
+
+    #[test]
+    fn check_address_access_in_range_allowed() {
+        let registry = ResourceRegistry::new();
+        let mut resource = test_resource_for_device("r1", "DEV_A");
+        resource.address_ranges.push(AddressRange {
+            start: 0x44A6_0000,
+            end: 0x44A8_FFFF,
+            access: AccessMode::Shared,
+        });
+        registry.register(resource);
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // Address in range — allowed.
+        assert!(registry
+            .check_address_access("alice", "DEV_A", 0x44A6_1000)
+            .is_ok());
+        // Address at range boundary — allowed.
+        assert!(registry
+            .check_address_access("alice", "DEV_A", 0x44A6_0000)
+            .is_ok());
+        assert!(registry
+            .check_address_access("alice", "DEV_A", 0x44A8_FFFF)
+            .is_ok());
+    }
+
+    #[test]
+    fn check_address_access_out_of_range_denied() {
+        let registry = ResourceRegistry::new();
+        let mut resource = test_resource_for_device("r1", "DEV_A");
+        resource.address_ranges.push(AddressRange {
+            start: 0x44A6_0000,
+            end: 0x44A8_FFFF,
+            access: AccessMode::Shared,
+        });
+        registry.register(resource);
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // Address outside range — denied.
+        let err = registry
+            .check_address_access("alice", "DEV_A", 0x44A9_0000)
+            .unwrap_err();
+        assert!(matches!(err, AccessDenied::NoCoveringResource { .. }));
+    }
+
+    #[test]
+    fn check_address_access_denies_non_holder() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource_for_device("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        let err = registry
+            .check_address_access("bob", "DEV_A", 0x44A6_0000)
+            .unwrap_err();
+        assert!(matches!(err, AccessDenied::NoResourceOnDevice { .. }));
+    }
+
+    #[test]
+    fn check_address_access_locked_by_other_denied() {
+        let registry = ResourceRegistry::new();
+        let mut resource = test_resource_for_device("r1", "DEV_A");
+        resource.address_ranges.push(AddressRange {
+            start: 0x44A6_0000,
+            end: 0x44A8_FFFF,
+            access: AccessMode::Shared,
+        });
+        registry.register(resource);
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("r1", &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry.lock("r1", &"alice".to_string()).unwrap();
+
+        // Bob is locked out.
+        let err = registry
+            .check_address_access("bob", "DEV_A", 0x44A6_1000)
+            .unwrap_err();
+        assert!(matches!(err, AccessDenied::LockedByOther { .. }));
+    }
+
+    /// Helper: create an exclusive test resource for a specific device serial.
+    fn test_exclusive_resource_for_device(id: &str, serial: &str) -> Resource {
+        Resource::new(
+            id.to_string(),
+            format!("resource_{}", id),
+            None,
+            serial.to_string(),
+            AccessMode::Exclusive,
+        )
     }
 }
 

@@ -115,6 +115,7 @@ mod tests {
             auth_provider,
             session_manager,
             user_sessions,
+            crate::state::EndpointEnforcement::Off,
         ));
 
         let app = Router::new()
