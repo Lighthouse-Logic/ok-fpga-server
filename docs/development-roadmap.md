@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-08-18
+> **Last Updated:** 2026-08-19
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -11,37 +11,12 @@
 
 | Horizon | Focus Area | ADR | Status |
 |---------|-----------|-----|--------|
-| **Phase 26 (Now)** | Endpoint Access Enforcement middleware | [ADR-024](architecture/adr/ADR-024-endpoint-access-enforcement.md) | 🟢 Ready to start |
-| **Phase 27 (Next)** | OpenAPI spec gaps + hardening | — | 🟡 Planned |
+| **Phase 27 (Now)** | OpenAPI spec gaps + hardening | — | 🟡 Planned |
 | **Phase 28+ (Later)** | Read-only resources, TLS, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
-## 🟢 Now: Phase 26 — Endpoint Access Enforcement (ADR-024)
-
-*Focus: Implement runtime enforcement so that Classic and AXI data port operations
-require the caller to hold a resource covering the target endpoint.*
-
-* [ ] **REST middleware** — Axum layer that checks `X-User-Id` against
-      `ResourceRegistry` before dispatching Classic/AXI handlers.
-      Returns `403 Forbidden` (RFC 7807) when enforcement is active and the
-      user doesn't hold a matching resource.
-      *Architecture:* See [ADR-024 §Decision](architecture/adr/ADR-024-endpoint-access-enforcement.md)
-
-* [ ] **gRPC interceptor** — Tonic interceptor with equivalent logic using
-      gRPC metadata for user identity. Returns `PERMISSION_DENIED`.
-      *Architecture:* See [ADR-024 §Decision](architecture/adr/ADR-024-endpoint-access-enforcement.md)
-
-* [ ] **Configuration** — `endpoint_enforcement` config key with values
-      `off` (default), `warn`, `enforce`.
-      *Architecture:* See [ADR-024 §Configuration](architecture/adr/ADR-024-endpoint-access-enforcement.md)
-
-* [ ] **Unit tests** — test enforcement on/off/warn modes, lock exclusivity,
-      and resource-not-held rejection.
-
----
-
-## 🟡 Next: Phase 27 — OpenAPI Spec Gaps & Hardening
+## 🟢 Now: Phase 27 — OpenAPI Spec Gaps & Hardening
 
 *Focus: Address the spec gaps identified during ADR-004/005 alignment.*
 
@@ -148,6 +123,7 @@ implementation details, verification steps, and acceptance criteria.
 | 23 | Disconnect Detection Fix | 2026-08-18 | — | [phases 23–25](archive/roadmap-phases-23-25.md) |
 | 24 | Dashboard Log Streaming | 2026-08-18 | ADR-022 | [phases 23–25](archive/roadmap-phases-23-25.md) |
 | 25 | GUI Example Clients | 2026-08-18 | ADR-023 | [phases 23–25](archive/roadmap-phases-23-25.md) |
+| 26 | Endpoint Access Enforcement | 2026-08-19 | ADR-024 | — |
 
 ---
 

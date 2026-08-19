@@ -1,6 +1,6 @@
 # ADR-024: Endpoint Access Enforcement
 
-**Status**: Accepted  
+**Status**: Implemented  
 **Date**: 2026-08-18  
 **Deciders**: Architecture Team  
 **Depends on**: [ADR-006](ADR-006-resource-management.md) (Resource Management),
