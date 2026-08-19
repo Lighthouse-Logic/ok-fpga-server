@@ -1,6 +1,6 @@
 # ADR-011: MQTT Status Publishing
 
-**Status**: Accepted  
+**Status**: Implemented  
 **Date**: 2026-08-16  
 **Deciders**: Architecture Team  
 

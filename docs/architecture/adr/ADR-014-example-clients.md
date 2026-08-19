@@ -1,6 +1,6 @@
 # ADR-014: Example Client Architecture & End-to-End Testing
 
-**Status**: Accepted (updated 2026-08-17)  
+**Status**: Implemented  
 **Date**: 2026-08-17 (original), 2026-08-17 (addendum: §Demo Consistency)  
 **Deciders**: Architecture Team  
 **Roadmap Phase**: 16 (original), 19G/20G (consistency addendum)

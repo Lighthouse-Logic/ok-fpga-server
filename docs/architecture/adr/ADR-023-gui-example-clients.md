@@ -1,6 +1,6 @@
 # ADR-023: GUI Example Clients — Interactive Counters.bit Demo
 
-**Status**: Accepted  
+**Status**: Implemented  
 **Date**: 2026-08-18  
 **Deciders**: Architecture Team  
 **Depends on**: [ADR-014](ADR-014-example-clients.md) (Example Client Architecture),

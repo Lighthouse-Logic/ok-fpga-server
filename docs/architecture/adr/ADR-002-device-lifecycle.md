@@ -1,6 +1,6 @@
 # ADR-002: Device Lifecycle & Hot-Plug Management
 
-**Status**: Accepted  
+**Status**: Implemented  
 **Date**: 2026-08-16  
 **Deciders**: Architecture Team  
 

@@ -1,6 +1,6 @@
 # ADR-022: Dashboard Log Streaming & Level Filtering
 
-**Status**: Accepted  
+**Status**: Implemented  
 **Date**: 2026-08-18  
 **Deciders**: Architecture Team  
 **Depends on**: [ADR-007](ADR-007-web-dashboard.md) (Web Dashboard),

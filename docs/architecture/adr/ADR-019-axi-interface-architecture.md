@@ -1,6 +1,6 @@
 # ADR-019: AXI Interface Architecture — Lite, Full, and Stream
 
-**Status**: Accepted  
+**Status**: Implemented  
 **Date**: 2026-08-17  
 **Deciders**: Architecture Team  
 **Depends on**: [ADR-003](ADR-003-data-port-abstraction.md) (Data Port Abstraction),

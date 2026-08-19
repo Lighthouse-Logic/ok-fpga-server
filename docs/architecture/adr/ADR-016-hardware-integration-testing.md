@@ -1,6 +1,6 @@
 # ADR-016: Hardware Integration Testing
 
-**Status**: Accepted  
+**Status**: Implemented  
 **Date**: 2026-08-17  
 **Deciders**: Architecture Team  
 **Related**: [ADR-014](ADR-014-example-clients.md) (Example Client Architecture),

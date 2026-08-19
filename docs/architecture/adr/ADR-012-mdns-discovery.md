@@ -1,6 +1,6 @@
 # ADR-012: mDNS Service Discovery
 
-**Status**: Accepted  
+**Status**: Implemented  
 **Date**: 2026-08-16  
 **Deciders**: Architecture Team  
 

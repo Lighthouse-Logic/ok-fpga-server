@@ -1,6 +1,6 @@
 # ADR-010: Service Manager, Feature Flags & Runtime Configuration
 
-**Status**: Accepted  
+**Status**: Implemented  
 **Date**: 2026-08-16  
 **Deciders**: Architecture Team  
 

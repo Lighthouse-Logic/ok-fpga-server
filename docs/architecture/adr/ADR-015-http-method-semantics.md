@@ -1,6 +1,6 @@
 # ADR-015: HTTP Method Semantics — POST vs PUT
 
-**Status**: Accepted  
+**Status**: Implemented  
 **Date**: 2026-08-17  
 **Deciders**: Architecture Team  
 **Supersedes**: Portions of ADR-004 §URL Hierarchy (method assignments)

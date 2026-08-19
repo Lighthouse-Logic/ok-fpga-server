@@ -1,6 +1,6 @@
 # ADR-017: FFI Endpoint Wiring Strategy
 
-**Status**: Accepted  
+**Status**: Implemented  
 **Date**: 2026-08-17  
 **Deciders**: Architecture Team  
 **Depends on**: [ADR-001](ADR-001-ffi-strategy.md) (FFI layer),

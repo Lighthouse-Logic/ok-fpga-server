@@ -1,6 +1,6 @@
 # ADR-020: Client-Side Resource Registration
 
-**Status**: Accepted  
+**Status**: Implemented  
 **Date**: 2026-08-17  
 **Deciders**: Architecture Team  
 **Amends**: [ADR-006](ADR-006-resource-management.md) (adds client-side resource creation,

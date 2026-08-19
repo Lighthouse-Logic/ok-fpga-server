@@ -1,6 +1,6 @@
 # ADR-001: FFI Strategy — libloading + rust-bindgen
 
-**Status**: Accepted  
+**Status**: Implemented  
 **Date**: 2026-08-16  
 **Deciders**: Architecture Team  
 

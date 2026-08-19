@@ -1,6 +1,6 @@
 # ADR-009: Supported Board Matrix & SYZYGY Port Discovery
 
-**Status**: Accepted  
+**Status**: Implemented  
 **Date**: 2026-08-16  
 **Deciders**: Architecture Team  
 

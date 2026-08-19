@@ -1,6 +1,6 @@
 # ADR-004: REST API Design — OpenAPI 3.0
 
-**Status**: Accepted  
+**Status**: Implemented  
 **Date**: 2026-08-16  
 **Deciders**: Architecture Team  
 

@@ -1,6 +1,6 @@
 # ADR-005: gRPC API Design — Proto3
 
-**Status**: Accepted  
+**Status**: Implemented  
 **Date**: 2026-08-16  
 **Deciders**: Architecture Team  
 

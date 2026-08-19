@@ -116,29 +116,29 @@ All decisions are recorded as ADRs in `docs/architecture/adr/`:
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [ADR-001](adr/ADR-001-ffi-strategy.md) | FFI Strategy — libloading + rust-bindgen | Accepted |
-| [ADR-002](adr/ADR-002-device-lifecycle.md) | Device Lifecycle & Hot-Plug | Accepted |
-| [ADR-003](adr/ADR-003-data-port-abstraction.md) | Data Port Abstraction — Classic vs AXI | Accepted |
-| [ADR-004](adr/ADR-004-rest-api-design.md) | REST API Design — OpenAPI 3.0 | Accepted |
-| [ADR-005](adr/ADR-005-grpc-api-design.md) | gRPC API Design — Proto3 | Accepted |
-| [ADR-006](adr/ADR-006-resource-management.md) | Multi-User Resource Management | Accepted |
-| [ADR-007](adr/ADR-007-web-dashboard.md) | Web Dashboard Architecture | Accepted |
-| [ADR-008](adr/ADR-008-authentication.md) | Authentication Stubs — Local & LDAP | Accepted |
-| [ADR-009](adr/ADR-009-board-syzygy.md) | Supported Boards & SYZYGY Discovery | Accepted |
-| [ADR-010](adr/ADR-010-service-manager.md) | Service Manager — Dynamic Lifecycle Control | Accepted |
-| [ADR-011](adr/ADR-011-mqtt-publishing.md) | MQTT Status Publishing | Accepted |
-| [ADR-012](adr/ADR-012-mdns-discovery.md) | mDNS/DNS-SD Service Discovery | Accepted |
+| [ADR-001](adr/ADR-001-ffi-strategy.md) | FFI Strategy — libloading + rust-bindgen | Implemented |
+| [ADR-002](adr/ADR-002-device-lifecycle.md) | Device Lifecycle & Hot-Plug | Implemented |
+| [ADR-003](adr/ADR-003-data-port-abstraction.md) | Data Port Abstraction — Classic vs AXI | Implemented |
+| [ADR-004](adr/ADR-004-rest-api-design.md) | REST API Design — OpenAPI 3.0 | Implemented |
+| [ADR-005](adr/ADR-005-grpc-api-design.md) | gRPC API Design — Proto3 | Implemented |
+| [ADR-006](adr/ADR-006-resource-management.md) | Multi-User Resource Management | Implemented |
+| [ADR-007](adr/ADR-007-web-dashboard.md) | Web Dashboard Architecture | Implemented |
+| [ADR-008](adr/ADR-008-authentication.md) | Authentication Stubs — Local & LDAP | Implemented |
+| [ADR-009](adr/ADR-009-board-syzygy.md) | Supported Boards & SYZYGY Discovery | Implemented |
+| [ADR-010](adr/ADR-010-service-manager.md) | Service Manager — Dynamic Lifecycle Control | Implemented |
+| [ADR-011](adr/ADR-011-mqtt-publishing.md) | MQTT Status Publishing | Implemented |
+| [ADR-012](adr/ADR-012-mdns-discovery.md) | mDNS/DNS-SD Service Discovery | Implemented |
 | [ADR-013](adr/ADR-013-device-scanner.md) | Device Scanner — FFI→DeviceManager Bridge | Superseded by ADR-018 |
-| [ADR-014](adr/ADR-014-example-clients.md) | Example Client Architecture & E2E Testing | Accepted |
-| [ADR-015](adr/ADR-015-http-method-semantics.md) | HTTP Method Semantics — POST vs PUT | Accepted |
-| [ADR-016](adr/ADR-016-hardware-integration-testing.md) | Hardware Integration Testing | Accepted |
-| [ADR-017](adr/ADR-017-ffi-endpoint-wiring.md) | FFI Endpoint Wiring Strategy | Accepted |
-| [ADR-018](adr/ADR-018-device-handle-pool.md) | Device Handle Pool — Persistent Per-Device FFI Access | Accepted |
-| [ADR-019](adr/ADR-019-axi-interface-architecture.md) | AXI Interface Architecture — Lite, Full, and Stream | Accepted |
-| [ADR-020](adr/ADR-020-client-side-resource-registration.md) | Client-Side Resource Registration | Accepted |
-| [ADR-021](adr/ADR-021-settings-ffi-wiring.md) | Device Settings FFI Wiring | Accepted |
-| [ADR-022](adr/ADR-022-dashboard-logging.md) | Dashboard Log Streaming & Level Filtering | Accepted |
-| [ADR-023](adr/ADR-023-gui-example-clients.md) | GUI Example Clients — Interactive Counters.bit Demo | Accepted |
+| [ADR-014](adr/ADR-014-example-clients.md) | Example Client Architecture & E2E Testing | Implemented |
+| [ADR-015](adr/ADR-015-http-method-semantics.md) | HTTP Method Semantics — POST vs PUT | Implemented |
+| [ADR-016](adr/ADR-016-hardware-integration-testing.md) | Hardware Integration Testing | Implemented |
+| [ADR-017](adr/ADR-017-ffi-endpoint-wiring.md) | FFI Endpoint Wiring Strategy | Implemented |
+| [ADR-018](adr/ADR-018-device-handle-pool.md) | Device Handle Pool — Persistent Per-Device FFI Access | Implemented |
+| [ADR-019](adr/ADR-019-axi-interface-architecture.md) | AXI Interface Architecture — Lite, Full, and Stream | Implemented |
+| [ADR-020](adr/ADR-020-client-side-resource-registration.md) | Client-Side Resource Registration | Implemented |
+| [ADR-021](adr/ADR-021-settings-ffi-wiring.md) | Device Settings FFI Wiring | Implemented |
+| [ADR-022](adr/ADR-022-dashboard-logging.md) | Dashboard Log Streaming & Level Filtering | Implemented |
+| [ADR-023](adr/ADR-023-gui-example-clients.md) | GUI Example Clients — Interactive Counters.bit Demo | Implemented |
 | [ADR-024](adr/ADR-024-endpoint-access-enforcement.md) | Endpoint Access Enforcement | Implemented |
 
 ## 6. Technology Stack
