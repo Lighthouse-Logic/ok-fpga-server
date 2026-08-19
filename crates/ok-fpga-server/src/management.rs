@@ -128,6 +128,10 @@ struct StatusResponse {
     connected_devices: usize,
     active_resources: usize,
     compiled_features: Vec<String>,
+    /// Human-readable server description (Phase 28D).
+    description: String,
+    /// Server hostname (Phase 28D).
+    hostname: String,
 }
 
 /// Service info response.
@@ -236,6 +240,19 @@ async fn mgmt_status(State(state): State<Arc<MgmtState>>) -> Json<StatusResponse
 
     let features = compiled_features();
 
+    // Server description: prefer the configured description, fall back to
+    // the mDNS instance name if blank (Phase 28D).
+    let description = if state.config.server.description.is_empty() {
+        state.config.mdns.instance_name.clone()
+    } else {
+        state.config.server.description.clone()
+    };
+
+    // Server hostname from the OS (Phase 28D).
+    let hostname = hostname::get()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+
     Json(StatusResponse {
         version: state.app.api_version.to_string(),
         frontpanel_version: "6.1.0".to_string(),
@@ -245,6 +262,8 @@ async fn mgmt_status(State(state): State<Arc<MgmtState>>) -> Json<StatusResponse
         connected_devices: state.app.device_manager.device_count(),
         active_resources: state.app.resource_registry.count(),
         compiled_features: features,
+        description,
+        hostname,
     })
 }
 

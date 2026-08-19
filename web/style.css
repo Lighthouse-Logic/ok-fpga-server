@@ -19,7 +19,7 @@
     /* Text */
     --text-primary: #e8eaf0;
     --text-secondary: #8b92a8;
-    --text-muted: #5a6178;
+    --text-muted: #8b92a8;
 
     /* Accent colors */
     --blue: #3b82f6;
@@ -122,6 +122,16 @@ body {
     color: var(--text-muted);
     font-weight: 400;
     display: block;
+}
+
+.logo-host {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 400;
+    font-family: var(--font-mono);
+    display: block;
+    margin-top: 2px;
+    opacity: 0.8;
 }
 
 .nav-links {

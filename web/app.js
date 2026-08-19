@@ -125,9 +125,15 @@ async function fetchStatus() {
 
     // Update detail table.
     setText('detail-version', data.version);
+    setText('detail-description', data.description || '—');
     setText('detail-fp-version', data.frontpanel_version);
     setText('detail-platform', data.platform);
     setText('detail-features', (data.compiled_features || []).join(', ') || 'none');
+
+    // Update sidebar hostname (Phase 28D).
+    if (data.hostname) {
+        setText('sidebar-hostname', `Host: ${data.hostname}`);
+    }
 
     // Fetch config for management port.
     const cfg = await api(`${API_BASE}/config`);
