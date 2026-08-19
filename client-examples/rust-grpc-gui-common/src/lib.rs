@@ -3,6 +3,8 @@
 //! Shared gRPC API client for the Rust gRPC GUI demos (egui and iced).
 //! Mirrors the REST common library but uses tonic/protobuf.
 
+pub mod mdns_browser;
+
 pub mod okfpga {
     pub mod v1 {
         tonic::include_proto!("ok_fpga_service.v1");

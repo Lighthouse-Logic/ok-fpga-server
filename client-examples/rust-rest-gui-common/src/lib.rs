@@ -20,6 +20,8 @@
 //! 5. Lock/unlock resources
 //! 6. Release resource on shutdown
 
+pub mod mdns_browser;
+
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
