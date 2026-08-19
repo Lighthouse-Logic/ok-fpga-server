@@ -128,7 +128,7 @@ All decisions are recorded as ADRs in `docs/architecture/adr/`:
 | [ADR-010](adr/ADR-010-service-manager.md) | Service Manager — Dynamic Lifecycle Control | Accepted |
 | [ADR-011](adr/ADR-011-mqtt-publishing.md) | MQTT Status Publishing | Accepted |
 | [ADR-012](adr/ADR-012-mdns-discovery.md) | mDNS/DNS-SD Service Discovery | Accepted |
-| [ADR-013](adr/ADR-013-device-scanner.md) | Device Scanner — FFI→DeviceManager Bridge | Accepted |
+| [ADR-013](adr/ADR-013-device-scanner.md) | Device Scanner — FFI→DeviceManager Bridge | Superseded by ADR-018 |
 | [ADR-014](adr/ADR-014-example-clients.md) | Example Client Architecture & E2E Testing | Accepted |
 | [ADR-015](adr/ADR-015-http-method-semantics.md) | HTTP Method Semantics — POST vs PUT | Accepted |
 | [ADR-016](adr/ADR-016-hardware-integration-testing.md) | Hardware Integration Testing | Accepted |
