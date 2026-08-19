@@ -16,6 +16,21 @@
    time. When it completes, the first item from "Next" is promoted.
 3. **Living document** — Update this file whenever plans change, phases
    complete, or new features are identified.
+4. **Archive completed phases** — When a phase is completed, its detailed
+   description must be moved to a file in `docs/archive/`. Follow these
+   guidelines:
+   - **Append** to the most recent archive file if the last 3 phases in
+     that file are related to the newly completed phase (same feature area,
+     same ADR family, or part of the same initiative).
+   - **Create a new archive file** if the newly completed phase is
+     substantially different from the phases in the most recent archive
+     (e.g., infrastructure vs feature work, different ADR family).
+   - **Consider upcoming work** — if the Now and Next phases are related
+     to the newly completed phase, prefer creating a new archive that can
+     later absorb those phases too, avoiding frequent file splits.
+   - Archive files are named `roadmap-phases-NN-MM.md` where NN–MM is the
+     range of phases contained.
+   - Update the completed phases table in this file to link to the archive.
 
 ---
 
@@ -185,8 +200,8 @@ implementation details, verification steps, and acceptance criteria.
 | 23 | Disconnect Detection Fix | 2026-08-18 | — | [phases 23–25](archive/roadmap-phases-23-25.md) |
 | 24 | Dashboard Log Streaming | 2026-08-18 | ADR-022 | [phases 23–25](archive/roadmap-phases-23-25.md) |
 | 25 | GUI Example Clients | 2026-08-18 | ADR-023 | [phases 23–25](archive/roadmap-phases-23-25.md) |
-| 26 | Endpoint Access Enforcement | 2026-08-19 | ADR-024 | — |
-| 27 | OpenAPI Spec Gaps | 2026-08-19 | — | — |
+| 26 | Endpoint Access Enforcement | 2026-08-19 | ADR-024 | [phases 26–27](archive/roadmap-phases-26-27.md) |
+| 27 | OpenAPI Spec Gaps | 2026-08-19 | — | [phases 26–27](archive/roadmap-phases-26-27.md) |
 
 ---
 
