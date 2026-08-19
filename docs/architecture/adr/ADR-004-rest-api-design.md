@@ -83,7 +83,8 @@ The REST server will be built with **Axum**, gated behind the `rest` Cargo featu
 │
 ├── users/
 │   ├── GET    /                    — list connected users
-│   └── GET    /{user_id}           — user detail and held resources
+│   ├── GET    /{user_id}           — user detail and held resources
+│   └── POST   /disconnect          — clean disconnect (release all, remove session)
 │
 └── events/
     └── GET    /stream              — SSE stream of device/resource events
@@ -135,6 +136,8 @@ data: {"serial": "ABC1234567", "filename": "design.bit", "user": "admin"}
   "wire_width": 32,
   "trigger_width": 32,
   "pipe_width": 32,
+  "register_address_width": 32,
+  "register_data_width": 32,
   "fpga_vendor": "xilinx",
   "dataport": "classic",
   "is_front_panel_enabled": true,
@@ -143,8 +146,7 @@ data: {"serial": "ABC1234567", "filename": "design.bit", "user": "admin"}
     "description": "Signal processing v2.1",
     "programmed_at": "2026-08-16T17:00:00Z",
     "programmed_by": "admin"
-  },
-  "syzygy_ports": [ ... ]
+  }
 }
 ```
 
@@ -181,7 +183,7 @@ URL hierarchy above has been updated to reflect these changes.
 
 ## Addendum B: Client-Side Resource CRUD (2026-08-17)
 
-See [ADR-016](ADR-016-hardware-integration-testing.md) for full rationale.
+See [ADR-020](ADR-020-client-side-resource-registration.md) for full rationale.
 
 Two new resource endpoints added:
 - `POST /resources` — client creates a resource after programming a bitfile
@@ -208,6 +210,32 @@ AXI Lite (register access), AXI Full (memory-mapped bulk), and AXI Stream
 AXI is only available on FP-Gen3-USB devices. On Legacy devices (e.g., XEM7320),
 all AXI endpoints return 409.
 
+## Addendum D: User Management & Resource Locking Endpoints (2026-08-18)
+
+See [ADR-020](ADR-020-client-side-resource-registration.md) for full rationale.
+
+New endpoints added:
+- `POST /disconnect` — clean user disconnect (releases all resources, removes session)
+- `POST /resources/{resource_id}/lock` — lock a shared resource (ADR-020 §3)
+- `POST /resources/{resource_id}/unlock` — unlock a locked resource (ADR-020 §3)
+- `POST /heartbeat` — explicit liveness heartbeat (ADR-020 §5)
+
+URL hierarchy above has been updated for `/disconnect`.
+
+> **Note**: `POST /heartbeat`, `POST /resources/{id}/lock`, and
+> `POST /resources/{id}/unlock` are defined in ADR-020 but are not yet present
+> in the golden `openapi.yaml` spec. These are tracked as spec gaps to be added
+> in a follow-up update.
+
+## Addendum E: Endpoint Access Enforcement (2026-08-18)
+
+See [ADR-024](ADR-024-endpoint-access-enforcement.md).
+
+When `endpoint_enforcement` is set to `"enforce"`, Classic and AXI data port
+endpoints may return `403 Forbidden` (RFC 7807 Problem Detail) if the calling
+user does not hold a resource covering the requested endpoint. No new endpoints
+are added — enforcement is middleware-level.
+
 ## References
 
 - [OpenAPI 3.0.0 Specification](https://spec.openapis.org/oas/v3.0.0)
@@ -215,6 +243,7 @@ all AXI endpoints return 409.
 - [Server-Sent Events (SSE)](https://html.spec.whatwg.org/multipage/server-sent-events.html)
 - [ADR-010 Service Manager](ADR-010-service-manager.md) — feature flags and service lifecycle
 - [ADR-015 HTTP Method Semantics](ADR-015-http-method-semantics.md) — POST vs PUT audit
-- [ADR-016 Hardware Integration Testing](ADR-016-hardware-integration-testing.md) — resource creation and test matrix
 - [ADR-019 AXI Interface Architecture](ADR-019-axi-interface-architecture.md) — AXI sub-interface independence
+- [ADR-020 Client-Side Resource Registration](ADR-020-client-side-resource-registration.md) — resource CRUD, lock/unlock, heartbeat
+- [ADR-024 Endpoint Access Enforcement](ADR-024-endpoint-access-enforcement.md) — runtime endpoint gating
 

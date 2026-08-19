@@ -21,12 +21,12 @@ The gRPC server will be built with **Tonic**, gated behind the `grpc` Cargo feat
 
 ```protobuf
 syntax = "proto3";
-package okfpga.v1;
+package okFPGAService.v1;
 ```
 
 Three data services, organized by concern, plus a server management service:
 
-#### 1. `DeviceService` — Device lifecycle and configuration
+#### 1. `DeviceService` — Device lifecycle, configuration, resources, users, and events
 
 ```protobuf
 service DeviceService {
@@ -38,7 +38,7 @@ service DeviceService {
   rpc GetDeviceSensors(DeviceRequest) returns (DeviceSensorsResponse);
   rpc GetDeviceSettings(DeviceRequest) returns (DeviceSettingsResponse);
   rpc GetDeviceSetting(GetDeviceSettingRequest) returns (DeviceSettingResponse);
-  rpc SetDeviceSetting(SetDeviceSettingRequest) returns (SetDeviceSettingResponse);
+  rpc SetDeviceSetting(SetDeviceSettingRequest) returns (StatusResponse);
   
   // SYZYGY
   rpc GetSyzygyPorts(DeviceRequest) returns (SyzygyPortsResponse);
@@ -48,6 +48,7 @@ service DeviceService {
   rpc ConfigureFPGAFromMemory(stream ConfigureFPGAChunk) returns (ConfigureFPGAResponse);
   rpc ClearFPGAConfiguration(DeviceRequest) returns (StatusResponse);
   rpc GetBitfileInfo(DeviceRequest) returns (BitfileInfoResponse);
+  rpc GetDataportType(DeviceRequest) returns (DataportTypeResponse);
   
   // PLL Configuration
   rpc GetPLLConfiguration(GetPLLRequest) returns (PLLConfigurationResponse);
@@ -63,8 +64,29 @@ service DeviceService {
   rpc SetDeviceID(SetDeviceIDRequest) returns (StatusResponse);
   rpc SetTimeout(SetTimeoutRequest) returns (StatusResponse);
   
+  // Server
+  rpc GetServerStatus(ServerStatusRequest) returns (ServerStatus);
+  
   // Events (server streaming)
   rpc WatchDeviceEvents(WatchDeviceEventsRequest) returns (stream DeviceEvent);
+  
+  // Resource Management (ADR-020)
+  rpc ListResources(ListResourcesRequest) returns (ListResourcesResponse);
+  rpc GetResource(ResourceRequest) returns (ResourceResponse);
+  rpc CreateResource(CreateResourceRequest) returns (ResourceResponse);
+  rpc DeleteResource(ResourceRequest) returns (StatusResponse);
+  rpc AcquireResource(AcquireResourceRequest) returns (ResourceResponse);
+  rpc ReleaseResource(ReleaseResourceRequest) returns (StatusResponse);
+  rpc LockResource(LockResourceRequest) returns (ResourceResponse);
+  rpc UnlockResource(LockResourceRequest) returns (ResourceResponse);
+  
+  // Users
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  rpc GetUser(UserRequest) returns (UserResponse);
+  
+  // Heartbeat (ADR-020 §5)
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc Disconnect(DisconnectRequest) returns (DisconnectResponse);
 }
 ```
 
@@ -85,7 +107,7 @@ service ClassicDataPortService {
   rpc ActivateTriggerIn(ActivateTriggerInRequest) returns (StatusResponse);
   rpc UpdateTriggerOuts(DeviceRequest) returns (StatusResponse);
   rpc IsTriggered(IsTriggeredRequest) returns (IsTriggeredResponse);
-  rpc GetTriggerOutVector(GetTriggerOutVectorRequest) returns (TriggerOutVectorResponse);
+  rpc GetTriggerOutVector(TriggerOutVectorRequest) returns (TriggerOutVectorResponse);
   
   // Pipes
   rpc WriteToPipeIn(WriteToPipeInRequest) returns (PipeTransferResponse);
@@ -110,13 +132,13 @@ service AXIDataPortService {
   rpc AXILiteRead(AXILiteReadRequest) returns (AXILiteReadResponse);
   rpc AXILiteWrite(AXILiteWriteRequest) returns (StatusResponse);
   rpc AXILiteReadBulk(AXILiteReadBulkRequest) returns (AXILiteReadBulkResponse);
-  rpc AXILiteWriteBulk(AXILiteWriteBulkRequest) returns (AXIOperationStatsResponse);
+  rpc AXILiteWriteBulk(AXILiteWriteBulkRequest) returns (AXIOperationStats);
   rpc AXILiteReset(DeviceRequest) returns (StatusResponse);
   
   // AXI Full
   rpc AXIFullGetDatapathWidth(DeviceRequest) returns (DatapathWidthResponse);
   rpc AXIFullRead(AXIFullReadRequest) returns (AXIFullReadResponse);
-  rpc AXIFullWrite(AXIFullWriteRequest) returns (AXIOperationStatsResponse);
+  rpc AXIFullWrite(AXIFullWriteRequest) returns (AXIOperationStats);
   rpc AXIFullReset(DeviceRequest) returns (StatusResponse);
   
   // AXI Stream
@@ -131,73 +153,41 @@ service AXIDataPortService {
 
 ```protobuf
 service ServerService {
-  // Server status
-  rpc GetServerStatus(google.protobuf.Empty) returns (ServerStatusResponse);
-  rpc RestartServer(google.protobuf.Empty) returns (StatusResponse);
+  rpc GetServerStatus(StatusResponse) returns (ServerStatusResponse);
+  rpc RestartServer(StatusResponse) returns (StatusResponse);
 
   // Service lifecycle (ADR-010)
-  rpc ListServices(google.protobuf.Empty) returns (ListServicesResponse);
-  rpc StartService(ServiceRequest) returns (ServiceResponse);
-  rpc StopService(ServiceRequest) returns (ServiceResponse);
-  rpc RestartService(ServiceRequest) returns (ServiceResponse);
-}
-
-message ServiceRequest {
-  string name = 1;  // e.g., "rest", "grpc", "mqtt", "mdns"
-}
-
-message ServiceResponse {
-  string name = 1;
-  string status = 2;  // "running", "stopped", "starting", etc.
-  string message = 3;
-}
-
-message ListServicesResponse {
-  repeated ServiceInfo services = 1;
-}
-
-message ServiceInfo {
-  string name = 1;
-  string status = 2;
-  bool compiled = 3;   // whether the feature flag was enabled
-  bool enabled = 4;    // whether enabled in TOML config
-}
-
-message ServerStatusResponse {
-  string api_version = 1;
-  uint64 uptime_secs = 2;
-  int32 device_count = 3;
-  repeated ServiceInfo services = 4;
+  rpc ListServices(StatusResponse) returns (ListServicesResponse);
+  rpc StartService(ServiceRequest) returns (ServiceOperationResponse);
+  rpc StopService(ServiceRequest) returns (ServiceOperationResponse);
+  rpc RestartService(ServiceRequest) returns (ServiceOperationResponse);
 }
 ```
 
 ### Key Message Types
 
 ```protobuf
+// Every response includes an ErrorCluster to indicate success or failure.
+message ErrorCluster {
+  bool status = 1;    // true if error occurred
+  int32 code = 2;     // maps to ok_ErrorCode values (0 = NoError)
+  string source = 3;  // human-readable error source or description
+}
+
 message DeviceRequest {
   string serial = 1;  // 10-char device serial
 }
 
 message StatusResponse {
-  ErrorCode error_code = 1;
-  string message = 2;
-}
-
-message ErrorCode {
-  int32 code = 1;       // maps to ok_ErrorCode values
-  string name = 2;      // e.g. "NoError", "Failed", "Timeout"
-}
-
-message DeviceEvent {
-  oneof event {
-    DeviceAdded device_added = 1;
-    DeviceRemoved device_removed = 2;
-    BitfileProgrammed bitfile_programmed = 3;
-    ResourceStateChanged resource_state_changed = 4;
-  }
+  ErrorCluster error = 1;
 }
 
 message DeviceInfoResponse {
+  DeviceInfo device = 1;     // Full device info record
+  ErrorCluster error = 2;
+}
+
+message DeviceInfo {
   string serial = 1;
   string device_id = 2;
   string product_name = 3;
@@ -209,17 +199,52 @@ message DeviceInfoResponse {
   int32 wire_width = 9;
   int32 trigger_width = 10;
   int32 pipe_width = 11;
-  FPGAVendor fpga_vendor = 12;
-  DataportType dataport = 13;
-  bool is_front_panel_enabled = 14;
-  optional BitfileInfo bitfile = 15;
+  int32 register_address_width = 12;
+  int32 register_data_width = 13;
+  FPGAVendor fpga_vendor = 14;
+  DataportType dataport = 15;
+  bool is_front_panel_enabled = 16;
+  optional BitfileInfo bitfile = 17;
 }
 
-// Error cluster pattern (from project goals proto example)
-message ErrorCluster {
-  bool status = 1;    // true if error occurred
-  int32 code = 2;
-  string source = 3;
+message DeviceEvent {
+  string timestamp = 1;      // ISO 8601 timestamp
+  oneof event {
+    DeviceAdded device_added = 2;
+    DeviceRemoved device_removed = 3;
+    BitfileProgrammed bitfile_programmed = 4;
+    ResourceStateChanged resource_state_changed = 5;
+  }
+}
+
+// Server Management (ADR-010)
+message ServiceRequest {
+  string name = 1;  // e.g., "rest", "grpc", "mqtt", "mdns"
+}
+
+message ServiceOperationResponse {
+  ErrorCluster error = 1;
+  ServiceInfo service = 2;   // Updated service info after operation
+}
+
+message ServiceInfo {
+  string name = 1;
+  string status = 2;    // "running", "stopped", "starting", etc.
+  bool compiled = 3;    // whether the feature flag was enabled
+  bool enabled = 4;     // whether enabled in TOML config
+}
+
+message ListServicesResponse {
+  ErrorCluster error = 1;
+  repeated ServiceInfo services = 2;
+}
+
+message ServerStatusResponse {
+  ErrorCluster error = 1;
+  string api_version = 2;
+  uint64 uptime_secs = 3;
+  int32 device_count = 4;
+  repeated ServiceInfo services = 5;
 }
 ```
 
@@ -231,15 +256,16 @@ message ErrorCluster {
 
 ### Error Handling
 
-All RPCs return an `ErrorCode` message that maps directly to `ok_ErrorCode`:
+All RPCs include an `ErrorCluster` in their response message. The `ErrorCluster`
+pattern maps directly to `ok_ErrorCode`:
 
-| ok_ErrorCode | gRPC code | Proto enum |
-|-------------|-----------|------------|
-| `ok_NoError` (0) | OK | `NO_ERROR` |
-| `ok_Failed` (-1) | INTERNAL | `FAILED` |
-| `ok_Timeout` (-2) | DEADLINE_EXCEEDED | `TIMEOUT` |
-| `ok_DeviceNotOpen` (-8) | NOT_FOUND | `DEVICE_NOT_OPEN` |
-| `ok_InvalidEndpoint` (-9) | INVALID_ARGUMENT | `INVALID_ENDPOINT` |
+| ok_ErrorCode | gRPC code | ErrorCluster.code |
+|-------------|-----------|-------------------|
+| `ok_NoError` (0) | OK | `0` |
+| `ok_Failed` (-1) | INTERNAL | `-1` |
+| `ok_Timeout` (-2) | DEADLINE_EXCEEDED | `-2` |
+| `ok_DeviceNotOpen` (-8) | NOT_FOUND | `-8` |
+| `ok_InvalidEndpoint` (-9) | INVALID_ARGUMENT | `-9` |
 | ... | ... | ... |
 
 ### Proto File Location
@@ -259,9 +285,38 @@ The proto file will be created at `proto/okfpga/v1/okfpga.proto` before any impl
 - **Proto maintenance** — the `.proto` file must stay synchronized with the REST OpenAPI spec
 - **Large message catalog** — ~50+ message types reflecting the FrontPanel API breadth
 
+## Addendum A: Resource & User RPCs (2026-08-17)
+
+See [ADR-020](ADR-020-client-side-resource-registration.md) for full rationale.
+
+The following RPCs were added to `DeviceService`:
+
+- **Resource CRUD**: `CreateResource`, `DeleteResource` — client-side resource
+  registration after bitfile programming
+- **Resource lifecycle**: `ListResources`, `GetResource`, `AcquireResource`,
+  `ReleaseResource` — resource discovery and acquisition
+- **Lock/Unlock**: `LockResource`, `UnlockResource` — temporary exclusive access
+  to shared resources (ADR-020 §3)
+- **Users**: `ListUsers`, `GetUser` — connected user session management
+- **Heartbeat**: `Ping` — client liveness heartbeat (ADR-020 §5)
+- **Disconnect**: `Disconnect` — clean session teardown (Phase 25-Fix-H, F10)
+
+The service listings above have been updated to include all RPCs.
+
+## Addendum B: Endpoint Access Enforcement (2026-08-18)
+
+See [ADR-024](ADR-024-endpoint-access-enforcement.md).
+
+When `endpoint_enforcement` is set to `"enforce"`, Classic and AXI data port
+RPCs may return `PERMISSION_DENIED` if the calling user does not hold a resource
+covering the requested endpoint. No new RPCs are added — enforcement is
+interceptor-level.
+
 ## References
 
 - [Tonic gRPC framework](https://docs.rs/tonic)
 - [Proto3 Language Guide](https://protobuf.dev/programming-guides/proto3/)
 - [Project goals proto example](../../ok-FPGA-Server_Project-goals.txt) — lines 104-144
 - [ADR-010 Service Manager](ADR-010-service-manager.md) — feature flags and service lifecycle
+- [ADR-020 Client-Side Resource Registration](ADR-020-client-side-resource-registration.md) — resource CRUD, lock/unlock, heartbeat
+- [ADR-024 Endpoint Access Enforcement](ADR-024-endpoint-access-enforcement.md) — runtime endpoint gating
