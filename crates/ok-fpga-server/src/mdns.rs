@@ -88,6 +88,16 @@ impl MdnsDiscoveryService {
         // Always include the API version.
         props.push(("version", self.state.api_version.to_string()));
 
+        // Server description — helps clients show a human-readable label
+        // in the mDNS discovery dropdown (Phase 28A). Falls back to the
+        // mDNS instance_name if no description is configured.
+        let description = if self.config.server.description.is_empty() {
+            self.config.mdns.instance_name.clone()
+        } else {
+            self.config.server.description.clone()
+        };
+        props.push(("description", description));
+
         // REST port (if compiled and enabled).
         #[cfg(feature = "rest")]
         if self.config.rest.enabled {

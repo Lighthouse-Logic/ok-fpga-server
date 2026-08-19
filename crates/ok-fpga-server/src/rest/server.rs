@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use axum::extract::Path;
 use axum::extract::State;
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -28,6 +28,8 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/server/services/{name}/restart", post(restart_service))
         .route("/heartbeat", post(heartbeat))
         .route("/disconnect", post(disconnect))
+        .route("/server/settings", get(get_settings))
+        .route("/server/settings", put(put_settings))
 }
 
 // ============================================================================
@@ -38,6 +40,7 @@ pub fn routes() -> Router<Arc<AppState>> {
 #[derive(Serialize)]
 struct ServerStatusBody {
     api_version: String,
+    description: String,
     uptime_secs: u64,
     device_count: usize,
     services: Vec<ServiceInfo>,
@@ -65,8 +68,20 @@ async fn get_server_status(State(state): State<Arc<AppState>>) -> Json<ServerSta
     let services = state.service_manager.list();
     let device_count = state.device_manager.device_count();
 
+    // Read description from runtime config. Fall back to "ok-fpga-server"
+    // if the config has no description set.
+    let description = {
+        let cfg = state.config.read().unwrap();
+        if cfg.server.description.is_empty() {
+            cfg.mdns.instance_name.clone()
+        } else {
+            cfg.server.description.clone()
+        }
+    };
+
     Json(ServerStatusBody {
         api_version: state.api_version.to_string(),
+        description,
         uptime_secs: state.uptime_secs(),
         device_count,
         services,
@@ -258,5 +273,114 @@ async fn disconnect(
         user_id: body.user_id,
         released_resources: released,
         message: "Disconnected successfully".to_string(),
+    }))
+}
+
+// ============================================================================
+// Settings (Phase 28B)
+// ============================================================================
+
+/// Response body for `GET /server/settings`.
+///
+/// Exposes runtime-configurable settings that can be changed via the
+/// dashboard Settings panel. This is a strict subset of the full TOML
+/// config — only safe, user-facing settings are exposed.
+#[derive(Serialize, Deserialize)]
+struct SettingsBody {
+    /// Human-readable server description.
+    description: String,
+    /// Endpoint enforcement level: "off", "warn", or "enforce".
+    endpoint_enforcement: String,
+}
+
+/// `GET /server/settings` — Read current runtime settings.
+///
+/// Returns the settings that can be changed via the dashboard.
+/// If `[dashboard] expose_settings = false`, returns `403 Forbidden`.
+async fn get_settings(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<SettingsBody>, ProblemDetail> {
+    // Check the expose_settings guard.
+    let cfg = state.config.read().unwrap();
+    if !cfg.dashboard.expose_settings {
+        return Err(ProblemDetail::forbidden(
+            "Settings exposure is disabled. Set [dashboard] expose_settings = true in okfpga-server.toml.",
+        ));
+    }
+
+    let description = if cfg.server.description.is_empty() {
+        cfg.mdns.instance_name.clone()
+    } else {
+        cfg.server.description.clone()
+    };
+
+    Ok(Json(SettingsBody {
+        description,
+        endpoint_enforcement: cfg.access_control.endpoint_enforcement.clone(),
+    }))
+}
+
+/// `PUT /server/settings` — Update runtime settings and persist to TOML.
+///
+/// Accepts a partial set of settings to update. Changes are applied to the
+/// in-memory config and written back to the TOML file so they survive
+/// server restarts.
+///
+/// If `[dashboard] expose_settings = false`, returns `403 Forbidden`.
+async fn put_settings(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<SettingsBody>,
+) -> Result<Json<SettingsBody>, ProblemDetail> {
+    // Check the expose_settings guard.
+    {
+        let cfg = state.config.read().unwrap();
+        if !cfg.dashboard.expose_settings {
+            return Err(ProblemDetail::forbidden(
+                "Settings exposure is disabled. Set [dashboard] expose_settings = true in okfpga-server.toml.",
+            ));
+        }
+    }
+
+    // Validate endpoint_enforcement value.
+    let enforcement_lower = body.endpoint_enforcement.to_lowercase();
+    if !matches!(enforcement_lower.as_str(), "off" | "warn" | "enforce") {
+        return Err(ProblemDetail::bad_request(format!(
+            "Invalid endpoint_enforcement value '{}'. Must be 'off', 'warn', or 'enforce'.",
+            body.endpoint_enforcement
+        )));
+    }
+
+    // Apply changes to the in-memory config.
+    {
+        let mut cfg = state.config.write().unwrap();
+        cfg.server.description = body.description.clone();
+        cfg.access_control.endpoint_enforcement = enforcement_lower.clone();
+    }
+
+    // Persist to TOML file.
+    if let Some(ref path) = state.config_path {
+        let cfg = state.config.read().unwrap();
+        if let Err(e) = crate::config::save_config(&cfg, path) {
+            tracing::error!(error = %e, "Failed to persist settings to TOML");
+            return Err(ProblemDetail::internal(
+                "Settings were applied in memory but could not be saved to disk.",
+            ));
+        }
+    }
+
+    info!(
+        description = %body.description,
+        endpoint_enforcement = %enforcement_lower,
+        "Server settings updated via dashboard"
+    );
+
+    // Broadcast event so the dashboard auto-refreshes.
+    state.broadcast_event(
+        r#"{"type":"settings_updated"}"#,
+    );
+
+    Ok(Json(SettingsBody {
+        description: body.description,
+        endpoint_enforcement: enforcement_lower,
     }))
 }

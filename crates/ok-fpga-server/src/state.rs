@@ -12,7 +12,8 @@
 //! channels, etc.).
 
 use std::fmt;
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
 use tokio::sync::broadcast;
@@ -161,6 +162,17 @@ pub struct AppState {
     /// AXI reads/writes) require the caller to hold a resource covering the
     /// target endpoint. See [`EndpointEnforcement`] for level descriptions.
     pub enforcement: EndpointEnforcement,
+
+    /// Runtime-mutable server configuration.
+    ///
+    /// Wrapped in `RwLock` so the Settings panel can update fields like
+    /// `server.description` and `access_control.endpoint_enforcement` at
+    /// runtime. Changes are persisted to the TOML file via `save_config()`.
+    pub config: Arc<RwLock<crate::config::ServerConfig>>,
+
+    /// Path to the TOML config file (for write-back on settings changes).
+    /// `None` if the config was loaded from defaults with no file.
+    pub config_path: Option<PathBuf>,
 }
 
 impl AppState {
@@ -176,6 +188,8 @@ impl AppState {
         session_manager: Arc<ok_fpga_core::auth::SessionManager>,
         user_sessions: Arc<UserSessionRegistry>,
         enforcement: EndpointEnforcement,
+        config: crate::config::ServerConfig,
+        config_path: Option<PathBuf>,
     ) -> Self {
         Self {
             device_manager,
@@ -189,6 +203,8 @@ impl AppState {
             start_time: Instant::now(),
             api_version: env!("CARGO_PKG_VERSION"),
             enforcement,
+            config: Arc::new(RwLock::new(config)),
+            config_path,
         }
     }
 

@@ -134,7 +134,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Load configuration (TOML file + env overrides + feature validation).
-    let cfg = config::load_config();
+    let (cfg, config_path) = config::load_config();
 
     // Initialize tracing (structured logging) with the configured log level.
     // Returns the broadcast handles needed for the dashboard log viewer.
@@ -214,6 +214,8 @@ async fn main() -> anyhow::Result<()> {
         session_manager,
         user_sessions,
         enforcement,
+        cfg.clone(),
+        config_path,
     );
     // Wire the event broadcast channel so resource/user lifecycle events
     // reach the WebSocket dashboard (Phase 25-Fix-H, F9).

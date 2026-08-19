@@ -72,6 +72,11 @@ impl ProblemDetail {
         Self::new(StatusCode::CONFLICT, detail)
     }
 
+    /// Create a 403 Forbidden problem.
+    pub fn forbidden(detail: impl Into<String>) -> Self {
+        Self::new(StatusCode::FORBIDDEN, detail)
+    }
+
     /// Create a 501 Not Implemented problem.
     ///
     /// Logs a WARN-level message so stub invocations are visible in the

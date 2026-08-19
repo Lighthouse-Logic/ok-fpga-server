@@ -102,6 +102,15 @@ pub struct CoreConfig {
     ///
     /// Default: `"logs/okfpga-server.log"`.
     pub log_file: String,
+
+    /// Human-readable description of this server instance.
+    ///
+    /// Shown in mDNS discovery results and the `GET /server/status` response.
+    /// Defaults to the mDNS `instance_name` if empty. Can be changed at
+    /// runtime via the dashboard Settings panel (persisted to TOML).
+    ///
+    /// Example: `"Lab Bench 1 — XEM8320"`.
+    pub description: String,
 }
 
 impl Default for CoreConfig {
@@ -113,6 +122,7 @@ impl Default for CoreConfig {
             user_timeout_secs: 60,
             user_sweep_interval_secs: 10,
             log_file: "logs/okfpga-server.log".to_string(),
+            description: String::new(),
         }
     }
 }
@@ -230,6 +240,13 @@ pub struct DashboardConfig {
     /// Valid values: `"trace"`, `"debug"`, `"info"`, `"warn"`, `"error"`.
     /// Default: `"info"`.
     pub default_log_level: String,
+
+    /// Whether the Settings page is visible in the dashboard.
+    ///
+    /// When `false`, the Settings nav entry is hidden and the
+    /// `PUT /server/settings` endpoint returns `403 Forbidden`.
+    /// Default: `true`.
+    pub expose_settings: bool,
 }
 
 impl Default for DashboardConfig {
@@ -237,6 +254,7 @@ impl Default for DashboardConfig {
         Self {
             enabled: true,
             default_log_level: "info".to_string(),
+            expose_settings: true,
         }
     }
 }
@@ -334,7 +352,8 @@ const CONFIG_ENV_VAR: &str = "OKFPGA_CONFIG";
 /// 4. If no file found, use built-in defaults
 ///
 /// After loading, the config is validated against compiled features.
-pub fn load_config() -> ServerConfig {
+/// Returns the parsed config and the path it was loaded from (if any).
+pub fn load_config() -> (ServerConfig, Option<PathBuf>) {
     let config_path = resolve_config_path();
 
     let config = if let Some(path) = &config_path {
@@ -369,7 +388,23 @@ pub fn load_config() -> ServerConfig {
     // Validate against compiled features.
     validate_feature_flags(&config);
 
-    config
+    (config, config_path)
+}
+
+/// Save the server configuration back to its TOML file.
+///
+/// This is used by the dashboard Settings panel to persist runtime changes
+/// (e.g., server description, endpoint enforcement level). The entire
+/// `ServerConfig` is serialized and written to the file, preserving all
+/// fields — not just the ones that were changed.
+///
+/// Returns `Ok(())` on success, or an error if the path is unknown or the
+/// write fails.
+pub fn save_config(config: &ServerConfig, path: &Path) -> anyhow::Result<()> {
+    let toml_str = toml::to_string_pretty(config)?;
+    std::fs::write(path, toml_str)?;
+    info!(path = %path.display(), "configuration saved to disk");
+    Ok(())
 }
 
 /// Resolve the config file path from CLI args or environment.

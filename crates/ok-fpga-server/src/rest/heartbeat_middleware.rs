@@ -116,6 +116,8 @@ mod tests {
             session_manager,
             user_sessions,
             crate::state::EndpointEnforcement::Off,
+            crate::config::ServerConfig::default(),
+            None,
         ));
 
         let app = Router::new()

@@ -262,6 +262,8 @@ mod tests {
             session_manager,
             user_sessions,
             enforcement,
+            crate::config::ServerConfig::default(),
+            None,
         ));
 
         // Create a minimal router with representative routes for each tier.

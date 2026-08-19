@@ -769,6 +769,8 @@ mod tests {
             session_manager,
             Arc::new(ok_fpga_core::user::UserSessionRegistry::new()),
             crate::state::EndpointEnforcement::Off,
+            ServerConfig::default(),
+            None,
         ));
 
         let config = Arc::new(ServerConfig::default());
@@ -822,6 +824,8 @@ mod tests {
             session_manager,
             Arc::new(ok_fpga_core::user::UserSessionRegistry::new()),
             crate::state::EndpointEnforcement::Off,
+            ServerConfig::default(),
+            None,
         ));
 
         let config = Arc::new(ServerConfig::default());
@@ -1109,6 +1113,8 @@ mod tests {
             session_manager,
             Arc::new(ok_fpga_core::user::UserSessionRegistry::new()),
             crate::state::EndpointEnforcement::Off,
+            ServerConfig::default(),
+            None,
         ));
         let config = Arc::new(ServerConfig::default());
         let (event_tx, _) = broadcast::channel::<String>(16);
@@ -1182,6 +1188,8 @@ mod tests {
             session_manager,
             user_sessions,
             crate::state::EndpointEnforcement::Off,
+            ServerConfig::default(),
+            None,
         ));
         let config = Arc::new(ServerConfig::default());
         let (event_tx, _) = broadcast::channel::<String>(16);

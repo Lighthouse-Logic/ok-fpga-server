@@ -111,8 +111,8 @@ configurable server settings.
   - **Other runtime settings** as they are added in future phases
 * [ ] **REST API for settings** — `GET /server/settings` and
       `PUT /server/settings` endpoints for reading and updating runtime config.
-      Settings changes are **ephemeral** (lost on restart); the TOML file
-      remains the persistent source of truth.
+      Settings changes are **persistent** — the server writes updated values
+      back to `okfpga-server.toml` so they survive restarts.
 * [ ] **Unauthenticated access warning** — when `endpoint_enforcement` is
       shown in the dashboard, display a prominent warning:
       > ⚠️ Any user with dashboard access can change this setting.
