@@ -69,6 +69,7 @@ pub fn build_management_router(
         .route("/mgmt/services/{name}/restart", post(mgmt_restart_service))
         .route("/mgmt/config", get(mgmt_get_config))
         .route("/mgmt/devices", get(mgmt_list_devices))
+        .route("/mgmt/devices/{serial}/syzygy", get(mgmt_device_syzygy))
         .route("/mgmt/resources", get(mgmt_list_resources))
         .route("/mgmt/users", get(mgmt_list_users))
         .route("/mgmt/shutdown", post(mgmt_shutdown))
@@ -171,6 +172,7 @@ struct ConfigResponse {
 /// Provides a JSON-friendly summary of each connected FPGA device.
 /// This is served from the management port (9090) so the dashboard
 /// can render device details without cross-port requests to the REST API.
+/// Phase 28D: enriched with is_programmed and bitfile info for expandable rows.
 #[derive(Serialize)]
 struct DeviceInfoResponse {
     /// Hardware serial number (unique per device).
@@ -191,12 +193,27 @@ struct DeviceInfoResponse {
     firmware_minor: i32,
     /// User-settable device ID string.
     device_id: String,
+    /// Whether the FPGA has been programmed with a bitfile (Phase 28D).
+    is_programmed: bool,
+    /// Bitfile info, present only when programmed (Phase 28D).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bitfile: Option<DeviceBitfileInfo>,
+}
+
+/// Bitfile info included in DeviceInfoResponse (Phase 28D).
+#[derive(Serialize)]
+struct DeviceBitfileInfo {
+    filename: String,
+    description: String,
+    programmed_at: String,
+    programmed_by: String,
 }
 
 /// Resource information response for the `/mgmt/resources` endpoint.
 ///
 /// Provides a JSON-friendly summary of each registered resource.
 /// Used by the dashboard's Resources page (Phase 25-Fix-G, F6).
+/// Phase 28D: enriched with description, access_mode, and metadata.
 #[derive(Serialize)]
 struct ResourceInfoResponse {
     /// Unique resource identifier.
@@ -211,6 +228,15 @@ struct ResourceInfoResponse {
     holders: Vec<String>,
     /// Who locked the resource (if any).
     locked_by: Option<String>,
+    /// Optional resource description (Phase 28D).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    /// Design-level access mode: "shared" or "exclusive" (Phase 28D).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    access_mode: Option<String>,
+    /// Extensible key-value metadata (Phase 28D).
+    #[serde(skip_serializing_if = "std::collections::HashMap::is_empty")]
+    metadata: std::collections::HashMap<String, String>,
 }
 
 /// User session response for the `/mgmt/users` endpoint.
@@ -280,19 +306,59 @@ async fn mgmt_list_devices(State(state): State<Arc<MgmtState>>) -> Json<Vec<Devi
         .registry()
         .list()
         .iter()
-        .map(|d| DeviceInfoResponse {
-            serial: d.info.serial.clone(),
-            product_name: d.info.product_name.clone(),
-            product_id: d.info.product_id,
-            interface: d.info.device_interface.to_string(),
-            usb_speed: d.info.usb_speed.to_string(),
-            state: d.state.to_string(),
-            firmware_major: d.info.device_major_version,
-            firmware_minor: d.info.device_minor_version,
-            device_id: d.info.device_id.clone(),
+        .map(|d| {
+            let bitfile = d.state.bitfile().map(|b| DeviceBitfileInfo {
+                filename: b.filename.clone(),
+                description: b.description.clone().unwrap_or_default(),
+                programmed_at: b.programmed_at.to_rfc3339(),
+                programmed_by: b.programmed_by.clone(),
+            });
+            DeviceInfoResponse {
+                serial: d.info.serial.clone(),
+                product_name: d.info.product_name.clone(),
+                product_id: d.info.product_id,
+                interface: d.info.device_interface.to_string(),
+                usb_speed: d.info.usb_speed.to_string(),
+                state: d.state.to_string(),
+                firmware_major: d.info.device_major_version,
+                firmware_minor: d.info.device_minor_version,
+                device_id: d.info.device_id.clone(),
+                is_programmed: d.state.is_programmed(),
+                bitfile,
+            }
         })
         .collect();
     Json(devices)
+}
+
+/// `GET /mgmt/devices/{serial}/syzygy` — Discover SYZYGY ports for a device.
+///
+/// Mirrors the REST SYZYGY endpoint but on the management port so the
+/// dashboard can lazy-load SYZYGY data when expanding a device row.
+/// This requires the FrontPanel DLL and an open device handle.
+async fn mgmt_device_syzygy(
+    Path(serial): Path<String>,
+    State(state): State<Arc<MgmtState>>,
+) -> Result<Json<Vec<ok_fpga_core::syzygy::SyzygyPort>>, axum::http::StatusCode> {
+    // Verify device exists.
+    if !state.app.device_manager.registry().contains(&serial) {
+        return Err(axum::http::StatusCode::NOT_FOUND);
+    }
+
+    // SYZYGY discovery requires the FrontPanel DLL and an active device handle.
+    // If the handle pool is unavailable, return an empty array rather than error.
+    let pool = match state.app.handle_pool.as_ref() {
+        Some(p) => p,
+        None => return Ok(Json(Vec::new())),
+    };
+
+    // Probe SYZYGY ports using the same algorithm as the REST endpoint.
+    let ports = match pool.discover_syzygy_ports(&serial).await {
+        Ok(ports) => ports,
+        Err(_) => Vec::new(),
+    };
+
+    Ok(Json(ports))
 }
 
 /// `GET /mgmt/resources` — List all registered resources.
@@ -312,6 +378,9 @@ async fn mgmt_list_resources(State(state): State<Arc<MgmtState>>) -> Json<Vec<Re
             state: format!("{:?}", r.state),
             holders: r.holders.clone(),
             locked_by: r.locked_by.clone(),
+            description: r.description.clone(),
+            access_mode: r.access_mode.as_ref().map(|m| format!("{:?}", m).to_lowercase()),
+            metadata: r.metadata.clone(),
         })
         .collect();
     Json(resources)

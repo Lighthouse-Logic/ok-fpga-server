@@ -508,4 +508,101 @@ impl DeviceHandlePool {
     pub fn dll(&self) -> &Arc<FrontPanelDll> {
         &self.dll
     }
+
+    /// Discover SYZYGY peripheral ports on a device (Phase 28D).
+    ///
+    /// Probes `SYZYGYn_PORT_STATUS` device settings keys for port indices
+    /// 0..15 to discover connected SYZYGY peripheral modules. For each port
+    /// found, reads the DNA fields (manufacturer, product name, model, etc.).
+    ///
+    /// This method is used by both the REST `/devices/{serial}/syzygy` endpoint
+    /// and the management `/mgmt/devices/{serial}/syzygy` endpoint.
+    pub async fn discover_syzygy_ports(
+        &self,
+        serial: &str,
+    ) -> Result<Vec<ok_fpga_core::syzygy::SyzygyPort>, FfiError> {
+        let device_arc = self.get(serial).await.ok_or_else(|| FfiError::FrontPanelError {
+            code: -1,
+            message: format!("device '{}' not found in handle pool", serial),
+        })?;
+
+        let device = device_arc.lock().await;
+        let dll = device.dll();
+        let handle = device.raw();
+
+        // SAFETY: handle is valid (from pool). Construct settings, populate,
+        // probe SYZYGY keys, then destroy. Access is serialized by the Mutex.
+        let ports = unsafe {
+            let settings = (dll.settings_construct)();
+            if settings.is_null() {
+                return Err(FfiError::FrontPanelError {
+                    code: -1,
+                    message: "Failed to construct settings handle".to_string(),
+                });
+            }
+
+            let rc = (dll.fp_get_device_settings)(handle, settings);
+            if rc as i32 != ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                (dll.settings_destruct)(settings);
+                return Err(FfiError::FrontPanelError {
+                    code: rc as i32,
+                    message: format!("GetDeviceSettings failed with code {}", rc as i32),
+                });
+            }
+
+            let mut result = Vec::new();
+
+            // Probe ports 0..15. Stop when SYZYGYn_PORT_STATUS is not found.
+            for n in 0u32..16 {
+                let status_key = format!("SYZYGY{}_PORT_STATUS\0", n);
+                let status_key_c =
+                    std::ffi::CString::from_vec_unchecked(status_key.into_bytes());
+                let mut port_status: ok_fpga_ffi::UINT32 = 0;
+                let rc =
+                    (dll.settings_get_int)(settings, status_key_c.as_ptr(), &mut port_status);
+
+                if rc as i32 != ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                    break; // No more SYZYGY ports.
+                }
+
+                let mut port = ok_fpga_core::syzygy::SyzygyPort::new(n, port_status);
+
+                // Read string DNA fields for this port.
+                let string_fields = [
+                    ("MANUFACTURER_NAME", &mut port.manufacturer_name),
+                    ("PRODUCT_NAME", &mut port.product_name),
+                    ("PRODUCT_MODEL", &mut port.product_model),
+                    ("PRODUCT_VERSION", &mut port.product_version),
+                    ("SERIAL_NUMBER", &mut port.serial_number),
+                ];
+
+                for (field, target) in string_fields {
+                    let key = format!("SYZYGY{}_{}\0", n, field);
+                    let key_c = std::ffi::CString::from_vec_unchecked(key.into_bytes());
+                    let mut buf = vec![0i8; 256];
+                    let str_rc = (dll.settings_get_string)(
+                        settings,
+                        key_c.as_ptr(),
+                        buf.len() as i32,
+                        buf.as_mut_ptr(),
+                    );
+                    if str_rc as i32 == ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
+                        // Convert the C string buffer to a Rust String.
+                        let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+                        *target = String::from_utf8_lossy(
+                            &buf[..len].iter().map(|&c| c as u8).collect::<Vec<u8>>(),
+                        )
+                        .to_string();
+                    }
+                }
+
+                result.push(port);
+            }
+
+            (dll.settings_destruct)(settings);
+            result
+        };
+
+        Ok(ports)
+    }
 }

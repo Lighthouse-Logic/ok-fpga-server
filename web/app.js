@@ -221,21 +221,97 @@ async function fetchDevices() {
         table.style.display = 'table';
         empty.style.display = 'none';
 
-        tbody.innerHTML = devices.map(d => {
+        tbody.innerHTML = devices.map((d, i) => {
             const imgUrl = getBoardImageUrl(d.product_name);
             const imgHtml = imgUrl
                 ? `<img src="${imgUrl}" alt="${escapeHtml(d.product_name)}" class="board-thumb" title="${escapeHtml(d.product_name)}">`
                 : `<span class="board-thumb-placeholder">▦</span>`;
+
+            // Bitfile detail (shown in expanded row).
+            let bitfileHtml = '<span class="text-muted">Not programmed</span>';
+            if (d.is_programmed && d.bitfile) {
+                bitfileHtml = `
+                    <strong>${escapeHtml(d.bitfile.filename)}</strong><br>
+                    <span class="text-muted">${escapeHtml(d.bitfile.description || '—')}</span><br>
+                    <small>Programmed by: ${escapeHtml(d.bitfile.programmed_by)} at ${escapeHtml(d.bitfile.programmed_at)}</small>`;
+            }
+
+            // Larger image for expanded row.
+            const imgLargeHtml = imgUrl
+                ? `<img src="${imgUrl}" alt="${escapeHtml(d.product_name)}" class="board-img-large">`
+                : '';
+
             return `
-            <tr>
+            <tr class="device-row" data-serial="${escapeHtml(d.serial)}" data-idx="${i}" onclick="toggleDeviceDetail(${i}, '${escapeHtml(d.serial)}')">
                 <td class="td-thumb">${imgHtml}</td>
                 <td><code>${escapeHtml(d.serial)}</code></td>
                 <td>${escapeHtml(d.product_name)}</td>
                 <td>${escapeHtml(d.interface)}</td>
                 <td>${escapeHtml(d.usb_speed)}</td>
                 <td><span class="badge badge-${d.state.startsWith('Programmed') ? 'success' : 'info'}">${escapeHtml(d.state)}</span></td>
+            </tr>
+            <tr class="device-detail-row" id="device-detail-${i}" style="display: none;">
+                <td colspan="6">
+                    <div class="detail-panel">
+                        <div class="detail-panel-grid">
+                            <div class="detail-panel-image">${imgLargeHtml}</div>
+                            <div class="detail-panel-info">
+                                <h4>Device Details</h4>
+                                <table class="detail-mini-table">
+                                    <tr><td class="label">Serial</td><td><code>${escapeHtml(d.serial)}</code></td></tr>
+                                    <tr><td class="label">Device ID</td><td>${escapeHtml(d.device_id || '—')}</td></tr>
+                                    <tr><td class="label">Firmware</td><td>${d.firmware_major}.${d.firmware_minor}</td></tr>
+                                    <tr><td class="label">Product ID</td><td>${d.product_id}</td></tr>
+                                </table>
+                                <h4 style="margin-top:12px;">Bitfile</h4>
+                                <div>${bitfileHtml}</div>
+                            </div>
+                        </div>
+                        <div class="detail-syzygy" id="syzygy-section-${i}">
+                            <h4>SYZYGY Ports</h4>
+                            <div id="syzygy-ports-${i}" class="text-muted">Click to load…</div>
+                        </div>
+                    </div>
+                </td>
             </tr>`;
         }).join('');
+    }
+}
+
+/**
+ * Toggle visibility of a device detail row and lazy-load SYZYGY data.
+ */
+async function toggleDeviceDetail(idx, serial) {
+    const row = document.getElementById(`device-detail-${idx}`);
+    if (!row) return;
+
+    const isVisible = row.style.display !== 'none';
+    row.style.display = isVisible ? 'none' : 'table-row';
+
+    // Lazy-load SYZYGY data on first expand.
+    if (!isVisible) {
+        const container = document.getElementById(`syzygy-ports-${idx}`);
+        if (container && container.textContent === 'Click to load…') {
+            container.textContent = 'Loading…';
+            const data = await api(`${API_BASE}/devices/${serial}/syzygy`);
+            if (data && data.length > 0) {
+                container.innerHTML = `
+                    <table class="detail-mini-table">
+                        <thead><tr><th>Port</th><th>Status (mV)</th><th>Product</th><th>Model</th><th>Manufacturer</th></tr></thead>
+                        <tbody>${data.map(p => `
+                            <tr>
+                                <td>${p.index}</td>
+                                <td>${p.port_status_mv}${p.is_populated ? ' ✓' : ''}</td>
+                                <td>${escapeHtml(p.product_name || '—')}</td>
+                                <td>${escapeHtml(p.product_model || '—')}</td>
+                                <td>${escapeHtml(p.manufacturer_name || '—')}</td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>`;
+            } else {
+                container.innerHTML = '<span class="text-muted">No SYZYGY ports detected</span>';
+            }
+        }
     }
 }
 
@@ -263,22 +339,55 @@ async function fetchResources() {
     table.style.display = 'table';
     tbody.innerHTML = '';
 
-    data.forEach(res => {
-        const tr = document.createElement('tr');
+    data.forEach((res, i) => {
         const holdersStr = res.holders.length
             ? res.holders.join(', ')
             : '<span style="color: var(--text-muted)">none</span>';
         const stateBadge = res.state === 'Available'
             ? '<span class="badge badge-true">Available</span>'
-            : `<span class="badge badge-warning">${res.state}</span>`;
-        tr.innerHTML = `
-            <td><code>${res.id.substring(0, 8)}…</code></td>
-            <td><strong>${res.name}</strong></td>
-            <td>${res.device_serial}</td>
-            <td>${stateBadge}</td>
-            <td>${holdersStr}</td>`;
-        tbody.appendChild(tr);
+            : `<span class="badge badge-warning">${escapeHtml(res.state)}</span>`;
+
+        // Build metadata rows for detail panel.
+        let metadataHtml = '<span class="text-muted">none</span>';
+        if (res.metadata && Object.keys(res.metadata).length > 0) {
+            metadataHtml = '<table class="detail-mini-table"><tbody>' +
+                Object.entries(res.metadata).map(([k, v]) =>
+                    `<tr><td class="label">${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`
+                ).join('') + '</tbody></table>';
+        }
+
+        tbody.innerHTML += `
+            <tr class="resource-row" onclick="toggleResourceDetail(${i})">
+                <td><code>${escapeHtml(res.id.substring(0, 8))}…</code></td>
+                <td><strong>${escapeHtml(res.name)}</strong></td>
+                <td>${escapeHtml(res.device_serial)}</td>
+                <td>${stateBadge}</td>
+                <td>${holdersStr}</td>
+            </tr>
+            <tr class="resource-detail-row" id="resource-detail-${i}" style="display: none;">
+                <td colspan="5">
+                    <div class="detail-panel">
+                        <table class="detail-mini-table">
+                            <tr><td class="label">Full ID</td><td><code>${escapeHtml(res.id)}</code></td></tr>
+                            <tr><td class="label">Description</td><td>${escapeHtml(res.description || '—')}</td></tr>
+                            <tr><td class="label">Access Mode</td><td>${escapeHtml(res.access_mode || '—')}</td></tr>
+                            <tr><td class="label">Locked By</td><td>${escapeHtml(res.locked_by || '—')}</td></tr>
+                        </table>
+                        <h4 style="margin-top:12px;">Metadata</h4>
+                        ${metadataHtml}
+                    </div>
+                </td>
+            </tr>`;
     });
+}
+
+/**
+ * Toggle visibility of a resource detail row.
+ */
+function toggleResourceDetail(idx) {
+    const row = document.getElementById(`resource-detail-${idx}`);
+    if (!row) return;
+    row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
 }
 
 // ============================================================================

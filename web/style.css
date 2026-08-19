@@ -513,6 +513,110 @@ body {
 }
 
 /* ============================================================================
+ * Expandable Detail Rows (Phase 28D)
+ * ========================================================================== */
+
+.device-row, .resource-row {
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.device-row:hover, .resource-row:hover {
+    background: rgba(59, 130, 246, 0.06);
+}
+
+.device-detail-row, .resource-detail-row {
+    background: var(--surface);
+}
+
+.device-detail-row td, .resource-detail-row td {
+    padding: 0 !important;
+    border-top: none !important;
+}
+
+.detail-panel {
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+    from { opacity: 0; max-height: 0; }
+    to   { opacity: 1; max-height: 600px; }
+}
+
+.detail-panel-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 20px;
+    align-items: start;
+}
+
+.detail-panel-image {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.board-img-large {
+    width: 160px;
+    height: 160px;
+    object-fit: contain;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.detail-panel-info h4 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 8px 0;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+
+.detail-mini-table {
+    width: 100%;
+    font-size: 12px;
+    border-collapse: collapse;
+}
+
+.detail-mini-table td, .detail-mini-table th {
+    padding: 3px 8px;
+    border: none;
+}
+
+.detail-mini-table th {
+    text-align: left;
+    color: var(--text-muted);
+    font-weight: 500;
+    border-bottom: 1px solid var(--border);
+}
+
+.detail-mini-table .label {
+    color: var(--text-muted);
+    width: 110px;
+    white-space: nowrap;
+}
+
+.detail-syzygy {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.detail-syzygy h4 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 8px 0;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+
+/* ============================================================================
  * Empty States
  * ========================================================================== */
 
