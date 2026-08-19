@@ -277,7 +277,8 @@ class CountersApp:
             r = messagebox.askyesnocancel("Release?", "Release resource?\nYes=Release, No=Keep, Cancel=Stay")
             if r is None: return
             if r:
-                try: self.client.release_resource(self.resource_id)
+                # Phase 25-Fix-H (F8+F10): Use disconnect() for clean cleanup.
+                try: self.client.disconnect()
                 except: pass
         if self._polling_id: self.root.after_cancel(self._polling_id)
         if hasattr(self, '_device_refresh_id') and self._device_refresh_id:

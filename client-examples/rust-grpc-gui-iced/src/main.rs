@@ -124,7 +124,7 @@ pub enum Message {
     PollIntervalChanged(u64),
     LockPressed, UnlockPressed, LockResult(Result<(), String>),
     OverrideLockout(bool),
-    QuitRelease, QuitLeaveHeld,
+    QuitRelease, QuitLeaveHeld, DisconnectResult(Result<(), String>),
     RefreshDevicesTick, RefreshDevicesResult(Result<Vec<DeviceInfo>, String>),
     DismissDisconnect,
 }
@@ -208,13 +208,18 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
         Message::LockResult(r) => { match r { Ok(()) => state.log("Lock/unlock OK"), Err(e) => state.log_err(&e) } Task::none() }
         Message::OverrideLockout(v) => { state.override_lockout = v; Task::none() }
         Message::QuitRelease => {
+            // Phase 25-Fix-H (F8+F10): Use disconnect() via Task::perform
+            // instead of fire-and-forget tokio::spawn.
             let url = state.grpc_url.clone();
-            if let Some(rid) = state.resource_id.clone() {
-                tokio::spawn(async move { if let Ok(mut c) = connect(&url).await { let _ = c.release_resource(&rid).await; } });
-            }
-            iced::exit()
+            Task::perform(async move {
+                match connect(&url).await {
+                    Ok(mut c) => c.disconnect().await.map_err(|e| e.to_string()),
+                    Err(e) => Err(e.to_string()),
+                }
+            }, Message::DisconnectResult)
         }
         Message::QuitLeaveHeld => iced::exit(),
+        Message::DisconnectResult(_) => iced::exit(),
 
         Message::RefreshDevicesTick => {
             let url = state.grpc_url.clone();

@@ -378,8 +378,10 @@ class CountersApp:
             if result is None:  # Cancel
                 return
             if result:  # Yes
+                # Phase 25-Fix-H (F8+F10): Use disconnect() for clean
+                # session + resource cleanup.
                 try:
-                    self.client.release_resource(self.resource_id)
+                    self.client.disconnect()
                 except Exception:
                     pass
         if self._polling_id:

@@ -414,14 +414,12 @@ impl eframe::App for CountersApp {
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         if ui.button("Yes — Release").clicked() {
-                            // Release resource, then close.
-                            if let Some(ref rid) = self.resource_id {
-                                let client = self.make_client();
-                                let rid = rid.clone();
-                                self.runtime.block_on(async {
-                                    let _ = client.release_resource(&rid).await;
-                                });
-                            }
+                            // Phase 25-Fix-H (F8+F10): Use disconnect() for
+                            // clean session + resource cleanup.
+                            let client = self.make_client();
+                            self.runtime.block_on(async {
+                                let _ = client.disconnect().await;
+                            });
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
                         if ui.button("No — Leave Held").clicked() {

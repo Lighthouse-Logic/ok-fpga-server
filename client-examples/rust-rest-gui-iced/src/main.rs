@@ -189,6 +189,7 @@ pub enum Message {
     OverrideLockout(bool),
     QuitRelease,
     QuitLeaveHeld,
+    DisconnectResult(Result<(), String>),
     RefreshDevicesTick,
     RefreshDevicesResult(Result<Vec<DeviceInfo>, String>),
     DismissDisconnect,
@@ -392,13 +393,22 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
         Message::OverrideLockout(v) => { state.override_lockout = v; Task::none() }
 
         Message::QuitRelease => {
-            if let Some(ref rid) = state.resource_id {
-                let c = state.make_client(); let rid = rid.clone();
-                tokio::spawn(async move { let _ = c.release_resource(&rid).await; });
-            }
-            iced::exit()
+            // Phase 25-Fix-H (F8+F10): Use disconnect() instead of
+            // fire-and-forget release_resource(). Task::perform awaits
+            // the HTTP call before exiting, eliminating the race.
+            let client = state.make_client();
+            Task::perform(
+                async move {
+                    client.disconnect().await.map(|_| ()).map_err(|e| e.to_string())
+                },
+                Message::DisconnectResult,
+            )
         }
         Message::QuitLeaveHeld => iced::exit(),
+        Message::DisconnectResult(_) => {
+            // Whether disconnect succeeded or failed, exit the app.
+            iced::exit()
+        }
 
         Message::RefreshDevicesTick => {
             let client = state.make_client();

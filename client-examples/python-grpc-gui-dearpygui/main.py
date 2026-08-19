@@ -114,6 +114,14 @@ class CountersApp:
         self._poll_thread.start()
 
         dpg.start_dearpygui()
+
+        # Phase 25-Fix-H (F8+F10): Clean disconnect before exit.
+        if self.client is not None:
+            try:
+                self.client.disconnect()
+            except Exception:
+                pass
+
         dpg.destroy_context()
 
     def _on_connect(self):

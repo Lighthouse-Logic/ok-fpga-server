@@ -212,10 +212,12 @@ impl eframe::App for CountersApp {
                 ui.label("Release the Counter Resource before quitting?");
                 ui.horizontal(|ui| {
                     if ui.button("Yes — Release").clicked() {
-                        if let (Some(ca), Some(rid)) = (self.client.clone(), self.resource_id.clone()) {
+                        // Phase 25-Fix-H (F8+F10): Use disconnect() for
+                        // clean session + resource cleanup.
+                        if let Some(ca) = self.client.clone() {
                             self.runtime.block_on(async {
                                 let mut cl = ca.lock().await;
-                                let _ = cl.release_resource(&rid).await;
+                                let _ = cl.disconnect().await;
                             });
                         }
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
