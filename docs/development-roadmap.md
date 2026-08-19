@@ -38,13 +38,13 @@
 
 | Horizon | Focus Area | ADR | Status |
 |---------|-----------|-----|--------|
-| **Phase 28 (Now)** | mDNS-Powered GUI Discovery + Dashboard Settings | ADR-025 (TBD) | 🟡 Planned |
-| **Phase 29 (Next)** | Address Range Enforcement for Classic/okRegisterBridge | ADR-024 | 🟡 Planned |
+| **Phase 28 (Complete)** | mDNS-Powered GUI Discovery + Dashboard Settings | ADR-025 (TBD) | ✅ Complete |
+| **Phase 29 (Now)** | Address Range Enforcement for Classic/okRegisterBridge | ADR-024 | 🟡 Planned |
 | **Phase 30+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
-## 🟢 Now: Phase 28 — mDNS-Powered GUI Discovery + Dashboard Settings
+## ✅ Complete: Phase 28 — mDNS-Powered GUI Discovery + Dashboard Settings
 
 *Focus: All GUI example clients discover servers via mDNS before connecting.
 The server gains a runtime-editable Settings panel in the Web Dashboard.*
@@ -73,24 +73,24 @@ on the local subnet and presents them in a dropdown **before** the manual
 libraries** (not duplicated in each demo). Each demo's UI layer calls the
 common library's discovery API and renders the results.
 
-* [ ] **Rust common libraries: mDNS browser module** — add an `mdns_browser`
+* [x] **Rust common libraries: mDNS browser module** — add an `mdns_browser`
       module to `rust-rest-gui-common` and `rust-grpc-gui-common` that browses
       for `_okfpga._tcp.local.` services and returns a list of discovered
       servers with their TXT properties (host, rest port, grpc port, dashboard
       port, description, device count).
-* [ ] **Python common libraries: mDNS browser module** — add an `mdns_browser`
+* [x] **Python common libraries: mDNS browser module** — add an `mdns_browser`
       module to `python_rest_gui_common` and `python_grpc_gui_common` using
       the `zeroconf` Python package. Same discovery contract.
-* [ ] **GUI integration** — all 8 demos show a "Discovered Servers (mDNS)"
+* [x] **GUI integration** — all 8 demos show a "Discovered Servers (mDNS)"
       dropdown above the manual URL input. Selecting a server auto-fills the
       URL/port fields from the TXT records. The dropdown updates in real-time
       as servers appear/disappear.
-* [ ] **Server `description` TXT field** — add a `description` key to the
+* [x] **Server `description` TXT field** — add a `description` key to the
       mDNS TXT record so the dropdown can show a human-readable label
       (e.g., "Lab Bench 1 — XEM8320"). The description is configured via
       `[server] description = "..."` in `okfpga-server.toml` and defaults to
       the `instance_name`.
-* [ ] **Server config: `[server] description`** — add a `description` field
+* [x] **Server config: `[server] description`** — add a `description` field
       to `ServerConfig` (TOML), defaulting to `instance_name`. Propagate to
       mDNS TXT records and the `GET /server/status` REST response.
 * [ ] **Unit tests** — test mDNS browser module in each common library
@@ -103,30 +103,30 @@ The SPA Web Dashboard (currently 6 pages: Overview, Devices, Resources,
 Users, Services, Logs) gains a new **Settings** page exposing runtime-
 configurable server settings.
 
-* [ ] **Settings page UI** — new sidebar nav entry + page in the dashboard
+* [x] **Settings page UI** — new sidebar nav entry + page in the dashboard
       exposing:
   - **Server description** (`server.description`) — editable text field
   - **Endpoint enforcement level** (`access_control.endpoint_enforcement`) —
     dropdown: off / warn / enforce
   - **Other runtime settings** as they are added in future phases
-* [ ] **REST API for settings** — `GET /server/settings` and
+* [x] **REST API for settings** — `GET /server/settings` and
       `PUT /server/settings` endpoints for reading and updating runtime config.
       Settings changes are **persistent** — the server writes updated values
       back to `okfpga-server.toml` so they survive restarts.
-* [ ] **Unauthenticated access warning** — when `endpoint_enforcement` is
+* [x] **Unauthenticated access warning** — when `endpoint_enforcement` is
       shown in the dashboard, display a prominent warning:
       > ⚠️ Any user with dashboard access can change this setting.
       > For production environments, disable dashboard settings exposure
       > via `[dashboard] expose_settings = false` in `okfpga-server.toml`.
-* [ ] **`expose_settings` config switch** — `[dashboard] expose_settings`
+* [x] **`expose_settings` config switch** — `[dashboard] expose_settings`
       (boolean, default `true`). When `false`, the Settings page is hidden
       and the `PUT /server/settings` endpoint returns `403 Forbidden`.
-* [ ] **OpenAPI spec update** — add `GET /server/settings` and
+* [x] **OpenAPI spec update** — add `GET /server/settings` and
       `PUT /server/settings` to `openapi.yaml`.
 
 ---
 
-## 🟡 Next: Phase 29 — Address Range Enforcement for Classic/okRegisterBridge
+## 🟢 Now: Phase 29 — Address Range Enforcement for Classic/okRegisterBridge
 
 *Focus: Extend ADR-024 endpoint enforcement to cover memory-mapped address
 ranges used by Classic `okRegisterBridge` designs.*
@@ -262,6 +262,7 @@ implementation details, verification steps, and acceptance criteria.
 | 25 | GUI Example Clients | 2026-08-18 | ADR-023 | [phases 23–25](archive/roadmap-phases-23-25.md) |
 | 26 | Endpoint Access Enforcement | 2026-08-19 | ADR-024 | [phases 26–27](archive/roadmap-phases-26-27.md) |
 | 27 | OpenAPI Spec Gaps | 2026-08-19 | — | [phases 26–27](archive/roadmap-phases-26-27.md) |
+| 28 | mDNS-Powered GUI Discovery + Dashboard Settings | 2026-08-19 | ADR-025 (TBD) | [phase 28](archive/roadmap-phases-28.md) |
 
 ---
 
