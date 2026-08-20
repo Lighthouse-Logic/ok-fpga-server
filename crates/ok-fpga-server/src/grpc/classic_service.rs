@@ -95,6 +95,8 @@ impl ClassicDataPortServiceImpl {
     /// - `serial`: The device serial from the request message
     /// - `endpoint`: The endpoint address from the request message
     /// - `ep_type`: The type of Classic endpoint being accessed
+    /// - `value`: The wire value / trigger mask (if available). Passed to the
+    ///   developer's `resolve_classic_address()` hook (ADR-025).
     ///
     /// ## Returns
     ///
@@ -105,6 +107,7 @@ impl ClassicDataPortServiceImpl {
         serial: &str,
         endpoint: i32,
         ep_type: &EndpointType,
+        value: Option<u32>,
     ) -> Result<(), Status> {
         // Fast path: no enforcement.
         if !self.state.enforcement.is_active() {
@@ -140,6 +143,7 @@ impl ClassicDataPortServiceImpl {
             serial,
             endpoint as u8,
             ep_type,
+            value,
         ) {
             match self.state.enforcement {
                 EndpointEnforcement::Warn => {
@@ -264,7 +268,7 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         let req = request.into_inner();
 
         // ADR-024: check endpoint access enforcement.
-        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::WireIn)?;
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::WireIn, Some(req.value as u32))?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -303,7 +307,7 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::WireValueResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
-        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::WireIn)?;
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::WireIn, None)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -364,7 +368,7 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::WireValueResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
-        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::WireOut)?;
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::WireOut, None)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -426,7 +430,7 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::StatusResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
-        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::TriggerIn)?;
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::TriggerIn, Some(1u32 << req.bit))?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -480,7 +484,7 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::IsTriggeredResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
-        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::TriggerOut)?;
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::TriggerOut, None)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -516,7 +520,7 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::TriggerOutVectorResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
-        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::TriggerOut)?;
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::TriggerOut, None)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -551,7 +555,7 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::PipeTransferResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
-        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::PipeIn)?;
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::PipeIn, None)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -596,7 +600,7 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::PipeDataResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
-        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::PipeOut)?;
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::PipeOut, None)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -646,7 +650,7 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::PipeTransferResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
-        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::BtPipeIn)?;
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::BtPipeIn, None)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -692,7 +696,7 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::PipeDataResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
-        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::BtPipeOut)?;
+        self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::BtPipeOut, None)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)

@@ -483,6 +483,55 @@ impl fmt::Display for AcquisitionDenied {
 /// ## When is this used?
 ///
 /// When `endpoint_enforcement` is set to `"warn"` or `"enforce"`, every
+// ============================================================================
+// Classic Address Resolution (ADR-025)
+// ============================================================================
+
+/// Result of a developer-defined Classic endpoint → address resolution.
+///
+/// Returned by [`ResourceAccessPolicy::resolve_classic_address()`] to tell the
+/// server how to enforce access for a Classic endpoint operation that may
+/// target a memory-mapped address.
+///
+/// This hook fires ONLY after the server has already verified:
+/// - The user is authenticated
+/// - The user has acquired a resource covering this endpoint
+/// - The resource is not locked by another user
+///
+/// The developer's only job is to resolve the endpoint operation to an
+/// address (or indicate that no address mapping applies).
+///
+/// See also: [ADR-025](docs/architecture/adr/ADR-025-classic-address-mapping.md)
+/// and the [Developer Guide](docs/guides/classic-address-mapping.md).
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClassicAddressResolution {
+    /// This endpoint is NOT an address carrier. Use standard endpoint-level
+    /// enforcement only (the default). The `check_endpoint_access()` call
+    /// returns `Ok(())` immediately (endpoint coverage was already confirmed
+    /// by the upstream check).
+    NoMapping,
+
+    /// This endpoint operation targets the given memory-mapped address.
+    /// The server will check whether this address falls within the
+    /// resource's declared `address_ranges`, and if the range's access mode
+    /// (Shared vs Exclusive) permits the operation.
+    ///
+    /// For Exclusive address ranges: the user must hold the resource's lock.
+    /// For Shared address ranges: any holder may access.
+    MapsToAddress(u64),
+
+    /// This endpoint is infrastructure that any resource holder may use,
+    /// regardless of address ranges. Skip address enforcement entirely.
+    /// Use this for data registers, clock control, status readback, etc.
+    AllowAlways,
+}
+
+// ============================================================================
+// Access Denied Error (ADR-024)
+// ============================================================================
+
+/// Error returned when endpoint or address access is denied (ADR-024).
+///
 /// Classic endpoint operation (wire/trigger/pipe) and AXI address operation
 /// is checked against the resource registry. If the check fails, an
 /// `AccessDenied` error is returned with a human-readable explanation.
@@ -524,6 +573,21 @@ pub enum AccessDenied {
         locked_by: String,
         resource_id: String,
     },
+
+    /// The operation targets an exclusive address range but the user does
+    /// not hold the lock on the resource (ADR-025).
+    ///
+    /// This happens when a developer's `resolve_classic_address()` hook
+    /// maps a Classic endpoint operation to a memory-mapped address that
+    /// falls within an Exclusive address range. Only the lock holder may
+    /// access exclusive ranges on a shared resource.
+    ExclusiveAddressRange {
+        user_id: String,
+        resource_id: String,
+        address: u64,
+        range_start: u32,
+        range_end: u32,
+    },
 }
 
 impl fmt::Display for AccessDenied {
@@ -562,6 +626,21 @@ impl fmt::Display for AccessDenied {
                     f,
                     "Resource '{}' is locked by '{}' — user '{}' cannot access it",
                     resource_id, locked_by, user_id
+                )
+            }
+            AccessDenied::ExclusiveAddressRange {
+                user_id,
+                resource_id,
+                address,
+                range_start,
+                range_end,
+            } => {
+                write!(
+                    f,
+                    "User '{}' cannot access exclusive address range \
+                     0x{:08X}–0x{:08X} on resource '{}' without holding the lock \
+                     (resolved address: 0x{:08X})",
+                    user_id, range_start, range_end, resource_id, address
                 )
             }
         }
@@ -734,6 +813,80 @@ pub trait ResourceAccessPolicy: Send + Sync {
         _value: &str,
     ) -> Result<(), String> {
         Ok(()) // Stub: accept all metadata by default
+    }
+
+    // ========================================================================
+    // ADR-025: Developer-Defined Classic Address Mapping
+    // ========================================================================
+
+    /// Resolve a Classic endpoint operation to a memory-mapped address.
+    ///
+    /// Called by the server AFTER upstream checks have confirmed:
+    /// - User holds the resource
+    /// - Resource is not locked by another user
+    /// - Endpoint is covered by the resource's declarations
+    ///
+    /// The developer overrides this to express how their HDL design maps
+    /// Classic endpoint operations to memory-mapped addresses.
+    ///
+    /// # Arguments
+    ///
+    /// * `resource` — the acquired resource (contains `address_ranges`)
+    /// * `user` — the user performing the operation
+    /// * `endpoint` — Classic endpoint address (0x00–0xFF)
+    /// * `ep_type` — endpoint type (WireIn, WireOut, TriggerIn, etc.)
+    /// * `value` — the value being written/triggered, if available:
+    ///   - WireIn: the value being written (u32)
+    ///   - TriggerIn: the trigger mask (u32)
+    ///   - WireOut / TriggerOut: None (read — value not known before FFI)
+    ///   - PipeIn / PipeOut: None (byte stream, not a single address)
+    ///
+    /// # Returns
+    ///
+    /// - `NoMapping` — no address involvement; standard enforcement applies
+    /// - `MapsToAddress(addr)` — this operation targets `addr`; server checks
+    ///   it against the resource's `address_ranges`
+    /// - `AllowAlways` — skip address enforcement for this endpoint
+    ///
+    /// # Default
+    ///
+    /// Returns [`ClassicAddressResolution::NoMapping`] — no address mapping.
+    /// All existing behavior is preserved.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// impl ResourceAccessPolicy for MyHdlPolicy {
+    ///     fn resolve_classic_address(
+    ///         &self,
+    ///         _resource: &Resource,
+    ///         _user: &UserId,
+    ///         endpoint: u8,
+    ///         ep_type: &EndpointType,
+    ///         value: Option<u32>,
+    ///     ) -> ClassicAddressResolution {
+    ///         // WireIn 0x01 is the address register — the value IS the
+    ///         // target address.
+    ///         if endpoint == 0x01 && *ep_type == EndpointType::WireIn {
+    ///             value.map_or(
+    ///                 ClassicAddressResolution::NoMapping,
+    ///                 |v| ClassicAddressResolution::MapsToAddress(v as u64),
+    ///             )
+    ///         } else {
+    ///             ClassicAddressResolution::AllowAlways
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    fn resolve_classic_address(
+        &self,
+        _resource: &Resource,
+        _user: &UserId,
+        _endpoint: u8,
+        _ep_type: &EndpointType,
+        _value: Option<u32>,
+    ) -> ClassicAddressResolution {
+        ClassicAddressResolution::NoMapping
     }
 }
 
@@ -1171,7 +1324,15 @@ impl ResourceRegistry {
     ///      - Explicit entry with matching address → ALLOW
     ///      - No matching entry, but `default_access` exists → ALLOW
     ///      - `entries` is empty and `default_access` exists → ALLOW
-    /// 3. If no held resource covers the endpoint → DENY
+    /// 3. If endpoint is covered, call `policy.resolve_classic_address()`
+    ///    (ADR-025). If the hook returns `MapsToAddress(addr)`, check the
+    ///    resolved address against the resource's `address_ranges`.
+    /// 4. If no held resource covers the endpoint → DENY
+    ///
+    /// The `value` parameter is the wire value / trigger mask / pipe data being
+    /// written (if available). It is passed to the developer's
+    /// `resolve_classic_address()` hook. See ADR-025 §4 for which endpoint
+    /// types populate this field.
     ///
     /// Returns `Ok(())` if authorized, or `Err(AccessDenied)` with the reason.
     pub fn check_endpoint_access(
@@ -1180,6 +1341,7 @@ impl ResourceRegistry {
         device_serial: &str,
         endpoint: u8,
         ep_type: &EndpointType,
+        value: Option<u32>,
     ) -> Result<(), AccessDenied> {
         let map = self.resources.read().unwrap();
 
@@ -1216,11 +1378,11 @@ impl ResourceRegistry {
             }
 
             // Check endpoint coverage (ADR-024 §2 + §3).
-            match &resource.endpoints {
+            let endpoint_covered = match &resource.endpoints {
                 None => {
                     // Legacy resource: no endpoint declarations at all.
                     // Covers ALL endpoints on the device (ADR-024 §3).
-                    return Ok(());
+                    true
                 }
                 Some(ep_decl) => {
                     // Check explicit entries first.
@@ -1228,15 +1390,97 @@ impl ResourceRegistry {
                         entry.address == endpoint && entry.ep_type == *ep_type
                     });
                     if explicit_match {
+                        true
+                    } else {
+                        // No explicit match — default_access covers all
+                        // endpoints not explicitly listed.
+                        true
+                    }
+                }
+            };
+
+            if !endpoint_covered {
+                continue;
+            }
+
+            // Endpoint is covered by this resource. Now call the developer's
+            // address resolution hook (ADR-025).
+            //
+            // At this point, upstream checks have passed:
+            //   ✅ User holds this resource
+            //   ✅ Resource is not locked by another user
+            //   ✅ Endpoint is covered by the resource's declarations
+            //
+            // The hook's only job is to resolve endpoint + value → address.
+            let resolution = self.policy.resolve_classic_address(
+                resource, &user_id.to_string(), endpoint, ep_type, value,
+            );
+
+            match resolution {
+                ClassicAddressResolution::NoMapping => {
+                    // No address mapping — standard endpoint enforcement done.
+                    return Ok(());
+                }
+                ClassicAddressResolution::AllowAlways => {
+                    // Infrastructure endpoint — any holder may use.
+                    return Ok(());
+                }
+                ClassicAddressResolution::MapsToAddress(addr) => {
+                    // The endpoint operation targets a memory-mapped address.
+                    // Check whether the address falls within the resource's
+                    // declared address_ranges.
+                    if resource.address_ranges.is_empty() {
+                        // No address ranges declared — legacy resource covers
+                        // all addresses (same as ADR-024 §3 for endpoints).
                         return Ok(());
                     }
 
-                    // No explicit match — check if default_access covers it.
-                    // If there IS an EndpointDeclaration with a default_access,
-                    // then any endpoint not explicitly listed is covered by the
-                    // default. Even if entries is empty, the default covers all.
-                    // (The EndpointDeclaration always has a default_access field.)
-                    return Ok(());
+                    // Find the matching address range.
+                    let matching_range = resource.address_ranges.iter().find(|range| {
+                        addr >= range.start as u64 && addr <= range.end as u64
+                    });
+
+                    match matching_range {
+                        None => {
+                            // Address not in any declared range — deny.
+                            return Err(AccessDenied::NoCoveringResource {
+                                user_id: user_id.to_string(),
+                                device_serial: device_serial.to_string(),
+                                detail: format!(
+                                    "resolved address 0x{:08X} (from endpoint 0x{:02X} {})",
+                                    addr, endpoint, ep_type
+                                ),
+                            });
+                        }
+                        Some(range) => {
+                            match range.access {
+                                AccessMode::Shared => {
+                                    // Shared address range — any holder can access.
+                                    return Ok(());
+                                }
+                                AccessMode::Exclusive => {
+                                    // Exclusive address range — user must hold
+                                    // the lock on this resource.
+                                    let user_holds_lock = resource
+                                        .locked_by
+                                        .as_deref()
+                                        == Some(user_id);
+
+                                    if user_holds_lock {
+                                        return Ok(());
+                                    } else {
+                                        return Err(AccessDenied::ExclusiveAddressRange {
+                                            user_id: user_id.to_string(),
+                                            resource_id: resource.id.clone(),
+                                            address: addr,
+                                            range_start: range.start,
+                                            range_end: range.end,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1778,10 +2022,10 @@ mod tests {
         // Any endpoint should be allowed because the resource has no
         // endpoint declarations (legacy mode, ADR-024 §3).
         assert!(registry
-            .check_endpoint_access("alice", "DEV_A", 0x00, &EndpointType::WireIn)
+            .check_endpoint_access("alice", "DEV_A", 0x00, &EndpointType::WireIn, None)
             .is_ok());
         assert!(registry
-            .check_endpoint_access("alice", "DEV_A", 0xA0, &EndpointType::PipeOut)
+            .check_endpoint_access("alice", "DEV_A", 0xA0, &EndpointType::PipeOut, None)
             .is_ok());
     }
 
@@ -1794,7 +2038,7 @@ mod tests {
             .unwrap();
 
         let err = registry
-            .check_endpoint_access("bob", "DEV_A", 0x00, &EndpointType::WireIn)
+            .check_endpoint_access("bob", "DEV_A", 0x00, &EndpointType::WireIn, None)
             .unwrap_err();
         assert!(matches!(err, AccessDenied::NoResourceOnDevice { .. }));
     }
@@ -1828,15 +2072,15 @@ mod tests {
 
         // Declared endpoint — allowed.
         assert!(registry
-            .check_endpoint_access("alice", "DEV_A", 0x00, &EndpointType::WireIn)
+            .check_endpoint_access("alice", "DEV_A", 0x00, &EndpointType::WireIn, None)
             .is_ok());
         // Also declared — allowed.
         assert!(registry
-            .check_endpoint_access("alice", "DEV_A", 0xA0, &EndpointType::PipeOut)
+            .check_endpoint_access("alice", "DEV_A", 0xA0, &EndpointType::PipeOut, None)
             .is_ok());
         // Not declared, but EndpointDeclaration has default_access → allowed.
         assert!(registry
-            .check_endpoint_access("alice", "DEV_A", 0x01, &EndpointType::WireIn)
+            .check_endpoint_access("alice", "DEV_A", 0x01, &EndpointType::WireIn, None)
             .is_ok());
     }
 
@@ -1855,7 +2099,7 @@ mod tests {
 
         // Alice (lock holder) can still access.
         assert!(registry
-            .check_endpoint_access("alice", "DEV_A", 0x00, &EndpointType::WireIn)
+            .check_endpoint_access("alice", "DEV_A", 0x00, &EndpointType::WireIn, None)
             .is_ok());
     }
 
@@ -1874,7 +2118,7 @@ mod tests {
 
         // Bob is a holder but the resource is locked by Alice — denied.
         let err = registry
-            .check_endpoint_access("bob", "DEV_A", 0x00, &EndpointType::WireIn)
+            .check_endpoint_access("bob", "DEV_A", 0x00, &EndpointType::WireIn, None)
             .unwrap_err();
         assert!(matches!(err, AccessDenied::LockedByOther { .. }));
     }
@@ -1890,7 +2134,7 @@ mod tests {
             .unwrap();
 
         assert!(registry
-            .check_endpoint_access("alice", "DEV_A", 0x00, &EndpointType::WireIn)
+            .check_endpoint_access("alice", "DEV_A", 0x00, &EndpointType::WireIn, None)
             .is_ok());
     }
 
@@ -2006,6 +2250,285 @@ mod tests {
             serial.to_string(),
             AccessMode::Exclusive,
         )
+    }
+
+    // =========================================================================
+    // ADR-025: Classic Address Mapping tests
+    // =========================================================================
+
+    /// Custom policy for ADR-025 tests.
+    ///
+    /// Maps WireIn 0x01 → MapsToAddress(value), all others → AllowAlways.
+    struct TestAddressMappingPolicy;
+
+    impl ResourceAccessPolicy for TestAddressMappingPolicy {
+        fn can_acquire(
+            &self,
+            resource: &Resource,
+            user: &UserId,
+            mode: AccessMode,
+        ) -> Result<(), AcquisitionDenied> {
+            DefaultAccessPolicy.can_acquire(resource, user, mode)
+        }
+
+        fn resolve_classic_address(
+            &self,
+            _resource: &Resource,
+            _user: &UserId,
+            endpoint: u8,
+            ep_type: &EndpointType,
+            value: Option<u32>,
+        ) -> ClassicAddressResolution {
+            match (endpoint, ep_type) {
+                (0x01, EndpointType::WireIn) => {
+                    value.map_or(ClassicAddressResolution::NoMapping, |v| {
+                        ClassicAddressResolution::MapsToAddress(v as u64)
+                    })
+                }
+                _ => ClassicAddressResolution::AllowAlways,
+            }
+        }
+    }
+
+    /// Helper: create a resource with address ranges for ADR-025 tests.
+    fn test_resource_with_address_ranges(id: &str, serial: &str) -> Resource {
+        let mut resource = Resource::new(
+            id.to_string(),
+            format!("resource_{}", id),
+            None,
+            serial.to_string(),
+            AccessMode::Shared,
+        );
+        resource.endpoints = Some(EndpointDeclaration {
+            default_access: AccessMode::Shared,
+            entries: vec![
+                EndpointEntry {
+                    address: 0x01,
+                    ep_type: EndpointType::WireIn,
+                    access: AccessMode::Shared,
+                    description: Some("Address register".to_string()),
+                },
+                EndpointEntry {
+                    address: 0x02,
+                    ep_type: EndpointType::WireIn,
+                    access: AccessMode::Shared,
+                    description: Some("Data register".to_string()),
+                },
+            ],
+        });
+        resource.address_ranges = vec![
+            AddressRange {
+                start: 0x0000,
+                end: 0x00FF,
+                access: AccessMode::Exclusive, // DAC control — requires lock
+            },
+            AddressRange {
+                start: 0x0100,
+                end: 0x01FF,
+                access: AccessMode::Shared, // Status — any holder
+            },
+        ];
+        resource
+    }
+
+    #[test]
+    fn adr025_default_policy_returns_no_mapping() {
+        // DefaultAccessPolicy (used by ResourceRegistry::new()) should return
+        // NoMapping, preserving all ADR-024 behavior.
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource_for_device("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // Any value should be allowed because DefaultAccessPolicy returns NoMapping.
+        assert!(registry
+            .check_endpoint_access("alice", "DEV_A", 0x00, &EndpointType::WireIn, Some(0x42))
+            .is_ok());
+    }
+
+    #[test]
+    fn adr025_maps_to_shared_address_allows() {
+        // Address 0x0150 is in the Shared range 0x0100–0x01FF.
+        let policy = Box::new(TestAddressMappingPolicy);
+        let registry = ResourceRegistry::with_policy(policy);
+        registry.register(test_resource_with_address_ranges("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // Write address 0x0150 to WireIn 0x01 → MapsToAddress(0x0150)
+        // → in Shared range → allowed.
+        assert!(registry
+            .check_endpoint_access(
+                "alice", "DEV_A", 0x01, &EndpointType::WireIn, Some(0x0150)
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn adr025_maps_to_exclusive_address_with_lock_allows() {
+        // Address 0x0042 is in the Exclusive range 0x0000–0x00FF.
+        // Alice holds the lock → should be allowed.
+        let policy = Box::new(TestAddressMappingPolicy);
+        let registry = ResourceRegistry::with_policy(policy);
+        registry.register(test_resource_with_address_ranges("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry.lock("r1", &"alice".to_string()).unwrap();
+
+        assert!(registry
+            .check_endpoint_access(
+                "alice", "DEV_A", 0x01, &EndpointType::WireIn, Some(0x0042)
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn adr025_maps_to_exclusive_address_without_lock_denies() {
+        // Address 0x0042 is in the Exclusive range 0x0000–0x00FF.
+        // When the resource is locked by Alice, Bob gets LockedByOther (upstream).
+        // When the resource is NOT locked, Bob gets ExclusiveAddressRange (ADR-025).
+        let policy = Box::new(TestAddressMappingPolicy);
+        let registry = ResourceRegistry::with_policy(policy);
+        registry.register(test_resource_with_address_ranges("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("r1", &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // --- Scenario 1: Resource is UNLOCKED ---
+        // Bob tries to access exclusive range without holding a lock.
+        let err = registry
+            .check_endpoint_access(
+                "bob", "DEV_A", 0x01, &EndpointType::WireIn, Some(0x0042)
+            )
+            .unwrap_err();
+        assert!(matches!(err, AccessDenied::ExclusiveAddressRange { .. }));
+
+        // --- Scenario 2: Resource is LOCKED by Alice ---
+        registry.lock("r1", &"alice".to_string()).unwrap();
+
+        // Alice (lock holder) can access exclusive range.
+        assert!(registry
+            .check_endpoint_access(
+                "alice", "DEV_A", 0x01, &EndpointType::WireIn, Some(0x0042)
+            )
+            .is_ok());
+
+        // Bob is locked out entirely (upstream lock check).
+        let err = registry
+            .check_endpoint_access(
+                "bob", "DEV_A", 0x01, &EndpointType::WireIn, Some(0x0042)
+            )
+            .unwrap_err();
+        assert!(matches!(err, AccessDenied::LockedByOther { .. }));
+    }
+
+    #[test]
+    fn adr025_allow_always_bypasses_address_check() {
+        // WireIn 0x02 (data register) → AllowAlways from our test policy.
+        let policy = Box::new(TestAddressMappingPolicy);
+        let registry = ResourceRegistry::with_policy(policy);
+        registry.register(test_resource_with_address_ranges("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // Any value on WireIn 0x02 is AllowAlways — no address check.
+        assert!(registry
+            .check_endpoint_access(
+                "alice", "DEV_A", 0x02, &EndpointType::WireIn, Some(0xDEAD)
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn adr025_address_out_of_all_ranges_denies() {
+        // Address 0x0300 is NOT in any declared range.
+        let policy = Box::new(TestAddressMappingPolicy);
+        let registry = ResourceRegistry::with_policy(policy);
+        registry.register(test_resource_with_address_ranges("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        let err = registry
+            .check_endpoint_access(
+                "alice", "DEV_A", 0x01, &EndpointType::WireIn, Some(0x0300)
+            )
+            .unwrap_err();
+        assert!(matches!(err, AccessDenied::NoCoveringResource { .. }));
+    }
+
+    #[test]
+    fn adr025_no_address_ranges_legacy_allows_all() {
+        // Resource with NO address_ranges → legacy mode, covers all addresses.
+        let policy = Box::new(TestAddressMappingPolicy);
+        let registry = ResourceRegistry::with_policy(policy);
+        let mut resource = test_resource_for_device("r1", "DEV_A");
+        // Ensure no address ranges (legacy).
+        resource.address_ranges.clear();
+        registry.register(resource);
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // Even though MapsToAddress returns an address, no address_ranges = allow.
+        assert!(registry
+            .check_endpoint_access(
+                "alice", "DEV_A", 0x01, &EndpointType::WireIn, Some(0xFFFF)
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn adr025_pipe_operations_default_no_mapping() {
+        // Pipe operations pass None as value → NoMapping → standard enforcement.
+        let policy = Box::new(TestAddressMappingPolicy);
+        let registry = ResourceRegistry::with_policy(policy);
+        registry.register(test_resource_with_address_ranges("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // PipeIn endpoint — TestAddressMappingPolicy returns AllowAlways for
+        // non-0x01 endpoints. Pipes should work.
+        assert!(registry
+            .check_endpoint_access(
+                "alice", "DEV_A", 0x80, &EndpointType::PipeIn, None
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn adr025_shared_address_no_lock_required() {
+        // Even without a lock, shared address ranges allow access.
+        let policy = Box::new(TestAddressMappingPolicy);
+        let registry = ResourceRegistry::with_policy(policy);
+        registry.register(test_resource_with_address_ranges("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("r1", &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+        // No lock held by anyone.
+
+        // Both users can access the shared range (0x0100–0x01FF).
+        assert!(registry
+            .check_endpoint_access(
+                "alice", "DEV_A", 0x01, &EndpointType::WireIn, Some(0x0100)
+            )
+            .is_ok());
+        assert!(registry
+            .check_endpoint_access(
+                "bob", "DEV_A", 0x01, &EndpointType::WireIn, Some(0x01FF)
+            )
+            .is_ok());
     }
 }
 

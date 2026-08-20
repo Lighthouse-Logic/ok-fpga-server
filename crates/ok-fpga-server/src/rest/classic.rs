@@ -233,6 +233,7 @@ fn enforce_endpoint(
     serial: &str,
     endpoint: i32,
     ep_type: &ok_fpga_core::resource::EndpointType,
+    value: Option<u32>,
 ) -> Result<(), ProblemDetail> {
     use crate::state::EndpointEnforcement;
 
@@ -275,6 +276,7 @@ fn enforce_endpoint(
         serial,
         endpoint as u8,
         ep_type,
+        value,
     ) {
         match state.enforcement {
             EndpointEnforcement::Warn => {
@@ -397,7 +399,7 @@ async fn set_wire_in(
     Json(req): Json<WireInRequest>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
     // ADR-024: endpoint-level enforcement.
-    enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::WireIn)?;
+    enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::WireIn, Some(req.value))?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -480,7 +482,7 @@ async fn get_wire_out(
     Query(query): Query<WireOutQuery>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
     if let Some(endpoint) = query.endpoint {
-        enforce_endpoint(&state, &headers, &serial, endpoint, &ok_fpga_core::resource::EndpointType::WireOut)?;
+        enforce_endpoint(&state, &headers, &serial, endpoint, &ok_fpga_core::resource::EndpointType::WireOut, None)?;
     }
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
@@ -521,7 +523,7 @@ async fn activate_trigger_in(
     headers: axum::http::HeaderMap,
     Json(req): Json<TriggerInRequest>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::TriggerIn)?;
+    enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::TriggerIn, Some(1u32 << req.bit))?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -575,7 +577,7 @@ async fn get_trigger_out(
     Query(query): Query<TriggerOutQuery>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
     if let Some(endpoint) = query.endpoint {
-        enforce_endpoint(&state, &headers, &serial, endpoint, &ok_fpga_core::resource::EndpointType::TriggerOut)?;
+        enforce_endpoint(&state, &headers, &serial, endpoint, &ok_fpga_core::resource::EndpointType::TriggerOut, None)?;
     }
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
@@ -624,7 +626,7 @@ async fn write_to_pipe_in(
     headers: axum::http::HeaderMap,
     Json(req): Json<PipeRequest>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::PipeIn)?;
+    enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::PipeIn, None)?;
     let data = req.data.as_deref().unwrap_or("");
     let bytes = base64_decode(data)?;
 
@@ -662,7 +664,7 @@ async fn read_from_pipe_out(
     headers: axum::http::HeaderMap,
     Json(req): Json<PipeRequest>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::PipeOut)?;
+    enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::PipeOut, None)?;
     let length = req.length;
 
     let device_arc = get_device!(state, &serial);
