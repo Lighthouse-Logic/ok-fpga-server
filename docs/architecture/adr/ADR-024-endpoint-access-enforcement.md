@@ -406,10 +406,11 @@ resource to hold before programming. Any connected user may program any device.
 
 ### Future Work
 
-- **Read-only resource acquisition** — a new `AccessMode::ReadOnly` that allows
-  `GetWireOutValue`, `UpdateWireOuts`, `GetTriggerOutVector`, `ReadFromPipeOut` etc.
-  but denies all write operations. This gives "observe but don't touch" access
-  without full acquire
+- ~~**Read-only resource acquisition**~~ —
+  **Implemented → [ADR-026](ADR-026-readonly-acquisition.md)**.
+  `AccessMode::ReadOnly` for observe-without-modify access. Includes the Private
+  data concept (Resource-level, Endpoint-level, AddressRange-level) and enforcement
+  for Classic, AXI, and okRegisterBridge operations.
 - ~~**Address range enforcement for Classic endpoints and okRegisterBridge**~~ —
   **Implemented → [ADR-025](ADR-025-classic-address-mapping.md)**.
   Developer-defined custom stubs (`resolve_classic_address()`) allow a developer

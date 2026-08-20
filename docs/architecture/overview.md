@@ -199,7 +199,8 @@ Cross-platform packaging:
 | [ADR-022](adr/ADR-022-dashboard-logging.md) | Dashboard Logging | Implemented ✅ |
 | [ADR-023](adr/ADR-023-gui-example-clients.md) | GUI Example Clients | Implemented ✅ |
 | [ADR-024](adr/ADR-024-endpoint-access-enforcement.md) | Endpoint Access Enforcement | Implemented ✅ |
-| [ADR-025](adr/ADR-025-classic-address-mapping.md) | Developer-Defined Classic Address Mapping | Accepted (Phase 29) |
+| [ADR-025](adr/ADR-025-classic-address-mapping.md) | Developer-Defined Classic Address Mapping | Implemented ✅ |
+| [ADR-026](adr/ADR-026-readonly-acquisition.md) | Read-Only Acquisition & Private Data | Accepted (Phase 30) |
 
 ## 9. References
 
