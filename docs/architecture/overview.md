@@ -171,7 +171,37 @@ Cross-platform packaging:
 - **Windows 11**: `.exe` + `okFrontPanel.dll` side-by-side
 - **Ubuntu 22.04/24.04**: Binary + `libokFrontPanel.so` (via `LD_LIBRARY_PATH` or install to `/usr/local/lib`)
 
-## 8. References
+## 8. Architecture Decision Records
+
+| ADR | Title | Status |
+|-----|-------|--------|
+| [ADR-001](adr/ADR-001-ffi-strategy.md) | FFI Strategy | Implemented ✅ |
+| [ADR-002](adr/ADR-002-device-lifecycle.md) | Device Lifecycle | Implemented ✅ |
+| [ADR-003](adr/ADR-003-data-port-abstraction.md) | Data Port Abstraction | Implemented ✅ |
+| [ADR-004](adr/ADR-004-rest-api-design.md) | REST API Design | Implemented ✅ |
+| [ADR-005](adr/ADR-005-grpc-api-design.md) | gRPC API Design | Implemented ✅ |
+| [ADR-006](adr/ADR-006-resource-management.md) | Resource Management | Implemented ✅ |
+| [ADR-007](adr/ADR-007-web-dashboard.md) | Web Dashboard | Implemented ✅ |
+| [ADR-008](adr/ADR-008-authentication.md) | Authentication | Implemented ✅ |
+| [ADR-009](adr/ADR-009-board-syzygy.md) | Board & SYZYGY Discovery | Implemented ✅ |
+| [ADR-010](adr/ADR-010-service-manager.md) | Service Manager | Implemented ✅ |
+| [ADR-011](adr/ADR-011-mqtt-publishing.md) | MQTT Publishing | Implemented ✅ |
+| [ADR-012](adr/ADR-012-mdns-discovery.md) | mDNS Discovery | Implemented ✅ |
+| [ADR-013](adr/ADR-013-device-scanner.md) | Device Scanner | Implemented ✅ |
+| [ADR-014](adr/ADR-014-example-clients.md) | Example Clients | Implemented ✅ |
+| [ADR-015](adr/ADR-015-http-method-semantics.md) | HTTP Method Semantics | Implemented ✅ |
+| [ADR-016](adr/ADR-016-hardware-integration-testing.md) | Hardware Integration Testing | Implemented ✅ |
+| [ADR-017](adr/ADR-017-ffi-endpoint-wiring.md) | FFI Endpoint Wiring | Implemented ✅ |
+| [ADR-018](adr/ADR-018-device-handle-pool.md) | Device Handle Pool | Implemented ✅ |
+| [ADR-019](adr/ADR-019-axi-interface-architecture.md) | AXI Interface Architecture | Implemented ✅ |
+| [ADR-020](adr/ADR-020-client-side-resource-registration.md) | Client-Side Resource Registration | Implemented ✅ |
+| [ADR-021](adr/ADR-021-settings-ffi-wiring.md) | Settings FFI Wiring | Implemented ✅ |
+| [ADR-022](adr/ADR-022-dashboard-logging.md) | Dashboard Logging | Implemented ✅ |
+| [ADR-023](adr/ADR-023-gui-example-clients.md) | GUI Example Clients | Implemented ✅ |
+| [ADR-024](adr/ADR-024-endpoint-access-enforcement.md) | Endpoint Access Enforcement | Implemented ✅ |
+| [ADR-025](adr/ADR-025-classic-address-mapping.md) | Developer-Defined Classic Address Mapping | Accepted (Phase 29) |
+
+## 9. References
 
 - [FrontPanel 6.1.0 Header](../FrontPanel-6.1.0/okFrontPanel.h)
 - [FP5→FP6 Migration Guide](../migrate-cpp-fp5-to-fp6.md)

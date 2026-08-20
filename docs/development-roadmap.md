@@ -47,44 +47,46 @@
 
 ---
 
-## 🟢 Now
+## 🟢 Now: Phase 29 — Developer-Defined Classic Address Mapping (ADR-025)
 
-*No active phase. Promote a "Next" item to begin work.*
+*Focus: Provide developer-defined custom stubs (`ResourceAccessPolicy` hooks) that
+allow a developer with knowledge of their HDL design to enforce access control on
+Classic endpoint operations that indirectly address a memory-mapped space. This
+enables shared endpoints (wires, triggers, pipes) to gate exclusive address ranges
+declared by resources.*
+
+Many Classic FPGA designs implement internal memory-mapped address spaces accessed
+indirectly through Classic endpoints (WireIns carrying addresses, TriggerIns firing
+write strobes, etc.). These designs may use custom HDL logic, internal AXI buses,
+RAM banks, FIFOs, or the `okRegisterBridge` module. Since the server cannot know
+how an arbitrary HDL design maps endpoints to addresses, a developer-defined hook
+is provided.
+
+The hook fires **after** upstream checks (authentication, resource acquisition, lock
+enforcement, endpoint coverage) have passed. The developer's only job is to resolve
+the endpoint + value to a memory address. The server then checks the resolved address
+against the resource's `address_ranges`, enforcing exclusive ranges via lock.
+
+* [ ] **ADR-025** — new ADR documenting the `resolve_classic_address()` trait method,
+      `ClassicAddressResolution` enum, and the enforcement flow
+* [ ] **`ClassicAddressResolution` enum** — `NoMapping` | `MapsToAddress(u64)` |
+      `AllowAlways`
+* [ ] **`resolve_classic_address()` on `ResourceAccessPolicy`** — developer override
+      with default `NoMapping` (preserves all current behavior)
+* [ ] **Updated `check_endpoint_access()`** — add `value: Option<u32>`, call hook
+      after upstream checks pass, enforce address ranges on `MapsToAddress`
+* [ ] **REST/gRPC handler updates** — thread `value` through `enforce_endpoint()` /
+      `check_access()` from each Classic handler
+* [ ] **Developer guide** — standalone `docs/guides/classic-address-mapping.md` with
+      complete implementation walkthrough, realistic examples, and common patterns
+* [ ] **Unit tests** — custom policy scenarios, shared-endpoint/exclusive-address
+      enforcement, NoMapping backward compatibility
 
 ---
 
-## 🟡 Next: Phase 29 — Address Range Enforcement for Classic/okRegisterBridge
+## 🟡 Next
 
-*Focus: Extend ADR-024 endpoint enforcement to cover memory-mapped address
-ranges used by Classic `okRegisterBridge` designs.*
-
-ADR-024 currently enforces access on Classic **endpoint numbers** (wire, trigger,
-pipe addresses 0x00–0xFF) and AXI **address ranges**. However, Classic designs
-that use the `okRegisterBridge` HDL module expose a 32-bit register address
-space accessed via `ReadRegister` / `WriteRegister` REST and gRPC operations.
-These register addresses are **not** Classic endpoint numbers — they are
-memory-mapped addresses that pass through the `okRegisterBridge` on the FPGA.
-
-The `address_ranges` field already exists on `Resource` (used for AXI today).
-This phase extends enforcement so that `ReadRegister` / `WriteRegister`
-operations are also checked against `address_ranges` when a resource declares
-them.
-
-* [ ] **`check_address_access()` for register operations** — the existing
-      `check_address_access()` in `resource.rs` already validates AXI addresses
-      against `address_ranges`. Wire it into the REST `registers/read` and
-      `registers/write` handlers and the gRPC `ReadRegister` / `WriteRegister` /
-      `ReadRegisters` / `WriteRegisters` RPCs.
-* [ ] **Developer-defined Classic endpoint → address mapping hook** — add an
-      optional `ResourceAccessPolicy` trait/stub that lets developers specify
-      how their Classic FrontPanel endpoints map to address ranges (e.g.,
-      "WireIn 0x01 selects the address, PipeIn 0x80 writes data"). The server
-      calls this before Classic wire/pipe operations, passing the endpoint and
-      the resource's declared address ranges. Default impl: pass-through
-      (no mapping, current behavior preserved).
-* [ ] **Unit tests** — test register address enforcement on/off/warn modes,
-      test address-in-range vs out-of-range, test legacy resources (no
-      `address_ranges` = covers all), test lock exclusivity for address ranges.
+*No phase queued. Promote a "Later" item when Phase 29 completes.*
 
 ---
 
