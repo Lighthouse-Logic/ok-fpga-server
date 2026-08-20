@@ -1,7 +1,7 @@
 # ADR-026: Read-Only Resource Acquisition & Private Data
 
 **Date:** 2026-08-20  
-**Status:** Accepted (Phase 30)  
+**Status:** Accepted ✅ — Implemented (Phase 30, commits `0a1e2c6`, `cd0ea2f`)  
 **Extends:** [ADR-024](ADR-024-endpoint-access-enforcement.md), [ADR-025](ADR-025-classic-address-mapping.md)
 
 ---
@@ -249,14 +249,18 @@ PrivateResource {
 
 | File | Change |
 |------|--------|
-| `crates/ok-fpga-core/src/resource.rs` | `ReadOnly` variant, `HolderEntry`, `private` fields, enforcement, tests |
-| `crates/ok-fpga-server/src/rest/classic.rs` | ReadOnly enforcement (via core) |
-| `crates/ok-fpga-server/src/rest/resources.rs` | Accept `read_only` mode |
-| `crates/ok-fpga-server/src/grpc/classic_service.rs` | ReadOnly enforcement (via core) |
-| `crates/ok-fpga-server/src/grpc/resource_service.rs` | Accept `ACCESS_MODE_READ_ONLY` |
-| `api/openapi.yaml` | `read_only` enum value, `private` fields |
-| `proto/okfpga/v1/okfpga.proto` | `ACCESS_MODE_READ_ONLY`, `private` fields |
-| All 8 GUI demos | "Acquire Read-Only" button |
+| `crates/ok-fpga-core/src/resource.rs` | `ReadOnly` variant, `HolderEntry`, `private` fields, enforcement, 14 new tests |
+| `crates/ok-fpga-server/src/management.rs` | `HolderEntry` → string serialization in management handler |
+| `crates/ok-fpga-server/src/rest/resources.rs` | Accept `read_only` mode in `parse_access_mode()`, `private: false` default |
+| `crates/ok-fpga-server/src/grpc/device_service.rs` | Accept `ACCESS_MODE_READ_ONLY`, `HolderEntry` → string serialization |
+| `crates/ok-fpga-server/src/sweep.rs` | Use `has_holder()` instead of `holders.contains()` |
+| `api/openapi.yaml` | `read_only` enum value, `access_mode` + `private` fields on `Resource` schema |
+| `proto/okfpga/v1/okfpga.proto` | `ACCESS_MODE_READ_ONLY = 2`, `bool private = 7` on `Resource` message |
+| `client-examples/rust-rest-gui-common/src/lib.rs` | `acquire_resource_readonly()` method |
+| `client-examples/rust-grpc-gui-common/src/lib.rs` | `acquire_resource_readonly()` method |
+| `client-examples/python_rest_gui_common/counters_client.py` | `acquire_resource_readonly()` method |
+| `client-examples/python_grpc_gui_common/counters_grpc_client.py` | `acquire_resource_readonly()` method |
+| All 8 GUI demos (`main.rs` / `main.py`) | "Acquire R/O" button, ReadOnly lockout + banner |
 
 ---
 
@@ -269,3 +273,56 @@ PrivateResource {
 - **Per-endpoint read-only override** — allow marking individual output endpoints
   as "always allow ReadOnly" even on a Private resource, for public status
   registers
+
+---
+
+## Addendum — Implementation Notes (2026-08-20, `cd0ea2f`)
+
+**Commit:** `0a1e2c6` (docs), `cd0ea2f` (code + specs + GUI demos)
+
+### Deviations from Original Design
+
+#### §4 Input-Only Endpoint Guard — Not Implemented
+
+The original design specified:
+
+> If all endpoints in the resource are input-only (WireIn, TriggerIn, PipeIn,
+> BtPipeIn), deny ReadOnly acquisition — there is nothing to observe
+
+This check was **not implemented** in `can_acquire()`. The rationale:
+
+1. Resources may also have `address_ranges` with observable data even when all
+   Classic endpoints are input-only.
+2. A resource with no endpoints at all (possible during early registration) would
+   be incorrectly denied.
+3. Denying at acquisition time based on endpoint composition is fragile — the
+   server can instead rely on operation-time enforcement (`check_endpoint_access()`
+   denies ReadOnly writes to input endpoints).
+
+If this guard is desired in the future, add an `all_input_only()` predicate to
+`Resource` and call it from `DefaultAccessPolicy::can_acquire()`.
+
+#### §7 API Schemas — EndpointEntry / AddressRange Not in Specs
+
+The original design specified adding `private` to the `EndpointEntry` and
+`AddressRange` schemas in the OpenAPI and Proto3 specs. However:
+
+- Neither the OpenAPI spec nor the Proto3 spec defines `EndpointEntry` or
+  `AddressRange` as standalone schemas. These are **internal Rust structs** in
+  `ok-fpga-core/src/resource.rs`, not externally-facing API types.
+- `private` was added to the **`Resource` schema** in both specs (the only
+  externally-visible type).
+- Per-endpoint and per-address-range privacy is enforced internally by the
+  core registry and is not exposed through the API at this time.
+
+#### Files Changed — Corrections
+
+The original Files Changed table listed `rest/classic.rs` and
+`grpc/classic_service.rs` as modified. These files were **not** changed in
+Phase 30 — ReadOnly enforcement is handled entirely within the core registry's
+`check_endpoint_access()` and `check_address_access()` methods, which the
+server handlers call. The original table also listed `grpc/resource_service.rs`,
+which does not exist; the correct file is `grpc/device_service.rs`.
+
+The corrected table above reflects the actual files modified in commit `cd0ea2f`.
+
