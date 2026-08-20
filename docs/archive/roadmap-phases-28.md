@@ -1,4 +1,4 @@
-# Archived Roadmap Phases — Phase 28 / 28C
+# Archived Roadmap Phases — Phase 28 / 28C / 28D
 
 > Archived from the active roadmap after completion.
 
@@ -87,3 +87,72 @@ Phase 28C removes those endpoints and refines the `expose_settings` behavior.
 - **`expose_settings` = enforcement visibility** — when `false`, the enforcement dropdown is hidden and enforcement changes in PUT are silently ignored
 - **No REST settings API** — settings are management-only (`/mgmt/settings` on port 9090), used exclusively by the dashboard
 - **`ServerSettings` removed from OpenAPI** — management API is internal and not part of the public API spec
+
+---
+
+## Phase 28D: Dashboard Reliability, Expanded Views & SYZYGY Board Catalog
+
+*Completed: 2026-08-19*
+
+Fixes systemic dashboard auto-refresh gaps (especially for gRPC), adds
+expandable detail rows to Devices and Resources pages, introduces a
+TOML-based SYZYGY board catalog, and makes UI improvements.
+
+### 1. WebSocket Event Audit & Fixes
+
+| Component | Change |
+|-----------|--------|
+| REST `resources.rs` | Added `resource_locked` and `resource_unlocked` broadcasts |
+| REST `devices.rs` | Added `device_programmed` broadcast to `configure_fpga` |
+| gRPC `mod.rs` | Heartbeat interceptor broadcasts `user_connected` for new users |
+| gRPC `device_service.rs` | Added broadcasts for `user_disconnected`, `device_programmed`, `resources_cleared`, `resource_acquired`, `resource_released`, `resource_locked`, `resource_unlocked` |
+| Dashboard `app.js` | New event types + cross-page refresh (resource events → Users page, user events → Resources page) |
+
+### 2. Overview Page: Description & Hostname
+
+| Component | Change |
+|-----------|--------|
+| `management.rs` | Added `description` and `hostname` to `StatusResponse` |
+| `index.html` | Description row in Server Details; hostname in sidebar |
+| `app.js` | Populates description and hostname from status response |
+
+### 3. Font Readability
+
+- `--text-muted` brightened from `#5a6178` → `#8b92a8` for better contrast on dark backgrounds.
+
+### 4. Expandable Device Rows
+
+| Component | Change |
+|-----------|--------|
+| `management.rs` | `DeviceInfoResponse` enriched with `is_programmed`, `bitfile` (filename, description, programmed_at, programmed_by) |
+| `handle_pool.rs` | New `DeviceHandlePool::discover_syzygy_ports()` shared FFI method |
+| `management.rs` | New `GET /mgmt/devices/{serial}/syzygy` endpoint |
+| `app.js` | Click-to-expand device rows: larger image, device ID, firmware, bitfile info, lazy-loaded SYZYGY ports |
+| `style.css` | Detail panel grid, slideDown animation, board-img-large |
+
+### 5. Expandable Resource Rows
+
+| Component | Change |
+|-----------|--------|
+| `management.rs` | `ResourceInfoResponse` enriched with `description`, `access_mode`, `metadata` |
+| `app.js` | Click-to-expand resource rows: full ID, description, access mode, locked_by, metadata table |
+
+### 6. SYZYGY Board Catalog (TOML)
+
+| Component | Change |
+|-----------|--------|
+| `config.rs` | New `CatalogConfig` with `SyzygyBoardEntry`, `DeviceCatalogEntry`, `BitfileCatalogEntry` |
+| `management.rs` | New `GET /mgmt/catalog` endpoint |
+| `app.js` | Fetches catalog once at init; `catalogDeviceUrl()`, `catalogSyzygyUrl()`, `catalogBitfile()`, `aboutLink()` helpers; "About ↗" links in device + SYZYGY detail rows |
+| `style.css` | `.about-link` styling |
+
+### 7. mDNS: Upgrade mdns-sd to 0.13
+
+- Upgraded `mdns-sd` from `0.11` → `0.13` in `Cargo.toml`. Newer version handles IPv6 AAAA link-local addresses better on Windows, reducing error log spam. No API changes required.
+
+### Key design decisions
+
+- **Catalog is dashboard-only** — catalog data is served only through `GET /mgmt/catalog` on the management port, never inline with device/SYZYGY REST responses
+- **SYZYGY discovery extracted to pool** — `discover_syzygy_ports()` lives on `DeviceHandlePool` so both REST and management endpoints share the same FFI logic
+- **Lazy-load SYZYGY** — SYZYGY ports are fetched on first expand click, not on page load (avoids blocking device list rendering)
+
