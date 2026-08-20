@@ -233,15 +233,17 @@
                 <div class="log-controls">
                     <!-- Log level selector (ADR-022) -->
                     <label class="log-level-label" for="log-level-select">Min Level:</label>
-                    <select id="log-level-select"
-                            class="log-level-select"
-                            title="Show logs at this level and above. Precedence: TRACE → DEBUG → INFO → WARN → ERROR (TRACE shows everything, ERROR shows only errors)">
-                        <option value="TRACE">TRACE</option>
-                        <option value="DEBUG">DEBUG</option>
-                        <option value="INFO" selected>INFO</option>
-                        <option value="WARN">WARN</option>
-                        <option value="ERROR">ERROR</option>
-                    </select>
+                    <div class="custom-select" id="cs-log-level"
+                         title="Show logs at this level and above. Precedence: TRACE → DEBUG → INFO → WARN → ERROR (TRACE shows everything, ERROR shows only errors)">
+                        <button class="custom-select-trigger" type="button">INFO</button>
+                        <ul class="custom-select-options">
+                            <li data-value="TRACE">TRACE</li>
+                            <li data-value="DEBUG">DEBUG</li>
+                            <li data-value="INFO" class="selected">INFO</li>
+                            <li data-value="WARN">WARN</li>
+                            <li data-value="ERROR">ERROR</li>
+                        </ul>
+                    </div>
                     <div class="log-actions">
                         <button class="btn btn-secondary btn-sm" id="btn-clear-logs" title="Clear log file on server">
                             Clear <span id="log-file-size"></span>
@@ -299,11 +301,14 @@
                     <h2>Access Control</h2>
                     <div class="settings-field">
                         <label for="setting-enforcement">Endpoint Enforcement Level</label>
-                        <select id="setting-enforcement" class="settings-select">
-                            <option value="off">Off — no enforcement (default)</option>
-                            <option value="warn">Warn — log violations but allow</option>
-                            <option value="enforce">Enforce — reject unauthorized operations</option>
-                        </select>
+                        <div class="custom-select settings-select" id="cs-enforcement">
+                            <button class="custom-select-trigger" type="button">Off — no enforcement (default)</button>
+                            <ul class="custom-select-options">
+                                <li data-value="off" class="selected">Off — no enforcement (default)</li>
+                                <li data-value="warn">Warn — log violations but allow</li>
+                                <li data-value="enforce">Enforce — reject unauthorized operations</li>
+                            </ul>
+                        </div>
                         <span class="settings-hint">Controls whether FPGA data port operations require resource ownership (ADR-024).</span>
                     </div>
                 </div>

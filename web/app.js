@@ -561,10 +561,86 @@ const autoScrollCheckbox = document.getElementById('log-auto-scroll');
 /** Current log level selected in the UI. */
 let currentLogLevel = 'INFO';
 
-// --- Log Level Selector (dropdown) ---
-const logLevelSelect = document.getElementById('log-level-select');
-logLevelSelect?.addEventListener('change', () => {
-    currentLogLevel = logLevelSelect.value;
+// --- Custom Select Dropdown Component ---
+
+/**
+ * Initialize a custom select dropdown.
+ * @param {string} id - The id of the .custom-select container
+ * @param {Function} onChange - Called with the new value when selection changes
+ */
+function initCustomSelect(id, onChange) {
+    const container = document.getElementById(id);
+    if (!container) return;
+
+    const trigger = container.querySelector('.custom-select-trigger');
+    const options = container.querySelectorAll('.custom-select-options li');
+
+    // Toggle open/close on trigger click.
+    trigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // Close all other custom selects first.
+        document.querySelectorAll('.custom-select.open').forEach(el => {
+            if (el !== container) el.classList.remove('open');
+        });
+        container.classList.toggle('open');
+    });
+
+    // Handle option selection.
+    options.forEach(opt => {
+        opt.addEventListener('click', () => {
+            const value = opt.dataset.value;
+            const label = opt.textContent;
+
+            // Update trigger text and selection state.
+            trigger.textContent = label;
+            options.forEach(o => o.classList.remove('selected'));
+            opt.classList.add('selected');
+            container.classList.remove('open');
+
+            if (onChange) onChange(value);
+        });
+    });
+
+    // Close on outside click.
+    document.addEventListener('click', () => {
+        container.classList.remove('open');
+    });
+
+    // Prevent clicks inside the dropdown from closing it.
+    container.addEventListener('click', (e) => e.stopPropagation());
+}
+
+/**
+ * Get the current value of a custom select.
+ */
+function getCustomSelectValue(id) {
+    const container = document.getElementById(id);
+    if (!container) return null;
+    const selected = container.querySelector('.custom-select-options li.selected');
+    return selected ? selected.dataset.value : null;
+}
+
+/**
+ * Set the value of a custom select programmatically.
+ */
+function setCustomSelectValue(id, value) {
+    const container = document.getElementById(id);
+    if (!container) return;
+    const trigger = container.querySelector('.custom-select-trigger');
+    const options = container.querySelectorAll('.custom-select-options li');
+    options.forEach(opt => {
+        if (opt.dataset.value === value) {
+            opt.classList.add('selected');
+            trigger.textContent = opt.textContent;
+        } else {
+            opt.classList.remove('selected');
+        }
+    });
+}
+
+// --- Log Level Selector (custom dropdown) ---
+initCustomSelect('cs-log-level', (value) => {
+    currentLogLevel = value;
 
     // Send log level change to server via WebSocket.
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -845,7 +921,7 @@ async function fetchSettings() {
         // Enforcement — only shown when expose_settings is true (field present).
         const enforcementSection = document.getElementById('enforcement-section');
         if (data.endpoint_enforcement !== undefined && data.endpoint_enforcement !== null) {
-            document.getElementById('setting-enforcement').value = data.endpoint_enforcement;
+            setCustomSelectValue('cs-enforcement', data.endpoint_enforcement);
             if (enforcementSection) enforcementSection.style.display = '';
         } else {
             if (enforcementSection) enforcementSection.style.display = 'none';
@@ -871,7 +947,7 @@ async function saveSettings() {
     // Only include enforcement if the section is visible.
     const enforcementSection = document.getElementById('enforcement-section');
     if (enforcementSection && enforcementSection.style.display !== 'none') {
-        payload.endpoint_enforcement = document.getElementById('setting-enforcement').value;
+        payload.endpoint_enforcement = getCustomSelectValue('cs-enforcement');
     }
 
     try {
@@ -935,6 +1011,9 @@ async function checkSettingsVisibility() {
 
     // Check if Settings page should be visible (Phase 28B).
     checkSettingsVisibility();
+
+    // Initialize the enforcement custom dropdown (no onChange — value read on save).
+    initCustomSelect('cs-enforcement');
 
     // Fetch and cache the catalog (Phase 28D).
     api(`${API_BASE}/catalog`).then(data => {
