@@ -42,51 +42,19 @@
 | Horizon | Focus Area | ADR | Status |
 |---------|-----------|-----|--------|
 | **(Now)** | *—* | *—* | *Awaiting promotion* |
-| **Phase 29 (Next)** | Address Range Enforcement for Classic/okRegisterBridge | ADR-024 | 🟡 Planned |
 | **Phase 30+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
-## 🟢 Now: Phase 29 — Developer-Defined Classic Address Mapping (ADR-025)
+## 🟢 Now
 
-*Focus: Provide developer-defined custom stubs (`ResourceAccessPolicy` hooks) that
-allow a developer with knowledge of their HDL design to enforce access control on
-Classic endpoint operations that indirectly address a memory-mapped space. This
-enables shared endpoints (wires, triggers, pipes) to gate exclusive address ranges
-declared by resources.*
-
-Many Classic FPGA designs implement internal memory-mapped address spaces accessed
-indirectly through Classic endpoints (WireIns carrying addresses, TriggerIns firing
-write strobes, etc.). These designs may use custom HDL logic, internal AXI buses,
-RAM banks, FIFOs, or the `okRegisterBridge` module. Since the server cannot know
-how an arbitrary HDL design maps endpoints to addresses, a developer-defined hook
-is provided.
-
-The hook fires **after** upstream checks (authentication, resource acquisition, lock
-enforcement, endpoint coverage) have passed. The developer's only job is to resolve
-the endpoint + value to a memory address. The server then checks the resolved address
-against the resource's `address_ranges`, enforcing exclusive ranges via lock.
-
-* [ ] **ADR-025** — new ADR documenting the `resolve_classic_address()` trait method,
-      `ClassicAddressResolution` enum, and the enforcement flow
-* [ ] **`ClassicAddressResolution` enum** — `NoMapping` | `MapsToAddress(u64)` |
-      `AllowAlways`
-* [ ] **`resolve_classic_address()` on `ResourceAccessPolicy`** — developer override
-      with default `NoMapping` (preserves all current behavior)
-* [ ] **Updated `check_endpoint_access()`** — add `value: Option<u32>`, call hook
-      after upstream checks pass, enforce address ranges on `MapsToAddress`
-* [ ] **REST/gRPC handler updates** — thread `value` through `enforce_endpoint()` /
-      `check_access()` from each Classic handler
-* [ ] **Developer guide** — standalone `docs/guides/classic-address-mapping.md` with
-      complete implementation walkthrough, realistic examples, and common patterns
-* [ ] **Unit tests** — custom policy scenarios, shared-endpoint/exclusive-address
-      enforcement, NoMapping backward compatibility
+*No active phase. Promote a "Later" item to begin work.*
 
 ---
 
 ## 🟡 Next
 
-*No phase queued. Promote a "Later" item when Phase 29 completes.*
+*No phase queued. Promote a "Later" item when ready.*
 
 ---
 
@@ -203,9 +171,10 @@ implementation details, verification steps, and acceptance criteria.
 | 25 | GUI Example Clients | 2026-08-18 | ADR-023 | [phases 23–25](archive/roadmap-phases-23-25.md) |
 | 26 | Endpoint Access Enforcement | 2026-08-19 | ADR-024 | [phases 26–27](archive/roadmap-phases-26-27.md) |
 | 27 | OpenAPI Spec Gaps | 2026-08-19 | — | [phases 26–27](archive/roadmap-phases-26-27.md) |
-| 28 | mDNS-Powered GUI Discovery + Dashboard Settings | 2026-08-19 | ADR-025 (TBD) | [phase 28](archive/roadmap-phases-28.md) |
+| 28 | mDNS-Powered GUI Discovery + Dashboard Settings | 2026-08-19 | — | [phase 28](archive/roadmap-phases-28.md) |
 | 28C | Settings Lockdown | 2026-08-19 | — | [phase 28](archive/roadmap-phases-28.md) |
 | 28D | Dashboard Reliability, Expanded Views & SYZYGY Board Catalog | 2026-08-19 | — | [phase 28](archive/roadmap-phases-28.md) |
+| 29 | Developer-Defined Classic Address Mapping | 2026-08-20 | ADR-025 | [phase 29](archive/roadmap-phases-29.md) |
 
 ---
 
