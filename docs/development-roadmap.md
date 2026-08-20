@@ -42,7 +42,8 @@
 | Horizon | Focus Area | ADR | Status |
 |---------|-----------|-----|--------|
 | **(Now)** | *—* | *—* | *Awaiting promotion* |
-| **Phase 30+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
+| **Phase 30 (Next)** | Read-Only Resource Acquisition & Private Data | ADR-026 | 🟡 Planned |
+| **Phase 31+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
@@ -52,9 +53,41 @@
 
 ---
 
-## 🟡 Next
+## 🟡 Next: Phase 30 — Read-Only Resource Acquisition & Private Data (ADR-026)
 
-*No phase queued. Promote a "Later" item when ready.*
+*Focus: Introduce `AccessMode::ReadOnly` for observe-without-modify access. Add
+"Private" marking for endpoints and address ranges that should be hidden from
+read-only holders. Enforce write denial for read-only users across all Classic and
+AXI operations. Update all 8 GUI demos with an "Acquire Read-Only" button.*
+
+Currently, the only acquisition modes are `Shared` (multiple holders, read+write)
+and `Exclusive` (sole holder, read+write). There is no way for a user to observe a
+resource's state without having write access — a common need in monitoring and
+dashboard scenarios.
+
+Key additions:
+
+* `AccessMode::ReadOnly` — holder can read WireOuts, TriggerOuts, PipeOuts but
+  cannot write to any input endpoint or perform AXI writes
+* `private` field on `EndpointEntry` and `AddressRange` — private data is invisible
+  to ReadOnly holders (denied at enforcement time)
+* In Classic mode, a ReadOnly user cannot acquire a resource whose only endpoints
+  are input-only (WireIn, TriggerIn, PipeIn, BtPipeIn)
+* ReadOnly holders cannot lock a resource (locking is for write exclusivity)
+* ReadOnly holders CAN acquire even an Exclusive resource (they don't interfere)
+
+* [ ] **ADR-026** — new ADR documenting ReadOnly semantics, Private data, enforcement
+* [ ] **`AccessMode::ReadOnly`** and `HolderEntry` tracking
+* [ ] **`private` field** on `EndpointEntry` and `AddressRange`
+* [ ] **`is_input()` helper** on `EndpointType`
+* [ ] **`ReadOnlyWriteAttempt` and `PrivateDataDenied`** on `AccessDenied`
+* [ ] **`can_acquire()` policy** — ReadOnly rules
+* [ ] **`check_endpoint_access()` / `check_address_access()`** — ReadOnly + Private
+* [ ] **OpenAPI spec** — add `read_only` to mode enum, `private` fields
+* [ ] **Proto3 spec** — add `ACCESS_MODE_READ_ONLY = 2`, `private` fields
+* [ ] **REST/gRPC acquire handlers** — accept `read_only` mode
+* [ ] **GUI demos (all 8)** — "Acquire Read-Only" button
+* [ ] **Unit tests** — 14+ new tests for ReadOnly and Private enforcement
 
 ---
 
@@ -86,9 +119,8 @@ Features in this section represent uncommitted research or long-term capabilitie
   resources are held (shared or exclusive) by any user. Requires user privilege
   levels (admin can override).
 
-* **Read-only resource acquisition** — `AccessMode::ReadOnly` for observe-without-modify
-  access. See [ADR-024 Future Work](architecture/adr/ADR-024-endpoint-access-enforcement.md).
-
+* **Read-only resource acquisition** — **Promoted to Phase 30 (Next)**.
+  See [ADR-026](architecture/adr/ADR-026-readonly-acquisition.md) (planned).
 
 * **Native TLS termination** — embedded `rustls` for secure lab deployments
   without a reverse proxy.
