@@ -181,7 +181,7 @@ mod tests {
 
         let user_sessions = Arc::new(UserSessionRegistry::new());
         let resource_registry = Arc::new(ResourceRegistry::new());
-        let device_manager = Arc::new(DeviceManager::new());
+        let _device_manager = Arc::new(DeviceManager::new());
 
         let alice = "alice".to_string();
 

@@ -2365,3 +2365,115 @@
 2026-08-19T23:38:31.710619Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
 2026-08-19T23:40:07.771551Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
 2026-08-19T23:41:43.775691Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_A response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-19T23:43:19.782072Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_A response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-19T23:44:55.787259Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-19T23:46:31.794452Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-19T23:48:07.798674Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_A response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-19T23:49:43.811058Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-19T23:51:19.813127Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-19T23:52:55.842001Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-19T23:54:31.846111Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-19T23:56:07.857862Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-19T23:57:44.137773Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-19T23:59:20.175424Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:00:56.253455Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:02:32.286484Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:04:08.288752Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:05:44.291712Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:07:20.300907Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_A response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:08:56.308780Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:10:32.620127Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:12:08.634726Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:13:44.756130Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:15:20.766061Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:16:56.771796Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_A response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:18:32.786280Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:20:08.791570Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:22:23.274115Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_A response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:23:59.279513Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_A response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:25:35.291453Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_A response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:28:05.546881Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:29:41.618357Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:31:17.654936Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_A response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:32:53.702254Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_A response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:34:29.754046Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_A response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:36:05.754897Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_A response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:37:41.804732Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:39:17.859678Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:40:53.865236Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_A response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:42:29.870475Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:44:05.884343Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:45:41.885960Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:47:17.893353Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:48:53.895123Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_A response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:50:29.903409Z ERROR mdns_sd::service_daemon: Cannot find valid addrs for TYPE_AAAA response on intf Interface { name: "Wi-Fi", addr: V4(Ifv4Addr { ip: 192.168.50.78, netmask: 255.255.255.0, prefixlen: 24, broadcast: Some(192.168.50.255) }), index: Some(13), adapter_name: "{5FA383B9-F13F-42CE-8C7C-AB2DE258630A}" }
+2026-08-20T00:51:14.249115Z  INFO ok_fpga_server: shutdown signal received
+2026-08-20T00:51:14.249609Z  INFO ok_fpga_core::service_manager: stopping service service=mdns
+2026-08-20T00:51:14.249744Z  INFO ok_fpga_server::mdns: mDNS discovery service stopped
+2026-08-20T00:51:14.249882Z  INFO ok_fpga_core::service_manager: service stopped service=mdns
+2026-08-20T00:51:14.249981Z  INFO ok_fpga_core::service_manager: stopping service service=grpc
+2026-08-20T00:51:14.250358Z  INFO ok_fpga_server::grpc: gRPC server stopped
+2026-08-20T00:51:14.462953Z  INFO ok_fpga_server::grpc::managed: gRPC server stopped
+2026-08-20T00:51:14.463136Z  INFO ok_fpga_core::service_manager: service stopped service=grpc
+2026-08-20T00:51:14.463292Z  INFO ok_fpga_core::service_manager: stopping service service=rest
+2026-08-20T00:51:14.679579Z  INFO ok_fpga_server::rest::managed: REST server stopped
+2026-08-20T00:51:14.679728Z  INFO ok_fpga_core::service_manager: service stopped service=rest
+2026-08-20T00:51:14.679917Z  INFO ok_fpga_core::service_manager: all services stopped
+2026-08-20T00:51:14.680045Z  INFO ok_fpga_server: ok-FPGA-Server shut down cleanly.
+2026-08-20T00:53:56.643620Z  INFO ok_fpga_server: configuration loaded config_log_level=info management_port=9090
+2026-08-20T00:53:56.644065Z  INFO ok_fpga_server::scanner: attempting to load FrontPanel DLL dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-20T00:53:56.707062Z  INFO ok_fpga_server::scanner: FrontPanel DLL loaded successfully api_version=6.1.0 dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-20T00:53:56.735252Z  INFO ok_fpga_server: initial device scan complete count=0
+2026-08-20T00:53:56.735799Z  INFO ok_fpga_server: device polling task started (2s interval)
+2026-08-20T00:53:56.735921Z  INFO ok_fpga_server::scanner: attempting to load FrontPanel DLL dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-20T00:53:56.736199Z  INFO ok_fpga_server: authentication provider initialized provider="none" required=false
+2026-08-20T00:53:56.736418Z  INFO ok_fpga_server: Endpoint access enforcement: off
+2026-08-20T00:53:56.736646Z  INFO ok_fpga_server::scanner: FrontPanel DLL loaded successfully api_version=6.1.0 dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-20T00:53:56.736722Z  INFO ok_fpga_core::service_manager: registered service service=rest enabled=true
+2026-08-20T00:53:56.736914Z  INFO ok_fpga_server: registered REST service bind=0.0.0.0 port=8088 enabled=true
+2026-08-20T00:53:56.737109Z  INFO ok_fpga_core::service_manager: registered service service=grpc enabled=true
+2026-08-20T00:53:56.737312Z  INFO ok_fpga_server: registered gRPC service bind=0.0.0.0 port=50051 enabled=true
+2026-08-20T00:53:56.737540Z  INFO ok_fpga_core::service_manager: registered service service=mqtt enabled=false
+2026-08-20T00:53:56.737760Z  INFO ok_fpga_server: registered MQTT service broker=mqtt://localhost:1883 topic_prefix=okfpga/server01 enabled=false
+2026-08-20T00:53:56.738009Z  INFO ok_fpga_core::service_manager: registered service service=mdns enabled=true
+2026-08-20T00:53:56.738167Z  INFO ok_fpga_server: registered mDNS service instance_name=okfpga-server enabled=true
+2026-08-20T00:53:56.738386Z  INFO ok_fpga_server: compiled features features=["rest", "dashboard", "grpc", "mqtt", "mdns"]
+2026-08-20T00:53:56.738575Z  INFO ok_fpga_core::service_manager: starting service service=rest
+2026-08-20T00:53:56.743361Z  INFO ok_fpga_server::rest::managed: REST server bound successfully address=0.0.0.0:8088
+2026-08-20T00:53:56.743604Z  INFO ok_fpga_server::rest::managed: REST server is running address=0.0.0.0:8088
+2026-08-20T00:53:56.743777Z  INFO ok_fpga_core::service_manager: service started service=rest
+2026-08-20T00:53:56.743962Z  INFO ok_fpga_core::service_manager: starting service service=grpc
+2026-08-20T00:53:56.744293Z  INFO ok_fpga_server::grpc: starting gRPC server address=0.0.0.0:50051
+2026-08-20T00:53:56.852575Z  INFO ok_fpga_server::grpc::managed: gRPC server is running address=0.0.0.0:50051
+2026-08-20T00:53:56.852838Z  INFO ok_fpga_core::service_manager: service started service=grpc
+2026-08-20T00:53:56.853040Z  INFO ok_fpga_core::service_manager: service disabled in config — skipping service=mqtt
+2026-08-20T00:53:56.853218Z  INFO ok_fpga_core::service_manager: starting service service=mdns
+2026-08-20T00:53:56.854606Z  INFO ok_fpga_server::mdns: mDNS service registered instance=okfpga-server service_type="_okfpga._tcp.local." port=9090 hostname=THE-EXPANSE.local. txt_records=["version=0.1.0", "description=Melody", "rest=8088", "grpc=50051", "dashboard=9090", "devices=0"]
+2026-08-20T00:53:56.854864Z  INFO ok_fpga_server::mdns: mDNS discovery service started
+2026-08-20T00:53:56.855259Z  INFO ok_fpga_core::service_manager: service started service=mdns
+2026-08-20T00:53:56.855482Z  INFO ok_fpga_server: service state service=rest status=running compiled=true enabled=true
+2026-08-20T00:53:56.855642Z  INFO ok_fpga_server: service state service=grpc status=running compiled=true enabled=true
+2026-08-20T00:53:56.855784Z  INFO ok_fpga_server: service state service=mqtt status=stopped compiled=true enabled=false
+2026-08-20T00:53:56.856054Z  INFO ok_fpga_server: service state service=mdns status=running compiled=true enabled=true
+2026-08-20T00:53:56.856965Z  INFO ok_fpga_server: management server started (dashboard + mgmt API) address=0.0.0.0:9090
+2026-08-20T00:53:56.857367Z  INFO ok_fpga_server::sweep: starting user session sweep task timeout_secs=60 sweep_interval_secs=10
+2026-08-20T00:53:56.857602Z  INFO ok_fpga_server: ok-FPGA-Server is ready. Press Ctrl+C to shut down.
+2026-08-20T00:55:42.786171Z  INFO ok_fpga_server: FPGA device connected (hot-plug detected by polling) serial=22520013CC product=XEM7320-A75T interface=USB 3.0
+2026-08-20T00:55:42.816842Z  INFO ok_fpga_server::handle_pool: device handle opened and added to pool serial=22520013CC
+2026-08-20T00:57:46.603437Z  INFO ok_fpga_server::handle_pool: FPGA configured successfully serial=22520013CC path=FrontPanel-6.1.0/ExampleBitfiles/20190501-FP50-XEM7320-A75/XEM7320-A75/Counters.bit
+2026-08-20T00:57:46.603604Z  INFO ok_fpga_server::handle_pool: Classic data port acquired
+2026-08-20T00:57:46.603797Z  INFO ok_fpga_server::handle_pool: AXI data port not available (this is OK for Classic-only bitfiles) error_code=-15
+2026-08-20T01:01:38.894846Z  INFO ok_fpga_server::rest::server: User disconnected via POST /disconnect user_id=Icy Rester released_count=1
+2026-08-20T01:01:41.083967Z  INFO ok_fpga_server: shutdown signal received
+2026-08-20T01:01:41.084231Z  INFO ok_fpga_core::service_manager: stopping service service=mdns
+2026-08-20T01:01:41.084351Z  INFO ok_fpga_server::mdns: mDNS discovery service stopped
+2026-08-20T01:01:41.084525Z  INFO ok_fpga_core::service_manager: service stopped service=mdns
+2026-08-20T01:01:41.084668Z  INFO ok_fpga_core::service_manager: stopping service service=grpc
+2026-08-20T01:01:41.085142Z  INFO ok_fpga_server::grpc: gRPC server stopped
+2026-08-20T01:01:41.286603Z  INFO ok_fpga_server::grpc::managed: gRPC server stopped
+2026-08-20T01:01:41.286711Z  INFO ok_fpga_core::service_manager: service stopped service=grpc
+2026-08-20T01:01:41.286783Z  INFO ok_fpga_core::service_manager: stopping service service=rest
+2026-08-20T01:01:41.491503Z  INFO ok_fpga_server::rest::managed: REST server stopped
+2026-08-20T01:01:41.491680Z  INFO ok_fpga_core::service_manager: service stopped service=rest
+2026-08-20T01:01:41.491850Z  INFO ok_fpga_core::service_manager: all services stopped
+2026-08-20T01:01:41.491996Z  INFO ok_fpga_server: ok-FPGA-Server shut down cleanly.
