@@ -72,6 +72,7 @@ fn boot() -> (AppState, Task<Message>) {
             last_error: None,
             show_disconnect_dialog: false,
             discovered_servers: vec![],
+            acquired_readonly: false,
         },
         // Start mDNS discovery on boot.
         Task::perform(
@@ -138,6 +139,8 @@ pub struct AppState {
     pub show_disconnect_dialog: bool,
     /// Discovered ok-FPGA servers via mDNS (Phase 28A).
     pub discovered_servers: Vec<DiscoveredServer>,
+    /// True when the user acquired as ReadOnly (Phase 30, ADR-026).
+    pub acquired_readonly: bool,
 }
 
 impl AppState {
@@ -194,6 +197,7 @@ pub enum Message {
     RegisterPressed,
     RegisterResult(Result<ResourceInfo, String>),
     AcquirePressed,
+    AcquireReadOnlyPressed,
     AcquireResult(Result<(), String>),
     SetReset1(bool),
     SetDisable1(bool),
@@ -342,6 +346,7 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
 
         Message::AcquirePressed => {
+            state.acquired_readonly = false;
             let client = state.make_client();
             let rid = state.resource_id.clone().unwrap_or_default();
             Task::perform(
@@ -349,9 +354,22 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 Message::AcquireResult,
             )
         }
+        Message::AcquireReadOnlyPressed => {
+            state.acquired_readonly = true;
+            let client = state.make_client();
+            let rid = state.resource_id.clone().unwrap_or_default();
+            Task::perform(
+                async move { client.acquire_resource_readonly(&rid).await.map(|_| ()).map_err(|e| e.to_string()) },
+                Message::AcquireResult,
+            )
+        }
         Message::AcquireResult(result) => {
             match result {
-                Ok(()) => { state.log("Resource acquired — counter control active"); state.phase = Phase::Acquired; }
+                Ok(()) => {
+                    let mode_label = if state.acquired_readonly { "read-only" } else { "shared" };
+                    state.log(&format!("Resource acquired ({}) — counter control active", mode_label));
+                    state.phase = Phase::Acquired;
+                }
                 Err(e) => state.log_err(&format!("Acquire failed: {}", e)),
             }
             Task::none()
@@ -652,9 +670,18 @@ fn view_connection(state: &AppState) -> Element<'_, Message> {
         else if state.phase == Phase::Programmed { button("3. Register Resource").on_press(Message::RegisterPressed) }
         else { button("3. Register Resource") };
 
-    let acquire_btn = if state.phase >= Phase::Acquired { button("4. Acquire Resource (Shared) ✓") }
-        else if state.phase == Phase::Registered { button("4. Acquire Resource (Shared)").on_press(Message::AcquirePressed) }
-        else { button("4. Acquire Resource (Shared)") };
+    let acquire_btn = if state.phase >= Phase::Acquired {
+        let mode_label = if state.acquired_readonly { "R/O" } else { "Shared" };
+        button(text(format!("4. Acquire ({}) ✓", mode_label)))
+    } else if state.phase == Phase::Registered {
+        button("4. Acquire (Shared)").on_press(Message::AcquirePressed)
+    } else { button("4. Acquire (Shared)") };
+
+    let acquire_ro_btn = if state.phase >= Phase::Acquired { button("Acquire R/O") }
+        else if state.phase == Phase::Registered { button("Acquire R/O").on_press(Message::AcquireReadOnlyPressed) }
+        else { button("Acquire R/O") };
+
+    let acquire_row: Element<Message> = row![acquire_btn, acquire_ro_btn].spacing(8).into();
 
     // Show disconnect dialog if needed.
     let disconnect_msg: Element<Message> = if state.show_disconnect_dialog {
@@ -693,12 +720,17 @@ fn view_connection(state: &AppState) -> Element<'_, Message> {
         mdns_section,
         url_row, connect_btn,
         device_picker,
-        bitfile_row, mode_row, program_btn, register_btn, acquire_btn,
+        bitfile_row, mode_row, program_btn, register_btn, acquire_row,
     ].spacing(8).into()
 }
 
 fn view_counters(state: &AppState) -> Element<'_, Message> {
-    let locked_out = state.is_locked_out();
+    // ReadOnly holders are treated like locked-out users for write controls.
+    let locked_out = state.is_locked_out() || state.acquired_readonly;
+
+    let readonly_banner: Element<Message> = if state.acquired_readonly {
+        text("📖 Read-Only Mode — write controls disabled").color(iced::Color::from_rgb(1.0, 0.85, 0.0)).into()
+    } else { text("").into() };
 
     let error_text: Element<Message> = if let Some(ref e) = state.last_error {
         text(e).color(iced::Color::from_rgb(1.0, 0.3, 0.3)).into()
@@ -750,10 +782,16 @@ fn view_counters(state: &AppState) -> Element<'_, Message> {
     let locked_by_me = state.resource_info.as_ref()
         .and_then(|r| r.locked_by.as_deref())
         .map(|l| l == USER_ID).unwrap_or(false);
-    let lock_btn = if locked_by_me { button("🔓 Unlock").on_press(Message::UnlockPressed) }
-        else { button("🔒 Lock").on_press(Message::LockPressed) };
+    let lock_btn: Element<Message> = if state.acquired_readonly {
+        button("🔒 Lock (N/A in R/O)").into()
+    } else if locked_by_me {
+        button("🔓 Unlock").on_press(Message::UnlockPressed).into()
+    } else {
+        button("🔒 Lock").on_press(Message::LockPressed).into()
+    };
 
     column![
+        readonly_banner,
         error_text,
         row![c1, c2].spacing(16),
         rule::horizontal(1),

@@ -1184,9 +1184,13 @@ paths:
       tags: [Resources]
       summary: Acquire a resource
       description: |
-        Acquires a resource in shared or exclusive mode. Shared mode allows
+        Acquires a resource in shared, exclusive, or read-only mode. Shared mode allows
         multiple users to hold the resource simultaneously. Exclusive mode
         grants sole access — other users' acquire requests will be denied.
+        Read-only mode (ADR-026) allows observing output endpoints and address
+        ranges without write access — ReadOnly holders cannot call UpdateWireOuts,
+        fire triggers, or write to input endpoints. ReadOnly holders can join
+        even an exclusive resource, unless the resource is marked `private`.
       operationId: acquireResource
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -1202,7 +1206,7 @@ paths:
                   type: string
                 mode:
                   type: string
-                  enum: [shared, exclusive]
+                  enum: [shared, exclusive, read_only]
       responses:
         '200':
           description: Resource acquired
@@ -1925,7 +1929,9 @@ components:
 
     Resource:
       type: object
-      description: A user-defined resource exposed by a programmed FPGA.
+      description: |
+        A user-defined resource exposed by a programmed FPGA.
+        Resources may be marked `private` (ADR-026) to deny ReadOnly acquisition.
       properties:
         id:
           type: string
@@ -1939,11 +1945,22 @@ components:
         state:
           type: string
           enum: [unavailable, initializing, available, in_use_shared, in_use_locked]
+        access_mode:
+          type: string
+          enum: [shared, exclusive, read_only]
+          description: Current access mode of the resource (if acquired)
         holders:
           type: array
           items:
             type: string
           description: User IDs currently holding this resource
+        private:
+          type: boolean
+          default: false
+          description: |
+            When true, ReadOnly acquisition is denied entirely (ADR-026).
+            Private resources are only visible to holders with Shared or
+            Exclusive access.
 
     # ---- Users ----
 

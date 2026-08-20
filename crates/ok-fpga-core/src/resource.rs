@@ -36,6 +36,37 @@ pub type ResourceId = String;
 pub type UserId = String;
 
 // ============================================================================
+// Holder Entry (ADR-026)
+// ============================================================================
+
+/// Tracks a single holder's user ID and the mode in which they acquired.
+///
+/// Prior to ADR-026, `Resource::holders` was `Vec<UserId>`. Now it is
+/// `Vec<HolderEntry>` so the enforcement system knows whether each holder
+/// acquired as Shared (read+write), Exclusive (sole holder), or ReadOnly
+/// (observe-only, no writes, no system disturbance).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HolderEntry {
+    /// The user's identity string.
+    pub user_id: UserId,
+    /// The mode in which this user acquired the resource.
+    pub mode: AccessMode,
+}
+
+impl HolderEntry {
+    /// Create a new holder entry.
+    pub fn new(user_id: UserId, mode: AccessMode) -> Self {
+        HolderEntry { user_id, mode }
+    }
+}
+
+impl fmt::Display for HolderEntry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}({})", self.user_id, self.mode)
+    }
+}
+
+// ============================================================================
 // Resource State
 // ============================================================================
 
@@ -107,6 +138,14 @@ pub enum AccessMode {
     /// Only one user can hold the resource at a time.
     /// The resource is always implicitly locked when acquired.
     Exclusive,
+
+    /// Observe-only access — the holder can read output endpoints and address
+    /// ranges but cannot perform any write operations or call operations that
+    /// disturb the FPGA state (e.g., UpdateWireOuts, UpdateTriggerOuts).
+    ///
+    /// ReadOnly holders cannot lock a resource. They CAN coexist with Shared
+    /// or Exclusive holders. See ADR-026.
+    ReadOnly,
 }
 
 impl fmt::Display for AccessMode {
@@ -114,6 +153,7 @@ impl fmt::Display for AccessMode {
         match self {
             AccessMode::Shared => write!(f, "Shared"),
             AccessMode::Exclusive => write!(f, "Exclusive"),
+            AccessMode::ReadOnly => write!(f, "ReadOnly"),
         }
     }
 }
@@ -192,6 +232,21 @@ pub enum EndpointType {
 }
 
 impl EndpointType {
+    /// Returns `true` for write-direction endpoints (host → FPGA).
+    ///
+    /// Input endpoints are WireIn, TriggerIn, PipeIn, and BtPipeIn. These push
+    /// data from the host into the FPGA. A ReadOnly holder cannot use input
+    /// endpoints because doing so modifies the FPGA state (ADR-026).
+    pub fn is_input(&self) -> bool {
+        matches!(
+            self,
+            EndpointType::WireIn
+                | EndpointType::TriggerIn
+                | EndpointType::PipeIn
+                | EndpointType::BtPipeIn
+        )
+    }
+
     /// Returns the valid address range (inclusive) for this endpoint type.
     pub fn address_range(&self) -> (u8, u8) {
         match self {
@@ -255,6 +310,11 @@ pub struct EndpointEntry {
     pub access: AccessMode,
     /// Optional human-readable description.
     pub description: Option<String>,
+    /// If `true`, ReadOnly holders cannot access this endpoint (ADR-026).
+    /// Private endpoints contain sensitive data that should not be observable
+    /// by read-only users.
+    #[serde(default)]
+    pub private: bool,
 }
 
 /// Declaration of all Classic endpoints used by a resource (ADR-020 §7).
@@ -284,6 +344,12 @@ pub struct AddressRange {
     pub end: u32,
     /// Whether this range is shared or exclusive.
     pub access: AccessMode,
+    /// If `true`, ReadOnly holders cannot read addresses in this range (ADR-026).
+    /// Private ranges contain sensitive data that should not be observable by
+    /// read-only users. Applies to Classic (via resolve_classic_address), AXI,
+    /// and okRegisterBridge operations.
+    #[serde(default)]
+    pub private: bool,
 }
 
 impl AddressRange {
@@ -354,7 +420,9 @@ pub struct Resource {
 
     /// Users currently holding this resource.
     /// Empty if the resource is `Available` or `Unavailable`.
-    pub holders: Vec<UserId>,
+    /// Each entry records the user ID and the mode in which they acquired
+    /// (Shared, Exclusive, or ReadOnly). See ADR-026.
+    pub holders: Vec<HolderEntry>,
 
     /// Design-level access mode constraint (ADR-020 §3).
     /// Set at registration time. Determines whether the resource can be shared
@@ -377,6 +445,12 @@ pub struct Resource {
 
     /// Extensible key-value metadata (ADR-020 §9).
     pub metadata: HashMap<String, String>,
+
+    /// If `true`, ReadOnly users cannot acquire this resource at all (ADR-026).
+    /// This is the whole-resource-level Private flag. When set, the resource
+    /// is invisible to read-only holders — they get `AcquisitionDenied::PrivateResource`.
+    #[serde(default)]
+    pub private: bool,
 }
 
 impl Resource {
@@ -401,6 +475,7 @@ impl Resource {
             endpoints: None,
             address_ranges: Vec::new(),
             metadata: HashMap::new(),
+            private: false,
         }
     }
 
@@ -410,6 +485,27 @@ impl Resource {
             self.state,
             ResourceState::Available | ResourceState::InUseShared
         )
+    }
+
+    /// Returns `true` if the given user is a holder (any mode).
+    ///
+    /// Convenience method that avoids exposing the `HolderEntry` internals
+    /// to callers that only need to know if a user is present.
+    pub fn has_holder(&self, user_id: &str) -> bool {
+        self.holders.iter().any(|h| h.user_id == user_id)
+    }
+
+    /// Returns the list of user IDs for all holders (regardless of mode).
+    ///
+    /// This is a backward-compatibility helper for code that previously used
+    /// `resource.holders` as `Vec<UserId>`. Returns owned strings.
+    pub fn holder_ids(&self) -> Vec<&str> {
+        self.holders.iter().map(|h| h.user_id.as_str()).collect()
+    }
+
+    /// Find the holder entry for a specific user.
+    pub fn holder_entry(&self, user_id: &str) -> Option<&HolderEntry> {
+        self.holders.iter().find(|h| h.user_id == user_id)
     }
 }
 
@@ -443,6 +539,9 @@ pub enum AcquisitionDenied {
     /// The user requested exclusive mode but the resource is already shared.
     AlreadyShared { holder_count: usize },
 
+    /// The resource is marked private — ReadOnly acquisition is denied (ADR-026).
+    PrivateResource { resource_id: String },
+
     /// Custom denial reason (for pluggable policies).
     Custom { reason: String },
 }
@@ -461,6 +560,13 @@ impl fmt::Display for AcquisitionDenied {
                     f,
                     "Resource is shared by {} users, cannot lock exclusively",
                     holder_count
+                )
+            }
+            AcquisitionDenied::PrivateResource { resource_id } => {
+                write!(
+                    f,
+                    "Resource '{}' is private — ReadOnly acquisition denied",
+                    resource_id
                 )
             }
             AcquisitionDenied::Custom { reason } => {
@@ -588,6 +694,26 @@ pub enum AccessDenied {
         range_start: u32,
         range_end: u32,
     },
+
+    /// The user acquired in ReadOnly mode but attempted a write operation
+    /// or a state-disturbing operation like UpdateWireOuts (ADR-026).
+    ReadOnlyWriteAttempt {
+        user_id: String,
+        resource_id: String,
+        /// Human-readable description of the denied operation.
+        detail: String,
+    },
+
+    /// The data is marked Private and the user is a ReadOnly holder (ADR-026).
+    ///
+    /// Private endpoints, address ranges, or resources cannot be read by
+    /// ReadOnly holders. This applies to Classic, AXI, and okRegisterBridge.
+    PrivateDataDenied {
+        user_id: String,
+        resource_id: String,
+        /// Human-readable description of what was denied.
+        detail: String,
+    },
 }
 
 impl fmt::Display for AccessDenied {
@@ -641,6 +767,30 @@ impl fmt::Display for AccessDenied {
                      0x{:08X}–0x{:08X} on resource '{}' without holding the lock \
                      (resolved address: 0x{:08X})",
                     user_id, range_start, range_end, resource_id, address
+                )
+            }
+            AccessDenied::ReadOnlyWriteAttempt {
+                user_id,
+                resource_id,
+                detail,
+            } => {
+                write!(
+                    f,
+                    "User '{}' acquired resource '{}' as ReadOnly — \
+                     write operation denied: {}",
+                    user_id, resource_id, detail
+                )
+            }
+            AccessDenied::PrivateDataDenied {
+                user_id,
+                resource_id,
+                detail,
+            } => {
+                write!(
+                    f,
+                    "User '{}' acquired resource '{}' as ReadOnly — \
+                     private data access denied: {}",
+                    user_id, resource_id, detail
                 )
             }
         }
@@ -920,14 +1070,23 @@ impl ResourceAccessPolicy for DefaultAccessPolicy {
         _user: &UserId,
         requested_mode: AccessMode,
     ) -> Result<(), AcquisitionDenied> {
+        // ADR-026: Private resource check — deny ReadOnly acquisition.
+        if requested_mode == AccessMode::ReadOnly && resource.private {
+            return Err(AcquisitionDenied::PrivateResource {
+                resource_id: resource.id.clone(),
+            });
+        }
+
         match &resource.state {
             ResourceState::Available => {
-                // Available resources can be acquired.
+                // Available resources can be acquired in any mode.
                 Ok(())
             }
             ResourceState::InUseShared => {
-                // Shared resources can accept more shared users.
-                if requested_mode == AccessMode::Shared {
+                // Shared resources accept more Shared users and ReadOnly users.
+                if requested_mode == AccessMode::Shared
+                    || requested_mode == AccessMode::ReadOnly
+                {
                     Ok(())
                 } else {
                     Err(AcquisitionDenied::AlreadyShared {
@@ -936,11 +1095,16 @@ impl ResourceAccessPolicy for DefaultAccessPolicy {
                 }
             }
             ResourceState::InUseLocked => {
-                // Locked — deny everyone.
+                // ADR-026: ReadOnly users CAN join even a locked/exclusive
+                // resource — they don't interfere with the holder's operations.
+                if requested_mode == AccessMode::ReadOnly {
+                    return Ok(());
+                }
+                // All other modes are denied on locked resources.
                 let held_by = resource
                     .locked_by
                     .clone()
-                    .or_else(|| resource.holders.first().cloned())
+                    .or_else(|| resource.holders.first().map(|h| h.user_id.clone()))
                     .unwrap_or_else(|| "unknown".to_string());
                 Err(AcquisitionDenied::ExclusivelyHeld { held_by })
             }
@@ -1074,7 +1238,7 @@ impl ResourceRegistry {
 
         for resource in map.values_mut() {
             let before = resource.holders.len();
-            resource.holders.retain(|h| h != user_id);
+            resource.holders.retain(|h| h.user_id != *user_id);
             let removed = resource.holders.len() < before;
 
             if !removed {
@@ -1130,15 +1294,22 @@ impl ResourceRegistry {
 
         // Policy approved — mutate the resource.
         let resource = map.get_mut(resource_id).unwrap();
-        resource.holders.push(user_id.clone());
+        resource.holders.push(HolderEntry::new(user_id.clone(), mode));
 
         // Use the resource's declared access mode if available,
         // falling back to the caller-provided mode for compatibility.
-        let effective_mode = resource.access_mode.unwrap_or(mode);
-        resource.state = match effective_mode {
-            AccessMode::Shared => ResourceState::InUseShared,
-            AccessMode::Exclusive => ResourceState::InUseLocked,
-        };
+        // ReadOnly holders do NOT change the resource state — they
+        // join silently alongside existing holders (ADR-026).
+        if mode != AccessMode::ReadOnly {
+            let effective_mode = resource.access_mode.unwrap_or(mode);
+            resource.state = match effective_mode {
+                AccessMode::Shared | AccessMode::ReadOnly => ResourceState::InUseShared,
+                AccessMode::Exclusive => ResourceState::InUseLocked,
+            };
+        } else if resource.state == ResourceState::Available {
+            // First holder is ReadOnly — resource is in use but not locked.
+            resource.state = ResourceState::InUseShared;
+        }
 
         Ok(())
     }
@@ -1151,7 +1322,7 @@ impl ResourceRegistry {
         let mut map = self.resources.write().unwrap();
         if let Some(resource) = map.get_mut(resource_id) {
             let before = resource.holders.len();
-            resource.holders.retain(|h| h != user_id);
+            resource.holders.retain(|h| h.user_id != *user_id);
             let removed = resource.holders.len() < before;
 
             // If the releasing user was the locker, clear the lock.
@@ -1196,11 +1367,21 @@ impl ResourceRegistry {
             return Err("Cannot lock/unlock an exclusive resource — it is always implicitly locked".to_string());
         }
 
-        if !resource.holders.contains(user_id) {
+        if !resource.has_holder(user_id) {
             return Err(format!(
                 "User '{}' is not a holder of resource '{}'",
                 user_id, resource_id
             ));
+        }
+
+        // ADR-026: ReadOnly holders cannot lock.
+        if let Some(entry) = resource.holder_entry(user_id) {
+            if entry.mode == AccessMode::ReadOnly {
+                return Err(format!(
+                    "User '{}' acquired resource '{}' as ReadOnly — cannot lock",
+                    user_id, resource_id
+                ));
+            }
         }
 
         if resource.locked_by.is_some() {
@@ -1266,8 +1447,9 @@ impl ResourceRegistry {
         for id in ids_to_delete {
             if let Some(resource) = map.remove(&id) {
                 // Notify the policy before deleting.
+                let holder_ids: Vec<UserId> = resource.holders.iter().map(|h| h.user_id.clone()).collect();
                 self.policy
-                    .on_resource_invalidated(&resource, &resource.holders);
+                    .on_resource_invalidated(&resource, &holder_ids);
                 deleted.push(resource);
             }
         }
@@ -1299,7 +1481,7 @@ impl ResourceRegistry {
 
         // Look for ANY resource on this device where the user is a holder.
         let has_resource = map.values().any(|r| {
-            r.device_serial == device_serial && r.holders.contains(&user_id.to_string())
+            r.device_serial == device_serial && r.has_holder(user_id)
         });
 
         if has_resource {
@@ -1350,7 +1532,7 @@ impl ResourceRegistry {
             .values()
             .filter(|r| {
                 r.device_serial == device_serial
-                    && r.holders.contains(&user_id.to_string())
+                    && r.has_holder(user_id)
             })
             .collect();
 
@@ -1403,13 +1585,54 @@ impl ResourceRegistry {
                 continue;
             }
 
-            // Endpoint is covered by this resource. Now call the developer's
-            // address resolution hook (ADR-025).
+            // Endpoint is covered by this resource. Now check ADR-026
+            // ReadOnly restrictions before proceeding to address resolution.
+            let holder_entry = resource.holder_entry(user_id);
+            let is_readonly = holder_entry
+                .map(|h| h.mode == AccessMode::ReadOnly)
+                .unwrap_or(false);
+
+            if is_readonly {
+                // ADR-026 §5: ReadOnly holders cannot use input endpoints
+                // (WireIn, TriggerIn, PipeIn, BtPipeIn).
+                if ep_type.is_input() {
+                    return Err(AccessDenied::ReadOnlyWriteAttempt {
+                        user_id: user_id.to_string(),
+                        resource_id: resource.id.clone(),
+                        detail: format!(
+                            "endpoint 0x{:02X} ({}) is an input endpoint",
+                            endpoint, ep_type
+                        ),
+                    });
+                }
+
+                // ADR-026 §2: Private endpoints are hidden from ReadOnly.
+                if let Some(ep_decl) = &resource.endpoints {
+                    let entry = ep_decl.entries.iter().find(|e| {
+                        e.address == endpoint && e.ep_type == *ep_type
+                    });
+                    if let Some(entry) = entry {
+                        if entry.private {
+                            return Err(AccessDenied::PrivateDataDenied {
+                                user_id: user_id.to_string(),
+                                resource_id: resource.id.clone(),
+                                detail: format!(
+                                    "endpoint 0x{:02X} ({}) is private",
+                                    endpoint, ep_type
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Call the developer's address resolution hook (ADR-025).
             //
             // At this point, upstream checks have passed:
             //   ✅ User holds this resource
             //   ✅ Resource is not locked by another user
             //   ✅ Endpoint is covered by the resource's declarations
+            //   ✅ ReadOnly input/private checks passed (ADR-026)
             //
             // The hook's only job is to resolve endpoint + value → address.
             let resolution = self.policy.resolve_classic_address(
@@ -1453,8 +1676,20 @@ impl ResourceRegistry {
                             });
                         }
                         Some(range) => {
+                            // ADR-026: Private address ranges deny ReadOnly.
+                            if is_readonly && range.private {
+                                return Err(AccessDenied::PrivateDataDenied {
+                                    user_id: user_id.to_string(),
+                                    resource_id: resource.id.clone(),
+                                    detail: format!(
+                                        "address range 0x{:08X}–0x{:08X} is private",
+                                        range.start, range.end
+                                    ),
+                                });
+                            }
+
                             match range.access {
-                                AccessMode::Shared => {
+                                AccessMode::Shared | AccessMode::ReadOnly => {
                                     // Shared address range — any holder can access.
                                     return Ok(());
                                 }
@@ -1534,7 +1769,7 @@ impl ResourceRegistry {
             .values()
             .filter(|r| {
                 r.device_serial == device_serial
-                    && r.holders.contains(&user_id.to_string())
+                    && r.has_holder(user_id)
             })
             .collect();
 
@@ -1562,11 +1797,29 @@ impl ResourceRegistry {
                 return Ok(());
             }
 
+            // ADR-026: Check ReadOnly status for this holder.
+            let holder_entry = resource.holder_entry(user_id);
+            let is_readonly = holder_entry
+                .map(|h| h.mode == AccessMode::ReadOnly)
+                .unwrap_or(false);
+
             // Check if the requested address falls within any declared range.
-            let in_range = resource.address_ranges.iter().any(|range| {
+            let matching_range = resource.address_ranges.iter().find(|range| {
                 address >= range.start as u64 && address <= range.end as u64
             });
-            if in_range {
+
+            if let Some(range) = matching_range {
+                // ADR-026: Private address ranges deny ReadOnly holders.
+                if is_readonly && range.private {
+                    return Err(AccessDenied::PrivateDataDenied {
+                        user_id: user_id.to_string(),
+                        resource_id: resource.id.clone(),
+                        detail: format!(
+                            "address range 0x{:08X}–0x{:08X} is private",
+                            range.start, range.end
+                        ),
+                    });
+                }
                 return Ok(());
             }
         }
@@ -1651,7 +1904,9 @@ mod tests {
 
         let r = registry.get("r1").unwrap();
         assert_eq!(r.state, ResourceState::InUseShared);
-        assert_eq!(r.holders, vec!["alice"]);
+        assert_eq!(r.holders.len(), 1);
+        assert!(r.has_holder("alice"));
+        assert_eq!(r.holders[0].mode, AccessMode::Shared);
     }
 
     #[test]
@@ -1682,6 +1937,8 @@ mod tests {
 
         let r = registry.get("r1").unwrap();
         assert_eq!(r.holders.len(), 2);
+        assert!(r.has_holder("alice"));
+        assert!(r.has_holder("bob"));
     }
 
     #[test]
@@ -1790,7 +2047,9 @@ mod tests {
         let r = registry.get("r1").unwrap();
         assert_eq!(r.state, ResourceState::InUseShared);
         assert_eq!(r.locked_by, None);
-        assert_eq!(r.holders, vec!["bob"]);
+        assert_eq!(r.holders.len(), 1);
+        assert!(r.has_holder("bob"));
+        assert_eq!(r.holders[0].mode, AccessMode::Shared);
     }
 
     // ====================================================================
@@ -1916,7 +2175,7 @@ mod tests {
         assert_eq!(released, 1);
         // r1 is Available (alice released), r2 still held by bob.
         assert_eq!(registry.get("r1").unwrap().state, ResourceState::Available);
-        assert!(registry.get("r2").unwrap().holders.contains(&"bob".to_string()));
+        assert!(registry.get("r2").unwrap().has_holder("bob"));
     }
 
     #[test]
@@ -1929,7 +2188,7 @@ mod tests {
         let released = registry.release_all_for_user(&"alice".to_string());
         assert_eq!(released, 0);
         // bob still holds r1.
-        assert!(registry.get("r1").unwrap().holders.contains(&"bob".to_string()));
+        assert!(registry.get("r1").unwrap().has_holder("bob"));
     }
 
     #[test]
@@ -1946,7 +2205,7 @@ mod tests {
         // Lock should be cleared, bob still holds.
         let r = registry.get("r1").unwrap();
         assert!(r.locked_by.is_none());
-        assert!(r.holders.contains(&"bob".to_string()));
+        assert!(r.has_holder("bob"));
         assert_eq!(r.state, ResourceState::InUseShared);
     }
 
@@ -2056,12 +2315,14 @@ mod tests {
                     ep_type: EndpointType::WireIn,
                     access: AccessMode::Shared,
                     description: Some("Control register".to_string()),
+                    private: false,
                 },
                 EndpointEntry {
                     address: 0xA0,
                     ep_type: EndpointType::PipeOut,
                     access: AccessMode::Shared,
                     description: Some("Data readout".to_string()),
+                    private: false,
                 },
             ],
         });
@@ -2162,6 +2423,7 @@ mod tests {
             start: 0x44A6_0000,
             end: 0x44A8_FFFF,
             access: AccessMode::Shared,
+            private: false,
         });
         registry.register(resource);
         registry
@@ -2189,6 +2451,7 @@ mod tests {
             start: 0x44A6_0000,
             end: 0x44A8_FFFF,
             access: AccessMode::Shared,
+            private: false,
         });
         registry.register(resource);
         registry
@@ -2224,6 +2487,7 @@ mod tests {
             start: 0x44A6_0000,
             end: 0x44A8_FFFF,
             access: AccessMode::Shared,
+            private: false,
         });
         registry.register(resource);
         registry
@@ -2307,12 +2571,14 @@ mod tests {
                     ep_type: EndpointType::WireIn,
                     access: AccessMode::Shared,
                     description: Some("Address register".to_string()),
+                    private: false,
                 },
                 EndpointEntry {
                     address: 0x02,
                     ep_type: EndpointType::WireIn,
                     access: AccessMode::Shared,
                     description: Some("Data register".to_string()),
+                    private: false,
                 },
             ],
         });
@@ -2321,11 +2587,13 @@ mod tests {
                 start: 0x0000,
                 end: 0x00FF,
                 access: AccessMode::Exclusive, // DAC control — requires lock
+                private: false,
             },
             AddressRange {
                 start: 0x0100,
                 end: 0x01FF,
                 access: AccessMode::Shared, // Status — any holder
+                private: false,
             },
         ];
         resource
@@ -2529,6 +2797,295 @@ mod tests {
                 "bob", "DEV_A", 0x01, &EndpointType::WireIn, Some(0x01FF)
             )
             .is_ok());
+    }
+
+    // ====================================================================
+    // Phase 30: ReadOnly Acquisition & Private Data (ADR-026)
+    // ====================================================================
+
+    #[test]
+    fn readonly_acquire_shared_resource() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource("r1"));
+
+        // Alice acquires shared, Bob acquires ReadOnly.
+        registry.acquire("r1", &"alice".to_string(), AccessMode::Shared).unwrap();
+        registry.acquire("r1", &"bob".to_string(), AccessMode::ReadOnly).unwrap();
+
+        let r = registry.get("r1").unwrap();
+        assert_eq!(r.holders.len(), 2);
+        assert!(r.has_holder("alice"));
+        assert!(r.has_holder("bob"));
+        assert_eq!(r.holder_entry("alice").unwrap().mode, AccessMode::Shared);
+        assert_eq!(r.holder_entry("bob").unwrap().mode, AccessMode::ReadOnly);
+    }
+
+    #[test]
+    fn readonly_acquire_locked_resource_succeeds() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource("r1"));
+
+        // Alice acquires shared and locks the resource.
+        registry.acquire("r1", &"alice".to_string(), AccessMode::Shared).unwrap();
+        registry.lock("r1", &"alice".to_string()).unwrap();
+
+        let r = registry.get("r1").unwrap();
+        assert_eq!(r.state, ResourceState::InUseLocked);
+
+        // Bob can still join as ReadOnly even though it's locked.
+        registry.acquire("r1", &"bob".to_string(), AccessMode::ReadOnly).unwrap();
+        let r = registry.get("r1").unwrap();
+        assert_eq!(r.holders.len(), 2);
+        assert_eq!(r.holder_entry("bob").unwrap().mode, AccessMode::ReadOnly);
+    }
+
+    #[test]
+    fn readonly_acquire_exclusive_resource_succeeds() {
+        let registry = ResourceRegistry::new();
+        let resource = Resource::new(
+            "r1".to_string(),
+            "Test".to_string(),
+            None,
+            "DEV_A".to_string(),
+            AccessMode::Exclusive,
+        );
+        registry.register(resource);
+
+        // Alice acquires exclusively.
+        registry.acquire("r1", &"alice".to_string(), AccessMode::Exclusive).unwrap();
+        let r = registry.get("r1").unwrap();
+        assert_eq!(r.state, ResourceState::InUseLocked);
+
+        // Bob can join as ReadOnly even on an exclusive resource.
+        registry.acquire("r1", &"bob".to_string(), AccessMode::ReadOnly).unwrap();
+        let r = registry.get("r1").unwrap();
+        assert_eq!(r.holders.len(), 2);
+        assert_eq!(r.holder_entry("bob").unwrap().mode, AccessMode::ReadOnly);
+    }
+
+    #[test]
+    fn readonly_acquire_private_resource_denied() {
+        let registry = ResourceRegistry::new();
+        let mut resource = test_resource("r1");
+        resource.private = true;
+        registry.register(resource);
+
+        // ReadOnly acquisition of a private resource is denied.
+        let err = registry.acquire("r1", &"bob".to_string(), AccessMode::ReadOnly).unwrap_err();
+        assert!(matches!(err, AcquisitionDenied::PrivateResource { .. }));
+
+        // Non-ReadOnly acquisition still works.
+        registry.acquire("r1", &"alice".to_string(), AccessMode::Shared).unwrap();
+        assert!(registry.get("r1").unwrap().has_holder("alice"));
+    }
+
+    #[test]
+    fn readonly_cannot_lock() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource("r1"));
+
+        registry.acquire("r1", &"bob".to_string(), AccessMode::ReadOnly).unwrap();
+
+        // ReadOnly holders cannot lock.
+        let err = registry.lock("r1", &"bob".to_string());
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn readonly_denies_input_endpoint() {
+        let registry = ResourceRegistry::new();
+        let mut resource = test_resource_for_device("r1", "DEV_A");
+        resource.endpoints = Some(EndpointDeclaration {
+            default_access: AccessMode::Shared,
+            entries: vec![
+                EndpointEntry {
+                    address: 0x00,
+                    ep_type: EndpointType::WireIn,
+                    access: AccessMode::Shared,
+                    description: None,
+                    private: false,
+                },
+                EndpointEntry {
+                    address: 0x20,
+                    ep_type: EndpointType::WireOut,
+                    access: AccessMode::Shared,
+                    description: None,
+                    private: false,
+                },
+            ],
+        });
+        registry.register(resource);
+
+        registry.acquire("r1", &"bob".to_string(), AccessMode::ReadOnly).unwrap();
+
+        // ReadOnly holder CAN read WireOut.
+        assert!(registry
+            .check_endpoint_access("bob", "DEV_A", 0x20, &EndpointType::WireOut, None)
+            .is_ok());
+
+        // ReadOnly holder CANNOT write WireIn.
+        let err = registry
+            .check_endpoint_access("bob", "DEV_A", 0x00, &EndpointType::WireIn, None)
+            .unwrap_err();
+        assert!(matches!(err, AccessDenied::ReadOnlyWriteAttempt { .. }));
+    }
+
+    #[test]
+    fn readonly_denies_private_endpoint() {
+        let registry = ResourceRegistry::new();
+        let mut resource = test_resource_for_device("r1", "DEV_A");
+        resource.endpoints = Some(EndpointDeclaration {
+            default_access: AccessMode::Shared,
+            entries: vec![
+                EndpointEntry {
+                    address: 0x20,
+                    ep_type: EndpointType::WireOut,
+                    access: AccessMode::Shared,
+                    description: None,
+                    private: true, // Private endpoint
+                },
+                EndpointEntry {
+                    address: 0x21,
+                    ep_type: EndpointType::WireOut,
+                    access: AccessMode::Shared,
+                    description: None,
+                    private: false, // Non-private
+                },
+            ],
+        });
+        registry.register(resource);
+
+        registry.acquire("r1", &"bob".to_string(), AccessMode::ReadOnly).unwrap();
+
+        // ReadOnly holder CANNOT read private endpoint.
+        let err = registry
+            .check_endpoint_access("bob", "DEV_A", 0x20, &EndpointType::WireOut, None)
+            .unwrap_err();
+        assert!(matches!(err, AccessDenied::PrivateDataDenied { .. }));
+
+        // ReadOnly holder CAN read non-private endpoint.
+        assert!(registry
+            .check_endpoint_access("bob", "DEV_A", 0x21, &EndpointType::WireOut, None)
+            .is_ok());
+    }
+
+    #[test]
+    fn readonly_denies_private_address_range_via_check_address() {
+        let registry = ResourceRegistry::new();
+        let mut resource = test_resource_for_device("r1", "DEV_A");
+        resource.address_ranges = vec![
+            AddressRange {
+                start: 0x0000,
+                end: 0x00FF,
+                access: AccessMode::Shared,
+                private: true, // Private range
+            },
+            AddressRange {
+                start: 0x0100,
+                end: 0x01FF,
+                access: AccessMode::Shared,
+                private: false, // Non-private range
+            },
+        ];
+        registry.register(resource);
+
+        registry.acquire("r1", &"bob".to_string(), AccessMode::ReadOnly).unwrap();
+
+        // ReadOnly holder CANNOT read from private address range.
+        let err = registry
+            .check_address_access("bob", "DEV_A", 0x0050)
+            .unwrap_err();
+        assert!(matches!(err, AccessDenied::PrivateDataDenied { .. }));
+
+        // ReadOnly holder CAN read from non-private address range.
+        assert!(registry
+            .check_address_access("bob", "DEV_A", 0x0150)
+            .is_ok());
+    }
+
+    #[test]
+    fn readonly_does_not_change_state_for_exclusive() {
+        let registry = ResourceRegistry::new();
+        let resource = Resource::new(
+            "r1".to_string(),
+            "Test".to_string(),
+            None,
+            "DEV_A".to_string(),
+            AccessMode::Exclusive,
+        );
+        registry.register(resource);
+
+        // Alice acquires exclusively — state becomes InUseLocked.
+        registry.acquire("r1", &"alice".to_string(), AccessMode::Exclusive).unwrap();
+        let r = registry.get("r1").unwrap();
+        assert_eq!(r.state, ResourceState::InUseLocked);
+
+        // Bob joins ReadOnly — state should NOT change.
+        registry.acquire("r1", &"bob".to_string(), AccessMode::ReadOnly).unwrap();
+        let r = registry.get("r1").unwrap();
+        assert_eq!(r.state, ResourceState::InUseLocked);
+    }
+
+    #[test]
+    fn readonly_first_holder_sets_state_to_in_use_shared() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource("r1"));
+
+        // First holder is ReadOnly — state should go from Available to InUseShared.
+        registry.acquire("r1", &"bob".to_string(), AccessMode::ReadOnly).unwrap();
+        let r = registry.get("r1").unwrap();
+        assert_eq!(r.state, ResourceState::InUseShared);
+    }
+
+    #[test]
+    fn readonly_release_leaves_resource_available() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource("r1"));
+
+        registry.acquire("r1", &"bob".to_string(), AccessMode::ReadOnly).unwrap();
+        assert!(registry.release("r1", &"bob".to_string()));
+
+        let r = registry.get("r1").unwrap();
+        assert_eq!(r.state, ResourceState::Available);
+        assert!(r.holders.is_empty());
+    }
+
+    #[test]
+    fn shared_holder_can_access_private_data() {
+        let registry = ResourceRegistry::new();
+        let mut resource = test_resource_for_device("r1", "DEV_A");
+        resource.endpoints = Some(EndpointDeclaration {
+            default_access: AccessMode::Shared,
+            entries: vec![
+                EndpointEntry {
+                    address: 0x20,
+                    ep_type: EndpointType::WireOut,
+                    access: AccessMode::Shared,
+                    description: None,
+                    private: true, // Private endpoint
+                },
+            ],
+        });
+        registry.register(resource);
+
+        // Shared holder CAN access private endpoints.
+        registry.acquire("r1", &"alice".to_string(), AccessMode::Shared).unwrap();
+        assert!(registry
+            .check_endpoint_access("alice", "DEV_A", 0x20, &EndpointType::WireOut, None)
+            .is_ok());
+    }
+
+    #[test]
+    fn endpoint_type_is_input() {
+        assert!(EndpointType::WireIn.is_input());
+        assert!(EndpointType::TriggerIn.is_input());
+        assert!(EndpointType::PipeIn.is_input());
+        assert!(EndpointType::BtPipeIn.is_input());
+
+        assert!(!EndpointType::WireOut.is_input());
+        assert!(!EndpointType::TriggerOut.is_input());
+        assert!(!EndpointType::PipeOut.is_input());
+        assert!(!EndpointType::BtPipeOut.is_input());
     }
 }
 

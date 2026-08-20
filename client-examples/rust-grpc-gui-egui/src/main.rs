@@ -81,13 +81,15 @@ struct CountersApp {
     client: Option<Arc<TokioMutex<CountersGrpcClient>>>,
     /// Discovered ok-FPGA servers via mDNS (Phase 28A).
     discovered_servers: Vec<DiscoveredServer>,
+    /// True when the user acquired as ReadOnly (Phase 30, ADR-026).
+    acquired_readonly: bool,
 }
 
 impl CountersApp {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let bitfile = std::env::var("OKFPGA_TEST_BITFILE")
             .unwrap_or_else(|_| DEFAULT_BITFILE.to_string());
-        Self {
+        let mut app = Self {
             grpc_url: DEFAULT_GRPC_URL.to_string(),
             bitfile_path: bitfile,
             bitfile_mode: BitfileMode::ServerPath,
@@ -109,6 +111,7 @@ impl CountersApp {
             show_disconnect_dialog: false,
             client: None,
             discovered_servers: vec![],
+            acquired_readonly: false,
         };
 
         // Start mDNS discovery in background.
@@ -436,17 +439,32 @@ impl CountersApp {
             }
         }
 
-        if ui.add_enabled(self.phase == Phase::Registered, egui::Button::new("4. Acquire")).clicked() {
+        if ui.add_enabled(self.phase == Phase::Registered, egui::Button::new("4. Acquire (Shared)")).clicked() {
+            self.acquired_readonly = false;
             let ca = self.client.clone().unwrap(); let rid = self.resource_id.clone().unwrap();
             match self.runtime.block_on(async { let mut cl = ca.lock().await; cl.acquire_resource(&rid).await }) {
-                Ok(()) => { self.add_log("Acquired", false); self.phase = Phase::Acquired; }
+                Ok(()) => { self.add_log("Acquired (shared)", false); self.phase = Phase::Acquired; }
                 Err(e) => self.add_log(&format!("Acquire: {}", e), true),
+            }
+        }
+
+        // Step 4b: Acquire Read-Only (Phase 30, ADR-026).
+        if ui.add_enabled(self.phase == Phase::Registered, egui::Button::new("Acquire R/O")).clicked() {
+            self.acquired_readonly = true;
+            let ca = self.client.clone().unwrap(); let rid = self.resource_id.clone().unwrap();
+            match self.runtime.block_on(async { let mut cl = ca.lock().await; cl.acquire_resource_readonly(&rid).await }) {
+                Ok(()) => { self.add_log("Acquired (read-only)", false); self.phase = Phase::Acquired; }
+                Err(e) => self.add_log(&format!("Acquire R/O: {}", e), true),
             }
         }
     }
 
     fn draw_counter_panel(&mut self, ui: &mut egui::Ui) {
-        let locked_out = self.is_locked_out();
+        let locked_out = self.is_locked_out() || self.acquired_readonly;
+
+        if self.acquired_readonly {
+            ui.colored_label(egui::Color32::YELLOW, "📖 Read-Only Mode — write controls disabled");
+        }
         let counter = { self.shared.lock().unwrap().counter.clone() };
 
         ui.columns(2, |cols| {

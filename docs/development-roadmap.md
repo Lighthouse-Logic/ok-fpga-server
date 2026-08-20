@@ -41,12 +41,12 @@
 
 | Horizon | Focus Area | ADR | Status |
 |---------|-----------|-----|--------|
-| **(Now) Phase 30** | Read-Only Resource Acquisition & Private Data | ADR-026 | 🟢 Active |
+| **(Done) Phase 30** | Read-Only Resource Acquisition & Private Data | ADR-026 | ✅ Complete |
 | **Phase 31+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
-## 🟢 Now: Phase 30 — Read-Only Resource Acquisition & Private Data (ADR-026)
+## ✅ Done: Phase 30 — Read-Only Resource Acquisition & Private Data (ADR-026)
 
 *Focus: Introduce `AccessMode::ReadOnly` for observe-without-modify access. Add
 "Private" marking at three levels (Resource, Endpoint, Address Range) that restricts
@@ -67,18 +67,18 @@ dashboard scenarios.
   Endpoint (denies ReadOnly access to that EP), AddressRange (denies ReadOnly reads)
 * Private applies to Classic, AXI, and okRegisterBridge equally
 
-* [ ] **ADR-026** — new ADR documenting ReadOnly semantics, Private data, enforcement
-* [ ] **`AccessMode::ReadOnly`** and `HolderEntry` tracking
-* [ ] **`private` field** on `Resource`, `EndpointEntry`, and `AddressRange`
-* [ ] **`is_input()` helper** on `EndpointType`
-* [ ] **`ReadOnlyWriteAttempt`, `PrivateDataDenied`, `PrivateResource`** error variants
-* [ ] **`can_acquire()` policy** — ReadOnly rules, Private resource check
-* [ ] **`check_endpoint_access()` / `check_address_access()`** — ReadOnly + Private
-* [ ] **OpenAPI spec** — add `read_only` to mode enum, `private` fields
-* [ ] **Proto3 spec** — add `ACCESS_MODE_READ_ONLY = 2`, `private` fields
-* [ ] **REST/gRPC acquire handlers** — accept `read_only` mode
-* [ ] **GUI demos (all 8)** — "Acquire Read-Only" button
-* [ ] **Unit tests** — 14+ new tests for ReadOnly and Private enforcement
+* [x] **ADR-026** — new ADR documenting ReadOnly semantics, Private data, enforcement
+* [x] **`AccessMode::ReadOnly`** and `HolderEntry` tracking
+* [x] **`private` field** on `Resource`, `EndpointEntry`, and `AddressRange`
+* [x] **`is_input()` helper** on `EndpointType`
+* [x] **`ReadOnlyWriteAttempt`, `PrivateDataDenied`, `PrivateResource`** error variants
+* [x] **`can_acquire()` policy** — ReadOnly rules, Private resource check
+* [x] **`check_endpoint_access()` / `check_address_access()`** — ReadOnly + Private
+* [x] **OpenAPI spec** — add `read_only` to mode enum, `private` fields
+* [x] **Proto3 spec** — add `ACCESS_MODE_READ_ONLY = 2`, `private` fields
+* [x] **REST/gRPC acquire handlers** — accept `read_only` mode
+* [x] **GUI demos (all 8)** — "Acquire Read-Only" button
+* [x] **Unit tests** — 14+ new tests for ReadOnly and Private enforcement
 
 ---
 
@@ -123,7 +123,18 @@ Features in this section represent uncommitted research or long-term capabilitie
   without a reverse proxy.
 
 * **Persistent resource definitions** — save resource registrations to disk so
-  they survive server restarts.
+  they survive server restarts. This would have to do a quick state save of 
+  Users, Resources, connected devices and all info about the device (is it
+  programmed, with what bitfile and description, by what user) and this would 
+  have to be reloaded and cleared after a "restart" (add that option to the 
+  Service Management page on the Web Dashboard?)  - There's no benefit to 
+  keeping a persistent save file of the "last bitfile programed, last users
+  connected" when the server shutsdown and then reload that on next startup, as
+  that could be hours or days apart, the connected FPGA could be reprogrammed, etc.
+  This is only useful if the server needs to restart (gracefully and quickly)
+  Should this info be always written in case a crash/restart occurs. Is that
+  likely with RUST? 
+
 
 * **Role-based access control** — Admin vs Normal user authority levels;
   restrict `ConfigureFPGA` to admins.

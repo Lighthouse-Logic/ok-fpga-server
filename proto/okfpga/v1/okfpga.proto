@@ -114,6 +114,11 @@ enum SensorType {
 enum AccessMode {
   ACCESS_MODE_SHARED = 0;
   ACCESS_MODE_EXCLUSIVE = 1;
+  // Read-only mode (ADR-026): observe outputs without write access.
+  // ReadOnly holders cannot call UpdateWireOuts, fire triggers, or write
+  // to input endpoints. They can join even exclusive resources unless the
+  // resource is marked private.
+  ACCESS_MODE_READ_ONLY = 2;
 }
 
 // ============================================================================
@@ -228,6 +233,9 @@ message Resource {
   // Current resource state.
   ResourceState state = 5;
   repeated string holders = 6;   // User IDs currently holding this resource
+  // When true, ReadOnly acquisition is denied entirely (ADR-026).
+  // Private resources are only visible to holders with Shared or Exclusive access.
+  bool private = 7;
 }
 
 // A connected user and their held resources.
@@ -867,7 +875,7 @@ message AcquireResourceRequest {
   string resource_id = 1;
   // User identifier.
   string user_id = 2;
-  // Access mode (shared or exclusive).
+  // Access mode (shared, exclusive, or read_only — ADR-026).
   AccessMode mode = 3;
 }
 
@@ -1065,7 +1073,7 @@ service DeviceService {
   // Returns an error if the resource is currently held by any user.
   rpc DeleteResource(ResourceRequest) returns (StatusResponse);
 
-  // Acquire a resource in shared or exclusive mode.
+  // Acquire a resource in shared, exclusive, or read-only mode (ADR-026).
   rpc AcquireResource(AcquireResourceRequest) returns (ResourceResponse);
 
   // Release a previously acquired resource.

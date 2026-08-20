@@ -102,6 +102,8 @@ pub struct AppState {
     pub show_disconnect_dialog: bool,
     /// Discovered ok-FPGA servers via mDNS (Phase 28A).
     pub discovered_servers: Vec<DiscoveredServer>,
+    /// True when the user acquired as ReadOnly (Phase 30, ADR-026).
+    pub acquired_readonly: bool,
 }
 
 impl AppState {
@@ -115,6 +117,7 @@ impl AppState {
             override_lockout: false, counter: CounterState::default(), resource_info: None,
             log_entries: vec![], last_error: None, show_disconnect_dialog: false,
             discovered_servers: vec![],
+            acquired_readonly: false,
         }
     }
 
@@ -147,7 +150,7 @@ pub enum Message {
     SelectDevice(String),
     ProgramPressed, ProgramResult(Result<(), String>),
     RegisterPressed, RegisterResult(Result<ResourceInfo, String>),
-    AcquirePressed, AcquireResult(Result<(), String>),
+    AcquirePressed, AcquireReadOnlyPressed, AcquireResult(Result<(), String>),
     SetReset1(bool), SetDisable1(bool), SetAutocount2(bool), WireInResult(Result<(), String>),
     CountUp, CountDown, ResetCounter2, TriggerResult(Result<(), String>),
     PollTick, PollResult(Result<(CounterState, Option<ResourceInfo>), String>),
@@ -248,13 +251,32 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::AcquirePressed => {
+            state.acquired_readonly = false;
             let url = state.grpc_url.clone(); let rid = state.resource_id.clone().unwrap();
             Task::perform(async move {
                 let mut c = connect(&url).await?;
                 c.acquire_resource(&rid).await.map_err(|e| e.to_string())
             }, Message::AcquireResult)
         }
-        Message::AcquireResult(r) => { match r { Ok(()) => { state.log("Acquired"); state.phase = Phase::Acquired; } Err(e) => state.log_err(&e) } Task::none() }
+        Message::AcquireReadOnlyPressed => {
+            state.acquired_readonly = true;
+            let url = state.grpc_url.clone(); let rid = state.resource_id.clone().unwrap();
+            Task::perform(async move {
+                let mut c = connect(&url).await?;
+                c.acquire_resource_readonly(&rid).await.map_err(|e| e.to_string())
+            }, Message::AcquireResult)
+        }
+        Message::AcquireResult(r) => {
+            match r {
+                Ok(()) => {
+                    let mode = if state.acquired_readonly { "read-only" } else { "shared" };
+                    state.log(&format!("Acquired ({})", mode));
+                    state.phase = Phase::Acquired;
+                }
+                Err(e) => state.log_err(&e),
+            }
+            Task::none()
+        }
         Message::SetReset1(v) => { state.wire_in.reset1 = v; send_wire(state) }
         Message::SetDisable1(v) => { state.wire_in.disable1 = v; send_wire(state) }
         Message::SetAutocount2(v) => { state.wire_in.autocount2 = v; send_wire(state) }
@@ -447,7 +469,12 @@ fn view_connect(s: &AppState) -> Element<'_, Message> {
         else if s.phase == Phase::Connected && s.selected_serial.is_some() { button("2. Program").on_press(Message::ProgramPressed) }
         else { button("2. Program") };
     let reg = if s.phase >= Phase::Registered { button("3. Register ✓") } else if s.phase == Phase::Programmed { button("3. Register").on_press(Message::RegisterPressed) } else { button("3. Register") };
-    let acq = if s.phase >= Phase::Acquired { button("4. Acquire ✓") } else if s.phase == Phase::Registered { button("4. Acquire").on_press(Message::AcquirePressed) } else { button("4. Acquire") };
+    let acq = if s.phase >= Phase::Acquired {
+        let mode = if s.acquired_readonly { "R/O" } else { "Shared" };
+        button(text(format!("4. Acquire ({}) ✓", mode)))
+    } else if s.phase == Phase::Registered { button("4. Acquire").on_press(Message::AcquirePressed) } else { button("4. Acquire") };
+    let acq_ro = if s.phase >= Phase::Acquired { button("R/O") } else if s.phase == Phase::Registered { button("R/O").on_press(Message::AcquireReadOnlyPressed) } else { button("R/O") };
+    let acq_row: Element<Message> = row![acq, acq_ro].spacing(8).into();
 
     // Disconnect message.
     let disconnect_msg: Element<Message> = if s.show_disconnect_dialog {
@@ -496,12 +523,12 @@ fn view_connect(s: &AppState) -> Element<'_, Message> {
         con, device_picker,
         row![text("Bitfile:").width(100), text_input("path", &s.bitfile_path).on_input(Message::BitfileChanged)].spacing(8),
         mode_row,
-        prog, reg, acq,
+        prog, reg, acq_row,
     ].spacing(8).into()
 }
 
 fn view_counters(s: &AppState) -> Element<'_, Message> {
-    let lo = s.is_locked_out();
+    let lo = s.is_locked_out() || s.acquired_readonly;
     let err: Element<Message> = if let Some(ref e) = s.last_error { text(e).color(iced::Color::from_rgb(1.0,0.3,0.3)).into() } else { text("").into() };
     // iced 0.14: checkbox(bool_value).label("text") instead of checkbox("text", bool_value)
     let c1 = column![text("Counter #1").size(16), text(format!("0x{:02X}", s.counter.count1)), progress_bar(0.0..=255.0, s.counter.count1 as f32),

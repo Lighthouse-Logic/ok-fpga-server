@@ -378,7 +378,7 @@ async fn mgmt_list_resources(State(state): State<Arc<MgmtState>>) -> Json<Vec<Re
             name: r.name.clone(),
             device_serial: r.device_serial.clone(),
             state: format!("{:?}", r.state),
-            holders: r.holders.clone(),
+            holders: r.holders.iter().map(|h| h.user_id.clone()).collect(),
             locked_by: r.locked_by.clone(),
             description: r.description.clone(),
             access_mode: r.access_mode.as_ref().map(|m| format!("{:?}", m).to_lowercase()),

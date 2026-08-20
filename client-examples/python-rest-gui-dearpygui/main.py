@@ -49,6 +49,8 @@ class CountersApp:
         self.last_device_refresh = 0.0
         self.rest_url = DEFAULT_REST_URL
         self.bitfile_path = os.environ.get("OKFPGA_TEST_BITFILE", DEFAULT_BITFILE)
+        # Phase 30 (ADR-026): True when acquired in read-only mode.
+        self.acquired_readonly = False
 
         # Phase 28A: mDNS discovery.
         self.discovered_servers: list[DiscoveredServer] = []
@@ -92,7 +94,8 @@ class CountersApp:
                                           default_value="Server Path", horizontal=True)
                 dpg.add_button(label="2. Program Bitfile", tag="program_btn", callback=self._on_program, enabled=False)
                 dpg.add_button(label="3. Register Resource", tag="register_btn", callback=self._on_register, enabled=False)
-                dpg.add_button(label="4. Acquire Resource (Shared)", tag="acquire_btn", callback=self._on_acquire, enabled=False)
+                dpg.add_button(label="4. Acquire (Shared)", tag="acquire_btn", callback=self._on_acquire, enabled=False)
+                dpg.add_button(label="Acquire R/O", tag="acquire_ro_btn", callback=self._on_acquire_readonly, enabled=False)
 
             # Counter panel (hidden initially).
             with dpg.group(tag="counter_panel", show=False):
@@ -212,6 +215,7 @@ class CountersApp:
                         dpg.configure_item("program_btn", label="2. Programmed ✓", enabled=False)
                         dpg.configure_item("register_btn", label="3. Registered ✓", enabled=False)
                         dpg.configure_item("acquire_btn", enabled=True)
+                        dpg.configure_item("acquire_ro_btn", enabled=True)
                     elif is_programmed:
                         self._log("Device already programmed — skipping to Register")
                         self.phase = "programmed"
@@ -244,6 +248,7 @@ class CountersApp:
             self._log(f"Registered: {info.id}")
             dpg.configure_item("register_btn", label="3. Registered ✓", enabled=False)
             dpg.configure_item("acquire_btn", enabled=True)
+            dpg.configure_item("acquire_ro_btn", enabled=True)
             self.phase = "registered"
         except Exception as e:
             err_str = str(e)
@@ -258,6 +263,7 @@ class CountersApp:
                         self.resource_id = existing.id
                         dpg.configure_item("register_btn", label="3. Registered ✓", enabled=False)
                         dpg.configure_item("acquire_btn", enabled=True)
+                        dpg.configure_item("acquire_ro_btn", enabled=True)
                         self.phase = "registered"
                     else:
                         self._log_err("No matching resource found")
@@ -268,14 +274,28 @@ class CountersApp:
 
     def _on_acquire(self):
         try:
+            self.acquired_readonly = False
             self.client.acquire_resource(self.resource_id)
-            self._log("Acquired — counter control active")
+            self._log("Acquired (shared) — counter control active")
             self.phase = "acquired"
             dpg.configure_item("connection_panel", show=False)
             dpg.configure_item("counter_panel", show=True)
             self.polling = True
         except Exception as e:
             self._log_err(f"Acquire: {e}")
+
+    def _on_acquire_readonly(self):
+        """Acquire the resource in read-only mode (Phase 30, ADR-026)."""
+        try:
+            self.acquired_readonly = True
+            self.client.acquire_resource_readonly(self.resource_id)
+            self._log("Acquired (read-only) — counter control active")
+            self.phase = "acquired"
+            dpg.configure_item("connection_panel", show=False)
+            dpg.configure_item("counter_panel", show=True)
+            self.polling = True
+        except Exception as e:
+            self._log_err(f"Acquire R/O: {e}")
 
     def _on_wire_change(self):
         self.wire_in.reset1 = dpg.get_value("reset1_cb")

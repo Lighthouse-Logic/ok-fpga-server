@@ -61,7 +61,7 @@ impl DeviceServiceImpl {
             description: r.description.clone().unwrap_or_default(),
             device_serial: r.device_serial.clone(),
             state,
-            holders: r.holders.clone(),
+            holders: r.holder_ids().iter().map(|s| s.to_string()).collect(),
         }
     }
 }
@@ -935,6 +935,9 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
 
         let mode = if req.mode == proto::AccessMode::Exclusive as i32 {
             ok_fpga_core::resource::AccessMode::Exclusive
+        } else if req.mode == 2 {
+            // ACCESS_MODE_READ_ONLY = 2 (ADR-026)
+            ok_fpga_core::resource::AccessMode::ReadOnly
         } else {
             ok_fpga_core::resource::AccessMode::Shared
         };

@@ -57,6 +57,8 @@ class CountersApp:
         )
         # F5: Bitfile mode — "server_path" or "local_file".
         self.bitfile_mode = tk.StringVar(value="server_path")
+        # Phase 30 (ADR-026): True when acquired in read-only mode.
+        self.acquired_readonly = False
 
         # Tkinter variables for checkboxes.
         self.reset1_var = tk.BooleanVar(value=False)
@@ -146,12 +148,20 @@ class CountersApp:
         self.program_btn.pack(anchor=tk.W, pady=2)
         self.register_btn = ttk.Button(f, text="3. Register Resource", command=self._on_register, state=tk.DISABLED)
         self.register_btn.pack(anchor=tk.W, pady=2)
-        self.acquire_btn = ttk.Button(f, text="4. Acquire Resource (Shared)", command=self._on_acquire, state=tk.DISABLED)
-        self.acquire_btn.pack(anchor=tk.W, pady=2)
+        self.acquire_btn = ttk.Button(f, text="4. Acquire (Shared)", command=self._on_acquire, state=tk.DISABLED)
+        self.acquire_btn.pack(anchor=tk.W, pady=2, side=tk.LEFT)
+        self.acquire_ro_btn = ttk.Button(f, text="Acquire R/O", command=self._on_acquire_readonly, state=tk.DISABLED)
+        self.acquire_ro_btn.pack(anchor=tk.W, pady=2, side=tk.LEFT, padx=4)
 
     def _show_counter_panel(self):
         self._clear_content()
         f = self.content_frame
+
+        # Phase 30: ReadOnly banner.
+        if self.acquired_readonly:
+            ro_label = ttk.Label(f, text="\U0001f4d6 Read-Only Mode \u2014 write controls disabled",
+                                foreground="goldenrod")
+            ro_label.pack(anchor=tk.W, pady=(0, 4))
 
         # Two columns for counters.
         cols = ttk.Frame(f)
@@ -277,6 +287,7 @@ class CountersApp:
                     self.program_btn.config(text="2. Programmed ✓", state=tk.DISABLED)
                     self.register_btn.config(text="3. Registered ✓", state=tk.DISABLED)
                     self.acquire_btn.config(state=tk.NORMAL)
+                    self.acquire_ro_btn.config(state=tk.NORMAL)
                 elif is_programmed:
                     self._log("Device already programmed — skipping to Register")
                     self.phase = "programmed"
@@ -346,6 +357,7 @@ class CountersApp:
             self._log(f"Resource registered: {info.id}")
             self.register_btn.config(text="3. Registered ✓", state=tk.DISABLED)
             self.acquire_btn.config(state=tk.NORMAL)
+            self.acquire_ro_btn.config(state=tk.NORMAL)
             self.phase = "registered"
         except Exception as e:
             err_str = str(e)
@@ -361,6 +373,7 @@ class CountersApp:
                         self.resource_id = existing.id
                         self.register_btn.config(text="3. Registered ✓", state=tk.DISABLED)
                         self.acquire_btn.config(state=tk.NORMAL)
+                        self.acquire_ro_btn.config(state=tk.NORMAL)
                         self.phase = "registered"
                     else:
                         self._log_err("No matching resource found")
@@ -371,12 +384,24 @@ class CountersApp:
 
     def _on_acquire(self):
         try:
+            self.acquired_readonly = False
             self.client.acquire_resource(self.resource_id)
-            self._log("Resource acquired — counter control active")
+            self._log("Resource acquired (shared) \u2014 counter control active")
             self.phase = "acquired"
             self._show_counter_panel()
         except Exception as e:
             self._log_err(f"Acquire failed: {e}")
+
+    def _on_acquire_readonly(self):
+        """Acquire the resource in read-only mode (Phase 30, ADR-026)."""
+        try:
+            self.acquired_readonly = True
+            self.client.acquire_resource_readonly(self.resource_id)
+            self._log("Resource acquired (read-only) \u2014 counter control active")
+            self.phase = "acquired"
+            self._show_counter_panel()
+        except Exception as e:
+            self._log_err(f"Acquire R/O failed: {e}")
 
     def _on_wire_change(self):
         self.wire_in.reset1 = self.reset1_var.get()

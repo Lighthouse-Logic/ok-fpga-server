@@ -153,6 +153,8 @@ struct CountersApp {
     show_disconnect_dialog: bool,
     /// Discovered ok-FPGA servers via mDNS (Phase 28A).
     discovered_servers: Vec<DiscoveredServer>,
+    /// True when the user acquired as ReadOnly (Phase 30, ADR-026).
+    acquired_readonly: bool,
 }
 
 impl CountersApp {
@@ -160,7 +162,7 @@ impl CountersApp {
         let bitfile = std::env::var("OKFPGA_TEST_BITFILE")
             .unwrap_or_else(|_| DEFAULT_BITFILE.to_string());
 
-        Self {
+        let mut app = Self {
             rest_url: DEFAULT_REST_URL.to_string(),
             bitfile_path: bitfile,
             bitfile_mode: BitfileMode::ServerPath,
@@ -184,6 +186,7 @@ impl CountersApp {
             show_quit_dialog: false,
             show_disconnect_dialog: false,
             discovered_servers: vec![],
+            acquired_readonly: false,
         };
 
         // Start mDNS discovery in background.
@@ -686,15 +689,30 @@ impl CountersApp {
 
         // Step 4: Acquire Resource.
         let can_acquire = self.phase == ConnectionPhase::Registered && self.resource_id.is_some();
-        if ui.add_enabled(can_acquire, egui::Button::new("4. Acquire Resource (Shared)")).clicked() {
+        if ui.add_enabled(can_acquire, egui::Button::new("4. Acquire (Shared)")).clicked() {
+            self.acquired_readonly = false;
             let client = self.make_client();
             let rid = self.resource_id.clone().unwrap();
             match self.runtime.block_on(client.acquire_resource(&rid)) {
                 Ok(_) => {
-                    self.log("Resource acquired — entering counter control mode");
+                    self.log("Resource acquired (shared) — entering counter control mode");
                     self.phase = ConnectionPhase::Acquired;
                 }
                 Err(e) => self.log_error(&format!("Acquire failed: {}", e)),
+            }
+        }
+
+        // Step 4b: Acquire Read-Only (Phase 30, ADR-026).
+        if ui.add_enabled(can_acquire, egui::Button::new("Acquire R/O")).clicked() {
+            self.acquired_readonly = true;
+            let client = self.make_client();
+            let rid = self.resource_id.clone().unwrap();
+            match self.runtime.block_on(client.acquire_resource_readonly(&rid)) {
+                Ok(_) => {
+                    self.log("Resource acquired (read-only) — entering counter control mode");
+                    self.phase = ConnectionPhase::Acquired;
+                }
+                Err(e) => self.log_error(&format!("Acquire R/O failed: {}", e)),
             }
         }
     }
@@ -704,7 +722,12 @@ impl CountersApp {
     // ========================================================================
 
     fn draw_counter_panel(&mut self, ui: &mut egui::Ui) {
-        let locked_out = self.is_locked_out();
+        // ReadOnly holders are treated like locked-out users for write controls.
+        let locked_out = self.is_locked_out() || self.acquired_readonly;
+
+        if self.acquired_readonly {
+            ui.colored_label(egui::Color32::YELLOW, "📖 Read-Only Mode — write controls disabled");
+        }
 
         // Read current counter state from shared data.
         let (counter, last_error) = {

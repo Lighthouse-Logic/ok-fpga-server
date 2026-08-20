@@ -394,6 +394,21 @@ impl CountersGrpcClient {
         Ok(())
     }
 
+    /// Acquire the resource in read-only mode (ADR-026).
+    ///
+    /// ReadOnly holders can observe output endpoints and address ranges but
+    /// cannot perform write operations or state-disturbing calls.
+    pub async fn acquire_resource_readonly(&mut self, resource_id: &str) -> Result<(), ClientError> {
+        self.device
+            .acquire_resource(okfpga::v1::AcquireResourceRequest {
+                resource_id: resource_id.to_string(),
+                user_id: self.user_id.clone(),
+                mode: 2, // ACCESS_MODE_READ_ONLY
+            })
+            .await?;
+        Ok(())
+    }
+
     pub async fn release_resource(&mut self, resource_id: &str) -> Result<(), ClientError> {
         self.device
             .release_resource(okfpga::v1::ReleaseResourceRequest {

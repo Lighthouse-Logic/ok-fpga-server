@@ -55,6 +55,8 @@ class CountersApp:
         )
         # F5: Bitfile mode — "server_path" or "local_file".
         self.bitfile_mode = tk.StringVar(value="server_path")
+        # Phase 30 (ADR-026): True when acquired in read-only mode.
+        self.acquired_readonly = False
         self.reset1_var = tk.BooleanVar(value=False)
         self.disable1_var = tk.BooleanVar(value=False)
         self.autocount2_var = tk.BooleanVar(value=False)
@@ -122,8 +124,10 @@ class CountersApp:
         self.program_btn.pack(anchor=tk.W, pady=2)
         self.register_btn = ttk.Button(f, text="3. Register Resource", command=self._on_register, state=tk.DISABLED)
         self.register_btn.pack(anchor=tk.W, pady=2)
-        self.acquire_btn = ttk.Button(f, text="4. Acquire Resource (Shared)", command=self._on_acquire, state=tk.DISABLED)
-        self.acquire_btn.pack(anchor=tk.W, pady=2)
+        self.acquire_btn = ttk.Button(f, text="4. Acquire (Shared)", command=self._on_acquire, state=tk.DISABLED)
+        self.acquire_btn.pack(anchor=tk.W, pady=2, side=tk.LEFT)
+        self.acquire_ro_btn = ttk.Button(f, text="Acquire R/O", command=self._on_acquire_readonly, state=tk.DISABLED)
+        self.acquire_ro_btn.pack(anchor=tk.W, pady=2, side=tk.LEFT, padx=4)
 
     def _show_counter_panel(self):
         self._clear_content()
@@ -224,6 +228,7 @@ class CountersApp:
                     self.program_btn.config(text="2. ✓", state=tk.DISABLED)
                     self.register_btn.config(text="3. ✓", state=tk.DISABLED)
                     self.acquire_btn.config(state=tk.NORMAL)
+                    self.acquire_ro_btn.config(state=tk.NORMAL)
                 elif is_programmed:
                     self._log("Device already programmed — skipping to Register")
                     self.phase = "programmed"
@@ -286,7 +291,7 @@ class CountersApp:
             info = self.client.create_resource("Counter Resource", self.selected_serial.get())
             self.resource_id = info.id; self._log(f"Registered: {info.id}")
             self.register_btn.config(text="3. ✓", state=tk.DISABLED)
-            self.acquire_btn.config(state=tk.NORMAL); self.phase = "registered"
+            self.acquire_btn.config(state=tk.NORMAL); self.acquire_ro_btn.config(state=tk.NORMAL); self.phase = "registered"
         except Exception as e:
             err_str = str(e)
             # F3: AlreadyExists / conflict — look up the existing resource.
@@ -301,6 +306,7 @@ class CountersApp:
                         self.resource_id = existing.id
                         self.register_btn.config(text="3. ✓", state=tk.DISABLED)
                         self.acquire_btn.config(state=tk.NORMAL)
+                        self.acquire_ro_btn.config(state=tk.NORMAL)
                         self.phase = "registered"
                     else:
                         self._log_err("No matching resource found")
@@ -311,10 +317,20 @@ class CountersApp:
 
     def _on_acquire(self):
         try:
+            self.acquired_readonly = False
             self.client.acquire_resource(self.resource_id)
-            self._log("Acquired"); self.phase = "acquired"; self._show_counter_panel()
+            self._log("Acquired (shared)"); self.phase = "acquired"; self._show_counter_panel()
         except Exception as e:
             self._log_err(f"Acquire: {e}")
+
+    def _on_acquire_readonly(self):
+        """Acquire the resource in read-only mode (Phase 30, ADR-026)."""
+        try:
+            self.acquired_readonly = True
+            self.client.acquire_resource_readonly(self.resource_id)
+            self._log("Acquired (read-only)"); self.phase = "acquired"; self._show_counter_panel()
+        except Exception as e:
+            self._log_err(f"Acquire R/O: {e}")
 
     def _on_wire(self):
         self.wire_in.reset1 = self.reset1_var.get()

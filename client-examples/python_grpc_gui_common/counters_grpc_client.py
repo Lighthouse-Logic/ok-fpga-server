@@ -225,6 +225,15 @@ class CountersGrpcClient:
         self.device_stub.AcquireResource(okfpga_pb2.AcquireResourceRequest(
             resource_id=resource_id, user_id=self.user_id, mode=0))  # ACCESS_MODE_SHARED
 
+    def acquire_resource_readonly(self, resource_id: str):
+        """Acquire the resource in read-only mode (ADR-026).
+
+        ReadOnly holders can observe output endpoints and address ranges but
+        cannot perform write operations or state-disturbing calls.
+        """
+        self.device_stub.AcquireResource(okfpga_pb2.AcquireResourceRequest(
+            resource_id=resource_id, user_id=self.user_id, mode=2))  # ACCESS_MODE_READ_ONLY
+
     def release_resource(self, resource_id: str):
         self.device_stub.ReleaseResource(okfpga_pb2.ReleaseResourceRequest(
             resource_id=resource_id, user_id=self.user_id))

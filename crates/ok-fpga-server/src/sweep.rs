@@ -93,7 +93,7 @@ pub fn spawn_sweep_task(
                 let mut released_count = 0_usize;
 
                 for resource in &all_resources {
-                    if resource.holders.contains(&session.user_id) {
+                    if resource.has_holder(&session.user_id) {
                         // Release this user's hold on the resource.
                         if resource_registry.release(&resource.id, &session.user_id) {
                             released_count += 1;
@@ -203,7 +203,7 @@ mod tests {
 
         // Verify the resource is held by alice before sweep.
         let resource = resource_registry.get("test-device:counter").unwrap();
-        assert!(resource.holders.contains(&alice));
+        assert!(resource.has_holder("alice"));
 
         // Verify alice exists in the session registry.
         assert!(user_sessions.get("alice").is_some());

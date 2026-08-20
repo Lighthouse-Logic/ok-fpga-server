@@ -179,7 +179,7 @@ impl From<&Resource> for ResourceView {
             description: r.description.clone(),
             device_serial: r.device_serial.clone(),
             state: format!("{}", r.state),
-            holders: r.holders.clone(),
+            holders: r.holder_ids().iter().map(|s| s.to_string()).collect(),
             access_mode: r.access_mode.map(|m| format!("{}", m)),
             locked_by: r.locked_by.clone(),
             metadata: r.metadata.clone(),
@@ -196,8 +196,9 @@ fn parse_access_mode(s: &str) -> Result<AccessMode, ProblemDetail> {
     match s {
         "shared" => Ok(AccessMode::Shared),
         "exclusive" => Ok(AccessMode::Exclusive),
+        "read_only" => Ok(AccessMode::ReadOnly),
         _ => Err(ProblemDetail::bad_request(
-            "access_mode must be 'shared' or 'exclusive'",
+            "access_mode must be 'shared', 'exclusive', or 'read_only'",
         )),
     }
 }
@@ -339,6 +340,7 @@ async fn create_resource(
                 ep_type,
                 access: ep_access,
                 description: entry.description,
+                private: false,
             });
         }
         Some(EndpointDeclaration {
@@ -367,6 +369,7 @@ async fn create_resource(
             start,
             end,
             access: ar_access,
+            private: false,
         });
     }
 

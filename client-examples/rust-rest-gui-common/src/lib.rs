@@ -484,6 +484,18 @@ impl CountersClient {
         self.post(&format!("/resources/{}/acquire", resource_id), Some(body)).await
     }
 
+    /// `POST /resources/{id}/acquire` — Acquire the resource in read-only mode.
+    ///
+    /// ReadOnly holders can observe output endpoints and address ranges but
+    /// cannot perform write operations or state-disturbing calls (ADR-026).
+    pub async fn acquire_resource_readonly(&self, resource_id: &str) -> Result<Value, ClientError> {
+        let body = serde_json::json!({
+            "mode": "read_only",
+            "user_id": self.user_id,
+        });
+        self.post(&format!("/resources/{}/acquire", resource_id), Some(body)).await
+    }
+
     /// `POST /resources/{id}/release` — Release the resource.
     pub async fn release_resource(&self, resource_id: &str) -> Result<Value, ClientError> {
         let body = serde_json::json!({ "user_id": self.user_id });

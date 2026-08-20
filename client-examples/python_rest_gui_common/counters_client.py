@@ -273,6 +273,15 @@ class CountersClient:
         return self._post(f"/resources/{resource_id}/acquire",
                           {"mode": "shared", "user_id": self.user_id})
 
+    def acquire_resource_readonly(self, resource_id: str):
+        """Acquire the resource in read-only mode (ADR-026).
+
+        ReadOnly holders can observe output endpoints and address ranges but
+        cannot perform write operations or state-disturbing calls.
+        """
+        return self._post(f"/resources/{resource_id}/acquire",
+                          {"mode": "read_only", "user_id": self.user_id})
+
     def release_resource(self, resource_id: str):
         return self._post(f"/resources/{resource_id}/release",
                           {"user_id": self.user_id})
