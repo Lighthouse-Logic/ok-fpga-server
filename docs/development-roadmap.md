@@ -63,12 +63,12 @@ on the network.*
 * If the OS daemon is present but registration fails, log as error (do not
   fall back — that would recreate the dual-responder conflict)
 
-* [ ] **ADR-027** — OS-Native mDNS Registration (documenting the decision)
-* [ ] **ADR-012 addendum** — mark §"Rust Implementation" as superseded
-* [ ] **Cargo dependencies** — add `dns-sd-native`, retain `mdns-sd` as fallback
-* [ ] **`mdns.rs`** — tiered registration: try OS-native, fall back to `mdns-sd`
-* [ ] **Clean shutdown** — store registration handle, deregister in `stop()`
-* [ ] **Unit tests** — verify registration, fallback, failure modes, TXT records
+* [x] **ADR-027** — OS-Native mDNS Registration (documenting the decision)
+* [x] **ADR-012 addendum** — mark §"Rust Implementation" as superseded
+* [x] **Cargo dependencies** — add `dns-sd-native`, retain `mdns-sd` as fallback
+* [x] **`mdns.rs`** — tiered registration: try OS-native, fall back to `mdns-sd`
+* [x] **Clean shutdown** — store registration handle, deregister in `stop()`
+* [x] **Unit tests** — verify registration, fallback, failure modes, TXT records
 * [ ] **Manual cross-machine test** — confirm visibility from another device
 
 ---
