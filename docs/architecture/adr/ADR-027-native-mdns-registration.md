@@ -150,12 +150,65 @@ Everything defined in ADR-012 **except** the Rust library choice remains valid:
 
 ---
 
+## Addendum: A/AAAA Address Records (2026-08-21)
+
+Cross-machine testing revealed that **avahi-browse** on remote Linux clients
+could not discover the service, even though the mDNS browsers in the GUI
+examples (`mdns-sd`, Python `zeroconf`) could. Root cause: **missing A/AAAA
+address records** in the DNS-SD response.
+
+### RFC 6763 §12 — Required Record Chain
+
+A compliant DNS-SD service response must include (or make resolvable):
+
+```
+PTR  _okfpga._tcp.local.  →  okfpga-server._okfpga._tcp.local.
+SRV  okfpga-server._okfpga._tcp.local.  →  THE-EXPANSE.local. port 9090
+TXT  okfpga-server._okfpga._tcp.local.  →  version=0.1.0, ...
+A    THE-EXPANSE.local.  →  192.168.x.x        ← WAS MISSING
+```
+
+### Deficiency in dns-sd-native (Windows path)
+
+The `dns-sd-native` crate passes `None` for both `pIp4` and `pIp6` when calling
+`DnsServiceConstructInstance`. Per Microsoft documentation, `NULL` IP parameters
+mean the `DNS_SERVICE_INSTANCE` has no address records. Windows' dnscache
+advertises PTR + SRV + TXT but does **not** include A/AAAA records in the
+response — and may not reliably respond to separate A-record queries for the
+machine's hostname from remote mDNS clients.
+
+**Fix**: Bypass the `dns-sd-native` builder on Windows and call the Win32
+`DnsServiceConstructInstance` API directly from `mdns.rs`, passing the resolved
+local IPv4 address as `pIp4`. The `dns-sd-native` crate is still used on Linux
+(Avahi handles A/AAAA records automatically via its D-Bus API).
+
+### Deficiency in mdns-sd (fallback path)
+
+The fallback registration passed `""` (empty string) for the host address
+without calling `.enable_addr_auto()` on the `ServiceInfo`. This meant the
+embedded responder also omitted A/AAAA records.
+
+**Fix**: Chain `.enable_addr_auto()` on the `ServiceInfo` so `mdns-sd`
+auto-detects local addresses and includes them in responses.
+
+### Client-Side IPv6 Issue
+
+When A/AAAA records were present, clients sometimes picked an IPv6 link-local
+address (`fe80::…`) from the non-deterministic `HashSet<IpAddr>` iteration
+order, then failed to connect (server binds `0.0.0.0`, IPv4 only).
+
+**Fix**: Client browsers prefer IPv4 addresses via `.find(|a| a.is_ipv4())`.
+
+---
+
 ## Files Changed
 
 | File | Change |
 |------|--------|
-| `crates/ok-fpga-server/Cargo.toml` | `mdns-sd` → `dns-sd-native` |
-| `crates/ok-fpga-server/src/mdns.rs` | Replace registration logic, add clean shutdown |
+| `crates/ok-fpga-server/Cargo.toml` | `mdns-sd` → `dns-sd-native` + `mdns-sd` |
+| `crates/ok-fpga-server/src/mdns.rs` | Tiered registration + A/AAAA record fix |
+| `client-examples/rust-rest-gui-common/src/mdns_browser.rs` | Prefer IPv4 addresses |
+| `client-examples/python_rest_gui_common/mdns_browser.py` | Prefer IPv4 addresses |
 | `docs/architecture/adr/ADR-012-mdns-discovery.md` | Addendum: §"Rust Implementation" superseded by ADR-027 |
 | `docs/architecture/adr/ADR-027-native-mdns-registration.md` | This ADR |
 | `docs/architecture/overview.md` | Add ADR-027 to index |
@@ -181,4 +234,6 @@ Everything defined in ADR-012 **except** the Rust library choice remains valid:
 - [RFC 6763 — DNS-Based Service Discovery](https://datatracker.ietf.org/doc/html/rfc6763)
 - [`dns-sd-native` crate](https://docs.rs/dns-sd-native)
 - [Windows DnsServiceRegister](https://learn.microsoft.com/en-us/windows/win32/api/windns/nf-windns-dnsserviceregister)
+- [Windows DnsServiceConstructInstance](https://learn.microsoft.com/en-us/windows/win32/api/windns/nf-windns-dnsserviceconstructinstance) — `pIp4`/`pIp6` parameters
 - [Avahi D-Bus API](https://www.freedesktop.org/wiki/Software/Avahi/)
+
