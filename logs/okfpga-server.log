@@ -3184,3 +3184,21 @@
 2026-08-21T13:06:00.549001Z  INFO ok_fpga_server: management server started (dashboard + mgmt API) address=0.0.0.0:9090
 2026-08-21T13:06:00.549175Z  INFO ok_fpga_server::sweep: starting user session sweep task timeout_secs=60 sweep_interval_secs=10
 2026-08-21T13:06:00.549359Z  INFO ok_fpga_server: ok-FPGA-Server is ready. Press Ctrl+C to shut down.
+2026-08-21T13:07:01.210214Z  INFO ok_fpga_server::handle_pool: FPGA configured successfully serial=22520013CC path=FrontPanel-6.1.0/ExampleBitfiles/20190501-FP50-XEM7320-A75/XEM7320-A75/Counters.bit
+2026-08-21T13:07:01.210432Z  INFO ok_fpga_server::handle_pool: Classic data port acquired
+2026-08-21T13:07:01.210615Z  INFO ok_fpga_server::handle_pool: AXI data port not available (this is OK for Classic-only bitfiles) error_code=-15
+2026-08-21T13:07:56.326163Z  INFO ok_fpga_server::grpc::device_service: User disconnected via gRPC Disconnect user_id=Icy Garpac released_count=1
+2026-08-21T13:24:41.614802Z  INFO ok_fpga_server: shutdown signal received
+2026-08-21T13:24:41.615125Z  INFO ok_fpga_core::service_manager: stopping service service=mdns
+2026-08-21T13:24:41.615300Z  INFO ok_fpga_server::mdns: Deregistering mDNS service (OS-native)
+2026-08-21T13:24:41.615465Z  INFO ok_fpga_server::mdns: mDNS discovery service stopped
+2026-08-21T13:24:41.615599Z  INFO ok_fpga_core::service_manager: service stopped service=mdns
+2026-08-21T13:24:41.615708Z  INFO ok_fpga_core::service_manager: stopping service service=grpc
+2026-08-21T13:24:41.616006Z  INFO ok_fpga_server::grpc: gRPC server stopped
+2026-08-21T13:24:41.830826Z  INFO ok_fpga_server::grpc::managed: gRPC server stopped
+2026-08-21T13:24:41.831011Z  INFO ok_fpga_core::service_manager: service stopped service=grpc
+2026-08-21T13:24:41.831174Z  INFO ok_fpga_core::service_manager: stopping service service=rest
+2026-08-21T13:24:42.045867Z  INFO ok_fpga_server::rest::managed: REST server stopped
+2026-08-21T13:24:42.046018Z  INFO ok_fpga_core::service_manager: service stopped service=rest
+2026-08-21T13:24:42.046144Z  INFO ok_fpga_core::service_manager: all services stopped
+2026-08-21T13:24:42.046258Z  INFO ok_fpga_server: ok-FPGA-Server shut down cleanly.

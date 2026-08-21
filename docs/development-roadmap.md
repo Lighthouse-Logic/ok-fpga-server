@@ -54,33 +54,43 @@
 **Triggered by:** Live testing with Shared + ReadOnly holders during lock  
 **Amends:** ADR-024 §6 (Lock Enforcement), ADR-026 §5 (ReadOnly lock bypass)
 
-Two issues found when client 1 (Shared holder) locks a resource:
+Three items, discovered through live two-client testing:
 
 1. **Bug — ReadOnly holders blocked from reads during lock (ADR-026 violation):**
    ADR-026 §5 explicitly states *"ReadOnly holders are not blocked by the
    'locked by other' check for read operations."* But `check_endpoint_access()`
    in `resource.rs` unconditionally skips locked resources without checking
-   the holder's access mode. ReadOnly holders get `AccessDenied` on output
-   endpoints (WireOut, TriggerOut) when the resource is locked by another user.
+   the holder's access mode or the operation type. ReadOnly holders get
+   `AccessDenied` on output endpoints (WireOut, TriggerOut) when the resource
+   is locked by another user.
 
 2. **Design change — Shared holders should read during lock (ADR-024 §6 amendment):**
    ADR-024 §6 currently says locking blocks ALL operations from other holders.
    The expected behavior is that locking should only block **write** operations
-   (WireIn, TriggerIn, PipeIn, BtPipeIn, AXI writes) from other holders.
-   **Read** operations (WireOut, TriggerOut, PipeOut, BtPipeOut,
-   UpdateWireOuts, UpdateTriggerOuts, AXI reads) should remain accessible to
-   all holders of a non-private resource, even when locked.
+   (WireIn, TriggerIn, PipeIn, BtPipeIn, UpdateWireOuts, UpdateTriggerOuts,
+   AXI/register writes) from other holders. **Read** operations (GetWireOutValue,
+   GetTriggerOutVector, PipeOut, BtPipeOut, AXI/register reads) should remain
+   accessible to all holders, even when locked.
+
+3. **Design change — Exclusive resources are effectively always-private:**
+   A resource whose `access_mode` is `Exclusive` should not be readable or
+   writable by anyone other than the sole holder. Since Exclusive resources
+   are always locked and only one user can hold them, they are inherently
+   opaque. ReadOnly acquisition of an Exclusive resource should be denied
+   (equivalent to `private: true`).
 
 **Root cause:** The lock check in `ok-fpga-core/src/resource.rs` L1548-1560
-needs to become read/write-aware. Currently it unconditionally `continue`s
-(skips) any resource locked by another user, regardless of the operation type
-or the holder's access mode.
+is not read/write-aware — it unconditionally `continue`s (skips) any resource
+locked by another user regardless of operation type or holder mode.
 
 **Files to modify:**
-- Core: `ok-fpga-core/src/resource.rs` — lock check in `check_endpoint_access()`
-  and `check_address_access()`
-- Docs: `ADR-024-endpoint-access-enforcement.md` §6 — amend lock semantics
-- Docs: `ADR-026-readonly-acquisition.md` — add note about lock bypass implementation
+- Core: `ok-fpga-core/src/resource.rs`
+  - `check_endpoint_access()` — make lock check read/write-aware using `ep_type.is_input()`
+  - `check_address_access()` — same lock logic for address-based operations
+  - `can_acquire()` — deny ReadOnly on Exclusive resources
+- Docs: `ADR-024-endpoint-access-enforcement.md` §6 — amend: lock blocks writes only
+- Docs: `ADR-026-readonly-acquisition.md` §4 — note Exclusive=always-private
+- Tests: new unit tests for each combination in the interaction matrix
 
 
 ---
