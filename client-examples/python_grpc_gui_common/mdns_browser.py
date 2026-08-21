@@ -153,10 +153,21 @@ class MdnsBrowser:
                 return None
 
         # Resolve the host address.
+        # Prefer IPv4 — the server binds to 0.0.0.0 (IPv4 only).
+        # inet_ntoa only handles 4-byte (IPv4) addresses; 16-byte IPv6
+        # addresses would crash it. We iterate to find IPv4 first, then
+        # fall back to IPv6 with inet_ntop (ADR-027 addendum).
         host = ""
-        if info.addresses:
-            host = socket.inet_ntoa(info.addresses[0])
-        elif info.server:
+        for addr_bytes in info.addresses:
+            if len(addr_bytes) == 4:  # IPv4
+                host = socket.inet_ntoa(addr_bytes)
+                break
+        if not host:
+            for addr_bytes in info.addresses:
+                if len(addr_bytes) == 16:  # IPv6
+                    host = socket.inet_ntop(socket.AF_INET6, addr_bytes)
+                    break
+        if not host and info.server:
             host = info.server.rstrip(".")
 
         description = _txt("description")

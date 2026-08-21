@@ -39,7 +39,7 @@ mqtt = ["dep:rumqttc"]
 
 # mDNS/DNS-SD service discovery. Advertises the server on the local network.
 # Uses dns-sd-native (OS daemon) as primary, mdns-sd as fallback (ADR-027).
-mdns = ["dep:dns-sd-native", "dep:mdns-sd"]
+mdns = ["dep:dns-sd-native", "dep:mdns-sd", "dep:local-ip-address", "dep:windows", "dep:widestring", "dep:windows-strings"]
 
 # Convenience: enable all optional features.
 full = ["rest", "dashboard", "grpc", "mqtt", "mdns"]
@@ -108,13 +108,36 @@ rumqttc = { version = "0.24", optional = true }
 
 # dns-sd-native delegates mDNS registration to the OS daemon (Windows:
 # dnscache via DnsServiceRegister, Linux: avahi-daemon via D-Bus).
-# Primary registration path per ADR-027.
+# Primary registration path per ADR-027. On Linux, Avahi handles A/AAAA
+# records automatically. On Windows, we bypass the builder and call Win32
+# DnsServiceConstructInstance directly with pIp4 (ADR-027 addendum).
 dns-sd-native = { version = "0.1", optional = true }
 
 # mdns-sd is a pure-Rust mDNS/DNS-SD library. Used as fallback when the OS
 # daemon is not running (no port conflict in that scenario). Also used by
 # client-side GUI demos for browsing.
 mdns-sd = { version = "0.13", optional = true }
+
+# local-ip-address resolves the machine's primary LAN IPv4 address.
+# Used by the mDNS registration to include A records in DNS-SD responses
+# (ADR-027 addendum: dns-sd-native omits them, Windows dnscache requires
+# explicit pIp4 to include A records).
+local-ip-address = { version = "0.6", optional = true }
+
+# ============================================================================
+# Platform-Specific Dependencies
+# ============================================================================
+
+# On Windows, we call DnsServiceConstructInstance directly (bypassing
+# dns-sd-native's builder) to include the A record (pIp4). See ADR-027
+# addendum. The version and features match dns-sd-native's own dependency.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_NetworkManagement_Dns",
+    "Win32_System_SystemInformation",
+], optional = true }
+widestring = { version = "1.2", optional = true }
+windows-strings = { version = "0.5", optional = true }
 
 # ============================================================================
 # Build Dependencies

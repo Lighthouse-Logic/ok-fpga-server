@@ -127,10 +127,16 @@ impl MdnsBrowser {
                             .unwrap_or(0);
 
                         // Resolve the host address.
+                        // Prefer IPv4 — the server binds to 0.0.0.0 (IPv4 only).
+                        // The address set is a HashSet with non-deterministic order,
+                        // so we explicitly look for an IPv4 address first to avoid
+                        // picking a link-local IPv6 address (fe80::...) that would
+                        // fail to connect (ADR-027 addendum).
                         let host = info
                             .get_addresses()
                             .iter()
-                            .next()
+                            .find(|a| a.is_ipv4())
+                            .or_else(|| info.get_addresses().iter().next())
                             .map(|a| a.to_string())
                             .unwrap_or_else(|| info.get_hostname().to_string());
 
