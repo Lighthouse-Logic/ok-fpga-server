@@ -5,7 +5,7 @@ management_bind = "0.0.0.0"
 user_timeout_secs = 60
 user_sweep_interval_secs = 10
 log_file = "logs/okfpga-server.log"
-description = "Melody"
+description = "A Dual Port Beast"
 
 [rest]
 enabled = true
@@ -52,3 +52,8 @@ uid_attribute = "uid"
 
 [access_control]
 endpoint_enforcement = "enforce"
+
+[catalog]
+syzygy_boards = []
+devices = []
+bitfiles = []

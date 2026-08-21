@@ -310,10 +310,22 @@ itself proceeds at full speed.
 When a shared resource is locked (state `InUseLocked`):
 
 - **Lock holder**: Full access to all endpoints covered by the resource
-- **Other holders**: **Denied** — a locked resource can only be used by the user
-  who holds the lock. Other holders remain in the `holders` list but their
-  operations are rejected until the resource is unlocked
+- **Other holders — write operations**: **Denied** — input endpoints (WireIn,
+  TriggerIn, PipeIn, BtPipeIn) and state-disturbing operations (UpdateWireOuts,
+  UpdateTriggerOuts) are blocked. The holders remain in the `holders` list but
+  their write operations are rejected until the resource is unlocked
+- **Other holders — read operations**: **Allowed** — output endpoints (WireOut,
+  TriggerOut, PipeOut, BtPipeOut) can be read by any holder, even when the
+  resource is locked. This enables read-only observers and non-locker shared
+  holders to continue monitoring FPGA state
 - **Non-holders**: Denied (same as without a lock)
+
+> **Amendment (Phase 33):** The original text stated that other holders were
+> fully denied when a resource was locked. Live hardware testing demonstrated
+> that non-lock-holders need read access to output endpoints for monitoring.
+> The implementation now uses `EndpointType::is_input()` to distinguish
+> read vs write operations in the lock check. For address-based access
+> (`check_address_access`), an explicit `is_write` parameter was added.
 
 This makes `Lock` semantically meaningful at the FPGA operation level, not just at
 the resource metadata level.

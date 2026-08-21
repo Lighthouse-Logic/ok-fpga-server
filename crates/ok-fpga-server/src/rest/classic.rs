@@ -308,6 +308,7 @@ fn enforce_address(
     headers: &axum::http::HeaderMap,
     serial: &str,
     address: u32,
+    is_write: bool,
 ) -> Result<(), ProblemDetail> {
     use crate::state::EndpointEnforcement;
 
@@ -347,6 +348,7 @@ fn enforce_address(
         uid,
         serial,
         address as u64,
+        is_write,
     ) {
         match state.enforcement() {
             EndpointEnforcement::Warn => {
@@ -786,7 +788,7 @@ async fn read_register(
     headers: axum::http::HeaderMap,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<RegisterResponse>, ProblemDetail> {
-    enforce_address(&state, &headers, &serial, req.address)?;
+    enforce_address(&state, &headers, &serial, req.address, false)?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -814,7 +816,7 @@ async fn write_register(
     headers: axum::http::HeaderMap,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    enforce_address(&state, &headers, &serial, req.address)?;
+    enforce_address(&state, &headers, &serial, req.address, true)?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 

@@ -147,7 +147,7 @@ Request arrives
   │
   ├── [ADR-024] User has identity? ──────────── NO → deny
   ├── [ADR-024] User holds resource on device? ─ NO → deny
-  ├── [ADR-024] Resource not locked by other? ── NO → deny (skip for ReadOnly*)
+  ├── [ADR-024] Resource locked by other + WRITE? ── YES → deny (skip; reads allowed†)
   ├── [ADR-024] Endpoint covered by resource? ── NO → deny
   ├── [ADR-025] resolve_classic_address() hook
   │     ├── NoMapping → continue
@@ -164,9 +164,16 @@ Request arrives
   └── ALLOW
 ```
 
-*Note: ReadOnly holders are not blocked by the "locked by other" check for
+†Note: ReadOnly holders are not blocked by the "locked by other" check for
 **read** operations. They ARE blocked if the resource-level `private` flag
 is set (checked at acquisition time, not at operation time).
+
+> **Implemented (Phase 33):** The lock bypass described here is now
+> implemented in `check_endpoint_access()` and `check_address_access()`.
+> Additionally, the bypass was extended to **all holders** (not just
+> ReadOnly) — any holder can read output endpoints when a resource is locked
+> by another user. Only write operations (input endpoints) are blocked by
+> the lock. See ADR-024 §6 amendment.
 
 ### 6. Data Freshness for ReadOnly Users
 

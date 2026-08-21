@@ -3202,3 +3202,29 @@
 2026-08-21T13:24:42.046018Z  INFO ok_fpga_core::service_manager: service stopped service=rest
 2026-08-21T13:24:42.046144Z  INFO ok_fpga_core::service_manager: all services stopped
 2026-08-21T13:24:42.046258Z  INFO ok_fpga_server: ok-FPGA-Server shut down cleanly.
+2026-08-21T14:48:01.748680Z  INFO ok_fpga_server: configuration loaded config_log_level=info management_port=9090
+2026-08-21T14:48:01.749195Z  INFO ok_fpga_server::scanner: attempting to load FrontPanel DLL dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-21T14:48:01.758607Z  INFO ok_fpga_server::scanner: FrontPanel DLL loaded successfully api_version=6.1.0 dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-21T14:48:01.804471Z  INFO ok_fpga_server: initial device scan complete count=0
+2026-08-21T14:48:01.805011Z  INFO ok_fpga_server: device polling task started (2s interval)
+2026-08-21T14:48:01.805258Z  INFO ok_fpga_server: authentication provider initialized provider="none" required=false
+2026-08-21T14:48:01.805480Z  INFO ok_fpga_server: Endpoint access enforcement: enforce
+2026-08-21T14:48:01.805838Z  INFO ok_fpga_core::service_manager: registered service service=rest enabled=true
+2026-08-21T14:48:01.806190Z  INFO ok_fpga_server: registered REST service bind=0.0.0.0 port=8088 enabled=true
+2026-08-21T14:48:01.806428Z  INFO ok_fpga_server: compiled features features=["rest", "dashboard"]
+2026-08-21T14:48:01.806517Z  INFO ok_fpga_server::scanner: attempting to load FrontPanel DLL dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-21T14:48:01.806899Z  INFO ok_fpga_core::service_manager: starting service service=rest
+2026-08-21T14:48:01.807482Z  INFO ok_fpga_server::scanner: FrontPanel DLL loaded successfully api_version=6.1.0 dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-21T14:48:01.811777Z  INFO ok_fpga_server::rest::managed: REST server bound successfully address=0.0.0.0:8088
+2026-08-21T14:48:01.812237Z  INFO ok_fpga_server::rest::managed: REST server is running address=0.0.0.0:8088
+2026-08-21T14:48:01.812555Z  INFO ok_fpga_core::service_manager: service started service=rest
+2026-08-21T14:48:01.812822Z  INFO ok_fpga_server: service state service=rest status=running compiled=true enabled=true
+2026-08-21T14:48:01.813607Z  INFO ok_fpga_server: management server started (dashboard + mgmt API) address=0.0.0.0:9090
+2026-08-21T14:48:01.813908Z  INFO ok_fpga_server::sweep: starting user session sweep task timeout_secs=60 sweep_interval_secs=10
+2026-08-21T14:48:01.814111Z  INFO ok_fpga_server: ok-FPGA-Server is ready. Press Ctrl+C to shut down.
+2026-08-21T14:48:55.645660Z  INFO ok_fpga_server: shutdown signal received
+2026-08-21T14:48:55.645868Z  INFO ok_fpga_core::service_manager: stopping service service=rest
+2026-08-21T14:48:55.847138Z  INFO ok_fpga_server::rest::managed: REST server stopped
+2026-08-21T14:48:55.847479Z  INFO ok_fpga_core::service_manager: service stopped service=rest
+2026-08-21T14:48:55.847684Z  INFO ok_fpga_core::service_manager: all services stopped
+2026-08-21T14:48:55.847740Z  INFO ok_fpga_server: ok-FPGA-Server shut down cleanly.

@@ -175,6 +175,7 @@ impl ClassicDataPortServiceImpl {
         user_id: Option<&str>,
         serial: &str,
         address: u32,
+        is_write: bool,
     ) -> Result<(), Status> {
         if !self.state.enforcement().is_active() {
             return Ok(());
@@ -206,6 +207,7 @@ impl ClassicDataPortServiceImpl {
             uid,
             serial,
             address as u64,
+            is_write,
         ) {
             match self.state.enforcement() {
                 EndpointEnforcement::Warn => {
@@ -774,7 +776,7 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
         // Register operations use address-based access (not endpoint-based).
-        self.check_address(user_id.as_deref(), &req.serial, req.address)?;
+        self.check_address(user_id.as_deref(), &req.serial, req.address, false)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -809,7 +811,7 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::StatusResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
-        self.check_address(user_id.as_deref(), &req.serial, req.address)?;
+        self.check_address(user_id.as_deref(), &req.serial, req.address, true)?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -840,7 +842,7 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         // Batch check: verify access on the first address as a representative.
         // Full per-address enforcement could be added in a future iteration.
         if let Some(first_addr) = req.addresses.first() {
-            self.check_address(user_id.as_deref(), &req.serial, *first_addr)?;
+            self.check_address(user_id.as_deref(), &req.serial, *first_addr, false)?;
         }
         let pool = self.pool()?;
         let device_arc = pool
@@ -885,7 +887,7 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         let req = request.into_inner();
         // Batch check: verify access on the first entry's address.
         if let Some(first_entry) = req.entries.first() {
-            self.check_address(user_id.as_deref(), &req.serial, first_entry.address)?;
+            self.check_address(user_id.as_deref(), &req.serial, first_entry.address, true)?;
         }
         let pool = self.pool()?;
         let device_arc = pool

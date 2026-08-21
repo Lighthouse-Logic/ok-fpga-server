@@ -1545,15 +1545,18 @@ impl ResourceRegistry {
 
         // Check each held resource for endpoint coverage.
         for resource in &held_resources {
-            // Lock enforcement (ADR-024 §6): if the resource is locked by
-            // someone else, this user cannot use it even though they are a
-            // holder. Skip to the next resource.
+            // Lock enforcement (ADR-024 §6, amended by Phase 33):
+            // If the resource is locked by another user, WRITE operations
+            // (input endpoints) are blocked. READ operations (output
+            // endpoints) are still allowed for all holders, including
+            // ReadOnly observers (ADR-026 §5).
             if resource.state == ResourceState::InUseLocked {
                 if let Some(ref locker) = resource.locked_by {
-                    if locker != user_id {
-                        // This resource is locked by another user — skip it.
-                        // We don't immediately deny because the user might hold
-                        // another resource that covers this endpoint.
+                    if locker != user_id && ep_type.is_input() {
+                        // Write operation on a resource locked by another
+                        // user — skip it. We don't immediately deny because
+                        // the user might hold another resource that covers
+                        // this endpoint.
                         continue;
                     }
                 }
@@ -1630,7 +1633,7 @@ impl ResourceRegistry {
             //
             // At this point, upstream checks have passed:
             //   ✅ User holds this resource
-            //   ✅ Resource is not locked by another user
+            //   ✅ Lock check passed (writes blocked if locked by other)
             //   ✅ Endpoint is covered by the resource's declarations
             //   ✅ ReadOnly input/private checks passed (ADR-026)
             //
@@ -1720,10 +1723,11 @@ impl ResourceRegistry {
             }
         }
 
-        // If we got here, every held resource was either locked by someone
-        // else, or didn't cover the endpoint.
+        // If we got here, every held resource was either:
+        //   - locked by someone else AND the operation is a write, or
+        //   - didn't cover the endpoint.
         //
-        // Check if ALL held resources were locked-by-other (distinct error).
+        // Check if ALL held resources were locked-by-other for a write op.
         let all_locked = held_resources.iter().all(|r| {
             r.state == ResourceState::InUseLocked
                 && r.locked_by.as_deref() != Some(user_id)
@@ -1755,6 +1759,10 @@ impl ResourceRegistry {
     /// instead of Classic endpoints. Uses the resource's `address_ranges`
     /// field to determine coverage.
     ///
+    /// The `is_write` parameter controls lock enforcement: write operations
+    /// are blocked when the resource is locked by another user, but read
+    /// operations are allowed (ADR-024 §6, amended by Phase 33).
+    ///
     /// For resources without `address_ranges`, the resource is considered to
     /// cover ALL addresses (legacy mode, same as §3 for endpoints).
     pub fn check_address_access(
@@ -1762,6 +1770,7 @@ impl ResourceRegistry {
         user_id: &str,
         device_serial: &str,
         address: u64,
+        is_write: bool,
     ) -> Result<(), AccessDenied> {
         let map = self.resources.read().unwrap();
 
@@ -1781,10 +1790,12 @@ impl ResourceRegistry {
         }
 
         for resource in &held_resources {
-            // Lock enforcement — same as check_endpoint_access.
+            // Lock enforcement (ADR-024 §6, amended by Phase 33):
+            // Write operations are blocked when locked by another user.
+            // Read operations are allowed for all holders.
             if resource.state == ResourceState::InUseLocked {
                 if let Some(ref locker) = resource.locked_by {
-                    if locker != user_id {
+                    if locker != user_id && is_write {
                         continue;
                     }
                 }
@@ -2411,7 +2422,7 @@ mod tests {
             .unwrap();
 
         assert!(registry
-            .check_address_access("alice", "DEV_A", 0x44A6_0000)
+            .check_address_access("alice", "DEV_A", 0x44A6_0000, false)
             .is_ok());
     }
 
@@ -2432,14 +2443,14 @@ mod tests {
 
         // Address in range — allowed.
         assert!(registry
-            .check_address_access("alice", "DEV_A", 0x44A6_1000)
+            .check_address_access("alice", "DEV_A", 0x44A6_1000, false)
             .is_ok());
         // Address at range boundary — allowed.
         assert!(registry
-            .check_address_access("alice", "DEV_A", 0x44A6_0000)
+            .check_address_access("alice", "DEV_A", 0x44A6_0000, false)
             .is_ok());
         assert!(registry
-            .check_address_access("alice", "DEV_A", 0x44A8_FFFF)
+            .check_address_access("alice", "DEV_A", 0x44A8_FFFF, false)
             .is_ok());
     }
 
@@ -2460,7 +2471,7 @@ mod tests {
 
         // Address outside range — denied.
         let err = registry
-            .check_address_access("alice", "DEV_A", 0x44A9_0000)
+            .check_address_access("alice", "DEV_A", 0x44A9_0000, false)
             .unwrap_err();
         assert!(matches!(err, AccessDenied::NoCoveringResource { .. }));
     }
@@ -2474,7 +2485,7 @@ mod tests {
             .unwrap();
 
         let err = registry
-            .check_address_access("bob", "DEV_A", 0x44A6_0000)
+            .check_address_access("bob", "DEV_A", 0x44A6_0000, false)
             .unwrap_err();
         assert!(matches!(err, AccessDenied::NoResourceOnDevice { .. }));
     }
@@ -2500,7 +2511,7 @@ mod tests {
 
         // Bob is locked out.
         let err = registry
-            .check_address_access("bob", "DEV_A", 0x44A6_1000)
+            .check_address_access("bob", "DEV_A", 0x44A6_1000, true)
             .unwrap_err();
         assert!(matches!(err, AccessDenied::LockedByOther { .. }));
     }
@@ -2993,13 +3004,13 @@ mod tests {
 
         // ReadOnly holder CANNOT read from private address range.
         let err = registry
-            .check_address_access("bob", "DEV_A", 0x0050)
+            .check_address_access("bob", "DEV_A", 0x0050, false)
             .unwrap_err();
         assert!(matches!(err, AccessDenied::PrivateDataDenied { .. }));
 
         // ReadOnly holder CAN read from non-private address range.
         assert!(registry
-            .check_address_access("bob", "DEV_A", 0x0150)
+            .check_address_access("bob", "DEV_A", 0x0150, false)
             .is_ok());
     }
 
@@ -3086,6 +3097,163 @@ mod tests {
         assert!(!EndpointType::TriggerOut.is_input());
         assert!(!EndpointType::PipeOut.is_input());
         assert!(!EndpointType::BtPipeOut.is_input());
+    }
+
+    // =========================================================================
+    // Phase 33: Read-Aware Lock Enforcement
+    // =========================================================================
+
+    #[test]
+    fn locked_shared_holder_can_read_output_endpoint() {
+        // Phase 33: Shared holder can read WireOut on a locked resource.
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource_for_device("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("r1", &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry.lock("r1", &"alice".to_string()).unwrap();
+
+        // Bob (non-locker) can READ (WireOut).
+        assert!(registry
+            .check_endpoint_access("bob", "DEV_A", 0x20, &EndpointType::WireOut, None)
+            .is_ok());
+        // Bob can also read TriggerOut.
+        assert!(registry
+            .check_endpoint_access("bob", "DEV_A", 0x60, &EndpointType::TriggerOut, None)
+            .is_ok());
+    }
+
+    #[test]
+    fn locked_shared_holder_cannot_write_input_endpoint() {
+        // Phase 33: Shared holder CANNOT write WireIn on a locked resource.
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource_for_device("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("r1", &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry.lock("r1", &"alice".to_string()).unwrap();
+
+        // Bob (non-locker) CANNOT write (WireIn).
+        let err = registry
+            .check_endpoint_access("bob", "DEV_A", 0x00, &EndpointType::WireIn, None)
+            .unwrap_err();
+        assert!(matches!(err, AccessDenied::LockedByOther { .. }));
+    }
+
+    #[test]
+    fn locked_readonly_holder_can_read_output_endpoint() {
+        // Phase 33 + ADR-026 §5: ReadOnly holder can read WireOut on a
+        // locked resource.
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource_for_device("r1", "DEV_A"));
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("r1", &"bob".to_string(), AccessMode::ReadOnly)
+            .unwrap();
+        registry.lock("r1", &"alice".to_string()).unwrap();
+
+        // Bob (ReadOnly, non-locker) can READ (WireOut).
+        assert!(registry
+            .check_endpoint_access("bob", "DEV_A", 0x20, &EndpointType::WireOut, None)
+            .is_ok());
+    }
+
+    #[test]
+    fn locked_readonly_holder_denied_private_endpoint() {
+        // Phase 33: ReadOnly holder CANNOT read a private endpoint, even
+        // when the lock check is bypassed.
+        let registry = ResourceRegistry::new();
+        let mut resource = test_resource_for_device("r1", "DEV_A");
+        resource.endpoints = Some(EndpointDeclaration {
+            default_access: AccessMode::Shared,
+            entries: vec![EndpointEntry {
+                address: 0x20,
+                ep_type: EndpointType::WireOut,
+                access: AccessMode::Shared,
+                description: Some("private wire out".to_string()),
+                private: true,
+            }],
+        });
+        registry.register(resource);
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("r1", &"bob".to_string(), AccessMode::ReadOnly)
+            .unwrap();
+        registry.lock("r1", &"alice".to_string()).unwrap();
+
+        // Bob can bypass lock for reads, but private check still denies.
+        let err = registry
+            .check_endpoint_access("bob", "DEV_A", 0x20, &EndpointType::WireOut, None)
+            .unwrap_err();
+        assert!(matches!(err, AccessDenied::PrivateDataDenied { .. }));
+    }
+
+    #[test]
+    fn locked_address_read_allowed_for_non_locker() {
+        // Phase 33: Non-lock-holder can READ address when locked.
+        let registry = ResourceRegistry::new();
+        let mut resource = test_resource_for_device("r1", "DEV_A");
+        resource.address_ranges.push(AddressRange {
+            start: 0x44A6_0000,
+            end: 0x44A8_FFFF,
+            access: AccessMode::Shared,
+            private: false,
+        });
+        registry.register(resource);
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("r1", &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry.lock("r1", &"alice".to_string()).unwrap();
+
+        // Bob (non-locker) can READ (is_write=false).
+        assert!(registry
+            .check_address_access("bob", "DEV_A", 0x44A6_1000, false)
+            .is_ok());
+
+        // Bob (non-locker) CANNOT write (is_write=true).
+        let err = registry
+            .check_address_access("bob", "DEV_A", 0x44A6_1000, true)
+            .unwrap_err();
+        assert!(matches!(err, AccessDenied::LockedByOther { .. }));
+    }
+
+    #[test]
+    fn exclusive_resource_allows_readonly_read() {
+        // Phase 33 clarification: Exclusive = always-locked, NOT always-private.
+        // ReadOnly holders CAN read output endpoints on Exclusive resources.
+        let registry = ResourceRegistry::new();
+        let resource = test_exclusive_resource_for_device("r1", "DEV_A");
+        registry.register(resource);
+        registry
+            .acquire("r1", &"alice".to_string(), AccessMode::Exclusive)
+            .unwrap();
+        registry
+            .acquire("r1", &"bob".to_string(), AccessMode::ReadOnly)
+            .unwrap();
+
+        // Bob (ReadOnly) can READ (WireOut) on Exclusive resource.
+        assert!(registry
+            .check_endpoint_access("bob", "DEV_A", 0x20, &EndpointType::WireOut, None)
+            .is_ok());
+
+        // Bob (ReadOnly) CANNOT write (WireIn) — denied by ReadOnly check.
+        let err = registry
+            .check_endpoint_access("bob", "DEV_A", 0x00, &EndpointType::WireIn, None)
+            .unwrap_err();
+        assert!(matches!(err, AccessDenied::ReadOnlyWriteAttempt { .. }));
     }
 }
 

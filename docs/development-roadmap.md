@@ -48,45 +48,7 @@
 
 ## 🟢 Now
 
-### Phase 33 — Read-Aware Lock Enforcement
-
-**Status:** 🚧 Planning  
-**Triggered by:** Live testing with Shared + ReadOnly holders during lock  
-**Amends:** ADR-024 §6 (Lock Enforcement), ADR-026 §5 (ReadOnly lock bypass)
-
-Two bugs discovered through live two-client testing:
-
-1. **Bug — ReadOnly holders blocked from reads during lock (ADR-026 violation):**
-   ADR-026 §5 explicitly states *"ReadOnly holders are not blocked by the
-   'locked by other' check for read operations."* But `check_endpoint_access()`
-   in `resource.rs` unconditionally skips locked resources without checking
-   the holder's access mode or the operation type. ReadOnly holders get
-   `AccessDenied` on output endpoints (WireOut, TriggerOut) when the resource
-   is locked by another user.
-
-2. **Design change — Shared holders should read during lock (ADR-024 §6 amendment):**
-   ADR-024 §6 currently says locking blocks ALL operations from other holders.
-   The expected behavior is that locking should only block **write** operations
-   (WireIn, TriggerIn, PipeIn, BtPipeIn, UpdateWireOuts, UpdateTriggerOuts,
-   AXI/register writes) from other holders. **Read** operations (GetWireOutValue,
-   GetTriggerOutVector, PipeOut, BtPipeOut, AXI/register reads) should remain
-   accessible to all holders, even when locked.
-
-**Note:** Exclusive resources are **always-locked**, not **always-private**.
-ReadOnly observers can join an Exclusive resource (ADR-026 §4) unless the
-developer explicitly marks it `private: true` at registration time.
-
-**Root cause:** The lock check in `ok-fpga-core/src/resource.rs` L1548-1560
-is not read/write-aware — it unconditionally `continue`s (skips) any resource
-locked by another user regardless of operation type or holder mode.
-
-**Files to modify:**
-- Core: `ok-fpga-core/src/resource.rs`
-  - `check_endpoint_access()` — make lock check read/write-aware using `ep_type.is_input()`
-  - `check_address_access()` — same lock logic for address-based operations
-- Docs: `ADR-024-endpoint-access-enforcement.md` §6 — amend: lock blocks writes only
-- Docs: `ADR-026-readonly-acquisition.md` — note lock bypass now implemented
-- Tests: new unit tests for each combination in the interaction matrix
+*No phase in progress. Promote a "Next" or "Later" item to begin new work.*
 
 
 ---
