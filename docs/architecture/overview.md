@@ -127,7 +127,7 @@ All decisions are recorded as ADRs in `docs/architecture/adr/`:
 | [ADR-009](adr/ADR-009-board-syzygy.md) | Supported Boards & SYZYGY Discovery | Implemented |
 | [ADR-010](adr/ADR-010-service-manager.md) | Service Manager — Dynamic Lifecycle Control | Implemented |
 | [ADR-011](adr/ADR-011-mqtt-publishing.md) | MQTT Status Publishing | Implemented |
-| [ADR-012](adr/ADR-012-mdns-discovery.md) | mDNS/DNS-SD Service Discovery | Implemented |
+| [ADR-012](adr/ADR-012-mdns-discovery.md) | mDNS/DNS-SD Service Discovery | Implemented (§Impl superseded by ADR-027) |
 | [ADR-013](adr/ADR-013-device-scanner.md) | Device Scanner — FFI→DeviceManager Bridge | Superseded by ADR-018 |
 | [ADR-014](adr/ADR-014-example-clients.md) | Example Client Architecture & E2E Testing | Implemented |
 | [ADR-015](adr/ADR-015-http-method-semantics.md) | HTTP Method Semantics — POST vs PUT | Implemented |
@@ -140,7 +140,9 @@ All decisions are recorded as ADRs in `docs/architecture/adr/`:
 | [ADR-022](adr/ADR-022-dashboard-logging.md) | Dashboard Log Streaming & Level Filtering | Implemented |
 | [ADR-023](adr/ADR-023-gui-example-clients.md) | GUI Example Clients — Interactive Counters.bit Demo | Implemented |
 | [ADR-024](adr/ADR-024-endpoint-access-enforcement.md) | Endpoint Access Enforcement | Implemented |
-
+| [ADR-025](adr/ADR-025-classic-address-mapping.md) | Developer-Defined Classic Address Mapping | Implemented |
+| [ADR-026](adr/ADR-026-readonly-acquisition.md) | Read-Only Acquisition & Private Data | Implemented |
+| [ADR-027](adr/ADR-027-native-mdns-registration.md) | OS-Native mDNS Registration | Accepted (Phase 31) |
 ## 6. Technology Stack
 
 | Concern | Technology | Crate |
@@ -157,7 +159,7 @@ All decisions are recorded as ADRs in `docs/architecture/adr/`:
 | OpenAPI codegen | — | `utoipa` (optional) |
 | Proto codegen | protoc + tonic-build | `tonic-build` (build dep) |
 | MQTT client | rumqttc | `rumqttc` (optional) |
-| mDNS/DNS-SD | mdns-sd | `mdns-sd` (optional) |
+| mDNS/DNS-SD | dns-sd-native (server), mdns-sd (client) | `dns-sd-native` / `mdns-sd` (optional) |
 
 ## 7. Deployment Model
 
@@ -200,7 +202,8 @@ Cross-platform packaging:
 | [ADR-023](adr/ADR-023-gui-example-clients.md) | GUI Example Clients | Implemented ✅ |
 | [ADR-024](adr/ADR-024-endpoint-access-enforcement.md) | Endpoint Access Enforcement | Implemented ✅ |
 | [ADR-025](adr/ADR-025-classic-address-mapping.md) | Developer-Defined Classic Address Mapping | Implemented ✅ |
-| [ADR-026](adr/ADR-026-readonly-acquisition.md) | Read-Only Acquisition & Private Data | Accepted (Phase 30) |
+| [ADR-026](adr/ADR-026-readonly-acquisition.md) | Read-Only Acquisition & Private Data | Implemented ✅ |
+| [ADR-027](adr/ADR-027-native-mdns-registration.md) | OS-Native mDNS Registration | Accepted (Phase 31) |
 
 ## 9. References
 

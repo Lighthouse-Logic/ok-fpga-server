@@ -1,6 +1,6 @@
 # ADR-012: mDNS Service Discovery
 
-**Status**: Implemented  
+**Status**: Implemented ✅ — §"Rust Implementation" superseded by [ADR-027](ADR-027-native-mdns-registration.md)  
 **Date**: 2026-08-16  
 **Deciders**: Architecture Team  
 
@@ -127,3 +127,32 @@ Library: [`mdns-sd`](https://crates.io/crates/mdns-sd) — pure Rust, async-comp
 - [RFC 6763 — DNS-Based Service Discovery](https://datatracker.ietf.org/doc/html/rfc6763)
 - [mdns-sd Crate](https://crates.io/crates/mdns-sd)
 - [ADR-010 Service Manager](ADR-010-service-manager.md) — feature flags and lifecycle
+- [ADR-027 OS-Native mDNS Registration](ADR-027-native-mdns-registration.md) — supersedes §Rust Implementation
+
+---
+
+## Addendum — 2026-08-21 (Phase 31, ADR-027)
+
+### §"Rust Implementation" Superseded
+
+The `mdns-sd` pure-Rust mDNS library was replaced for **server-side service
+registration** by [`dns-sd-native`](https://docs.rs/dns-sd-native), which
+delegates to the OS's native mDNS daemon (Windows: dnscache via
+`DnsServiceRegister`, Linux: avahi-daemon via D-Bus).
+
+**Root cause**: The embedded `mdns-sd` responder creates a second mDNS listener
+on UDP port 5353, conflicting with the OS daemon that already owns that port.
+On Windows 11 (dnscache) and Ubuntu (avahi-daemon), this dual-responder
+configuration prevents announcements from reaching the network — the server
+logs successful registration, but no remote mDNS browser can discover the
+`_okfpga._tcp` service.
+
+**What changed**: Only the registration library (§"Rust Implementation").
+All other sections remain valid: service type, TXT records, feature flags,
+instance naming, client discovery pattern, and network considerations.
+
+**Client-side browsing** continues using `mdns-sd` (Rust) and `zeroconf`
+(Python) — passive multicast listening is not affected by the dual-responder
+problem.
+
+See [ADR-027](ADR-027-native-mdns-registration.md) for full details.

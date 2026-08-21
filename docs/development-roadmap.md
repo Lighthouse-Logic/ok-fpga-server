@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-08-20
+> **Last Updated:** 2026-08-21
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -41,50 +41,39 @@
 
 | Horizon | Focus Area | ADR | Status |
 |---------|-----------|-----|--------|
-| **(Done) Phase 30** | Read-Only Resource Acquisition & Private Data | ADR-026 | ✅ Complete |
-| **Phase 31+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
+| **(Now) Phase 31** | OS-Native mDNS Service Registration | ADR-027 | 🟢 Active |
+| **Phase 32+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
-## ✅ Done: Phase 30 — Read-Only Resource Acquisition & Private Data (ADR-026)
+## 🟢 Now: Phase 31 — OS-Native mDNS Service Registration (ADR-027)
 
-*Focus: Introduce `AccessMode::ReadOnly` for observe-without-modify access. Add
-"Private" marking at three levels (Resource, Endpoint, Address Range) that restricts
-what read-only holders can see. Enforce write denial and Private data hiding for
-read-only users across all Classic, AXI, and okRegisterBridge operations. Update
-all 8 GUI demos with an "Acquire Read-Only" button.*
+*Focus: Replace the embedded `mdns-sd` mDNS responder with OS-native service
+registration via `dns-sd-native`. The current embedded approach creates a
+dual-responder conflict with the OS’s mDNS daemon (Windows: dnscache,
+Linux: avahi-daemon), making server announcements invisible to other devices
+on the network.*
 
-Currently, the only acquisition modes are `Shared` (multiple holders, read+write)
-and `Exclusive` (sole holder, read+write). There is no way for a user to observe a
-resource's state without having write access — a common need in monitoring and
-dashboard scenarios.
+* The server registers `_okfpga._tcp` through the OS daemon that already owns
+  UDP port 5353, eliminating the dual-responder conflict
+* Client-side mDNS browsing (8 GUI demos) remains unchanged — passive
+  multicast listening is unaffected
+* If the OS daemon is absent, the server starts without mDNS (graceful degradation)
+* If the OS daemon is present but registration fails, it is logged as an error
+  (not masked by a fallback)
 
-* ReadOnly holders cannot call `UpdateWireOuts` / `UpdateTriggerOuts` — these
-  disturb the FPGA system state. ReadOnly users see cached values only.
-* ReadOnly holders CAN acquire even an Exclusive resource (they don't interfere)
-  — unless the resource itself is marked Private
-* `private: bool` at three levels: Resource (denies ReadOnly acquisition entirely),
-  Endpoint (denies ReadOnly access to that EP), AddressRange (denies ReadOnly reads)
-* Private applies to Classic, AXI, and okRegisterBridge equally
-
-* [x] **ADR-026** — new ADR documenting ReadOnly semantics, Private data, enforcement
-* [x] **`AccessMode::ReadOnly`** and `HolderEntry` tracking
-* [x] **`private` field** on `Resource`, `EndpointEntry`, and `AddressRange`
-* [x] **`is_input()` helper** on `EndpointType`
-* [x] **`ReadOnlyWriteAttempt`, `PrivateDataDenied`, `PrivateResource`** error variants
-* [x] **`can_acquire()` policy** — ReadOnly rules, Private resource check
-* [x] **`check_endpoint_access()` / `check_address_access()`** — ReadOnly + Private
-* [x] **OpenAPI spec** — add `read_only` to mode enum, `private` fields
-* [x] **Proto3 spec** — add `ACCESS_MODE_READ_ONLY = 2`, `private` fields
-* [x] **REST/gRPC acquire handlers** — accept `read_only` mode
-* [x] **GUI demos (all 8)** — "Acquire Read-Only" button
-* [x] **Unit tests** — 14+ new tests for ReadOnly and Private enforcement
+* [ ] **ADR-027** — OS-Native mDNS Registration (documenting the decision)
+* [ ] **ADR-012 addendum** — mark §"Rust Implementation" as superseded
+* [ ] **Cargo dependency** — `mdns-sd` → `dns-sd-native` (server-side only)
+* [ ] **`mdns.rs`** — replace registration with `dns-sd-native`, add clean shutdown
+* [ ] **Unit tests** — verify registration, failure modes, TXT record building
+* [ ] **Manual cross-machine test** — confirm visibility from another device
 
 ---
 
 ## 🟡 Next
 
-*No phase queued. Promote a "Later" item when Phase 30 completes.*
+*No phase queued. Promote a “Later” item when Phase 31 completes.*
 
 ---
 
@@ -116,8 +105,9 @@ Features in this section represent uncommitted research or long-term capabilitie
   resources are held (shared or exclusive) by any user. Requires user privilege
   levels (admin can override).
 
-* **Read-only resource acquisition** — **Promoted to Phase 30 (Next)**.
-  See [ADR-026](architecture/adr/ADR-026-readonly-acquisition.md) (planned).
+* **Read-only resource acquisition** — **Completed in Phase 30.**
+  See [ADR-026](architecture/adr/ADR-026-readonly-acquisition.md) and
+  [archive](archive/roadmap-phases-30.md).
 
 * **Native TLS termination** — embedded `rustls` for secure lab deployments
   without a reverse proxy.
@@ -215,6 +205,7 @@ implementation details, verification steps, and acceptance criteria.
 | 28C | Settings Lockdown | 2026-08-19 | — | [phase 28](archive/roadmap-phases-28.md) |
 | 28D | Dashboard Reliability, Expanded Views & SYZYGY Board Catalog | 2026-08-19 | — | [phase 28](archive/roadmap-phases-28.md) |
 | 29 | Developer-Defined Classic Address Mapping | 2026-08-20 | ADR-025 | [phase 29](archive/roadmap-phases-29.md) |
+| 30 | Read-Only Resource Acquisition & Private Data | 2026-08-20 | ADR-026 | [phase 30](archive/roadmap-phases-30.md) |
 
 ---
 
@@ -226,5 +217,5 @@ implementation details, verification steps, and acceptance criteria.
 | `dashboard` | ✅ Yes | (static files only) | 8 |
 | `grpc` | ❌ No | tonic, prost, tonic-build | 5 |
 | `mqtt` | ❌ No | rumqttc | 10 |
-| `mdns` | ❌ No | mdns-sd | 11 |
+| `mdns` | ❌ No | dns-sd-native (server), mdns-sd (client) | 11, 31 |
 | `full` | ❌ No | all of the above | — |
