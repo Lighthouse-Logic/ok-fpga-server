@@ -58,15 +58,17 @@ on the network.*
   UDP port 5353, eliminating the dual-responder conflict
 * Client-side mDNS browsing (8 GUI demos) remains unchanged — passive
   multicast listening is unaffected
-* If the OS daemon is absent, the server starts without mDNS (graceful degradation)
-* If the OS daemon is present but registration fails, it is logged as an error
-  (not masked by a fallback)
+* If the OS daemon is absent, fall back to the embedded `mdns-sd` responder
+  (no port conflict in this scenario — it works correctly as the sole mDNS stack)
+* If the OS daemon is present but registration fails, log as error (do not
+  fall back — that would recreate the dual-responder conflict)
 
 * [ ] **ADR-027** — OS-Native mDNS Registration (documenting the decision)
 * [ ] **ADR-012 addendum** — mark §"Rust Implementation" as superseded
-* [ ] **Cargo dependency** — `mdns-sd` → `dns-sd-native` (server-side only)
-* [ ] **`mdns.rs`** — replace registration with `dns-sd-native`, add clean shutdown
-* [ ] **Unit tests** — verify registration, failure modes, TXT record building
+* [ ] **Cargo dependencies** — add `dns-sd-native`, retain `mdns-sd` as fallback
+* [ ] **`mdns.rs`** — tiered registration: try OS-native, fall back to `mdns-sd`
+* [ ] **Clean shutdown** — store registration handle, deregister in `stop()`
+* [ ] **Unit tests** — verify registration, fallback, failure modes, TXT records
 * [ ] **Manual cross-machine test** — confirm visibility from another device
 
 ---
@@ -217,5 +219,5 @@ implementation details, verification steps, and acceptance criteria.
 | `dashboard` | ✅ Yes | (static files only) | 8 |
 | `grpc` | ❌ No | tonic, prost, tonic-build | 5 |
 | `mqtt` | ❌ No | rumqttc | 10 |
-| `mdns` | ❌ No | dns-sd-native (server), mdns-sd (client) | 11, 31 |
+| `mdns` | ❌ No | dns-sd-native + mdns-sd (fallback) | 11, 31 |
 | `full` | ❌ No | all of the above | — |

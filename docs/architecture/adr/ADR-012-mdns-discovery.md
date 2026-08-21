@@ -135,8 +135,8 @@ Library: [`mdns-sd`](https://crates.io/crates/mdns-sd) — pure Rust, async-comp
 
 ### §"Rust Implementation" Superseded
 
-The `mdns-sd` pure-Rust mDNS library was replaced for **server-side service
-registration** by [`dns-sd-native`](https://docs.rs/dns-sd-native), which
+The `mdns-sd` pure-Rust mDNS library was replaced as the **primary** server-side
+registration mechanism by [`dns-sd-native`](https://docs.rs/dns-sd-native), which
 delegates to the OS's native mDNS daemon (Windows: dnscache via
 `DnsServiceRegister`, Linux: avahi-daemon via D-Bus).
 
@@ -147,7 +147,13 @@ configuration prevents announcements from reaching the network — the server
 logs successful registration, but no remote mDNS browser can discover the
 `_okfpga._tcp` service.
 
-**What changed**: Only the registration library (§"Rust Implementation").
+**Tiered strategy**: `dns-sd-native` is attempted first. If the OS daemon is
+not running (daemon absent), `mdns-sd` is used as a fallback — in this
+scenario there is no port conflict, so `mdns-sd` works correctly as the sole
+responder. If the OS daemon IS running but registration fails, it is treated
+as an error with no fallback.
+
+**What changed**: The primary registration library (§"Rust Implementation").
 All other sections remain valid: service type, TXT records, feature flags,
 instance naming, client discovery pattern, and network considerations.
 

@@ -159,7 +159,7 @@ All decisions are recorded as ADRs in `docs/architecture/adr/`:
 | OpenAPI codegen | — | `utoipa` (optional) |
 | Proto codegen | protoc + tonic-build | `tonic-build` (build dep) |
 | MQTT client | rumqttc | `rumqttc` (optional) |
-| mDNS/DNS-SD | dns-sd-native (server), mdns-sd (client) | `dns-sd-native` / `mdns-sd` (optional) |
+| mDNS/DNS-SD | dns-sd-native (primary) + mdns-sd (fallback/client) | `dns-sd-native`, `mdns-sd` (optional) |
 
 ## 7. Deployment Model
 

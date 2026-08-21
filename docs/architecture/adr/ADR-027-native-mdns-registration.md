@@ -75,31 +75,41 @@ Client-side browsing does not compete with the OS daemon for port ownership —
 it joins the multicast group as a listener, which both Windows and Linux handle
 correctly even with multiple listeners.
 
-### 3. Failure Modes
+### 3. Failure Modes — Tiered Strategy
 
-Two distinct failure cases with different handling:
+Two distinct failure cases with **different handling**:
 
-#### OS mDNS daemon not running
+#### Case 1: OS mDNS daemon not running → fall back to `mdns-sd`
 
 The daemon may be absent or stopped (e.g., minimal Docker image, `avahi-daemon`
 not installed, Windows DNS Client service disabled). In this case:
 
-- **The server still starts** — mDNS is optional (`mdns` feature flag per ADR-012)
-- The mDNS `ManagedService` reports `ServiceStatus::Failed` with a clear
-  diagnostic message (e.g., "avahi-daemon not running")
-- No fallback to the embedded `mdns-sd` responder — that would reintroduce
-  the dual-responder problem on systems where the daemon IS running
+- **Fall back to the embedded `mdns-sd` responder** — because the OS daemon is
+  absent, there is no dual-responder conflict; `mdns-sd` is the sole mDNS stack
+  and will function correctly.
+- Log at `WARN` level: "No host OS mDNS daemon detected, starting stand-alone
+  mDNS server"
+- The `ManagedService` reports `ServiceStatus::Running` — mDNS is operational,
+  just via the fallback path.
 
-#### OS daemon running but registration fails
+This is safe precisely because the dual-responder problem only exists when both
+the OS daemon **and** `mdns-sd` run simultaneously on port 5353. If the OS
+daemon isn't there, `mdns-sd` is the only listener and works fine.
 
-This indicates a bug in the registration code or an OS configuration problem.
-The server should:
+#### Case 2: OS daemon IS running but registration fails → error, no fallback
+
+This indicates a bug in the registration code or an unexpected OS configuration
+problem. The server should:
 
 - Log the error at `ERROR` level with full context
 - Report `ServiceStatus::Failed` with the error details
-- **Not** fall back to `mdns-sd` — masking the error would hide the bug
+- **Do NOT fall back to `mdns-sd`** — the OS daemon IS running and owns
+  port 5353, so `mdns-sd` would recreate the dual-responder conflict. Falling
+  back would mask the bug.
 
 ### 4. Cargo Dependency Changes
+
+Both `dns-sd-native` (primary) and `mdns-sd` (fallback) are required:
 
 ```toml
 # Server-side (ok-fpga-server):
@@ -107,15 +117,16 @@ The server should:
 mdns-sd = { version = "0.13", optional = true }
 # After:
 dns-sd-native = { version = "0.1", optional = true }
+mdns-sd = { version = "0.13", optional = true }
 ```
 
 Feature flag mapping:
 ```toml
-mdns = ["dep:dns-sd-native"]  # was: mdns = ["dep:mdns-sd"]
+mdns = ["dep:dns-sd-native", "dep:mdns-sd"]  # was: mdns = ["dep:mdns-sd"]
 ```
 
 Client-side dependencies (`rust-rest-gui-common`, `rust-grpc-gui-common`) keep
-`mdns-sd = "0.13"` for browsing.
+`mdns-sd = "0.13"` for browsing (unchanged).
 
 ### 5. Clean Shutdown
 
