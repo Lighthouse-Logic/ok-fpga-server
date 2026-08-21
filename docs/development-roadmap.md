@@ -41,8 +41,9 @@
 
 | Horizon | Focus Area | ADR | Status |
 |---------|-----------|-----|--------|
-| **Phase 33 (Now)** | Read-Aware Lock Enforcement | ADR-024, 026 | 🚧 Planning |
-| **Phase 34+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
+| **Phase 33** | Read-Aware Lock Enforcement | ADR-024, 026 | ✅ Completed |
+| **Phase 34 (Next)** | Client UX & Device Metadata Improvements | ADR-024 (amend) | 🚧 Planning |
+| **Phase 35+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
@@ -55,7 +56,111 @@
 
 ## 🟡 Next
 
-*No phase queued. Promote a "Later" item to begin new work.*
+### Phase 34 — Client UX & Device Metadata Improvements
+
+**Status:** 🚧 Planning  
+**Triggered by:** Live testing with multiple GUI clients  
+**Scope:** 2 bugs + 2 features across server + all 8 GUI demos
+
+#### Bug 34-A: gRPC/REST lock button does not toggle (all iced + egui clients)
+
+The `LockResult` message handler in the Rust iced (and likely egui) clients
+only logs success/failure — it does NOT trigger a resource info refresh. The
+lock button state depends on `resource_info.locked_by`, which is only updated
+on the next `PollResult` cycle. If the poll interval is long, the button
+appears stuck.
+
+The Python GUI clients (tkinter + DearPyGui) may have the same issue. All 8
+GUI frontends must be audited.
+
+**Fix:** On `LockResult(Ok(()))`, immediately trigger a resource info fetch
+(or optimistically set `locked_by` to `USER_ID` for lock / `None` for unlock)
+so the button toggles instantly.
+
+**Files:** All 8 GUI front-ends + their 4 common libraries.
+
+#### Feature 34-B: SYZYGY peripherals in device dropdown (all 8 GUI demos)
+
+The "Select Device" dropdown currently shows `{serial} — {product_name}`.
+When a device has SYZYGY peripherals attached, the dropdown should also show
+the populated SYZYGY ports in order:
+
+```
+22520013CC — XEM7320-A75T | 0: SZG-SENSOR1, 2: SZG-ADC (SZG-ADC-LTC2324)
+```
+
+Format per port: `{port_index}: {product_name}` — if `product_model` differs
+from `product_name`, append `({product_model})`. Skip non-existent/unpopulated
+ports.
+
+**Design consideration:** On boards like XEM8320 with 6 SYZYGY ports, the
+string may be very long. If the `pick_list` / `Combobox` control auto-wraps,
+this is acceptable. Otherwise consider:
+- Truncating after 2–3 peripherals with `+N more`
+- Using a tooltip for the full list
+- Showing SYZYGY info in a separate label below the dropdown
+
+**Requires:** Each client must call the SYZYGY endpoint
+(`GET /devices/{serial}/syzygy` or `GetSyzygyPorts` RPC) per-device after
+listing devices, and format the result into the dropdown label.
+
+**Files:** 4 common libraries (data model + SYZYGY fetch), 8 GUI front-ends
+(dropdown formatting).
+
+#### Feature 34-C: Bitfile path, filename, and MD5 hash in device info
+
+When the device panel shows a programmed device (expanded), it should display:
+- The filename of the programmed bitfile (currently hardcoded `"uploaded"` in
+  REST, but correct in gRPC)
+- The full path (for server-path mode)
+- An MD5 hash of the bitfile content
+
+**Server changes:**
+- `BitfileRecord` in `ok-fpga-core/src/device.rs` needs new fields:
+  `file_path: Option<String>`, `md5_hash: Option<String>`
+- REST `configure_fpga()`: Extract filename from `bitfile_path` (JSON mode) or
+  from multipart `Content-Disposition` header (upload mode). Compute MD5 on
+  the bitfile content (path → read file, upload → hash the Bytes).
+- gRPC `ConfigureFpga()`: Same — extract filename from request fields, compute
+  MD5.
+
+**Dashboard:** The web dashboard (`web/app.js`) already renders `d.bitfile` —
+add `filename`, `file_path`, and `md5_hash` to the expanded device panel.
+
+**Client demos:** The 8 GUI demos show bitfile info when expanded — update to
+display the new fields if present.
+
+**Spec impact:** `BitfileRecord` is returned in `GET /devices/{serial}` and
+`GetDeviceInfo` RPC. The OpenAPI spec and proto spec need the new fields.
+
+#### Bug 34-D: "Programmed by: api" instead of actual user (REST only)
+
+The REST `configure_fpga()` handler hardcodes `programmed_by: "api"` (line 775
+of `rest/devices.rs`). It should extract `X-User-Id` from the request headers,
+falling back to `"Unknown"` if absent.
+
+The gRPC side already correctly uses `req.user_id` — no gRPC fix needed.
+
+**Files:**
+- `ok-fpga-server/src/rest/devices.rs` (configure_fpga handler)
+
+**ADR impact:** None — this is a bug fix, the existing behavior was never
+documented as intentional.
+
+---
+
+#### ADR Impact Assessment
+
+| ADR | Change | Reason |
+|-----|--------|--------|
+| None (new) | Consider a lightweight ADR-028 for bitfile metadata model | Adds new fields to `BitfileRecord` and both API specs |
+| OpenAPI spec | Add `file_path`, `md5_hash` to `BitfileRecord` schema | Feature 34-C |
+| Proto spec | Add `file_path`, `md5_hash` to `BitfileInfo` message | Feature 34-C |
+
+> **Note:** Bug 34-A and Bug 34-D are straightforward client/server fixes and
+> do not warrant an ADR. Feature 34-B (SYZYGY dropdown) is a UI change that
+> doesn't modify the API. Feature 34-C (bitfile metadata) extends the API
+> schema and may warrant a brief ADR or amendment to capture the design.
 
 ---
 
