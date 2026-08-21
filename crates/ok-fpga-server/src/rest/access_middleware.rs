@@ -66,7 +66,7 @@ pub async fn access_enforcement_middleware(
 ) -> Response {
     // Fast path: if enforcement is off, pass through immediately.
     // No checks of any kind — current v1 behavior.
-    if !state.enforcement.is_active() {
+    if !state.enforcement().is_active() {
         return next.run(request).await;
     }
 
@@ -89,7 +89,7 @@ pub async fn access_enforcement_middleware(
             // may perform. Any authenticated user may call any management or
             // device-level endpoint.
             if user_id.is_none() {
-                match state.enforcement {
+                match state.enforcement() {
                     EndpointEnforcement::Warn => {
                         warn!(
                             path = %path,
@@ -111,7 +111,7 @@ pub async fn access_enforcement_middleware(
         RouteTier::DataPort { serial } => {
             // Tier 3: User identity + device-level gating.
             if user_id.is_none() {
-                match state.enforcement {
+                match state.enforcement() {
                     EndpointEnforcement::Warn => {
                         warn!(
                             path = %path,
@@ -135,7 +135,7 @@ pub async fn access_enforcement_middleware(
                 if let Err(denied) =
                     state.resource_registry.check_device_access(uid, &serial)
                 {
-                    match state.enforcement {
+                    match state.enforcement() {
                         EndpointEnforcement::Warn => {
                             warn!(
                                 user_id = %uid,

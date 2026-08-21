@@ -110,7 +110,7 @@ impl ClassicDataPortServiceImpl {
         value: Option<u32>,
     ) -> Result<(), Status> {
         // Fast path: no enforcement.
-        if !self.state.enforcement.is_active() {
+        if !self.state.enforcement().is_active() {
             return Ok(());
         }
 
@@ -118,7 +118,7 @@ impl ClassicDataPortServiceImpl {
         let uid = match user_id {
             Some(uid) => uid,
             None => {
-                match self.state.enforcement {
+                match self.state.enforcement() {
                     EndpointEnforcement::Warn => {
                         warn!(
                             serial = %serial,
@@ -145,7 +145,7 @@ impl ClassicDataPortServiceImpl {
             ep_type,
             value,
         ) {
-            match self.state.enforcement {
+            match self.state.enforcement() {
                 EndpointEnforcement::Warn => {
                     warn!(
                         user_id = %uid,
@@ -176,14 +176,14 @@ impl ClassicDataPortServiceImpl {
         serial: &str,
         address: u32,
     ) -> Result<(), Status> {
-        if !self.state.enforcement.is_active() {
+        if !self.state.enforcement().is_active() {
             return Ok(());
         }
 
         let uid = match user_id {
             Some(uid) => uid,
             None => {
-                match self.state.enforcement {
+                match self.state.enforcement() {
                     EndpointEnforcement::Warn => {
                         warn!(
                             serial = %serial,
@@ -207,7 +207,7 @@ impl ClassicDataPortServiceImpl {
             serial,
             address as u64,
         ) {
-            match self.state.enforcement {
+            match self.state.enforcement() {
                 EndpointEnforcement::Warn => {
                     warn!(
                         user_id = %uid,

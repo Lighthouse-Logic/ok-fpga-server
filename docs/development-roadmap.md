@@ -49,6 +49,7 @@
 
 *No phase active. Promote a "Next" or "Later" item to start a new phase.*
 
+
 ---
 
 ## 🟡 Next
@@ -187,6 +188,7 @@ implementation details, verification steps, and acceptance criteria.
 | 29 | Developer-Defined Classic Address Mapping | 2026-08-20 | ADR-025 | [phase 29](archive/roadmap-phases-29.md) |
 | 30 | Read-Only Resource Acquisition & Private Data | 2026-08-20 | ADR-026 | [phase 30](archive/roadmap-phases-30.md) |
 | 31 | OS-Native mDNS Service Registration | 2026-08-21 | ADR-027 | [phase 31](archive/roadmap-phases-31.md) |
+| 32 | Bug Fixes: Users Page, Settings, gRPC Identity | 2026-08-21 | — | [phase 32](archive/roadmap-phases-32.md) |
 
 ---
 

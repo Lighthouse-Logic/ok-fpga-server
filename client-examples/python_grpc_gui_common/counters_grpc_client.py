@@ -97,12 +97,18 @@ class CountersGrpcClient:
         self.classic_stub = okfpga_pb2_grpc.ClassicDataPortServiceStub(self.channel)
         self.server_stub = okfpga_pb2_grpc.ServerServiceStub(self.channel)
         self.user_id = user_id
+        # Phase 32: gRPC metadata sent on every call — equivalent to the
+        # REST client's X-User-Id header. Required when the server's
+        # endpoint enforcement is active.
+        self._metadata = (("x-user-id", user_id),)
 
     def get_server_status(self):
-        self.device_stub.GetServerStatus(okfpga_pb2.ServerStatusRequest())
+        self.device_stub.GetServerStatus(
+            okfpga_pb2.ServerStatusRequest(), metadata=self._metadata)
 
     def list_devices(self) -> List[DeviceInfo]:
-        resp = self.device_stub.ListDevices(okfpga_pb2.ListDevicesRequest())
+        resp = self.device_stub.ListDevices(
+            okfpga_pb2.ListDevicesRequest(), metadata=self._metadata)
         return [DeviceInfo(serial=d.serial, product_name=d.product_name)
                 for d in resp.devices]
 
@@ -113,7 +119,7 @@ class CountersGrpcClient:
         is loaded. Used by F4 smart-skip.
         """
         resp = self.device_stub.GetDeviceInfo(
-            okfpga_pb2.DeviceRequest(serial=serial))
+            okfpga_pb2.DeviceRequest(serial=serial), metadata=self._metadata)
         device = resp.device
         state = "Programmed" if device.HasField("bitfile") else "NotProgrammed"
         return {
@@ -129,7 +135,7 @@ class CountersGrpcClient:
         """
         from python_rest_gui_common.counters_client import ResourceInfo
         resp = self.device_stub.ListResources(
-            okfpga_pb2.ListResourcesRequest())
+            okfpga_pb2.ListResourcesRequest(), metadata=self._metadata)
         return [ResourceInfo(
             id=r.id,
             name=r.name,
@@ -142,7 +148,8 @@ class CountersGrpcClient:
     def configure_fpga(self, serial: str, bitfile_path: str):
         """Configure FPGA from a server-side bitfile path."""
         self.device_stub.ConfigureFPGA(okfpga_pb2.ConfigureFPGARequest(
-            serial=serial, bitfile_path=bitfile_path, user_id=self.user_id))
+            serial=serial, bitfile_path=bitfile_path, user_id=self.user_id),
+            metadata=self._metadata)
 
     def configure_fpga_from_file(self, serial: str, local_path: str):
         """Configure FPGA from a local file (client-side streaming).
@@ -157,32 +164,40 @@ class CountersGrpcClient:
             yield okfpga_pb2.ConfigureFPGAChunk(
                 serial=serial, data=data, is_last=True, user_id=self.user_id)
 
-        self.device_stub.ConfigureFPGAFromMemory(chunk_iterator())
+        self.device_stub.ConfigureFPGAFromMemory(
+            chunk_iterator(), metadata=self._metadata)
 
     # --- Classic Data Port ---
 
     def set_wire_in(self, serial: str, endpoint: int, value: int, mask: int):
         self.classic_stub.SetWireInValue(okfpga_pb2.SetWireInValueRequest(
-            serial=serial, endpoint=endpoint, value=value, mask=mask, auto_update=False))
+            serial=serial, endpoint=endpoint, value=value, mask=mask,
+            auto_update=False), metadata=self._metadata)
 
     def update_wire_ins(self, serial: str):
-        self.classic_stub.UpdateWireIns(okfpga_pb2.DeviceRequest(serial=serial))
+        self.classic_stub.UpdateWireIns(
+            okfpga_pb2.DeviceRequest(serial=serial), metadata=self._metadata)
 
     def update_wire_outs(self, serial: str):
-        self.classic_stub.UpdateWireOuts(okfpga_pb2.DeviceRequest(serial=serial))
+        self.classic_stub.UpdateWireOuts(
+            okfpga_pb2.DeviceRequest(serial=serial), metadata=self._metadata)
 
     def get_wire_out_value(self, serial: str, endpoint: int) -> int:
         resp = self.classic_stub.GetWireOutValue(
-            okfpga_pb2.GetWireValueRequest(serial=serial, endpoint=endpoint))
+            okfpga_pb2.GetWireValueRequest(serial=serial, endpoint=endpoint),
+            metadata=self._metadata)
         return resp.value
 
     def activate_trigger_in(self, serial: str, endpoint: int, bit: int):
         self.classic_stub.ActivateTriggerIn(
-            okfpga_pb2.ActivateTriggerInRequest(serial=serial, endpoint=endpoint, bit=bit))
+            okfpga_pb2.ActivateTriggerInRequest(
+                serial=serial, endpoint=endpoint, bit=bit),
+            metadata=self._metadata)
 
     def get_trigger_out_vector(self, serial: str, endpoint: int) -> int:
         resp = self.classic_stub.GetTriggerOutVector(
-            okfpga_pb2.TriggerOutVectorRequest(serial=serial, endpoint=endpoint))
+            okfpga_pb2.TriggerOutVectorRequest(serial=serial, endpoint=endpoint),
+            metadata=self._metadata)
         return resp.vector
 
     # --- Combined Operations ---
@@ -218,12 +233,14 @@ class CountersGrpcClient:
         resp = self.device_stub.CreateResource(okfpga_pb2.CreateResourceRequest(
             name=name, device_serial=device_serial,
             description="Counters.bit hardware test resource",
-            resource_type="shared", capabilities=[]))
+            resource_type="shared", capabilities=[]),
+            metadata=self._metadata)
         return self._resource_from_response(resp)
 
     def acquire_resource(self, resource_id: str):
         self.device_stub.AcquireResource(okfpga_pb2.AcquireResourceRequest(
-            resource_id=resource_id, user_id=self.user_id, mode=0))  # ACCESS_MODE_SHARED
+            resource_id=resource_id, user_id=self.user_id, mode=0),
+            metadata=self._metadata)  # ACCESS_MODE_SHARED
 
     def acquire_resource_readonly(self, resource_id: str):
         """Acquire the resource in read-only mode (ADR-026).
@@ -232,27 +249,33 @@ class CountersGrpcClient:
         cannot perform write operations or state-disturbing calls.
         """
         self.device_stub.AcquireResource(okfpga_pb2.AcquireResourceRequest(
-            resource_id=resource_id, user_id=self.user_id, mode=2))  # ACCESS_MODE_READ_ONLY
+            resource_id=resource_id, user_id=self.user_id, mode=2),
+            metadata=self._metadata)  # ACCESS_MODE_READ_ONLY
 
     def release_resource(self, resource_id: str):
         self.device_stub.ReleaseResource(okfpga_pb2.ReleaseResourceRequest(
-            resource_id=resource_id, user_id=self.user_id))
+            resource_id=resource_id, user_id=self.user_id),
+            metadata=self._metadata)
 
     def get_resource(self, resource_id: str) -> ResourceInfo:
         resp = self.device_stub.GetResource(
-            okfpga_pb2.ResourceRequest(resource_id=resource_id))
+            okfpga_pb2.ResourceRequest(resource_id=resource_id),
+            metadata=self._metadata)
         return self._resource_from_response(resp)
 
     def lock_resource(self, resource_id: str):
         self.device_stub.LockResource(okfpga_pb2.LockResourceRequest(
-            resource_id=resource_id, user_id=self.user_id))
+            resource_id=resource_id, user_id=self.user_id),
+            metadata=self._metadata)
 
     def unlock_resource(self, resource_id: str):
         self.device_stub.UnlockResource(okfpga_pb2.LockResourceRequest(
-            resource_id=resource_id, user_id=self.user_id))
+            resource_id=resource_id, user_id=self.user_id),
+            metadata=self._metadata)
 
     def heartbeat(self):
-        self.device_stub.Ping(okfpga_pb2.PingRequest(user_id=self.user_id))
+        self.device_stub.Ping(okfpga_pb2.PingRequest(user_id=self.user_id),
+                              metadata=self._metadata)
 
     def disconnect(self):
         """Cleanly disconnect this user from the server (Phase 25-Fix-H, F10).
@@ -261,5 +284,6 @@ class CountersGrpcClient:
         the user session, and stops heartbeat tracking. This is the
         recommended way to end a client session.
         """
-        self.user_mgmt_stub.Disconnect(
-            okfpga_pb2.DisconnectRequest(user_id=self.user_id))
+        self.device_stub.Disconnect(
+            okfpga_pb2.DisconnectRequest(user_id=self.user_id),
+            metadata=self._metadata)

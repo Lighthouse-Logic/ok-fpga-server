@@ -104,10 +104,14 @@ pub async fn start_grpc_server(
     info!(address = %addr, "starting gRPC server");
 
     Server::builder()
+        // Phase 32: Attach the heartbeat interceptor to ALL gRPC services,
+        // not just DeviceService. This ensures user sessions are touched on
+        // every gRPC call (Classic data port, AXI, Server) and users don't
+        // disappear from the dashboard's Users page.
         .add_service(DeviceServiceServer::with_interceptor(device_svc, heartbeat_interceptor.clone()))
-        .add_service(ClassicDataPortServiceServer::new(classic_svc))
-        .add_service(AxiDataPortServiceServer::new(axi_svc))
-        .add_service(ServerServiceServer::new(server_svc))
+        .add_service(ClassicDataPortServiceServer::with_interceptor(classic_svc, heartbeat_interceptor.clone()))
+        .add_service(AxiDataPortServiceServer::with_interceptor(axi_svc, heartbeat_interceptor.clone()))
+        .add_service(ServerServiceServer::with_interceptor(server_svc, heartbeat_interceptor))
         .serve_with_shutdown(addr, shutdown)
         .await?;
 

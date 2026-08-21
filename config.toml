@@ -51,4 +51,4 @@ organizational_units = ["Users"]
 uid_attribute = "uid"
 
 [access_control]
-endpoint_enforcement = "off"
+endpoint_enforcement = "enforce"

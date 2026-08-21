@@ -237,7 +237,7 @@ fn enforce_endpoint(
 ) -> Result<(), ProblemDetail> {
     use crate::state::EndpointEnforcement;
 
-    if !state.enforcement.is_active() {
+    if !state.enforcement().is_active() {
         return Ok(());
     }
 
@@ -251,7 +251,7 @@ fn enforce_endpoint(
         None => {
             // The middleware should have already rejected this request if
             // enforcement is Enforce. But for defense-in-depth:
-            match state.enforcement {
+            match state.enforcement() {
                 EndpointEnforcement::Warn => {
                     tracing::warn!(
                         serial = %serial,
@@ -278,7 +278,7 @@ fn enforce_endpoint(
         ep_type,
         value,
     ) {
-        match state.enforcement {
+        match state.enforcement() {
             EndpointEnforcement::Warn => {
                 tracing::warn!(
                     user_id = %uid,
@@ -311,7 +311,7 @@ fn enforce_address(
 ) -> Result<(), ProblemDetail> {
     use crate::state::EndpointEnforcement;
 
-    if !state.enforcement.is_active() {
+    if !state.enforcement().is_active() {
         return Ok(());
     }
 
@@ -323,7 +323,7 @@ fn enforce_address(
     let uid = match user_id {
         Some(uid) => uid,
         None => {
-            match state.enforcement {
+            match state.enforcement() {
                 EndpointEnforcement::Warn => {
                     tracing::warn!(
                         serial = %serial,
@@ -348,7 +348,7 @@ fn enforce_address(
         serial,
         address as u64,
     ) {
-        match state.enforcement {
+        match state.enforcement() {
             EndpointEnforcement::Warn => {
                 tracing::warn!(
                     user_id = %uid,

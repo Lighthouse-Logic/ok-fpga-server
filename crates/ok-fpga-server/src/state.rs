@@ -115,7 +115,8 @@ impl fmt::Display for EndpointEnforcement {
 ///     }
 /// }
 /// ```
-#[derive(Clone)]
+// Note: Clone is implemented manually below because `enforcement`
+// uses `RwLock` for runtime mutability (Phase 32).
 pub struct AppState {
     /// Manages FPGA device discovery, hot-plug events, and device state.
     pub device_manager: Arc<DeviceManager>,
@@ -161,7 +162,12 @@ pub struct AppState {
     /// Controls whether FPGA data port operations (Classic wires/triggers/pipes,
     /// AXI reads/writes) require the caller to hold a resource covering the
     /// target endpoint. See [`EndpointEnforcement`] for level descriptions.
-    pub enforcement: EndpointEnforcement,
+    ///
+    /// Wrapped in `RwLock` so the Settings panel can update the enforcement
+    /// level at runtime without restarting the server (Phase 32).
+    /// Use [`enforcement()`](Self::enforcement) and
+    /// [`set_enforcement()`](Self::set_enforcement) to access.
+    enforcement: RwLock<EndpointEnforcement>,
 
     /// Runtime-mutable server configuration.
     ///
@@ -202,7 +208,7 @@ impl AppState {
             event_tx: None,
             start_time: Instant::now(),
             api_version: env!("CARGO_PKG_VERSION"),
-            enforcement,
+            enforcement: RwLock::new(enforcement),
             config: Arc::new(RwLock::new(config)),
             config_path,
         }
@@ -211,6 +217,22 @@ impl AppState {
     /// Returns the server uptime in seconds.
     pub fn uptime_secs(&self) -> u64 {
         self.start_time.elapsed().as_secs()
+    }
+
+    /// Read the current enforcement level.
+    ///
+    /// This acquires a brief read lock. The returned value is `Copy`,
+    /// so the lock is released immediately.
+    pub fn enforcement(&self) -> EndpointEnforcement {
+        *self.enforcement.read().expect("enforcement lock poisoned")
+    }
+
+    /// Update the enforcement level at runtime.
+    ///
+    /// Called by the Settings management handler when the user changes
+    /// the enforcement level via the dashboard (Phase 32).
+    pub fn set_enforcement(&self, level: EndpointEnforcement) {
+        *self.enforcement.write().expect("enforcement lock poisoned") = level;
     }
 
     /// Broadcast an event to all connected WebSocket clients.
@@ -222,6 +244,26 @@ impl AppState {
     pub fn broadcast_event(&self, json: &str) {
         if let Some(ref tx) = self.event_tx {
             let _ = tx.send(json.to_string());
+        }
+    }
+}
+
+impl Clone for AppState {
+    fn clone(&self) -> Self {
+        Self {
+            device_manager: self.device_manager.clone(),
+            resource_registry: self.resource_registry.clone(),
+            service_manager: self.service_manager.clone(),
+            handle_pool: self.handle_pool.clone(),
+            auth_provider: self.auth_provider.clone(),
+            session_manager: self.session_manager.clone(),
+            user_sessions: self.user_sessions.clone(),
+            event_tx: self.event_tx.clone(),
+            start_time: self.start_time,
+            api_version: self.api_version,
+            enforcement: RwLock::new(self.enforcement()),
+            config: self.config.clone(),
+            config_path: self.config_path.clone(),
         }
     }
 }

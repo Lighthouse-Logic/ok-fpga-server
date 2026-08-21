@@ -114,6 +114,20 @@ impl CountersGrpcClient {
         &self.user_id
     }
 
+    /// Wrap a protobuf message in a `tonic::Request` with `x-user-id` metadata.
+    ///
+    /// All gRPC calls should use this instead of passing bare messages.
+    /// This is the gRPC equivalent of the REST client's `X-User-Id` header,
+    /// required when the server's endpoint enforcement is active (Phase 32).
+    fn req<T>(&self, msg: T) -> tonic::Request<T> {
+        let mut request = tonic::Request::new(msg);
+        request.metadata_mut().insert(
+            "x-user-id",
+            self.user_id.parse().expect("valid user_id"),
+        );
+        request
+    }
+
     // ========================================================================
     // Server & Device
     // ========================================================================
@@ -121,7 +135,7 @@ impl CountersGrpcClient {
     pub async fn get_server_status(&mut self) -> Result<(), ClientError> {
         // DeviceService has GetServerStatus that returns ServerStatus.
         self.device
-            .get_server_status(okfpga::v1::ServerStatusRequest {})
+            .get_server_status(self.req(okfpga::v1::ServerStatusRequest {}))
             .await?;
         Ok(())
     }
@@ -129,7 +143,7 @@ impl CountersGrpcClient {
     pub async fn list_devices(&mut self) -> Result<Vec<DeviceInfo>, ClientError> {
         let resp = self
             .device
-            .list_devices(okfpga::v1::ListDevicesRequest {})
+            .list_devices(self.req(okfpga::v1::ListDevicesRequest {}))
             .await?;
         let devices = resp
             .into_inner()
@@ -150,9 +164,9 @@ impl CountersGrpcClient {
     pub async fn get_device_info(&mut self, serial: &str) -> Result<serde_json::Value, ClientError> {
         let resp = self
             .device
-            .get_device_info(okfpga::v1::DeviceRequest {
+            .get_device_info(self.req(okfpga::v1::DeviceRequest {
                 serial: serial.to_string(),
-            })
+            }))
             .await?;
         let inner = resp.into_inner();
         // Convert to JSON Value for compatibility with the REST client API.
@@ -175,7 +189,7 @@ impl CountersGrpcClient {
     pub async fn list_resources(&mut self) -> Result<Vec<ResourceInfo>, ClientError> {
         let resp = self
             .device
-            .list_resources(okfpga::v1::ListResourcesRequest {})
+            .list_resources(self.req(okfpga::v1::ListResourcesRequest {}))
             .await?;
         let resources = resp
             .into_inner()
@@ -199,11 +213,11 @@ impl CountersGrpcClient {
     /// the server's filesystem.
     pub async fn configure_fpga(&mut self, serial: &str, bitfile: &str) -> Result<(), ClientError> {
         self.device
-            .configure_fpga(okfpga::v1::ConfigureFpgaRequest {
+            .configure_fpga(self.req(okfpga::v1::ConfigureFpgaRequest {
                 serial: serial.to_string(),
                 bitfile_path: bitfile.to_string(),
                 user_id: self.user_id.clone(),
-            })
+            }))
             .await?;
         Ok(())
     }
@@ -228,8 +242,14 @@ impl CountersGrpcClient {
             is_last: true,
             user_id: self.user_id.clone(),
         };
+        // Wrap the stream in a Request with x-user-id metadata (Phase 32).
+        let mut request = tonic::Request::new(tokio_stream::once(chunk));
+        request.metadata_mut().insert(
+            "x-user-id",
+            self.user_id.parse().expect("valid user_id"),
+        );
         self.device
-            .configure_fpga_from_memory(tokio_stream::once(chunk))
+            .configure_fpga_from_memory(request)
             .await?;
         Ok(())
     }
@@ -246,31 +266,31 @@ impl CountersGrpcClient {
         mask: u32,
     ) -> Result<(), ClientError> {
         self.classic
-            .set_wire_in_value(okfpga::v1::SetWireInValueRequest {
+            .set_wire_in_value(self.req(okfpga::v1::SetWireInValueRequest {
                 serial: serial.to_string(),
                 endpoint,
                 value,
                 mask,
                 auto_update: false,
-            })
+            }))
             .await?;
         Ok(())
     }
 
     pub async fn update_wire_ins(&mut self, serial: &str) -> Result<(), ClientError> {
         self.classic
-            .update_wire_ins(okfpga::v1::DeviceRequest {
+            .update_wire_ins(self.req(okfpga::v1::DeviceRequest {
                 serial: serial.to_string(),
-            })
+            }))
             .await?;
         Ok(())
     }
 
     pub async fn update_wire_outs(&mut self, serial: &str) -> Result<(), ClientError> {
         self.classic
-            .update_wire_outs(okfpga::v1::DeviceRequest {
+            .update_wire_outs(self.req(okfpga::v1::DeviceRequest {
                 serial: serial.to_string(),
-            })
+            }))
             .await?;
         Ok(())
     }
@@ -278,10 +298,10 @@ impl CountersGrpcClient {
     pub async fn get_wire_out_value(&mut self, serial: &str, endpoint: i32) -> Result<u32, ClientError> {
         let resp = self
             .classic
-            .get_wire_out_value(okfpga::v1::GetWireValueRequest {
+            .get_wire_out_value(self.req(okfpga::v1::GetWireValueRequest {
                 serial: serial.to_string(),
                 endpoint,
-            })
+            }))
             .await?;
         Ok(resp.into_inner().value)
     }
@@ -293,11 +313,11 @@ impl CountersGrpcClient {
         bit: i32,
     ) -> Result<(), ClientError> {
         self.classic
-            .activate_trigger_in(okfpga::v1::ActivateTriggerInRequest {
+            .activate_trigger_in(self.req(okfpga::v1::ActivateTriggerInRequest {
                 serial: serial.to_string(),
                 endpoint,
                 bit,
-            })
+            }))
             .await?;
         Ok(())
     }
@@ -305,10 +325,10 @@ impl CountersGrpcClient {
     pub async fn get_trigger_out_vector(&mut self, serial: &str, endpoint: i32) -> Result<u32, ClientError> {
         let resp = self
             .classic
-            .get_trigger_out_vector(okfpga::v1::TriggerOutVectorRequest {
+            .get_trigger_out_vector(self.req(okfpga::v1::TriggerOutVectorRequest {
                 serial: serial.to_string(),
                 endpoint,
-            })
+            }))
             .await?;
         // Field is `vector` in the proto, not `value`.
         Ok(resp.into_inner().vector)
@@ -372,24 +392,24 @@ impl CountersGrpcClient {
     pub async fn create_resource(&mut self, name: &str, device_serial: &str) -> Result<ResourceInfo, ClientError> {
         let resp = self
             .device
-            .create_resource(okfpga::v1::CreateResourceRequest {
+            .create_resource(self.req(okfpga::v1::CreateResourceRequest {
                 name: name.to_string(),
                 device_serial: device_serial.to_string(),
                 description: "Counters.bit hardware test resource".to_string(),
                 resource_type: "shared".to_string(),
                 capabilities: vec![],
-            })
+            }))
             .await?;
         Ok(Self::resource_from_response(resp.into_inner()))
     }
 
     pub async fn acquire_resource(&mut self, resource_id: &str) -> Result<(), ClientError> {
         self.device
-            .acquire_resource(okfpga::v1::AcquireResourceRequest {
+            .acquire_resource(self.req(okfpga::v1::AcquireResourceRequest {
                 resource_id: resource_id.to_string(),
                 user_id: self.user_id.clone(),
                 mode: 0, // ACCESS_MODE_SHARED
-            })
+            }))
             .await?;
         Ok(())
     }
@@ -400,21 +420,21 @@ impl CountersGrpcClient {
     /// cannot perform write operations or state-disturbing calls.
     pub async fn acquire_resource_readonly(&mut self, resource_id: &str) -> Result<(), ClientError> {
         self.device
-            .acquire_resource(okfpga::v1::AcquireResourceRequest {
+            .acquire_resource(self.req(okfpga::v1::AcquireResourceRequest {
                 resource_id: resource_id.to_string(),
                 user_id: self.user_id.clone(),
                 mode: 2, // ACCESS_MODE_READ_ONLY
-            })
+            }))
             .await?;
         Ok(())
     }
 
     pub async fn release_resource(&mut self, resource_id: &str) -> Result<(), ClientError> {
         self.device
-            .release_resource(okfpga::v1::ReleaseResourceRequest {
+            .release_resource(self.req(okfpga::v1::ReleaseResourceRequest {
                 resource_id: resource_id.to_string(),
                 user_id: self.user_id.clone(),
-            })
+            }))
             .await?;
         Ok(())
     }
@@ -422,38 +442,38 @@ impl CountersGrpcClient {
     pub async fn get_resource(&mut self, resource_id: &str) -> Result<ResourceInfo, ClientError> {
         let resp = self
             .device
-            .get_resource(okfpga::v1::ResourceRequest {
+            .get_resource(self.req(okfpga::v1::ResourceRequest {
                 resource_id: resource_id.to_string(),
-            })
+            }))
             .await?;
         Ok(Self::resource_from_response(resp.into_inner()))
     }
 
     pub async fn lock_resource(&mut self, resource_id: &str) -> Result<(), ClientError> {
         self.device
-            .lock_resource(okfpga::v1::LockResourceRequest {
+            .lock_resource(self.req(okfpga::v1::LockResourceRequest {
                 resource_id: resource_id.to_string(),
                 user_id: self.user_id.clone(),
-            })
+            }))
             .await?;
         Ok(())
     }
 
     pub async fn unlock_resource(&mut self, resource_id: &str) -> Result<(), ClientError> {
         self.device
-            .unlock_resource(okfpga::v1::LockResourceRequest {
+            .unlock_resource(self.req(okfpga::v1::LockResourceRequest {
                 resource_id: resource_id.to_string(),
                 user_id: self.user_id.clone(),
-            })
+            }))
             .await?;
         Ok(())
     }
 
     pub async fn heartbeat(&mut self) -> Result<(), ClientError> {
         self.device
-            .ping(okfpga::v1::PingRequest {
+            .ping(self.req(okfpga::v1::PingRequest {
                 user_id: self.user_id.clone(),
-            })
+            }))
             .await?;
         Ok(())
     }
@@ -465,9 +485,9 @@ impl CountersGrpcClient {
     /// recommended way to end a client session.
     pub async fn disconnect(&mut self) -> Result<(), ClientError> {
         self.device
-            .disconnect(okfpga::v1::DisconnectRequest {
+            .disconnect(self.req(okfpga::v1::DisconnectRequest {
                 user_id: self.user_id.clone(),
-            })
+            }))
             .await?;
         Ok(())
     }

@@ -902,6 +902,12 @@ async fn mgmt_put_settings(
         cfg.server.description = body.description.clone();
         if let Some(ref enforcement) = new_enforcement {
             cfg.access_control.endpoint_enforcement = enforcement.clone();
+            // Phase 32: Also update the runtime enforcement enum so that
+            // middleware/handlers see the change immediately, without a
+            // server restart.
+            state.app.set_enforcement(
+                crate::state::EndpointEnforcement::from_config(enforcement),
+            );
         }
     }
 
