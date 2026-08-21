@@ -60,7 +60,7 @@
 
 **Status:** 🚧 Planning  
 **Triggered by:** Live testing with multiple GUI clients  
-**Scope:** 2 bugs + 2 features across server + all 8 GUI demos
+**Scope:** 2 bugs + 3 features across server + all 8 GUI demos
 
 #### Bug 34-A: gRPC/REST lock button does not toggle (all iced + egui clients)
 
@@ -147,20 +147,29 @@ The gRPC side already correctly uses `req.user_id` — no gRPC fix needed.
 **ADR impact:** None — this is a bug fix, the existing behavior was never
 documented as intentional.
 
+#### Feature 34-E: Register as Shared or Exclusive (all 8 GUI demos)
+
+All 8 GUI demos hardcode `resource_type: "shared"` in `create_resource()`.
+The single "3. Register" button should become two buttons:
+- "3. Register (Shared)"
+- "Register (Exclusive)"
+
+**Files:** 4 common libraries (`create_resource` gains `resource_type` param),
+8 GUI front-ends (split button).
+
 ---
 
 #### ADR Impact Assessment
 
-| ADR | Change | Reason |
-|-----|--------|--------|
-| None (new) | Consider a lightweight ADR-028 for bitfile metadata model | Adds new fields to `BitfileRecord` and both API specs |
-| OpenAPI spec | Add `file_path`, `md5_hash` to `BitfileRecord` schema | Feature 34-C |
-| Proto spec | Add `file_path`, `md5_hash` to `BitfileInfo` message | Feature 34-C |
+| ADR | Type | Reason |
+|-----|------|--------|
+| ADR-005 | Addendum | `locked_by` added to `Resource`, `filename` to `ConfigureFPGAChunk`, `file_path`/`md5_hash` to `BitfileInfo` |
+| OpenAPI spec | Schema changes | `filename` in configure form, `file_path`/`md5_hash` in `BitfileInfo` |
+| Proto spec | Message changes | Same as above |
 
-> **Note:** Bug 34-A and Bug 34-D are straightforward client/server fixes and
-> do not warrant an ADR. Feature 34-B (SYZYGY dropdown) is a UI change that
-> doesn't modify the API. Feature 34-C (bitfile metadata) extends the API
-> schema and may warrant a brief ADR or amendment to capture the design.
+> **Note:** Bug 34-A and Bug 34-D are straightforward fixes. Features 34-B
+> and 34-E are client-only UI changes. Feature 34-C extends the API schema
+> and is documented via an addendum to ADR-005.
 
 ---
 
