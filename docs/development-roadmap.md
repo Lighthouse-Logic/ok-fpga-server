@@ -41,45 +41,19 @@
 
 | Horizon | Focus Area | ADR | Status |
 |---------|-----------|-----|--------|
-| **(Now) Phase 31** | OS-Native mDNS Service Registration | ADR-027 | 🟢 Active |
 | **Phase 32+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
-## 🟢 Now: Phase 31 — OS-Native mDNS Service Registration (ADR-027)
+## 🟢 Now
 
-*Focus: Replace the embedded `mdns-sd` mDNS responder with OS-native service
-registration via `dns-sd-native`. The current embedded approach creates a
-dual-responder conflict with the OS’s mDNS daemon (Windows: dnscache,
-Linux: avahi-daemon), making server announcements invisible to other devices
-on the network.*
-
-* The server registers `_okfpga._tcp` through the OS daemon that already owns
-  UDP port 5353, eliminating the dual-responder conflict
-* Client-side mDNS browsing (8 GUI demos) remains unchanged — passive
-  multicast listening is unaffected
-* If the OS daemon is absent, fall back to the embedded `mdns-sd` responder
-  (no port conflict in this scenario — it works correctly as the sole mDNS stack)
-* If the OS daemon is present but registration fails, log as error (do not
-  fall back — that would recreate the dual-responder conflict)
-
-* [x] **ADR-027** — OS-Native mDNS Registration (documenting the decision)
-* [x] **ADR-012 addendum** — mark §"Rust Implementation" as superseded
-* [x] **Cargo dependencies** — add `dns-sd-native`, retain `mdns-sd` as fallback
-* [x] **`mdns.rs`** — tiered registration: try OS-native, fall back to `mdns-sd`
-* [x] **Clean shutdown** — store registration handle, deregister in `stop()`
-* [x] **Unit tests** — verify registration, fallback, failure modes, TXT records
-* [x] **A/AAAA record fix (Windows)** — call Win32 `DnsServiceConstructInstance` with `pIp4` so the SRV response includes an A record (dns-sd-native omits it)
-* [x] **A/AAAA record fix (fallback)** — chain `.enable_addr_auto()` on `mdns-sd::ServiceInfo`
-* [x] **Client IPv4 preference** — browsers prefer IPv4 addresses (server binds `0.0.0.0`)
-* [x] **ADR-027 addendum** — document A/AAAA record requirement and fix
-* [ ] **Manual cross-machine test** — avahi-browse sees `_okfpga._tcp`
+*No phase active. Promote a "Next" or "Later" item to start a new phase.*
 
 ---
 
 ## 🟡 Next
 
-*No phase queued. Promote a “Later” item when Phase 31 completes.*
+*No phase queued. Promote a "Later" item to begin new work.*
 
 ---
 
@@ -212,6 +186,7 @@ implementation details, verification steps, and acceptance criteria.
 | 28D | Dashboard Reliability, Expanded Views & SYZYGY Board Catalog | 2026-08-19 | — | [phase 28](archive/roadmap-phases-28.md) |
 | 29 | Developer-Defined Classic Address Mapping | 2026-08-20 | ADR-025 | [phase 29](archive/roadmap-phases-29.md) |
 | 30 | Read-Only Resource Acquisition & Private Data | 2026-08-20 | ADR-026 | [phase 30](archive/roadmap-phases-30.md) |
+| 31 | OS-Native mDNS Service Registration | 2026-08-21 | ADR-027 | [phase 31](archive/roadmap-phases-31.md) |
 
 ---
 

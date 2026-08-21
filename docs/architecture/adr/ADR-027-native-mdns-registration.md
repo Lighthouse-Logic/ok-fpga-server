@@ -199,6 +199,26 @@ order, then failed to connect (server binds `0.0.0.0`, IPv4 only).
 
 **Fix**: Client browsers prefer IPv4 addresses via `.find(|a| a.is_ipv4())`.
 
+### Known Limitation: Service Type Enumeration (RFC 6763 §9)
+
+Windows' `DnsServiceRegister` does **not** register the service type
+enumeration meta-query PTR record:
+
+```
+_services._dns-sd._udp.local.  →  _okfpga._tcp.local.
+```
+
+This means tools that enumerate *all* service types on the network (e.g.,
+the **Avahi Discovery** GUI app, `avahi-browse _services._dns-sd._udp`) will
+not list `_okfpga._tcp` among their results. This is a known limitation of
+Windows' native mDNS stack — Avahi and Bonjour register this meta-query
+automatically, but Windows dnscache does not.
+
+**Impact**: None for production use. All ok-FPGA client browsers query for
+`_okfpga._tcp` directly (not via `_services._dns-sd._udp`), and this works
+correctly. The `avahi-browse -r _okfpga._tcp` command successfully discovers
+the server.
+
 ---
 
 ## Files Changed
