@@ -42,42 +42,39 @@
 | Horizon | Focus Area | ADR | Status |
 |---------|-----------|-----|--------|
 | **Phase 33** | Read-Aware Lock Enforcement | ADR-024, 026 | ✅ Completed |
-| **Phase 34 (Next)** | Client UX & Device Metadata Improvements | ADR-024 (amend) | 🚧 Planning |
+| **Phase 34 (Now)** | Client UX & Device Metadata Improvements | ADR-005 (addendum) | 🚧 In Progress |
 | **Phase 35+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
 ## 🟢 Now
 
-*No phase in progress. Promote a "Next" or "Later" item to begin new work.*
-
-
----
-
-## 🟡 Next
-
 ### Phase 34 — Client UX & Device Metadata Improvements
 
-**Status:** 🚧 Planning  
+**Status:** 🚧 In Progress  
 **Triggered by:** Live testing with multiple GUI clients  
-**Scope:** 2 bugs + 3 features across server + all 8 GUI demos
+**Scope:** 2 bugs + 3 features across server + all 8 GUI demos  
+**Amends:** ADR-005 (addendum), OpenAPI spec, proto spec
 
-#### Bug 34-A: gRPC/REST lock button does not toggle (all iced + egui clients)
+#### Bug 34-A: gRPC lock button does not toggle (gRPC clients only)
 
-The `LockResult` message handler in the Rust iced (and likely egui) clients
-only logs success/failure — it does NOT trigger a resource info refresh. The
-lock button state depends on `resource_info.locked_by`, which is only updated
-on the next `PollResult` cycle. If the poll interval is long, the button
-appears stuck.
+**Root cause:** The proto `Resource` message has no `locked_by` field. The
+gRPC client libraries hardcode `locked_by: None` in `resource_from_response()`
+because there is nothing to read from the proto response. The lock button UI
+reads `locked_by` to decide its label — since it is always `None` on the
+gRPC side, the button never toggles.
 
-The Python GUI clients (tkinter + DearPyGui) may have the same issue. All 8
-GUI frontends must be audited.
+The REST clients are **not affected** — the REST JSON response includes
+`locked_by` and the button works correctly.
 
-**Fix:** On `LockResult(Ok(()))`, immediately trigger a resource info fetch
-(or optimistically set `locked_by` to `USER_ID` for lock / `None` for unlock)
-so the button toggles instantly.
+**Affected clients:** All 4 gRPC GUI demos (Rust iced, Rust egui, Python
+tkinter, Python DearPyGui) and their 2 common libraries.
 
-**Files:** All 8 GUI front-ends + their 4 common libraries.
+**Fix:**
+- Add `string locked_by = 8` to the proto `Resource` message
+- Server: populate `locked_by` in all gRPC `Resource` response builders
+- Rust gRPC common: read `r.locked_by` instead of hardcoding `None`
+- Python gRPC common: read `r.locked_by` instead of hardcoding `None`
 
 #### Feature 34-B: SYZYGY peripherals in device dropdown (all 8 GUI demos)
 
@@ -93,59 +90,55 @@ Format per port: `{port_index}: {product_name}` — if `product_model` differs
 from `product_name`, append `({product_model})`. Skip non-existent/unpopulated
 ports.
 
-**Design consideration:** On boards like XEM8320 with 6 SYZYGY ports, the
-string may be very long. If the `pick_list` / `Combobox` control auto-wraps,
-this is acceptable. Otherwise consider:
-- Truncating after 2–3 peripherals with `+N more`
-- Using a tooltip for the full list
-- Showing SYZYGY info in a separate label below the dropdown
+**Approach:** Option A — fetch SYZYGY at device-list time. After
+`list_devices()` returns, the common library fetches SYZYGY ports for each
+device and stores them in `DeviceInfo`. A shared `device_display_label()`
+helper formats the dropdown label.
 
-**Requires:** Each client must call the SYZYGY endpoint
-(`GET /devices/{serial}/syzygy` or `GetSyzygyPorts` RPC) per-device after
-listing devices, and format the result into the dropdown label.
-
-**Files:** 4 common libraries (data model + SYZYGY fetch), 8 GUI front-ends
-(dropdown formatting).
+**Files:** 4 common libraries (data model + SYZYGY fetch + label formatter),
+8 GUI front-ends (use formatter in device picker).
 
 #### Feature 34-C: Bitfile path, filename, and MD5 hash in device info
 
 When the device panel shows a programmed device (expanded), it should display:
-- The filename of the programmed bitfile (currently hardcoded `"uploaded"` in
-  REST, but correct in gRPC)
+- The filename of the programmed bitfile
 - The full path (for server-path mode)
 - An MD5 hash of the bitfile content
 
-**Server changes:**
-- `BitfileRecord` in `ok-fpga-core/src/device.rs` needs new fields:
-  `file_path: Option<String>`, `md5_hash: Option<String>`
-- REST `configure_fpga()`: Extract filename from `bitfile_path` (JSON mode) or
-  from multipart `Content-Disposition` header (upload mode). Compute MD5 on
-  the bitfile content (path → read file, upload → hash the Bytes).
-- gRPC `ConfigureFpga()`: Same — extract filename from request fields, compute
-  MD5.
+**Core struct:** `BitfileRecord` gains `file_path: Option<String>` and
+`md5_hash: Option<String>`.
 
-**Dashboard:** The web dashboard (`web/app.js`) already renders `d.bitfile` —
-add `filename`, `file_path`, and `md5_hash` to the expanded device panel.
+**Server-path mode** (JSON `{"bitfile_path": "..."}`):
+- `filename` = basename of the path
+- `file_path` = full path as provided
+- `md5_hash` = compute from reading the file
 
-**Client demos:** The 8 GUI demos show bitfile info when expanded — update to
-display the new fields if present.
+**Binary upload mode** (client-side bitfile):
+- Add a `filename` field to the REST multipart form and to the gRPC
+  `ConfigureFPGAChunk` message so clients can supply the original filename
+  alongside the binary data. If omitted, fall back to `"uploaded"`.
+- `file_path` = `None`
+- `md5_hash` = compute from received bytes
 
-**Spec impact:** `BitfileRecord` is returned in `GET /devices/{serial}` and
-`GetDeviceInfo` RPC. The OpenAPI spec and proto spec need the new fields.
+**Spec changes:**
+- OpenAPI: add `filename` to configure multipart form, add `file_path` and
+  `md5_hash` to `BitfileInfo` schema
+- Proto: add `filename` to `ConfigureFPGAChunk`, add `file_path` and
+  `md5_hash` to `BitfileInfo` message
+
+**Dashboard:** `web/app.js` — display `file_path` and `md5_hash` in the
+expanded device bitfile panel.
 
 #### Bug 34-D: "Programmed by: api" instead of actual user (REST only)
 
-The REST `configure_fpga()` handler hardcodes `programmed_by: "api"` (line 775
-of `rest/devices.rs`). It should extract `X-User-Id` from the request headers,
-falling back to `"Unknown"` if absent.
+The REST `configure_fpga()` handler hardcodes `programmed_by: "api"`. It
+should extract `X-User-Id` from the request headers, falling back to
+`"Unknown"` if absent. The gRPC side already works correctly.
 
-The gRPC side already correctly uses `req.user_id` — no gRPC fix needed.
+Also: `filename` is hardcoded to `"uploaded"` even for server-path mode where
+the actual path is known. Fixed as part of 34-C.
 
-**Files:**
-- `ok-fpga-server/src/rest/devices.rs` (configure_fpga handler)
-
-**ADR impact:** None — this is a bug fix, the existing behavior was never
-documented as intentional.
+**Files:** `ok-fpga-server/src/rest/devices.rs` (configure_fpga handler)
 
 #### Feature 34-E: Register as Shared or Exclusive (all 8 GUI demos)
 
@@ -171,7 +164,12 @@ The single "3. Register" button should become two buttons:
 > and 34-E are client-only UI changes. Feature 34-C extends the API schema
 > and is documented via an addendum to ADR-005.
 
+
 ---
+
+## 🟡 Next
+
+*No phase queued. Promote a "Later" item to begin new work.*
 
 ## 🔵 Later: Future Horizons
 
