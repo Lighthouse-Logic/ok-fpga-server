@@ -54,7 +54,7 @@
 **Triggered by:** Live testing with Shared + ReadOnly holders during lock  
 **Amends:** ADR-024 §6 (Lock Enforcement), ADR-026 §5 (ReadOnly lock bypass)
 
-Three items, discovered through live two-client testing:
+Two bugs discovered through live two-client testing:
 
 1. **Bug — ReadOnly holders blocked from reads during lock (ADR-026 violation):**
    ADR-026 §5 explicitly states *"ReadOnly holders are not blocked by the
@@ -72,12 +72,9 @@ Three items, discovered through live two-client testing:
    GetTriggerOutVector, PipeOut, BtPipeOut, AXI/register reads) should remain
    accessible to all holders, even when locked.
 
-3. **Design change — Exclusive resources are effectively always-private:**
-   A resource whose `access_mode` is `Exclusive` should not be readable or
-   writable by anyone other than the sole holder. Since Exclusive resources
-   are always locked and only one user can hold them, they are inherently
-   opaque. ReadOnly acquisition of an Exclusive resource should be denied
-   (equivalent to `private: true`).
+**Note:** Exclusive resources are **always-locked**, not **always-private**.
+ReadOnly observers can join an Exclusive resource (ADR-026 §4) unless the
+developer explicitly marks it `private: true` at registration time.
 
 **Root cause:** The lock check in `ok-fpga-core/src/resource.rs` L1548-1560
 is not read/write-aware — it unconditionally `continue`s (skips) any resource
@@ -87,9 +84,8 @@ locked by another user regardless of operation type or holder mode.
 - Core: `ok-fpga-core/src/resource.rs`
   - `check_endpoint_access()` — make lock check read/write-aware using `ep_type.is_input()`
   - `check_address_access()` — same lock logic for address-based operations
-  - `can_acquire()` — deny ReadOnly on Exclusive resources
 - Docs: `ADR-024-endpoint-access-enforcement.md` §6 — amend: lock blocks writes only
-- Docs: `ADR-026-readonly-acquisition.md` §4 — note Exclusive=always-private
+- Docs: `ADR-026-readonly-acquisition.md` — note lock bypass now implemented
 - Tests: new unit tests for each combination in the interaction matrix
 
 
