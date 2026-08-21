@@ -2629,3 +2629,22 @@
 2026-08-20T11:35:38.073970Z  INFO ok_fpga_server::grpc::device_service: GetDeviceSettings: returned settings serial=22520013CC count=18
 2026-08-20T11:35:38.113172Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
 2026-08-20T11:35:38.117945Z  WARN ok_fpga_server::grpc::device_service: GetDeviceSensors: requires FFI — returning empty serial=22520013CC
+2026-08-20T12:02:09.557403Z  INFO ok_fpga_server::rest::server: User disconnected via POST /disconnect user_id=Icy Rester released_count=1
+2026-08-20T12:02:12.953686Z  INFO ok_fpga_server::grpc::device_service: User disconnected via gRPC Disconnect user_id=Icy Garpac released_count=1
+2026-08-20T12:02:16.008472Z  INFO ok_fpga_server: FPGA device disconnected (hot-unplug detected by polling) serial=22520013CC
+2026-08-20T12:02:16.008831Z  INFO ok_fpga_server::handle_pool: device handle closed and removed from pool serial=22520013CC
+2026-08-20T21:31:02.793005Z  INFO ok_fpga_server: FPGA device connected (hot-plug detected by polling) serial=22520013CC product=XEM7320-A75T interface=USB 3.0
+2026-08-20T21:31:02.944658Z  INFO ok_fpga_server::handle_pool: device handle opened and added to pool serial=22520013CC
+2026-08-21T08:36:15.630237Z  INFO ok_fpga_server: shutdown signal received
+2026-08-21T08:36:15.630789Z  INFO ok_fpga_core::service_manager: stopping service service=mdns
+2026-08-21T08:36:15.630918Z  INFO ok_fpga_server::mdns: mDNS discovery service stopped
+2026-08-21T08:36:15.631095Z  INFO ok_fpga_core::service_manager: service stopped service=mdns
+2026-08-21T08:36:15.631273Z  INFO ok_fpga_core::service_manager: stopping service service=grpc
+2026-08-21T08:36:15.631933Z  INFO ok_fpga_server::grpc: gRPC server stopped
+2026-08-21T08:36:15.834631Z  INFO ok_fpga_server::grpc::managed: gRPC server stopped
+2026-08-21T08:36:15.834773Z  INFO ok_fpga_core::service_manager: service stopped service=grpc
+2026-08-21T08:36:15.834902Z  INFO ok_fpga_core::service_manager: stopping service service=rest
+2026-08-21T08:36:16.037891Z  INFO ok_fpga_server::rest::managed: REST server stopped
+2026-08-21T08:36:16.038060Z  INFO ok_fpga_core::service_manager: service stopped service=rest
+2026-08-21T08:36:16.038262Z  INFO ok_fpga_core::service_manager: all services stopped
+2026-08-21T08:36:16.038842Z  INFO ok_fpga_server: ok-FPGA-Server shut down cleanly.

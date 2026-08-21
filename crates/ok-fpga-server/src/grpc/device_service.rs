@@ -62,6 +62,7 @@ impl DeviceServiceImpl {
             device_serial: r.device_serial.clone(),
             state,
             holders: r.holder_ids().iter().map(|s| s.to_string()).collect(),
+            private: r.private,
         }
     }
 }
