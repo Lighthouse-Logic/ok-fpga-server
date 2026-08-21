@@ -69,9 +69,9 @@ on the network.*
 * [x] **`mdns.rs`** — tiered registration: try OS-native, fall back to `mdns-sd`
 * [x] **Clean shutdown** — store registration handle, deregister in `stop()`
 * [x] **Unit tests** — verify registration, fallback, failure modes, TXT records
-* [ ] **A/AAAA record fix (Windows)** — call Win32 `DnsServiceConstructInstance` with `pIp4` so the SRV response includes an A record (dns-sd-native omits it)
-* [ ] **A/AAAA record fix (fallback)** — chain `.enable_addr_auto()` on `mdns-sd::ServiceInfo`
-* [ ] **Client IPv4 preference** — browsers prefer IPv4 addresses (server binds `0.0.0.0`)
+* [x] **A/AAAA record fix (Windows)** — call Win32 `DnsServiceConstructInstance` with `pIp4` so the SRV response includes an A record (dns-sd-native omits it)
+* [x] **A/AAAA record fix (fallback)** — chain `.enable_addr_auto()` on `mdns-sd::ServiceInfo`
+* [x] **Client IPv4 preference** — browsers prefer IPv4 addresses (server binds `0.0.0.0`)
 * [x] **ADR-027 addendum** — document A/AAAA record requirement and fix
 * [ ] **Manual cross-machine test** — avahi-browse sees `_okfpga._tcp`
 
