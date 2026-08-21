@@ -41,13 +41,46 @@
 
 | Horizon | Focus Area | ADR | Status |
 |---------|-----------|-----|--------|
-| **Phase 32+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
+| **Phase 33 (Now)** | Read-Aware Lock Enforcement | ADR-024, 026 | 🚧 Planning |
+| **Phase 34+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
 ## 🟢 Now
 
-*No phase active. Promote a "Next" or "Later" item to start a new phase.*
+### Phase 33 — Read-Aware Lock Enforcement
+
+**Status:** 🚧 Planning  
+**Triggered by:** Live testing with Shared + ReadOnly holders during lock  
+**Amends:** ADR-024 §6 (Lock Enforcement), ADR-026 §5 (ReadOnly lock bypass)
+
+Two issues found when client 1 (Shared holder) locks a resource:
+
+1. **Bug — ReadOnly holders blocked from reads during lock (ADR-026 violation):**
+   ADR-026 §5 explicitly states *"ReadOnly holders are not blocked by the
+   'locked by other' check for read operations."* But `check_endpoint_access()`
+   in `resource.rs` unconditionally skips locked resources without checking
+   the holder's access mode. ReadOnly holders get `AccessDenied` on output
+   endpoints (WireOut, TriggerOut) when the resource is locked by another user.
+
+2. **Design change — Shared holders should read during lock (ADR-024 §6 amendment):**
+   ADR-024 §6 currently says locking blocks ALL operations from other holders.
+   The expected behavior is that locking should only block **write** operations
+   (WireIn, TriggerIn, PipeIn, BtPipeIn, AXI writes) from other holders.
+   **Read** operations (WireOut, TriggerOut, PipeOut, BtPipeOut,
+   UpdateWireOuts, UpdateTriggerOuts, AXI reads) should remain accessible to
+   all holders of a non-private resource, even when locked.
+
+**Root cause:** The lock check in `ok-fpga-core/src/resource.rs` L1548-1560
+needs to become read/write-aware. Currently it unconditionally `continue`s
+(skips) any resource locked by another user, regardless of the operation type
+or the holder's access mode.
+
+**Files to modify:**
+- Core: `ok-fpga-core/src/resource.rs` — lock check in `check_endpoint_access()`
+  and `check_address_access()`
+- Docs: `ADR-024-endpoint-access-enforcement.md` §6 — amend lock semantics
+- Docs: `ADR-026-readonly-acquisition.md` — add note about lock bypass implementation
 
 
 ---
