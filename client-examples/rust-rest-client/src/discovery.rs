@@ -37,20 +37,45 @@ pub struct DiscoveredServer {
 }
 
 impl DiscoveredServer {
-    /// Get the REST API base URL (e.g., "http://192.168.1.10:8088").
-    /// Returns None if REST is not available.
-    pub fn rest_url(&self) -> Option<String> {
-        let port = self.rest_port?;
-        let addr = self.addresses.first()?;
-        Some(format!("http://{}:{}", addr, port))
+    /// Pick the best address from the resolved set.
+    ///
+    /// Prefers IPv4 because IPv6 link-local addresses (`fe80::…`) require
+    /// a zone ID (`%iface`) that most HTTP/gRPC clients don't support.
+    /// If only IPv6 is available, it is still returned — callers must
+    /// bracket it in URLs per RFC 2732.
+    fn preferred_addr(&self) -> Option<&std::net::IpAddr> {
+        // Try IPv4 first.
+        self.addresses.iter().find(|a| a.is_ipv4())
+            .or_else(|| self.addresses.first())
     }
 
-    /// Get the gRPC endpoint (e.g., "http://192.168.1.10:50051").
-    /// Returns None if gRPC is not available.
+    /// Format an IP address for use in a URL.
+    ///
+    /// IPv4 addresses are returned as-is (e.g., `192.168.1.10`).
+    /// IPv6 addresses are wrapped in brackets per RFC 2732
+    /// (e.g., `[fe80::1]`) so the URL parser can distinguish
+    /// the address from the port number.
+    fn format_addr(addr: &std::net::IpAddr) -> String {
+        match addr {
+            std::net::IpAddr::V4(v4) => v4.to_string(),
+            std::net::IpAddr::V6(v6) => format!("[{}]", v6),
+        }
+    }
+
+    /// Get the REST API base URL (e.g., `http://192.168.1.10:8088`).
+    /// Returns None if REST is not available or no addresses were resolved.
+    pub fn rest_url(&self) -> Option<String> {
+        let port = self.rest_port?;
+        let addr = self.preferred_addr()?;
+        Some(format!("http://{}:{}", Self::format_addr(addr), port))
+    }
+
+    /// Get the gRPC endpoint (e.g., `http://192.168.1.10:50051`).
+    /// Returns None if gRPC is not available or no addresses were resolved.
     pub fn grpc_url(&self) -> Option<String> {
         let port = self.grpc_port?;
-        let addr = self.addresses.first()?;
-        Some(format!("http://{}:{}", addr, port))
+        let addr = self.preferred_addr()?;
+        Some(format!("http://{}:{}", Self::format_addr(addr), port))
     }
 }
 

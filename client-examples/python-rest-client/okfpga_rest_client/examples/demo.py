@@ -16,6 +16,12 @@ from okfpga_rest_client.client import OkFpgaRestClient
 from okfpga_rest_client.discovery import discover_servers
 from okfpga_rest_client.mqtt_status import MqttConfig, MqttPublisher
 
+# Phase 35-B: Reconfigure stdout for UTF-8 on Windows to avoid
+# UnicodeEncodeError when printing box-drawing characters (━, ╔, etc.)
+# on the default cp1252 console.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
