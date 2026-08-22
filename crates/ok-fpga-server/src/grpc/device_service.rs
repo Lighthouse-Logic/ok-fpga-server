@@ -609,7 +609,7 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
                     description: None,
                     programmed_at: now,
                     programmed_by: req.user_id.clone(),
-                    file_path: Some(file_path_str),
+                    file_path: Some(file_path_str.clone()),
                     md5_hash: md5_hash.clone(),
                 },
             },
