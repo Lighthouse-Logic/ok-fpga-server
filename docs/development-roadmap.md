@@ -156,6 +156,7 @@ The single "3. Register" button should become two buttons:
 
 | ADR | Type | Reason |
 |-----|------|--------|
+| ADR-004 | Addendum | OpenAPI spec gains `filename` in configure form, `file_path`/`md5_hash` in `BitfileInfo` |
 | ADR-005 | Addendum | `locked_by` added to `Resource`, `filename` to `ConfigureFPGAChunk`, `file_path`/`md5_hash` to `BitfileInfo` |
 | OpenAPI spec | Schema changes | `filename` in configure form, `file_path`/`md5_hash` in `BitfileInfo` |
 | Proto spec | Message changes | Same as above |

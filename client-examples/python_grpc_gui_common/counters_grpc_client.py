@@ -224,16 +224,19 @@ class CountersGrpcClient:
 
     def _resource_from_response(self, resp) -> ResourceInfo:
         r = resp.resource if hasattr(resp, 'resource') else resp
+        # Phase 34-A: Read locked_by from proto (empty string → None).
+        locked_by = r.locked_by if r.locked_by else None
         return ResourceInfo(
             id=r.id, name=r.name, device_serial=r.device_serial,
-            access_mode="shared", holders=list(r.holders), locked_by=None,
+            access_mode="shared", holders=list(r.holders), locked_by=locked_by,
         )
 
-    def create_resource(self, name: str, device_serial: str) -> ResourceInfo:
+    def create_resource(self, name: str, device_serial: str, resource_type: str = "shared") -> ResourceInfo:
+        """Phase 34-E: resource_type can be 'shared' or 'exclusive'."""
         resp = self.device_stub.CreateResource(okfpga_pb2.CreateResourceRequest(
             name=name, device_serial=device_serial,
             description="Counters.bit hardware test resource",
-            resource_type="shared", capabilities=[]),
+            resource_type=resource_type, capabilities=[]),
             metadata=self._metadata)
         return self._resource_from_response(resp)
 

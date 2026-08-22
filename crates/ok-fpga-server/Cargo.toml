@@ -123,6 +123,7 @@ mdns-sd = { version = "0.13", optional = true }
 # (ADR-027 addendum: dns-sd-native omits them, Windows dnscache requires
 # explicit pIp4 to include A records).
 local-ip-address = { version = "0.6", optional = true }
+md5 = "0.8.1"
 
 # ============================================================================
 # Platform-Specific Dependencies

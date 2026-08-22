@@ -452,15 +452,18 @@ impl CountersClient {
     // ========================================================================
 
     /// `POST /resources` — Create a new shared Counter Resource.
+    /// Phase 34-E: `resource_type` parameter allows the caller to choose
+    /// "shared" or "exclusive" when creating a resource.
     pub async fn create_resource(
         &self,
         name: &str,
         device_serial: &str,
+        resource_type: &str,
     ) -> Result<ResourceInfo, ClientError> {
         let body = serde_json::json!({
             "name": name,
             "device_serial": device_serial,
-            "access_mode": "shared",
+            "access_mode": resource_type,
             "description": "Counters.bit hardware test resource",
         });
         let val = self.post("/resources", Some(body)).await?;
@@ -468,7 +471,7 @@ impl CountersClient {
             id: String::new(),
             name: name.to_string(),
             device_serial: device_serial.to_string(),
-            access_mode: "shared".to_string(),
+            access_mode: resource_type.to_string(),
             holders: vec![],
             locked_by: None,
         });

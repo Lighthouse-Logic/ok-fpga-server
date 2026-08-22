@@ -279,10 +279,17 @@ async function fetchDevices() {
             // Bitfile detail (shown in expanded row).
             let bitfileHtml = '<span class="text-muted">Not programmed</span>';
             if (d.is_programmed && d.bitfile) {
+                // Phase 34-C: Show file_path and md5_hash if available.
+                const pathLine = d.bitfile.file_path
+                    ? `<br><small>Path: ${escapeHtml(d.bitfile.file_path)}</small>`
+                    : '';
+                const hashLine = d.bitfile.md5_hash
+                    ? `<br><small>MD5: <code>${escapeHtml(d.bitfile.md5_hash)}</code></small>`
+                    : '';
                 bitfileHtml = `
                     <strong>${escapeHtml(d.bitfile.filename)}</strong><br>
                     <span class="text-muted">${escapeHtml(d.bitfile.description || '—')}</span><br>
-                    <small>Programmed by: ${escapeHtml(d.bitfile.programmed_by)} at ${escapeHtml(d.bitfile.programmed_at)}</small>`;
+                    <small>Programmed by: ${escapeHtml(d.bitfile.programmed_by)} at ${escapeHtml(d.bitfile.programmed_at)}</small>${pathLine}${hashLine}`;
             }
 
             // Larger image for expanded row.

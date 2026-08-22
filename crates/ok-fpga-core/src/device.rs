@@ -280,9 +280,18 @@ pub struct DeviceInfo {
 ///
 /// When a user calls `ConfigureFPGA` (REST or gRPC), the server creates a
 /// `BitfileRecord` to track what bitfile is currently loaded and who loaded it.
+///
+/// ## Phase 34-C Fields
+///
+/// `file_path` and `md5_hash` were added in Phase 34 to provide richer
+/// bitfile metadata in the dashboard and client GUIs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BitfileRecord {
     /// The filename of the bitfile (e.g., "design_top.bit").
+    ///
+    /// For server-path mode this is the basename of the path.
+    /// For binary upload mode this is the client-supplied filename,
+    /// or "uploaded" if the client did not provide one.
     pub filename: String,
 
     /// Optional human-readable description.
@@ -292,7 +301,22 @@ pub struct BitfileRecord {
     pub programmed_at: DateTime<Utc>,
 
     /// Which user programmed this bitfile (user ID string).
+    /// Falls back to "Unknown" if no user identity was provided.
     pub programmed_by: String,
+
+    /// Full path to the bitfile on the server filesystem.
+    ///
+    /// Present only for server-path mode (`{"bitfile_path": "..."}`).
+    /// `None` for binary upload mode where the client streams the data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_path: Option<String>,
+
+    /// MD5 hash of the bitfile content, hex-encoded (32 characters).
+    ///
+    /// Computed from the file bytes (server-path) or the received
+    /// binary stream (upload mode). `None` if hashing was not possible.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub md5_hash: Option<String>,
 }
 
 // ============================================================================
@@ -531,6 +555,8 @@ mod tests {
                 description: Some("Test bitfile".to_string()),
                 programmed_at: Utc::now(),
                 programmed_by: "alice".to_string(),
+                file_path: None,
+                md5_hash: None,
             },
         };
         assert!(device.is_programmed());

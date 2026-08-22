@@ -3337,3 +3337,17 @@
 2026-08-21T23:11:56.889441Z  INFO ok_fpga_server::handle_pool: Classic data port acquired
 2026-08-21T23:11:56.889610Z  INFO ok_fpga_server::handle_pool: AXI data port not available (this is OK for Classic-only bitfiles) error_code=-15
 2026-08-21T23:16:40.645971Z  INFO ok_fpga_server::grpc::device_service: User disconnected via gRPC Disconnect user_id=Icy Garpac released_count=1
+2026-08-22T00:14:25.222994Z  INFO ok_fpga_server: shutdown signal received
+2026-08-22T00:14:25.223280Z  INFO ok_fpga_core::service_manager: stopping service service=mdns
+2026-08-22T00:14:25.223542Z  INFO ok_fpga_server::mdns: Deregistering mDNS service (OS-native)
+2026-08-22T00:14:25.223781Z  INFO ok_fpga_server::mdns: mDNS discovery service stopped
+2026-08-22T00:14:25.224007Z  INFO ok_fpga_core::service_manager: service stopped service=mdns
+2026-08-22T00:14:25.224348Z  INFO ok_fpga_core::service_manager: stopping service service=grpc
+2026-08-22T00:14:25.224868Z  INFO ok_fpga_server::grpc: gRPC server stopped
+2026-08-22T00:14:25.425171Z  INFO ok_fpga_server::grpc::managed: gRPC server stopped
+2026-08-22T00:14:25.425292Z  INFO ok_fpga_core::service_manager: service stopped service=grpc
+2026-08-22T00:14:25.425394Z  INFO ok_fpga_core::service_manager: stopping service service=rest
+2026-08-22T00:14:25.635001Z  INFO ok_fpga_server::rest::managed: REST server stopped
+2026-08-22T00:14:25.635230Z  INFO ok_fpga_core::service_manager: service stopped service=rest
+2026-08-22T00:14:25.635394Z  INFO ok_fpga_core::service_manager: all services stopped
+2026-08-22T00:14:25.635538Z  INFO ok_fpga_server: ok-FPGA-Server shut down cleanly.

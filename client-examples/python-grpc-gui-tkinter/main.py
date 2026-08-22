@@ -122,8 +122,10 @@ class CountersApp:
         ttk.Radiobutton(mode_row, text="Local File", variable=self.bitfile_mode, value="local_file").pack(side=tk.LEFT, padx=4)
         self.program_btn = ttk.Button(f, text="2. Program Bitfile", command=self._on_program, state=tk.DISABLED)
         self.program_btn.pack(anchor=tk.W, pady=2)
-        self.register_btn = ttk.Button(f, text="3. Register Resource", command=self._on_register, state=tk.DISABLED)
-        self.register_btn.pack(anchor=tk.W, pady=2)
+        self.register_btn = ttk.Button(f, text="3. Register (Shared)", command=lambda: self._on_register("shared"), state=tk.DISABLED)
+        self.register_btn.pack(anchor=tk.W, pady=2, side=tk.LEFT)
+        self.register_excl_btn = ttk.Button(f, text="Register (Exclusive)", command=lambda: self._on_register("exclusive"), state=tk.DISABLED)
+        self.register_excl_btn.pack(anchor=tk.W, pady=2, side=tk.LEFT, padx=4)
         self.acquire_btn = ttk.Button(f, text="4. Acquire (Shared)", command=self._on_acquire, state=tk.DISABLED)
         self.acquire_btn.pack(anchor=tk.W, pady=2, side=tk.LEFT)
         self.acquire_ro_btn = ttk.Button(f, text="Acquire R/O", command=self._on_acquire_readonly, state=tk.DISABLED)
@@ -227,6 +229,7 @@ class CountersApp:
                     self.phase = "registered"
                     self.program_btn.config(text="2. ✓", state=tk.DISABLED)
                     self.register_btn.config(text="3. ✓", state=tk.DISABLED)
+                    self.register_excl_btn.config(state=tk.DISABLED)
                     self.acquire_btn.config(state=tk.NORMAL)
                     self.acquire_ro_btn.config(state=tk.NORMAL)
                 elif is_programmed:
@@ -234,6 +237,7 @@ class CountersApp:
                     self.phase = "programmed"
                     self.program_btn.config(text="2. ✓", state=tk.DISABLED)
                     self.register_btn.config(state=tk.NORMAL)
+                    self.register_excl_btn.config(state=tk.NORMAL)
             except Exception as e:
                 self._log(f"Could not check device state: {e}")
 
@@ -282,15 +286,16 @@ class CountersApp:
             else:
                 self.client.configure_fpga(serial, bitfile)
             self._log(f"Programmed ({mode})"); self.program_btn.config(text="2. ✓", state=tk.DISABLED)
-            self.register_btn.config(state=tk.NORMAL); self.phase = "programmed"
+            self.register_btn.config(state=tk.NORMAL); self.register_excl_btn.config(state=tk.NORMAL); self.phase = "programmed"
         except Exception as e:
             self._log_err(f"Program: {e}")
 
-    def _on_register(self):
+    def _on_register(self, resource_type="shared"):
         try:
-            info = self.client.create_resource("Counter Resource", self.selected_serial.get())
+            info = self.client.create_resource("Counter Resource", self.selected_serial.get(), resource_type)
             self.resource_id = info.id; self._log(f"Registered: {info.id}")
             self.register_btn.config(text="3. ✓", state=tk.DISABLED)
+            self.register_excl_btn.config(state=tk.DISABLED)
             self.acquire_btn.config(state=tk.NORMAL); self.acquire_ro_btn.config(state=tk.NORMAL); self.phase = "registered"
         except Exception as e:
             err_str = str(e)
@@ -305,6 +310,7 @@ class CountersApp:
                         self._log(f"Found existing: {existing.id}")
                         self.resource_id = existing.id
                         self.register_btn.config(text="3. ✓", state=tk.DISABLED)
+                        self.register_excl_btn.config(state=tk.DISABLED)
                         self.acquire_btn.config(state=tk.NORMAL)
                         self.acquire_ro_btn.config(state=tk.NORMAL)
                         self.phase = "registered"

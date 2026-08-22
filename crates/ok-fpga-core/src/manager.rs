@@ -421,6 +421,8 @@ mod tests {
                     description: None,
                     programmed_at: Utc::now(),
                     programmed_by: "test".to_string(),
+                    file_path: None,
+                    md5_hash: None,
                 },
             },
         ));

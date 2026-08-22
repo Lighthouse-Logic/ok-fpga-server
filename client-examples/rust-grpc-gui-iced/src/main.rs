@@ -149,7 +149,7 @@ pub enum Message {
     ConnectPressed, ConnectResult(Result<Vec<DeviceInfo>, String>),
     SelectDevice(String),
     ProgramPressed, ProgramResult(Result<(), String>),
-    RegisterPressed, RegisterResult(Result<ResourceInfo, String>),
+    RegisterSharedPressed, RegisterExclusivePressed, RegisterResult(Result<ResourceInfo, String>),
     AcquirePressed, AcquireReadOnlyPressed, AcquireResult(Result<(), String>),
     SetReset1(bool), SetDisable1(bool), SetAutocount2(bool), WireInResult(Result<(), String>),
     CountUp, CountDown, ResetCounter2, TriggerResult(Result<(), String>),
@@ -220,11 +220,13 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             }, Message::ProgramResult)
         }
         Message::ProgramResult(r) => { match r { Ok(()) => { state.log("Programmed"); state.phase = Phase::Programmed; } Err(e) => state.log_err(&e) } Task::none() }
-        Message::RegisterPressed => {
+        Message::RegisterSharedPressed | Message::RegisterExclusivePressed => {
+            let resource_type = if matches!(message, Message::RegisterExclusivePressed) { "exclusive" } else { "shared" };
             let url = state.grpc_url.clone(); let s = state.serial();
+            let rt = resource_type.to_string();
             Task::perform(async move {
                 let mut c = connect(&url).await?;
-                c.create_resource("Counter Resource", &s).await.map_err(|e| e.to_string())
+                c.create_resource("Counter Resource", &s, &rt).await.map_err(|e| e.to_string())
             }, Message::RegisterResult)
         }
         Message::RegisterResult(r) => {
@@ -468,7 +470,8 @@ fn view_connect(s: &AppState) -> Element<'_, Message> {
     let prog = if s.phase >= Phase::Programmed { button("2. Program ✓") }
         else if s.phase == Phase::Connected && s.selected_serial.is_some() { button("2. Program").on_press(Message::ProgramPressed) }
         else { button("2. Program") };
-    let reg = if s.phase >= Phase::Registered { button("3. Register ✓") } else if s.phase == Phase::Programmed { button("3. Register").on_press(Message::RegisterPressed) } else { button("3. Register") };
+    let reg = if s.phase >= Phase::Registered { button("3. Register ✓") } else if s.phase == Phase::Programmed { button("3. Register (Shared)").on_press(Message::RegisterSharedPressed) } else { button("3. Register (Shared)") };
+    let reg_excl = if s.phase >= Phase::Registered { button("Exclusive") } else if s.phase == Phase::Programmed { button("Register (Exclusive)").on_press(Message::RegisterExclusivePressed) } else { button("Register (Exclusive)") };
     let acq = if s.phase >= Phase::Acquired {
         let mode = if s.acquired_readonly { "R/O" } else { "Shared" };
         button(text(format!("4. Acquire ({}) ✓", mode)))
@@ -516,6 +519,8 @@ fn view_connect(s: &AppState) -> Element<'_, Message> {
         text("").into()
     };
 
+    let reg_row: Element<Message> = row![reg, reg_excl].spacing(8).into();
+
     column![
         disconnect_msg,
         mdns_section,
@@ -523,7 +528,7 @@ fn view_connect(s: &AppState) -> Element<'_, Message> {
         con, device_picker,
         row![text("Bitfile:").width(100), text_input("path", &s.bitfile_path).on_input(Message::BitfileChanged)].spacing(8),
         mode_row,
-        prog, reg, acq_row,
+        prog, reg_row, acq_row,
     ].spacing(8).into()
 }
 

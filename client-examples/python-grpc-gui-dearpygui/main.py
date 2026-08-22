@@ -93,7 +93,8 @@ class CountersApp:
                     dpg.add_radio_button(["Server Path", "Local File"], tag="bitfile_mode",
                                           default_value="Server Path", horizontal=True)
                 dpg.add_button(label="2. Program", tag="program_btn", callback=self._on_program, enabled=False)
-                dpg.add_button(label="3. Register", tag="register_btn", callback=self._on_register, enabled=False)
+                dpg.add_button(label="3. Register (Shared)", tag="register_btn", callback=lambda: self._on_register("shared"), enabled=False)
+                dpg.add_button(label="Register (Exclusive)", tag="register_excl_btn", callback=lambda: self._on_register("exclusive"), enabled=False)
                 dpg.add_button(label="4. Acquire (Shared)", tag="acquire_btn", callback=self._on_acquire, enabled=False)
                 dpg.add_button(label="Acquire R/O", tag="acquire_ro_btn", callback=self._on_acquire_readonly, enabled=False)
 
@@ -199,6 +200,7 @@ class CountersApp:
                         self.phase = "registered"
                         dpg.configure_item("program_btn", label="2. ✓", enabled=False)
                         dpg.configure_item("register_btn", label="3. ✓", enabled=False)
+                        dpg.configure_item("register_excl_btn", enabled=False)
                         dpg.configure_item("acquire_btn", enabled=True)
                         dpg.configure_item("acquire_ro_btn", enabled=True)
                     elif is_programmed:
@@ -206,6 +208,7 @@ class CountersApp:
                         self.phase = "programmed"
                         dpg.configure_item("program_btn", label="2. ✓", enabled=False)
                         dpg.configure_item("register_btn", enabled=True)
+                        dpg.configure_item("register_excl_btn", enabled=True)
                 except Exception as e:
                     self._log(f"Could not check device state: {e}")
                 break
@@ -221,15 +224,16 @@ class CountersApp:
                 self.client.configure_fpga(self.selected_serial, self.bitfile_path)
             self._log(f"Programmed ({mode})")
             dpg.configure_item("program_btn", label="2. ✓", enabled=False)
-            dpg.configure_item("register_btn", enabled=True); self.phase = "programmed"
+            dpg.configure_item("register_btn", enabled=True); dpg.configure_item("register_excl_btn", enabled=True); self.phase = "programmed"
         except Exception as e:
             self._log_err(f"Program: {e}")
 
-    def _on_register(self):
+    def _on_register(self, resource_type="shared"):
         try:
-            info = self.client.create_resource("Counter Resource", self.selected_serial)
-            self.resource_id = info.id; self._log(f"Registered: {info.id}")
+            info = self.client.create_resource("Counter Resource", self.selected_serial, resource_type)
+            self.resource_id = info.id; self._log(f"Registered ({resource_type}): {info.id}")
             dpg.configure_item("register_btn", label="3. ✓", enabled=False)
+            dpg.configure_item("register_excl_btn", enabled=False)
             dpg.configure_item("acquire_btn", enabled=True)
             dpg.configure_item("acquire_ro_btn", enabled=True)
             self.phase = "registered"
@@ -245,6 +249,7 @@ class CountersApp:
                         self._log(f"Found existing: {existing.id}")
                         self.resource_id = existing.id
                         dpg.configure_item("register_btn", label="3. ✓", enabled=False)
+                        dpg.configure_item("register_excl_btn", enabled=False)
                         dpg.configure_item("acquire_btn", enabled=True)
                         dpg.configure_item("acquire_ro_btn", enabled=True)
                         self.phase = "registered"

@@ -406,10 +406,15 @@ impl CountersApp {
             }
         }
 
-        if ui.add_enabled(self.phase == Phase::Programmed, egui::Button::new("3. Register")).clicked() {
+        // Phase 34-E: Two register buttons — Shared and Exclusive.
+        let register_shared = ui.add_enabled(self.phase == Phase::Programmed, egui::Button::new("3. Register (Shared)")).clicked();
+        let register_exclusive = ui.add_enabled(self.phase == Phase::Programmed, egui::Button::new("Register (Exclusive)")).clicked();
+        if register_shared || register_exclusive {
+            let resource_type = if register_exclusive { "exclusive" } else { "shared" };
             let ca = self.client.clone().unwrap(); let s = self.serial();
-            match self.runtime.block_on(async { let mut cl = ca.lock().await; cl.create_resource("Counter Resource", &s).await }) {
-                Ok(info) => { self.add_log(&format!("Registered: {}", info.id), false); self.resource_id = Some(info.id); self.phase = Phase::Registered; }
+            let rt = resource_type.to_string();
+            match self.runtime.block_on(async { let mut cl = ca.lock().await; cl.create_resource("Counter Resource", &s, &rt).await }) {
+                Ok(info) => { self.add_log(&format!("Registered ({}): {}", resource_type, info.id), false); self.resource_id = Some(info.id); self.phase = Phase::Registered; }
                 Err(e) => {
                     let err_str = e.to_string();
                     // F3: AlreadyExists / conflict — look up the existing resource.

@@ -194,7 +194,7 @@ pub enum Message {
     SelectDevice(String),
     ProgramPressed,
     ProgramResult(Result<(), String>),
-    RegisterPressed,
+    RegisterSharedPressed, RegisterExclusivePressed,
     RegisterResult(Result<ResourceInfo, String>),
     AcquirePressed,
     AcquireReadOnlyPressed,
@@ -307,11 +307,13 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             Task::none()
         }
 
-        Message::RegisterPressed => {
+        Message::RegisterSharedPressed | Message::RegisterExclusivePressed => {
+            let resource_type = if matches!(message, Message::RegisterExclusivePressed) { "exclusive" } else { "shared" };
             let client = state.make_client();
             let serial = state.serial();
+            let rt = resource_type.to_string();
             Task::perform(
-                async move { client.create_resource("Counter Resource", &serial).await.map_err(|e| e.to_string()) },
+                async move { client.create_resource("Counter Resource", &serial, &rt).await.map_err(|e| e.to_string()) },
                 Message::RegisterResult,
             )
         }
@@ -667,8 +669,14 @@ fn view_connection(state: &AppState) -> Element<'_, Message> {
         else { button("2. Program Bitfile") };
 
     let register_btn = if state.phase >= Phase::Registered { button("3. Register Resource ✓") }
-        else if state.phase == Phase::Programmed { button("3. Register Resource").on_press(Message::RegisterPressed) }
-        else { button("3. Register Resource") };
+        else if state.phase == Phase::Programmed { button("3. Register (Shared)").on_press(Message::RegisterSharedPressed) }
+        else { button("3. Register (Shared)") };
+
+    let register_excl_btn = if state.phase >= Phase::Registered { button("Exclusive") }
+        else if state.phase == Phase::Programmed { button("Register (Exclusive)").on_press(Message::RegisterExclusivePressed) }
+        else { button("Register (Exclusive)") };
+
+    let register_row: Element<Message> = row![register_btn, register_excl_btn].spacing(8).into();
 
     let acquire_btn = if state.phase >= Phase::Acquired {
         let mode_label = if state.acquired_readonly { "R/O" } else { "Shared" };
@@ -720,7 +728,7 @@ fn view_connection(state: &AppState) -> Element<'_, Message> {
         mdns_section,
         url_row, connect_btn,
         device_picker,
-        bitfile_row, mode_row, program_btn, register_btn, acquire_row,
+        bitfile_row, mode_row, program_btn, register_row, acquire_row,
     ].spacing(8).into()
 }
 

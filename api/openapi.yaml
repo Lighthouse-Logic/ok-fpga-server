@@ -407,6 +407,9 @@ paths:
                   type: string
                   format: binary
                   description: The .bit or .rbf bitfile to program
+                filename:
+                  type: string
+                  description: Original filename of the bitfile (optional, Phase 34-C)
                 description:
                   type: string
                   description: Optional description of the bitfile
@@ -1669,6 +1672,14 @@ components:
           format: date-time
         programmed_by:
           type: string
+        file_path:
+          type: string
+          nullable: true
+          description: Full path on the server filesystem (null for client uploads, Phase 34-C)
+        md5_hash:
+          type: string
+          nullable: true
+          description: MD5 hash of the bitfile content, hex-encoded (Phase 34-C)
 
     DeviceSensor:
       type: object

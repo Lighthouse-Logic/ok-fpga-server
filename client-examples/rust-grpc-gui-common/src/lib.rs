@@ -241,6 +241,10 @@ impl CountersGrpcClient {
             data,
             is_last: true,
             user_id: self.user_id.clone(),
+            // Phase 34-C: Send the original filename to the server.
+            filename: local_path.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default(),
         };
         // Wrap the stream in a Request with x-user-id metadata (Phase 32).
         let mut request = tonic::Request::new(tokio_stream::once(chunk));
@@ -375,7 +379,8 @@ impl CountersGrpcClient {
                 device_serial: r.device_serial,
                 access_mode: "shared".to_string(), // Not in proto; inferred.
                 holders: r.holders,
-                locked_by: None, // Not in proto; would need extension.
+                // Phase 34-A: Read locked_by from proto (empty string → None).
+                locked_by: if r.locked_by.is_empty() { None } else { Some(r.locked_by) },
             }
         } else {
             ResourceInfo {
@@ -389,14 +394,16 @@ impl CountersGrpcClient {
         }
     }
 
-    pub async fn create_resource(&mut self, name: &str, device_serial: &str) -> Result<ResourceInfo, ClientError> {
+    /// Phase 34-E: `resource_type` parameter allows the caller to choose
+    /// "shared" or "exclusive" when creating a resource.
+    pub async fn create_resource(&mut self, name: &str, device_serial: &str, resource_type: &str) -> Result<ResourceInfo, ClientError> {
         let resp = self
             .device
             .create_resource(self.req(okfpga::v1::CreateResourceRequest {
                 name: name.to_string(),
                 device_serial: device_serial.to_string(),
                 description: "Counters.bit hardware test resource".to_string(),
-                resource_type: "shared".to_string(),
+                resource_type: resource_type.to_string(),
                 capabilities: vec![],
             }))
             .await?;

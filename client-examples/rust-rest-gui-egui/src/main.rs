@@ -649,14 +649,17 @@ impl CountersApp {
 
         ui.add_space(4.0);
 
-        // Step 3: Register Resource.
+        // Step 3: Register Resource (Phase 34-E: Shared or Exclusive).
         let can_register = self.phase == ConnectionPhase::Programmed;
-        if ui.add_enabled(can_register, egui::Button::new("3. Register Resource")).clicked() {
+        let register_shared = ui.add_enabled(can_register, egui::Button::new("3. Register (Shared)")).clicked();
+        let register_exclusive = ui.add_enabled(can_register, egui::Button::new("Register (Exclusive)")).clicked();
+        if register_shared || register_exclusive {
+            let resource_type = if register_exclusive { "exclusive" } else { "shared" };
             let client = self.make_client();
             let serial = self.serial();
-            match self.runtime.block_on(client.create_resource("Counter Resource", &serial)) {
+            match self.runtime.block_on(client.create_resource("Counter Resource", &serial, resource_type)) {
                 Ok(info) => {
-                    self.log(&format!("Resource registered: {}", info.id));
+                    self.log(&format!("Resource registered ({}): {}", resource_type, info.id));
                     self.resource_id = Some(info.id);
                     self.phase = ConnectionPhase::Registered;
                 }

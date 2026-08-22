@@ -63,6 +63,8 @@ impl DeviceServiceImpl {
             state,
             holders: r.holder_ids().iter().map(|s| s.to_string()).collect(),
             private: r.private,
+            // Phase 34-A: Populate locked_by from the core Resource field.
+            locked_by: r.locked_by.clone().unwrap_or_default(),
         }
     }
 }
@@ -587,18 +589,28 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             .await
             .map_err(|e| Status::internal(format!("FFI error: {}", e)))?;
 
+        // Phase 34-C: Extract filename as basename, track full path, compute MD5.
+        let filename = path.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| bitfile_path.to_string());
+        let file_path_str = bitfile_path.to_string();
+        let md5_hash = match std::fs::read(path) {
+            Ok(data) => Some(format!("{:x}", md5::compute(&data))),
+            Err(_) => None,
+        };
+
         // Update device state in the registry.
         let now = chrono::Utc::now();
         self.state.device_manager.registry().update_state(
             serial,
             ok_fpga_core::device::DeviceState::Programmed {
                 bitfile: ok_fpga_core::device::BitfileRecord {
-                    filename: path.file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_else(|| bitfile_path.to_string()),
+                    filename: filename.clone(),
                     description: None,
                     programmed_at: now,
                     programmed_by: req.user_id.clone(),
+                    file_path: Some(file_path_str),
+                    md5_hash: md5_hash.clone(),
                 },
             },
         );
@@ -624,7 +636,7 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
 
         Ok(Response::new(proto::ConfigureFpgaResponse {
             bitfile: Some(proto::BitfileInfo {
-                filename: bitfile_path.to_string(),
+                filename,
                 description: String::new(),
                 programmed_at: now.to_rfc3339(),
                 programmed_by: req.user_id,
@@ -649,18 +661,28 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         let mut stream = request.into_inner();
         let mut serial = String::new();
         let mut user_id = String::new();
+        let mut filename = String::new();
         let mut bitfile_data = Vec::new();
 
         // Collect all chunks from the stream.
         while let Some(chunk) = stream.message().await? {
-            // Serial and user_id are only required in the first chunk.
+            // Serial, user_id, and filename are only required in the first chunk.
             if serial.is_empty() && !chunk.serial.is_empty() {
                 serial = chunk.serial;
             }
             if user_id.is_empty() && !chunk.user_id.is_empty() {
                 user_id = chunk.user_id;
             }
+            // Phase 34-C: Extract optional filename from the first chunk.
+            if filename.is_empty() && !chunk.filename.is_empty() {
+                filename = chunk.filename;
+            }
             bitfile_data.extend_from_slice(&chunk.data);
+        }
+
+        // Phase 34-C: Fall back to "uploaded" if no filename was provided.
+        if filename.is_empty() {
+            filename = "uploaded".to_string();
         }
 
         if serial.is_empty() {
@@ -684,16 +706,21 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             .await
             .map_err(|e| Status::internal(format!("FFI error: {}", e)))?;
 
+        // Phase 34-C: Compute MD5 hash from accumulated bitfile bytes.
+        let md5_hash = Some(format!("{:x}", md5::compute(&bitfile_data)));
+
         // Update device state in the registry.
         let now = chrono::Utc::now();
         self.state.device_manager.registry().update_state(
             &serial,
             ok_fpga_core::device::DeviceState::Programmed {
                 bitfile: ok_fpga_core::device::BitfileRecord {
-                    filename: "streamed".to_string(),
+                    filename: filename.clone(),
                     description: None,
                     programmed_at: now,
                     programmed_by: user_id.clone(),
+                    file_path: None,
+                    md5_hash: md5_hash.clone(),
                 },
             },
         );
@@ -712,7 +739,7 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
 
         Ok(Response::new(proto::ConfigureFpgaResponse {
             bitfile: Some(proto::BitfileInfo {
-                filename: "streamed".to_string(),
+                filename,
                 description: String::new(),
                 programmed_at: now.to_rfc3339(),
                 programmed_by: user_id,

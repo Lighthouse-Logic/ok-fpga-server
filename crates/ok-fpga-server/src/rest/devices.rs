@@ -735,17 +735,54 @@ async fn configure_fpga(
         .as_ref()
         .ok_or_else(|| ProblemDetail::not_implemented("FrontPanel DLL not loaded"))?;
 
+    // Phase 34-D: Extract the user who programmed the device from X-User-Id.
+    // Falls back to "Unknown" if the header is absent or empty.
+    let programmed_by = headers
+        .get("x-user-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("Unknown")
+        .to_string();
+
     // Determine configuration mode by Content-Type.
     let content_type = headers
         .get(axum::http::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("application/json");
 
+    // Phase 34-C: Track filename, file_path, and MD5 hash per configuration mode.
+    let filename: String;
+    let file_path: Option<String>;
+    let md5_hash: Option<String>;
+
     if content_type.contains("multipart") || content_type.contains("octet-stream") {
         // Binary upload mode — configure from memory.
         pool.configure_from_memory(&serial, &body)
             .await
             .map_err(|e| ffi_error_to_problem(&e))?;
+
+        // Phase 34-C: Extract filename from Content-Disposition header if present,
+        // otherwise fall back to "uploaded". The client can also send a custom
+        // X-Filename header as a simpler alternative.
+        filename = headers
+            .get("x-filename")
+            .and_then(|v| v.to_str().ok())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                // Try Content-Disposition: attachment; filename="foo.bit"
+                headers.get("content-disposition")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|cd| {
+                        cd.split("filename=").nth(1)
+                            .map(|f| f.trim_matches('"').trim_matches('\'').to_string())
+                    })
+                    .filter(|s| !s.is_empty())
+            })
+            .unwrap_or_else(|| "uploaded".to_string());
+
+        file_path = None;
+        md5_hash = Some(format!("{:x}", md5::compute(&body)));
     } else {
         // JSON path mode — configure from local path.
         let req: ConfigurePathRequest = serde_json::from_slice(&body)
@@ -762,6 +799,18 @@ async fn configure_fpga(
         pool.configure_from_path(&serial, path)
             .await
             .map_err(|e| ffi_error_to_problem(&e))?;
+
+        // Phase 34-C: Extract filename as basename, full path as file_path.
+        filename = path.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| req.bitfile_path.clone());
+        file_path = Some(req.bitfile_path.clone());
+
+        // Compute MD5 from the file on disk.
+        md5_hash = match std::fs::read(path) {
+            Ok(data) => Some(format!("{:x}", md5::compute(&data))),
+            Err(_) => None,
+        };
     }
 
     // Update device state in the registry.
@@ -769,10 +818,12 @@ async fn configure_fpga(
         &serial,
         DeviceState::Programmed {
             bitfile: BitfileRecord {
-                filename: "uploaded".to_string(),
+                filename,
                 description: None,
                 programmed_at: chrono::Utc::now(),
-                programmed_by: "api".to_string(),
+                programmed_by,
+                file_path,
+                md5_hash,
             },
         },
     );

@@ -167,6 +167,10 @@ message BitfileInfo {
   string description = 2;
   string programmed_at = 3;   // ISO 8601 timestamp
   string programmed_by = 4;   // User ID who programmed it
+  // Phase 34-C: Full path on the server filesystem (empty for client uploads).
+  string file_path = 5;
+  // Phase 34-C: MD5 hash of the bitfile content, hex-encoded.
+  string md5_hash = 6;
 }
 
 // A single sensor reading from a device.
@@ -236,6 +240,9 @@ message Resource {
   // When true, ReadOnly acquisition is denied entirely (ADR-026).
   // Private resources are only visible to holders with Shared or Exclusive access.
   bool private = 7;
+  // Phase 34-A: User ID of the lock holder (empty string if not locked).
+  // Populated when state == RESOURCE_STATE_IN_USE_LOCKED.
+  string locked_by = 8;
 }
 
 // A connected user and their held resources.
@@ -392,6 +399,9 @@ message ConfigureFPGAChunk {
   bytes data = 2;           // Chunk of the bitfile binary
   bool is_last = 3;         // true for the final chunk
   string user_id = 4;       // Only required in the first chunk
+  // Phase 34-C: Original filename of the bitfile (only in the first chunk, optional).
+  // If empty, the server falls back to "uploaded".
+  string filename = 5;
 }
 
 message ConfigureFPGAResponse {

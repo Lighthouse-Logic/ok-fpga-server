@@ -253,18 +253,19 @@ class CountersClient:
         ) for r in resources_list]
 
 
-    def create_resource(self, name: str, device_serial: str) -> ResourceInfo:
+    def create_resource(self, name: str, device_serial: str, resource_type: str = "shared") -> ResourceInfo:
+        """Phase 34-E: resource_type can be 'shared' or 'exclusive'."""
         data = self._post("/resources", {
             "name": name,
             "device_serial": device_serial,
-            "access_mode": "shared",
+            "access_mode": resource_type,
             "description": "Counters.bit hardware test resource",
         })
         return ResourceInfo(
             id=data.get("id", ""),
             name=data.get("name", name),
             device_serial=data.get("device_serial", device_serial),
-            access_mode=data.get("access_mode", "shared"),
+            access_mode=data.get("access_mode", resource_type),
             holders=data.get("holders", []),
             locked_by=data.get("locked_by"),
         )
