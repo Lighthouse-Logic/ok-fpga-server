@@ -1,6 +1,10 @@
 # Rust build output (workspace root + client-examples)
 **/target/
 
+# Python cache
+**/__pycache__/
+*.pyc
+
 # IDE files
 .idea/
 .vscode/
@@ -18,3 +22,6 @@ Thumbs.db
 # Environment files (may contain secrets)
 .env
 .env.local
+
+# Server logs
+logs/
