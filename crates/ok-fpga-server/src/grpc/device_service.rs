@@ -640,6 +640,8 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
                 description: String::new(),
                 programmed_at: now.to_rfc3339(),
                 programmed_by: req.user_id,
+                file_path: file_path_str,
+                md5_hash: md5_hash.unwrap_or_default(),
             }),
             error: Some(proto::ErrorCluster {
                 status: false,
@@ -743,6 +745,8 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
                 description: String::new(),
                 programmed_at: now.to_rfc3339(),
                 programmed_by: user_id,
+                file_path: String::new(),
+                md5_hash: md5_hash.unwrap_or_default(),
             }),
             error: Some(proto::ErrorCluster {
                 status: false,

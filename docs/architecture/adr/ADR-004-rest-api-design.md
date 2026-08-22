@@ -236,6 +236,26 @@ endpoints may return `403 Forbidden` (RFC 7807 Problem Detail) if the calling
 user does not hold a resource covering the requested endpoint. No new endpoints
 are added — enforcement is middleware-level.
 
+## Addendum F: Bitfile Metadata & Resource Type (Phase 34, 2026-08-21)
+
+### OpenAPI Schema Changes
+
+**`BitfileInfo`** — Two new optional fields added:
+- `file_path` (string): The filename or path of the bitfile as uploaded.
+- `md5_hash` (string): MD5 hex digest of the bitfile content.
+
+These are populated during `POST /devices/{serial}/configure` and returned
+in `GET /devices/{serial}` under the `bitfile` object.
+
+**`POST /devices/{serial}/configure` (multipart)** — A new optional form
+field `filename` is accepted. If provided, it overrides the filename
+extracted from the `Content-Disposition` header. The `X-Filename` header
+is also accepted as a fallback.
+
+**`POST /api/v1/resources`** — The request body now accepts an optional
+`access_mode` field (`"shared"` or `"exclusive"`), defaulting to `"shared"`.
+This allows clients to choose the resource access mode at registration time.
+
 ## References
 
 - [OpenAPI 3.0.0 Specification](https://spec.openapis.org/oas/v3.0.0)

@@ -312,6 +312,26 @@ RPCs may return `PERMISSION_DENIED` if the calling user does not hold a resource
 covering the requested endpoint. No new RPCs are added — enforcement is
 interceptor-level.
 
+## Addendum C: Bitfile Metadata & Resource Locking (Phase 34, 2026-08-21)
+
+### Proto Changes
+
+**`ConfigureFpgaChunk`** — New field `filename` (string). Clients sending
+bitfile data via `ConfigureFpgaFromMemory` should include the original
+filename so the server can record it in the `BitfileRecord`.
+
+**`BitfileInfo`** — Two new fields:
+- `file_path` (string): Original filename or path as provided by the client.
+- `md5_hash` (string): MD5 hex digest of the bitfile content.
+
+**`Resource`** — New field `locked_by` (string). Populated with the user ID
+of the holder who locked the resource, or empty if unlocked. Clients
+previously had to infer lock state; now it is explicit.
+
+**`CreateResourceRequest`** — New field `access_mode` (string). Allows
+clients to specify `"shared"` or `"exclusive"` when registering a resource.
+Defaults to `"shared"` if omitted.
+
 ## References
 
 - [Tonic gRPC framework](https://docs.rs/tonic)
