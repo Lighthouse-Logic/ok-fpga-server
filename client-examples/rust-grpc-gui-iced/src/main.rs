@@ -467,7 +467,7 @@ fn view_connect(s: &AppState) -> Element<'_, Message> {
                 .and_then(|s| s.split(')').next())
                 .unwrap_or(&picked).to_string();
             Message::SelectDevice(serial)
-        }).placeholder("No device selected").width(400),
+        }).placeholder("No device selected").width(Length::Fill),
     ].spacing(8);
 
     let prog = if s.phase >= Phase::Programmed { button("2. Program ✓") }

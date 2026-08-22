@@ -649,7 +649,7 @@ fn view_connection(state: &AppState) -> Element<'_, Message> {
                 .and_then(|s| s.split(')').next())
                 .unwrap_or(&picked).to_string();
             Message::SelectDevice(serial)
-        }).placeholder("No device selected").width(400),
+        }).placeholder("No device selected").width(Length::Fill),
     ].spacing(8);
 
     let bitfile_row = row![

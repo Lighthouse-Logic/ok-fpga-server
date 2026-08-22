@@ -84,7 +84,7 @@ class CountersApp:
 
                 dpg.add_input_text(label="Server URL", default_value=self.rest_url, tag="url_input", width=400)
                 dpg.add_button(label="1. Connect to Server", tag="connect_btn", callback=self._on_connect)
-                dpg.add_combo([], tag="device_combo", width=400, callback=self._on_device_select,
+                dpg.add_combo([], tag="device_combo", width=-1, callback=self._on_device_select,
                               default_value="No device selected")
                 dpg.add_input_text(label="Bitfile", default_value=self.bitfile_path, tag="bitfile_input", width=400)
                 # F5: Bitfile mode toggle.

@@ -128,7 +128,7 @@ class CountersApp:
         # Device selection dropdown.
         dev_row = ttk.Frame(f); dev_row.pack(fill=tk.X, pady=2)
         ttk.Label(dev_row, text="Select Device:").pack(side=tk.LEFT)
-        self.device_combo = ttk.Combobox(dev_row, state="readonly", width=50)
+        self.device_combo = ttk.Combobox(dev_row, state="readonly", width=100)
         self.device_combo.set("No device selected")
         self.device_combo.pack(side=tk.LEFT, padx=4)
         self.device_combo.bind("<<ComboboxSelected>>", self._on_device_select)

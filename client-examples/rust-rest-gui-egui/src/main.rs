@@ -555,7 +555,7 @@ impl CountersApp {
                     .unwrap_or_else(|| "No device selected".to_string());
                 egui::ComboBox::from_id_salt("device_select")
                     .selected_text(display)
-                    .width(400.0)
+                    .width(ui.available_width())
                     .show_ui(ui, |ui| {
                         for d in &self.devices {
                             let label = d.display_label();
