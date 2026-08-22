@@ -138,6 +138,20 @@ pub struct DeviceInfo {
     pub dataport: String,
     #[serde(default)]
     pub is_front_panel_enabled: bool,
+    /// Phase 34-B: SYZYGY label suffix (e.g. "0:DAC3283 | 2:ADC3241")
+    #[serde(default)]
+    pub syzygy_label: String,
+}
+
+impl DeviceInfo {
+    /// Build a user-friendly display label: "XEM7320-A75T (SERIAL) | 0:DAC | 2:ADC"
+    pub fn display_label(&self) -> String {
+        if self.syzygy_label.is_empty() {
+            format!("{} ({})", self.product_name, self.serial)
+        } else {
+            format!("{} ({}) | {}", self.product_name, self.serial, self.syzygy_label)
+        }
+    }
 }
 
 /// Wrapper for the `GET /devices` response body.
@@ -291,7 +305,35 @@ impl CountersClient {
         let val = self.get("/devices").await?;
         // Unwrap the {"devices": [...]} wrapper per OpenAPI spec.
         let response: DeviceListResponse = serde_json::from_value(val)?;
-        Ok(response.devices)
+        let mut devices = response.devices;
+        // Phase 34-B: Populate SYZYGY labels.
+        for dev in &mut devices {
+            if let Ok(label) = self.get_syzygy_label(&dev.serial).await {
+                dev.syzygy_label = label;
+            }
+        }
+        Ok(devices)
+    }
+
+    /// Phase 34-B: Fetch SYZYGY ports and build a compact label string.
+    async fn get_syzygy_label(&self, serial: &str) -> Result<String, ClientError> {
+        let val = self.get(&format!("/devices/{}/syzygy", serial)).await?;
+        let ports = val.get("ports").and_then(|p| p.as_array()).cloned().unwrap_or_default();
+        let parts: Vec<String> = ports
+            .iter()
+            .filter(|p| p.get("is_populated").and_then(|v| v.as_bool()).unwrap_or(false))
+            .map(|p| {
+                let idx = p.get("index").and_then(|v| v.as_u64()).unwrap_or(0);
+                let name = p.get("product_name").and_then(|v| v.as_str()).unwrap_or("");
+                let model = p.get("product_model").and_then(|v| v.as_str()).unwrap_or("");
+                if model.is_empty() || model == name {
+                    format!("{}:{}", idx, name)
+                } else {
+                    format!("{}:{} ({})", idx, name, model)
+                }
+            })
+            .collect();
+        Ok(parts.join(" | "))
     }
 
     // ========================================================================
@@ -923,7 +965,7 @@ mod tests {
             .create_async().await;
 
         let client = CountersClient::new(&server.url(), "test-user");
-        let info = client.create_resource("Counter Resource", "SN001").await.unwrap();
+        let info = client.create_resource("Counter Resource", "SN001", "shared").await.unwrap();
 
         mock.assert_async().await;
         assert_eq!(info.id, "res-abc");

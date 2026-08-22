@@ -62,6 +62,14 @@ class DeviceInfo:
     fpga_vendor: str = ""
     dataport: str = ""
     is_front_panel_enabled: bool = False
+    syzygy_label: str = ""  # Phase 34-B
+
+    def display_label(self) -> str:
+        """Build a user-friendly label: 'XEM7320-A75T (SERIAL) | 0:DAC | 2:ADC'"""
+        base = f"{self.product_name} ({self.serial})"
+        if self.syzygy_label:
+            return f"{base} | {self.syzygy_label}"
+        return base
 
 
 @dataclass
@@ -132,7 +140,7 @@ class CountersClient:
         data = self._get("/devices")
         # Unwrap the {"devices": [...]} wrapper per OpenAPI spec.
         device_list = (data or {}).get("devices", [])
-        return [DeviceInfo(
+        devices = [DeviceInfo(
             serial=d.get("serial", ""),
             device_id=d.get("device_id", ""),
             product_name=d.get("product_name", ""),
@@ -150,6 +158,29 @@ class CountersClient:
             dataport=d.get("dataport", ""),
             is_front_panel_enabled=d.get("is_front_panel_enabled", False),
         ) for d in device_list]
+        # Phase 34-B: Populate SYZYGY labels.
+        for dev in devices:
+            try:
+                dev.syzygy_label = self._get_syzygy_label(dev.serial)
+            except Exception:
+                pass
+        return devices
+
+    def _get_syzygy_label(self, serial: str) -> str:
+        """Phase 34-B: Fetch SYZYGY ports and build a compact label string."""
+        data = self._get(f"/devices/{serial}/syzygy")
+        ports = (data or {}).get("ports", [])
+        parts = []
+        for p in ports:
+            if p.get("is_populated"):
+                idx = p.get("index", 0)
+                name = p.get("product_name", "")
+                model = p.get("product_model", "")
+                if not model or model == name:
+                    parts.append(f"{idx}:{name}")
+                else:
+                    parts.append(f"{idx}:{name} ({model})")
+        return " | ".join(parts)
 
     # --- FPGA Configuration ---
 

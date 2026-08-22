@@ -634,18 +634,20 @@ fn view_connection(state: &AppState) -> Element<'_, Message> {
         button("1. Connect to Server ✓")
     };
 
-    // Device selection dropdown.
+    // Device selection dropdown. Phase 34-B: show SYZYGY in labels.
     let device_options: Vec<String> = state.devices.iter()
-        .map(|d| format!("{} — {}", d.serial, d.product_name))
+        .map(|d| d.display_label())
         .collect();
     let selected_display: Option<String> = state.selected_serial.as_ref()
         .and_then(|s| state.devices.iter().find(|d| &d.serial == s))
-        .map(|d| format!("{} — {}", d.serial, d.product_name));
+        .map(|d| d.display_label());
     let device_picker = row![
         text("Select Device:").width(100),
         pick_list(device_options, selected_display, |picked| {
-            // Extract serial from the "serial — product" string.
-            let serial = picked.split(" — ").next().unwrap_or("").to_string();
+            // Extract serial from "Product (SERIAL) | ..." format.
+            let serial = picked.split('(').nth(1)
+                .and_then(|s| s.split(')').next())
+                .unwrap_or(&picked).to_string();
             Message::SelectDevice(serial)
         }).placeholder("No device selected").width(400),
     ].spacing(8);

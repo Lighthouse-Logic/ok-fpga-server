@@ -71,7 +71,14 @@ class WireInState:
 class DeviceInfo:
     serial: str = ""
     product_name: str = ""
+    syzygy_label: str = ""  # Phase 34-B
 
+    def display_label(self) -> str:
+        """Build a user-friendly label: 'XEM7320-A75T (SERIAL) | 0:DAC | 2:ADC'"""
+        base = f"{self.product_name} ({self.serial})"
+        if self.syzygy_label:
+            return f"{base} | {self.syzygy_label}"
+        return base
 
 @dataclass
 class ResourceInfo:
@@ -109,8 +116,30 @@ class CountersGrpcClient:
     def list_devices(self) -> List[DeviceInfo]:
         resp = self.device_stub.ListDevices(
             okfpga_pb2.ListDevicesRequest(), metadata=self._metadata)
-        return [DeviceInfo(serial=d.serial, product_name=d.product_name)
+        devices = [DeviceInfo(serial=d.serial, product_name=d.product_name)
                 for d in resp.devices]
+        # Phase 34-B: Populate SYZYGY labels.
+        for dev in devices:
+            try:
+                dev.syzygy_label = self._get_syzygy_label(dev.serial)
+            except Exception:
+                pass
+        return devices
+
+    def _get_syzygy_label(self, serial: str) -> str:
+        """Phase 34-B: Fetch SYZYGY ports and build a compact label string."""
+        resp = self.device_stub.GetSyzygyPorts(
+            okfpga_pb2.DeviceRequest(serial=serial), metadata=self._metadata)
+        parts = []
+        for p in resp.ports:
+            if p.is_populated:
+                name = p.product_name
+                model = p.product_model
+                if not model or model == name:
+                    parts.append(f"{p.index}:{name}")
+                else:
+                    parts.append(f"{p.index}:{name} ({model})")
+        return " | ".join(parts)
 
     def get_device_info(self, serial: str) -> dict:
         """``GetDeviceInfo`` RPC — get full device info for a single device.

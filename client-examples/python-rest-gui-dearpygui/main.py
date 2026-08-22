@@ -183,7 +183,7 @@ class CountersApp:
             self.client.get_server_status()
             self.devices = self.client.list_devices()
             self._log(f"Connected. {len(self.devices)} device(s)")
-            items = [f"{d.serial} \u2014 {d.product_name}" for d in self.devices]
+            items = [d.display_label() for d in self.devices]  # Phase 34-B
             dpg.configure_item("device_combo", items=items, default_value="No device selected")
             self.selected_serial = ""  # Force user to select
             dpg.configure_item("connect_btn", label="1. Connected \u2713", enabled=False)
@@ -195,7 +195,7 @@ class CountersApp:
 
     def _on_device_select(self, sender, app_data):
         for d in self.devices:
-            label = f"{d.serial} \u2014 {d.product_name}"
+            label = d.display_label()  # Phase 34-B
             if label == app_data:
                 self.selected_serial = d.serial
                 self._log(f"Selected device: {d.serial}")
@@ -357,7 +357,7 @@ class CountersApp:
                         new_devices = self.client.list_devices()
                         old_serial = self.selected_serial
                         self.devices = new_devices
-                        items = [f"{d.serial} \u2014 {d.product_name}" for d in self.devices]
+                        items = [d.display_label() for d in self.devices]  # Phase 34-B
                         dpg.configure_item("device_combo", items=items)
                         # Check if selected device disappeared.
                         if old_serial and not any(d.serial == old_serial for d in new_devices):

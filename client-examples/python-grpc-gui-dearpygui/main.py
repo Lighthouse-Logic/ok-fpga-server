@@ -169,7 +169,7 @@ class CountersApp:
             self.client.get_server_status()
             self.devices = self.client.list_devices()
             self._log(f"Connected. {len(self.devices)} device(s)")
-            items = [f"{d.serial} \u2014 {d.product_name}" for d in self.devices]
+            items = [d.display_label() for d in self.devices]  # Phase 34-B
             dpg.configure_item("device_combo", items=items, default_value="No device selected")
             self.selected_serial = ""  # Force user to select
             dpg.configure_item("connect_btn", label="1. \u2713", enabled=False)
@@ -181,7 +181,7 @@ class CountersApp:
 
     def _on_device_select(self, s, d):
         for dev in self.devices:
-            if f"{dev.serial} \u2014 {dev.product_name}" == d:
+            if dev.display_label() == d:
                 self.selected_serial = dev.serial
                 self._log(f"Selected: {dev.serial}")
                 if self.phase == "connected":
@@ -329,7 +329,7 @@ class CountersApp:
                         new_devices = self.client.list_devices()
                         old_serial = self.selected_serial
                         self.devices = new_devices
-                        items = [f"{d.serial} \u2014 {d.product_name}" for d in self.devices]
+                        items = [d.display_label() for d in self.devices]  # Phase 34-B
                         dpg.configure_item("device_combo", items=items)
                         if old_serial and not any(d.serial == old_serial for d in new_devices):
                             self.selected_serial = ""

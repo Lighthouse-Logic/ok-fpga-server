@@ -454,15 +454,18 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
 fn view_connect(s: &AppState) -> Element<'_, Message> {
     let con = if s.phase == Phase::Disconnected { button("1. Connect").on_press(Message::ConnectPressed) } else { button("1. Connect ✓") };
 
-    // Device selection dropdown.
-    let device_options: Vec<String> = s.devices.iter().map(|d| format!("{} — {}", d.serial, d.product_name)).collect();
+    // Device selection dropdown. Phase 34-B: show SYZYGY in labels.
+    let device_options: Vec<String> = s.devices.iter().map(|d| d.display_label()).collect();
     let selected_display: Option<String> = s.selected_serial.as_ref()
         .and_then(|sel| s.devices.iter().find(|d| &d.serial == sel))
-        .map(|d| format!("{} — {}", d.serial, d.product_name));
+        .map(|d| d.display_label());
     let device_picker = row![
         text("Select Device:").width(100),
         pick_list(device_options, selected_display, |picked| {
-            let serial = picked.split(" — ").next().unwrap_or("").to_string();
+            // Extract serial from "Product (SERIAL) | ..." format.
+            let serial = picked.split('(').nth(1)
+                .and_then(|s| s.split(')').next())
+                .unwrap_or(&picked).to_string();
             Message::SelectDevice(serial)
         }).placeholder("No device selected").width(400),
     ].spacing(8);
@@ -719,7 +722,7 @@ mod tests {
     #[test]
     fn test_connect_ok() {
         let mut s = make_state();
-        let devs = vec![DeviceInfo { serial: "S1".to_string(), product_name: "P".to_string() }];
+        let devs = vec![DeviceInfo { serial: "S1".to_string(), product_name: "P".to_string(), syzygy_label: String::new() }];
         let _ = update(&mut s, Message::ConnectResult(Ok(devs)));
         assert_eq!(s.phase, Phase::Connected);
         assert_eq!(s.selected_serial, None); // User must select explicitly

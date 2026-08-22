@@ -200,7 +200,7 @@ class CountersApp:
             self._log_err(f"Connect: {e}")
 
     def _update_device_combo(self):
-        items = [f"{d.serial} — {d.product_name}" for d in self.devices]
+        items = [d.display_label() for d in self.devices]  # Phase 34-B
         self.device_combo["values"] = items
         current = self.selected_serial.get()
         if current and not any(d.serial == current for d in self.devices):

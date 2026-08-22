@@ -258,7 +258,7 @@ class CountersApp:
 
     def _update_device_combo(self):
         """Refresh the device dropdown values."""
-        items = [f"{d.serial} — {d.product_name}" for d in self.devices]
+        items = [d.display_label() for d in self.devices]  # Phase 34-B
         self.device_combo["values"] = items
         # If current selection is no longer in the list, reset.
         current = self.selected_serial.get()

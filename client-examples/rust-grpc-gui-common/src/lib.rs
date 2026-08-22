@@ -67,6 +67,19 @@ impl WireInState {
 pub struct DeviceInfo {
     pub serial: String,
     pub product_name: String,
+    /// Phase 34-B: SYZYGY label suffix (e.g. " | 0: DAC3283 | 2: ADC3241")
+    pub syzygy_label: String,
+}
+
+impl DeviceInfo {
+    /// Build a user-friendly display label: "XEM7320-A75T (SERIAL) | 0: DAC | 2: ADC"
+    pub fn display_label(&self) -> String {
+        if self.syzygy_label.is_empty() {
+            format!("{} ({})", self.product_name, self.serial)
+        } else {
+            format!("{} ({}) | {}", self.product_name, self.serial, self.syzygy_label)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,16 +158,48 @@ impl CountersGrpcClient {
             .device
             .list_devices(self.req(okfpga::v1::ListDevicesRequest {}))
             .await?;
-        let devices = resp
+        let mut devices: Vec<DeviceInfo> = resp
             .into_inner()
             .devices
             .into_iter()
             .map(|d| DeviceInfo {
                 serial: d.serial,
                 product_name: d.product_name,
+                syzygy_label: String::new(),
             })
             .collect();
+        // Phase 34-B: Populate SYZYGY labels.
+        for dev in &mut devices {
+            if let Ok(label) = self.get_syzygy_label(&dev.serial).await {
+                dev.syzygy_label = label;
+            }
+        }
         Ok(devices)
+    }
+
+    /// Phase 34-B: Fetch SYZYGY ports and build a compact label string.
+    async fn get_syzygy_label(&mut self, serial: &str) -> Result<String, ClientError> {
+        let resp = self
+            .device
+            .get_syzygy_ports(self.req(okfpga::v1::DeviceRequest {
+                serial: serial.to_string(),
+            }))
+            .await?;
+        let ports = resp.into_inner().ports;
+        let parts: Vec<String> = ports
+            .iter()
+            .filter(|p| p.is_populated)
+            .map(|p| {
+                let name = &p.product_name;
+                let model = &p.product_model;
+                if model.is_empty() || model == name {
+                    format!("{}:{}", p.index, name)
+                } else {
+                    format!("{}:{} ({})", p.index, name, model)
+                }
+            })
+            .collect();
+        Ok(parts.join(" | "))
     }
 
     /// `GetDeviceInfo` RPC — get full device info for a single device.
@@ -587,6 +632,7 @@ mod tests {
         let info = DeviceInfo {
             serial: "SN001".to_string(),
             product_name: "XEM7320-A75T".to_string(),
+            syzygy_label: String::new(),
         };
         assert_eq!(info.serial, "SN001");
         assert_eq!(info.product_name, "XEM7320-A75T");

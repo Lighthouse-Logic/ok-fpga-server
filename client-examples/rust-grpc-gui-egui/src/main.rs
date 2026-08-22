@@ -332,14 +332,14 @@ impl CountersApp {
                 ui.label("Select Device:");
                 let display = self.selected_serial.as_ref()
                     .and_then(|s| self.devices.iter().find(|d| &d.serial == s))
-                    .map(|d| format!("{} — {}", d.serial, d.product_name))
+                    .map(|d| d.display_label())
                     .unwrap_or_else(|| "No device selected".to_string());
                 egui::ComboBox::from_id_salt("device_select")
                     .selected_text(display)
                     .width(400.0)
                     .show_ui(ui, |ui| {
                         for d in &self.devices {
-                            let label = format!("{} — {}", d.serial, d.product_name);
+                            let label = d.display_label();
                             let is_selected = self.selected_serial.as_deref() == Some(&d.serial);
                             if ui.selectable_label(is_selected, &label).clicked() {
                                 newly_selected = Some(d.serial.clone());
