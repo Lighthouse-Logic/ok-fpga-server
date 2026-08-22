@@ -43,49 +43,14 @@
 |---------|-----------|-----|--------|
 | **Phase 33** | Read-Aware Lock Enforcement | ADR-024, 026 | ✅ Completed |
 | **Phase 34** | Client UX & Device Metadata Improvements | ADR-004 (F), ADR-005 (C) | ✅ Completed |
-| **Phase 35 (Now)** | Client Demo Bug Fixes & README Update | — | 🚧 In Progress |
+| **Phase 35** | Client Demo Bug Fixes & README Update | — | ✅ Completed |
 | **Phase 36+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
 ## 🟢 Now
 
-### Phase 35 — Client Demo Bug Fixes & README Update
-
-**Status:** 🚧 In Progress  
-**Triggered by:** Non-GUI client demos failing at runtime  
-**Scope:** 2 bugs across 4 non-GUI demo clients + README overhaul  
-**Amends:** No ADRs affected (client-side only)
-
-#### Phase 35-A: IPv6 URL formatting in REST discovery
-
-The `rest_url()` and `grpc_url()` methods in
-`rust-rest-client/src/discovery.rs` format URLs as `http://{addr}:{port}`,
-but when `addr` is IPv6 link-local, the URL is malformed (no brackets per
-RFC 2732). The gRPC client's `discovery.rs` is a copy of the same file.
-
-**Fix:** Prefer IPv4 from the address list. If only IPv6, wrap in brackets.
-Apply to both `rust-rest-client` and `rust-grpc-client` discovery modules.
-
-#### Phase 35-B: Python Unicode crash on Windows
-
-Both Python demo scripts print box-drawing characters (`━`, U+2501) that
-crash on Windows cp1252 console with `UnicodeEncodeError`.
-
-**Fix:** Reconfigure stdout encoding at the top of each demo script.
-Apply to both `python-rest-client` and `python-grpc-client` demo modules.
-
-#### Phase 35-C: README overhaul
-
-The current `client-examples/README.md` only documents the 4 non-GUI
-"endpoint exerciser" clients. Update to cover all 18 projects:
-
-- **GUI Demos** table (8 entries)
-- **Common Libraries** table (4 entries)
-- **Running GUI demos** — commands for each framework
-- **Hardware integration tests** — how to run with `--test-threads=1`
-  and *why* (shared FPGA hardware state)
-- **Environment variables** — `OKFPGA_SERVER_URL`, `OKFPGA_TEST_BITFILE`
+*No phase active. Promote a "Next" item to begin new work.*
 
 ---
 
@@ -224,6 +189,9 @@ implementation details, verification steps, and acceptance criteria.
 | 30 | Read-Only Resource Acquisition & Private Data | 2026-08-20 | ADR-026 | [phase 30](archive/roadmap-phases-30.md) |
 | 31 | OS-Native mDNS Service Registration | 2026-08-21 | ADR-027 | [phase 31](archive/roadmap-phases-31.md) |
 | 32 | Bug Fixes: Users Page, Settings, gRPC Identity | 2026-08-21 | — | [phase 32](archive/roadmap-phases-32.md) |
+| 33 | Read-Aware Lock Enforcement | 2026-08-21 | ADR-024, 026 | [phase 33](archive/roadmap-phases-33.md) |
+| 34 | Client UX & Device Metadata Improvements | 2026-08-21 | ADR-004 (F), ADR-005 (C) | [phase 34](archive/roadmap-phases-34.md) |
+| 35 | Client Demo Bug Fixes & README Update | 2026-08-21 | — | [phase 35](archive/roadmap-phases-35.md) |
 
 ---
 
