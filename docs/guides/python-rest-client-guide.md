@@ -1,0 +1,599 @@
+# Guide: Building a Python REST Client for ok-FPGA-Server
+
+> **Audience:** An AI assistant that is new to this codebase.
+>
+> This guide walks through building a Python REST client from scratch that
+> discovers the ok-FPGA-Server, connects with a user identity, lists devices
+> with SYZYGY ports, programs an FPGA, registers and acquires resources, and
+> performs Classic Data Port I/O operations (Wire, Trigger, Pipe, BTPipe).
+
+---
+
+## 1. Prerequisites
+
+```
+pip install requests zeroconf
+```
+
+- **ok-FPGA-Server** must be running (default REST port: 8088, management/dashboard: 9090).
+- **`X-User-Id` header** is **required** on every REST request. The server
+  enforces endpoint access control and will return `403 Forbidden` without it.
+
+---
+
+## 2. Server Discovery via mDNS
+
+The server advertises itself as `_okfpga._tcp.local.` via mDNS/DNS-SD.
+TXT records carry port numbers:
+
+| TXT Key | Example | Description |
+|---------|---------|-------------|
+| `rest` | `8088` | REST API port |
+| `grpc` | `50051` | gRPC port |
+| `devices` | `3` | Number of connected FPGAs |
+| `version` | `1.0.0` | API version |
+
+### Discovery Code
+
+```python
+import time
+from zeroconf import ServiceBrowser, ServiceInfo, Zeroconf
+
+SERVICE_TYPE = "_okfpga._tcp.local."
+
+class _Listener:
+    def __init__(self):
+        self.servers = []
+    
+    def add_service(self, zc, type_, name):
+        info = zc.get_service_info(type_, name)
+        if info:
+            addresses = [addr for addr in info.parsed_scoped_addresses()]
+            rest_port = int(info.properties.get(b"rest", b"0").decode())
+            self.servers.append({
+                "name": info.name,
+                "addresses": addresses,
+                "rest_port": rest_port,
+                "rest_url": f"http://{addresses[0]}:{rest_port}" if addresses and rest_port else None,
+            })
+    
+    def remove_service(self, zc, type_, name):
+        pass
+    
+    def update_service(self, zc, type_, name):
+        pass
+
+def discover_servers(timeout=3.0):
+    """Browse for ok-FPGA-Server instances on the local network."""
+    zc = Zeroconf()
+    listener = _Listener()
+    ServiceBrowser(zc, SERVICE_TYPE, listener)
+    time.sleep(timeout)
+    zc.close()
+    return listener.servers
+```
+
+### Usage
+
+```python
+servers = discover_servers()
+if servers:
+    base_url = servers[0]["rest_url"]
+    print(f"Found server at {base_url}")
+else:
+    base_url = "http://localhost:8088"
+    print("No servers found, using default")
+```
+
+> **Tip:** If you know the server address, skip mDNS and use the URL directly.
+
+---
+
+## 3. Connecting with a User Identity
+
+Every request must include the `X-User-Id` header. Use a `requests.Session`
+to set it once:
+
+```python
+import requests
+
+class OkFpgaClient:
+    def __init__(self, server_url: str, user_id: str):
+        self.base_url = f"{server_url.rstrip('/')}/api/v1"
+        self.user_id = user_id
+        self.session = requests.Session()
+        self.session.headers["X-User-Id"] = user_id
+    
+    def _get(self, path: str, **kwargs):
+        resp = self.session.get(f"{self.base_url}{path}", **kwargs)
+        resp.raise_for_status()
+        return resp.json() if resp.text else None
+    
+    def _post(self, path: str, json=None, **kwargs):
+        resp = self.session.post(f"{self.base_url}{path}", json=json, **kwargs)
+        resp.raise_for_status()
+        return resp.json() if resp.text else None
+    
+    def _put(self, path: str, json=None):
+        resp = self.session.put(f"{self.base_url}{path}", json=json)
+        resp.raise_for_status()
+        return resp.json() if resp.text else None
+```
+
+### Connecting
+
+```python
+client = OkFpgaClient("http://localhost:8088", user_id="Lab-User-Alice")
+status = client._get("/server/status")
+print(f"Server version: {status['api_version']}, uptime: {status['uptime_secs']}s")
+```
+
+---
+
+## 4. Listing Devices with SYZYGY Ports
+
+### List Devices
+
+```python
+# GET /api/v1/devices → {"devices": [...]}
+def list_devices(client):
+    data = client._get("/devices")
+    return data.get("devices", [])
+
+devices = list_devices(client)
+for d in devices:
+    print(f"  Serial: {d['serial']}")
+    print(f"  Product: {d['product_name']}")
+    print(f"  Programmed: {d.get('is_programmed', False)}")
+```
+
+### Get SYZYGY Port Info
+
+Each device may have SYZYGY expansion ports with attached peripherals.
+
+```python
+# GET /api/v1/devices/{serial}/syzygy → {"ports": [...]}
+def get_syzygy_ports(client, serial: str):
+    data = client._get(f"/devices/{serial}/syzygy")
+    ports = data.get("ports", [])
+    populated = [p for p in ports if p.get("is_populated")]
+    for p in populated:
+        print(f"  Port {p['index']}: {p['product_name']} ({p['product_model']})")
+        print(f"    Manufacturer: {p['manufacturer_name']}")
+        print(f"    Serial: {p['serial_number']}")
+    return populated
+
+# Example output:
+#   Port 0: SZG-ENET1G (SZG-ENET1G)
+#     Manufacturer: Opal Kelly Incorporated
+#     Serial: 2244000123A
+```
+
+---
+
+## 5. Programming the FPGA
+
+There are **two modes** for FPGA configuration:
+
+### Mode A: Server-Side Path (bitfile exists on the server)
+
+The bitfile must exist on the server's local filesystem. The server reads
+the file and calls `okFrontPanel_ConfigureFPGA()`.
+
+```python
+# POST /api/v1/devices/{serial}/configure
+# Content-Type: application/json
+# Body: {"bitfile_path": "/path/on/server/Counters.bit"}
+def configure_fpga_server_side(client, serial: str, server_path: str):
+    return client._post(f"/devices/{serial}/configure",
+                        json={"bitfile_path": server_path})
+
+result = configure_fpga_server_side(client, "22520013CC",
+    "/opt/fpga/bitfiles/Counters.bit")
+print(f"Configured: {result}")
+```
+
+### Mode B: Client-Side Upload (bitfile exists on the client)
+
+The client reads the bitfile locally and uploads the raw bytes. The server
+calls `okFrontPanel_ConfigureFPGAFromMemory()`.
+
+```python
+# POST /api/v1/devices/{serial}/configure
+# Content-Type: application/octet-stream
+# Body: <raw bitfile bytes>
+# Optional headers: X-Filename (original filename for metadata)
+def configure_fpga_client_side(client, serial: str, local_path: str):
+    with open(local_path, "rb") as f:
+        data = f.read()
+    import os
+    filename = os.path.basename(local_path)
+    url = f"{client.base_url}/devices/{serial}/configure"
+    resp = client.session.post(
+        url, data=data,
+        headers={"Content-Type": "application/octet-stream",
+                 "X-Filename": filename},
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+result = configure_fpga_client_side(client, "22520013CC",
+    r"C:\fpga\bitfiles\Counters.bit")
+print(f"Configured: {result}")
+```
+
+### Response (both modes)
+
+```json
+{
+  "filename": "Counters.bit",
+  "file_path": "/opt/fpga/bitfiles/Counters.bit",
+  "md5_hash": "a1b2c3d4e5f6...",
+  "programmed_at": "2026-08-21T20:00:00Z",
+  "programmed_by": "Lab-User-Alice"
+}
+```
+
+> **Important:** You cannot reprogram an FPGA that has resources currently
+> in use (returns `409 Conflict`). Release all resources first.
+
+---
+
+## 6. Resource Management
+
+After programming, you must **register** one or more resources and **acquire**
+one before performing data port operations. Resources represent logical
+ownership of the FPGA hardware.
+
+### Create Resources (Exclusive)
+
+```python
+# POST /api/v1/resources
+# Body: {"name": "...", "device_serial": "...", "access_mode": "exclusive",
+#        "description": "..."}
+def create_resource(client, name: str, serial: str, mode: str = "exclusive"):
+    return client._post("/resources", json={
+        "name": name,
+        "device_serial": serial,
+        "access_mode": mode,
+        "description": f"Resource for {name}",
+    })
+
+# Create two exclusive resources
+res_a = create_resource(client, "ADC Controller", "22520013CC", "exclusive")
+res_b = create_resource(client, "DAC Controller", "22520013CC", "exclusive")
+
+resource_id_a = res_a["id"]  # e.g., "22520013CC:ADC Controller"
+resource_id_b = res_b["id"]  # e.g., "22520013CC:DAC Controller"
+```
+
+### Access Modes
+
+| Mode | Behavior |
+|------|----------|
+| `"shared"` | Multiple users can acquire simultaneously. Supports lock/unlock. |
+| `"exclusive"` | Only one user can hold the resource at a time. Effectively always-locked. |
+
+### Acquire a Resource
+
+```python
+# POST /api/v1/resources/{id}/acquire
+# Body: {"mode": "shared", "user_id": "Lab-User-Alice"}
+def acquire_resource(client, resource_id: str):
+    return client._post(f"/resources/{resource_id}/acquire",
+                        json={"mode": "shared", "user_id": client.user_id})
+
+acquire_resource(client, resource_id_a)
+# Now this user holds "ADC Controller" exclusively
+```
+
+> For exclusive resources, the `"mode"` in the acquire body is the
+> runtime acquisition mode. Even though the resource itself is exclusive,
+> you still pass `"shared"` — the server enforces the exclusivity based
+> on the resource's `access_mode`.
+
+### Release a Resource
+
+```python
+# POST /api/v1/resources/{id}/release
+# Body: {"user_id": "Lab-User-Alice"}
+def release_resource(client, resource_id: str):
+    return client._post(f"/resources/{resource_id}/release",
+                        json={"user_id": client.user_id})
+```
+
+### List Resources
+
+```python
+# GET /api/v1/resources → {"resources": [...]}
+resources = client._get("/resources")
+for r in resources.get("resources", []):
+    print(f"  {r['id']}: {r['name']} ({r['access_mode']}) holders={r['holders']}")
+```
+
+---
+
+## 7. Classic Data Port Operations
+
+Once you've acquired a resource on a programmed FPGA, you can read/write
+endpoints. All Classic Data Port endpoints live under
+`/devices/{serial}/classic/`.
+
+### Endpoint Address Ranges
+
+| Type | Direction | Address Range | HTTP Method |
+|------|-----------|---------------|-------------|
+| WireIn | Host → FPGA | `0x00–0x1F` | `PUT` |
+| WireOut | FPGA → Host | `0x20–0x3F` | `GET` |
+| TriggerIn | Host → FPGA | `0x40–0x5F` | `POST` |
+| TriggerOut | FPGA → Host | `0x60–0x7F` | `GET` |
+| PipeIn | Host → FPGA | `0x80–0x9F` | `POST` |
+| PipeOut | FPGA → Host | `0xA0–0xBF` | `GET` |
+
+### 7.1 WireIn / WireOut
+
+**WireIn** — Set a persistent value on an FPGA input wire. The server
+automatically calls `UpdateWireIns()` after setting the value.
+
+```python
+# PUT /api/v1/devices/{serial}/classic/wires/in
+# Body: {"endpoint": 0, "value": 5, "mask": 7}
+def set_wire_in(client, serial, endpoint, value, mask=0xFFFFFFFF):
+    return client._put(f"/devices/{serial}/classic/wires/in",
+                       json={"endpoint": endpoint, "value": value, "mask": mask})
+
+# Set bits 0-2 of WireIn endpoint 0x00
+set_wire_in(client, "22520013CC", 0x00, value=0x05, mask=0x07)
+```
+
+**WireOut** — Read the current value of an FPGA output wire. The server
+automatically calls `UpdateWireOuts()` before reading.
+
+```python
+# GET /api/v1/devices/{serial}/classic/wires/out?endpoint=0x20
+def get_wire_out(client, serial, endpoint):
+    data = client._get(f"/devices/{serial}/classic/wires/out?endpoint={endpoint}")
+    return data.get("value", 0)
+
+counter_value = get_wire_out(client, "22520013CC", 0x20)
+print(f"Counter1 = {counter_value}")
+```
+
+### 7.2 TriggerIn / TriggerOut
+
+**TriggerIn** — Fire a one-shot trigger on a specific bit. The server calls
+`ActivateTriggerIn(endpoint, bit)`. Unlike wires, triggers are edge-sensitive
+and self-clearing.
+
+```python
+# POST /api/v1/devices/{serial}/classic/triggers/in
+# Body: {"endpoint": 64, "bit": 0}
+def activate_trigger(client, serial, endpoint, bit):
+    return client._post(f"/devices/{serial}/classic/triggers/in",
+                        json={"endpoint": endpoint, "bit": bit})
+
+# Fire TriggerIn 0x40, bit 0 (RESET2 on Counters.bit)
+activate_trigger(client, "22520013CC", 0x40, 0)
+```
+
+**TriggerOut** — Read which trigger bits have fired since the last read.
+The server calls `UpdateTriggerOuts()` before reading. Trigger bits are
+**auto-cleared** after reading.
+
+```python
+# GET /api/v1/devices/{serial}/classic/triggers/out?endpoint=0x60
+def get_trigger_out(client, serial, endpoint):
+    data = client._get(f"/devices/{serial}/classic/triggers/out?endpoint={endpoint}")
+    return data.get("value", 0)
+
+triggered = get_trigger_out(client, "22520013CC", 0x60)
+if triggered & 0x01:
+    print("Counter1 reached 0x00!")
+if triggered & 0x02:
+    print("Counter1 reached 0x80!")
+```
+
+### 7.3 PipeIn / PipeOut
+
+**PipeIn** — Write a block of bytes to the FPGA. The server calls
+`WriteToPipeIn(endpoint, data)`. Data is sent as raw `application/octet-stream`.
+
+```python
+# POST /api/v1/devices/{serial}/classic/pipes/in?endpoint=0x80
+# Content-Type: application/octet-stream
+# Body: <raw bytes>
+def write_pipe_in(client, serial, endpoint, data: bytes):
+    url = f"{client.base_url}/devices/{serial}/classic/pipes/in?endpoint={endpoint}"
+    resp = client.session.post(url, data=data,
+                               headers={"Content-Type": "application/octet-stream"})
+    resp.raise_for_status()
+    return resp.json()
+
+# Write 1024 bytes to PipeIn 0x80
+payload = bytes(range(256)) * 4  # 1024 bytes
+result = write_pipe_in(client, "22520013CC", 0x80, payload)
+print(f"Wrote {result.get('bytes_transferred', 0)} bytes")
+```
+
+**PipeOut** — Read a block of bytes from the FPGA. The server calls
+`ReadFromPipeOut(endpoint, length)` and returns the raw bytes.
+
+```python
+# GET /api/v1/devices/{serial}/classic/pipes/out?endpoint=0xA0&length=1024
+def read_pipe_out(client, serial, endpoint, length):
+    url = f"{client.base_url}/devices/{serial}/classic/pipes/out"
+    resp = client.session.get(url, params={"endpoint": endpoint, "length": length})
+    resp.raise_for_status()
+    return resp.content  # raw bytes
+
+data = read_pipe_out(client, "22520013CC", 0xA0, 1024)
+print(f"Read {len(data)} bytes: {data[:16].hex()}...")
+```
+
+### 7.4 BlockThrottled PipeIn / PipeOut (BTPipe)
+
+**BTPipeIn** — Same as PipeIn but with a `block_size` parameter. The server
+calls `WriteToBlockPipeIn(endpoint, block_size, data)`. Block-throttled
+transfers wait for a ready signal from the FPGA between each block,
+preventing FIFO overflows.
+
+```python
+# POST /api/v1/devices/{serial}/classic/pipes/block-in?endpoint=0x80&block_size=64
+# Content-Type: application/octet-stream
+# Body: <raw bytes>
+def write_btpipe_in(client, serial, endpoint, block_size, data: bytes):
+    url = f"{client.base_url}/devices/{serial}/classic/pipes/block-in"
+    resp = client.session.post(
+        url, data=data,
+        params={"endpoint": endpoint, "block_size": block_size},
+        headers={"Content-Type": "application/octet-stream"},
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+# Write with 64-byte block throttling
+write_btpipe_in(client, "22520013CC", 0x80, 64, payload)
+```
+
+**BTPipeOut** — Same as PipeOut but with `block_size` for throttled reads.
+
+```python
+# GET /api/v1/devices/{serial}/classic/pipes/block-out?endpoint=0xA0&block_size=64&length=1024
+def read_btpipe_out(client, serial, endpoint, block_size, length):
+    url = f"{client.base_url}/devices/{serial}/classic/pipes/block-out"
+    resp = client.session.get(url, params={
+        "endpoint": endpoint, "block_size": block_size, "length": length,
+    })
+    resp.raise_for_status()
+    return resp.content  # raw bytes
+
+data = read_btpipe_out(client, "22520013CC", 0xA0, 64, 1024)
+```
+
+---
+
+## 8. Complete Example
+
+```python
+#!/usr/bin/env python3
+"""Complete ok-FPGA-Server REST client example."""
+
+import requests
+
+# --- Connect ---
+SERVER = "http://localhost:8088"
+USER = "Lab-User-Alice"
+
+session = requests.Session()
+session.headers["X-User-Id"] = USER
+BASE = f"{SERVER}/api/v1"
+
+def get(path, **kw):
+    r = session.get(f"{BASE}{path}", **kw)
+    r.raise_for_status()
+    return r.json() if r.headers.get("content-type","").startswith("application/json") else r.content
+
+def post(path, json=None, **kw):
+    r = session.post(f"{BASE}{path}", json=json, **kw)
+    r.raise_for_status()
+    return r.json() if r.text else None
+
+def put(path, json=None):
+    r = session.put(f"{BASE}{path}", json=json)
+    r.raise_for_status()
+    return r.json() if r.text else None
+
+# --- 1. List Devices ---
+devices = get("/devices")["devices"]
+serial = devices[0]["serial"]
+print(f"Device: {devices[0]['product_name']} ({serial})")
+
+# --- 2. SYZYGY Ports ---
+ports = get(f"/devices/{serial}/syzygy").get("ports", [])
+for p in ports:
+    if p.get("is_populated"):
+        print(f"  SYZYGY {p['index']}: {p['product_name']}")
+
+# --- 3. Program FPGA (server-side path) ---
+post(f"/devices/{serial}/configure",
+     json={"bitfile_path": r"C:\fpga\Counters.bit"})
+print("FPGA programmed.")
+
+# --- 4. Create Two Exclusive Resources ---
+res_a = post("/resources", json={
+    "name": "ADC", "device_serial": serial,
+    "access_mode": "exclusive", "description": "ADC resource"})
+res_b = post("/resources", json={
+    "name": "DAC", "device_serial": serial,
+    "access_mode": "exclusive", "description": "DAC resource"})
+
+# --- 5. Acquire One Resource ---
+post(f"/resources/{res_a['id']}/acquire",
+     json={"mode": "shared", "user_id": USER})
+print(f"Acquired: {res_a['id']}")
+
+# --- 6. WireIn/Out ---
+put(f"/devices/{serial}/classic/wires/in",
+    json={"endpoint": 0x00, "value": 0x04, "mask": 0x07})  # AUTOCOUNT2=on
+counter = get(f"/devices/{serial}/classic/wires/out?endpoint=0x20")["value"]
+print(f"Counter1 = {counter & 0xFF}")
+
+# --- 7. TriggerIn/Out ---
+post(f"/devices/{serial}/classic/triggers/in",
+     json={"endpoint": 0x40, "bit": 0})  # RESET2
+trig = get(f"/devices/{serial}/classic/triggers/out?endpoint=0x60")["value"]
+print(f"TriggerOut 0x60 = {trig:#06x}")
+
+# --- 8. PipeIn/Out ---
+payload = bytes(1024)
+session.post(f"{BASE}/devices/{serial}/classic/pipes/in?endpoint=0x80",
+             data=payload, headers={"Content-Type": "application/octet-stream"})
+data = session.get(f"{BASE}/devices/{serial}/classic/pipes/out",
+                   params={"endpoint": 0xA0, "length": 1024}).content
+print(f"Pipe round-trip: wrote 1024, read {len(data)} bytes")
+
+# --- 9. Cleanup ---
+post(f"/resources/{res_a['id']}/release", json={"user_id": USER})
+print("Released resource, done.")
+```
+
+---
+
+## 9. Reference: Key API Endpoints
+
+| Operation | Method | Path | Body / Params |
+|-----------|--------|------|---------------|
+| Server status | `GET` | `/server/status` | — |
+| List devices | `GET` | `/devices` | — |
+| Device info | `GET` | `/devices/{serial}` | — |
+| SYZYGY ports | `GET` | `/devices/{serial}/syzygy` | — |
+| Program (server path) | `POST` | `/devices/{serial}/configure` | `{"bitfile_path": "..."}` |
+| Program (upload) | `POST` | `/devices/{serial}/configure` | Body: raw bytes, `Content-Type: application/octet-stream` |
+| Create resource | `POST` | `/resources` | `{"name":"...", "device_serial":"...", "access_mode":"exclusive"}` |
+| Acquire resource | `POST` | `/resources/{id}/acquire` | `{"mode":"shared", "user_id":"..."}` |
+| Release resource | `POST` | `/resources/{id}/release` | `{"user_id":"..."}` |
+| Set WireIn | `PUT` | `/devices/{serial}/classic/wires/in` | `{"endpoint":0, "value":5, "mask":7}` |
+| Read WireOut | `GET` | `/devices/{serial}/classic/wires/out?endpoint=0x20` | — |
+| Fire TriggerIn | `POST` | `/devices/{serial}/classic/triggers/in` | `{"endpoint":64, "bit":0}` |
+| Read TriggerOut | `GET` | `/devices/{serial}/classic/triggers/out?endpoint=0x60` | — |
+| Write PipeIn | `POST` | `/devices/{serial}/classic/pipes/in?endpoint=0x80` | Body: raw bytes |
+| Read PipeOut | `GET` | `/devices/{serial}/classic/pipes/out?endpoint=0xA0&length=1024` | — |
+| Write BTPipeIn | `POST` | `/devices/{serial}/classic/pipes/block-in?endpoint=0x80&block_size=64` | Body: raw bytes |
+| Read BTPipeOut | `GET` | `/devices/{serial}/classic/pipes/block-out?endpoint=0xA0&block_size=64&length=1024` | — |
+| Lock resource | `POST` | `/resources/{id}/lock` | `{"user_id":"..."}` |
+| Unlock resource | `POST` | `/resources/{id}/unlock` | `{"user_id":"..."}` |
+| Heartbeat | `POST` | `/heartbeat` | `{"user_id":"..."}` |
+| Disconnect | `POST` | `/disconnect` | `{"user_id":"..."}` |
+
+---
+
+## 10. Authoritative Sources
+
+- **OpenAPI Spec:** [`api/openapi.yaml`](../api/openapi.yaml) — the single source of truth for all REST endpoints
+- **Existing Python REST client:** [`python_rest_gui_common/counters_client.py`](../client-examples/python_rest_gui_common/counters_client.py)
+- **Existing Python REST demo:** [`python-rest-client/`](../client-examples/python-rest-client/)
+- **ADR-004:** REST API design decisions
+- **ADR-015:** HTTP method conventions (PUT=idempotent, POST=action)
+- **ADR-020:** Resource management model
+- **ADR-024:** Endpoint access enforcement (`X-User-Id` header)
+- **ai-collaboration rules:** [`.agents/rules/ai-collaboration.md`](../.agents/rules/ai-collaboration.md) — §6: API Specification Authority

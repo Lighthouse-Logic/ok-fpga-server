@@ -3351,3 +3351,100 @@
 2026-08-22T00:14:25.635230Z  INFO ok_fpga_core::service_manager: service stopped service=rest
 2026-08-22T00:14:25.635394Z  INFO ok_fpga_core::service_manager: all services stopped
 2026-08-22T00:14:25.635538Z  INFO ok_fpga_server: ok-FPGA-Server shut down cleanly.
+2026-08-22T00:46:19.769911Z  INFO ok_fpga_server: configuration loaded config_log_level=info management_port=9090
+2026-08-22T00:46:19.770646Z  INFO ok_fpga_server::scanner: attempting to load FrontPanel DLL dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-22T00:46:19.776731Z  INFO ok_fpga_server::scanner: FrontPanel DLL loaded successfully api_version=6.1.0 dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-22T00:46:19.810487Z  INFO ok_fpga_server: initial device scan complete count=1
+2026-08-22T00:46:19.810711Z  INFO ok_fpga_server: discovered FPGA device (initial scan) serial=22520013CC product=XEM7320-A75T interface=USB 3.0
+2026-08-22T00:46:19.841013Z  INFO ok_fpga_server::handle_pool: device handle opened and added to pool serial=22520013CC
+2026-08-22T00:46:19.841506Z  INFO ok_fpga_server: device polling task started (2s interval)
+2026-08-22T00:46:19.841612Z  INFO ok_fpga_server::scanner: attempting to load FrontPanel DLL dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-22T00:46:19.841792Z  INFO ok_fpga_server: authentication provider initialized provider="none" required=false
+2026-08-22T00:46:19.842016Z  INFO ok_fpga_server: Endpoint access enforcement: enforce
+2026-08-22T00:46:19.842252Z  INFO ok_fpga_core::service_manager: registered service service=rest enabled=true
+2026-08-22T00:46:19.842412Z  INFO ok_fpga_server::scanner: FrontPanel DLL loaded successfully api_version=6.1.0 dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-22T00:46:19.842589Z  INFO ok_fpga_server: registered REST service bind=0.0.0.0 port=8088 enabled=true
+2026-08-22T00:46:19.842842Z  INFO ok_fpga_core::service_manager: registered service service=grpc enabled=true
+2026-08-22T00:46:19.843024Z  INFO ok_fpga_server: registered gRPC service bind=0.0.0.0 port=50051 enabled=true
+2026-08-22T00:46:19.843229Z  INFO ok_fpga_core::service_manager: registered service service=mqtt enabled=false
+2026-08-22T00:46:19.843347Z  INFO ok_fpga_server: registered MQTT service broker=mqtt://localhost:1883 topic_prefix=okfpga/server01 enabled=false
+2026-08-22T00:46:19.843494Z  INFO ok_fpga_core::service_manager: registered service service=mdns enabled=true
+2026-08-22T00:46:19.843624Z  INFO ok_fpga_server: registered mDNS service instance_name=okfpga-server enabled=true
+2026-08-22T00:46:19.843808Z  INFO ok_fpga_server: compiled features features=["rest", "dashboard", "grpc", "mqtt", "mdns"]
+2026-08-22T00:46:19.844148Z  INFO ok_fpga_core::service_manager: starting service service=rest
+2026-08-22T00:46:19.851207Z  INFO ok_fpga_server::rest::managed: REST server bound successfully address=0.0.0.0:8088
+2026-08-22T00:46:19.851506Z  INFO ok_fpga_server::rest::managed: REST server is running address=0.0.0.0:8088
+2026-08-22T00:46:19.851703Z  INFO ok_fpga_core::service_manager: service started service=rest
+2026-08-22T00:46:19.851855Z  INFO ok_fpga_core::service_manager: starting service service=grpc
+2026-08-22T00:46:19.852210Z  INFO ok_fpga_server::grpc: starting gRPC server address=0.0.0.0:50051
+2026-08-22T00:46:19.954432Z  INFO ok_fpga_server::grpc::managed: gRPC server is running address=0.0.0.0:50051
+2026-08-22T00:46:19.954648Z  INFO ok_fpga_core::service_manager: service started service=grpc
+2026-08-22T00:46:19.954821Z  INFO ok_fpga_core::service_manager: service disabled in config — skipping service=mqtt
+2026-08-22T00:46:19.955009Z  INFO ok_fpga_core::service_manager: starting service service=mdns
+2026-08-22T00:46:20.745944Z  INFO ok_fpga_server::mdns: mDNS service registered via OS daemon (PTR+SRV+TXT+A) instance=okfpga-server service_type="_okfpga._tcp" port=9090 hostname=THE-EXPANSE ipv4=192.168.50.78 method="os-native" txt_records=["version=0.1.0", "description=A Dual Port Beast", "rest=8088", "grpc=50051", "dashboard=9090", "devices=1"]
+2026-08-22T00:46:20.746107Z  INFO ok_fpga_server::mdns: mDNS discovery service started
+2026-08-22T00:46:20.746334Z  INFO ok_fpga_core::service_manager: service started service=mdns
+2026-08-22T00:46:20.746544Z  INFO ok_fpga_server: service state service=rest status=running compiled=true enabled=true
+2026-08-22T00:46:20.746641Z  INFO ok_fpga_server: service state service=grpc status=running compiled=true enabled=true
+2026-08-22T00:46:20.746750Z  INFO ok_fpga_server: service state service=mqtt status=stopped compiled=true enabled=false
+2026-08-22T00:46:20.746868Z  INFO ok_fpga_server: service state service=mdns status=running compiled=true enabled=true
+2026-08-22T00:46:20.747504Z  INFO ok_fpga_server: management server started (dashboard + mgmt API) address=0.0.0.0:9090
+2026-08-22T00:46:20.747790Z  INFO ok_fpga_server::sweep: starting user session sweep task timeout_secs=60 sweep_interval_secs=10
+2026-08-22T00:46:20.747956Z  INFO ok_fpga_server: ok-FPGA-Server is ready. Press Ctrl+C to shut down.
+2026-08-22T00:47:28.354035Z  INFO ok_fpga_server::handle_pool: FPGA configured successfully serial=22520013CC path=FrontPanel-6.1.0/ExampleBitfiles/20190501-FP50-XEM7320-A75/XEM7320-A75/Counters.bit
+2026-08-22T00:47:28.354178Z  INFO ok_fpga_server::handle_pool: Classic data port acquired
+2026-08-22T00:47:28.354290Z  INFO ok_fpga_server::handle_pool: AXI data port not available (this is OK for Classic-only bitfiles) error_code=-15
+2026-08-22T00:48:48.027865Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T00:48:53.073898Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T00:48:58.070880Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T00:49:03.071847Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T00:49:08.074989Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T00:49:13.085130Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T00:49:18.074754Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T00:49:23.069688Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T00:49:28.072939Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T00:49:33.072104Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T00:49:38.074802Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T00:49:41.427117Z  INFO ok_fpga_server::grpc::device_service: User disconnected via gRPC Disconnect user_id=Icy Garpac released_count=1
+2026-08-22T00:50:30.296059Z  INFO ok_fpga_server::rest::server: User disconnected via POST /disconnect user_id=Icy Rester released_count=1
+2026-08-22T00:56:13.737266Z  INFO ok_fpga_server::handle_pool: FPGA configured successfully serial=22520013CC path=FrontPanel-6.1.0/ExampleBitfiles/20190501-FP50-XEM7320-A75/XEM7320-A75/Counters.bit
+2026-08-22T00:56:13.737407Z  INFO ok_fpga_server::handle_pool: Classic data port acquired
+2026-08-22T00:56:13.737574Z  INFO ok_fpga_server::handle_pool: AXI data port not available (this is OK for Classic-only bitfiles) error_code=-15
+2026-08-22T00:56:13.742379Z  INFO ok_fpga_server::rest::devices: Cleared resources for re-programmed device serial=22520013CC cleared=1
+2026-08-22T00:56:20.915154Z  INFO ok_fpga_server::rest::server: User disconnected via POST /disconnect user_id=Icy Rester released_count=1
+2026-08-22T00:56:47.329112Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T00:56:52.395079Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T00:56:57.373312Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T00:57:02.374520Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T00:57:07.375227Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T00:57:12.375135Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T00:57:17.378327Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T00:57:17.880693Z  INFO ok_fpga_server::grpc::device_service: User disconnected via gRPC Disconnect user_id=Icy Garpac released_count=1
+2026-08-22T01:05:59.778693Z  INFO ok_fpga_server::handle_pool: FPGA configured successfully serial=22520013CC path=FrontPanel-6.1.0/ExampleBitfiles/20190501-FP50-XEM7320-A75/XEM7320-A75/Counters.bit
+2026-08-22T01:05:59.778830Z  INFO ok_fpga_server::handle_pool: Classic data port acquired
+2026-08-22T01:05:59.778908Z  INFO ok_fpga_server::handle_pool: AXI data port not available (this is OK for Classic-only bitfiles) error_code=-15
+2026-08-22T01:05:59.784475Z  INFO ok_fpga_server::rest::devices: Cleared resources for re-programmed device serial=22520013CC cleared=1
+2026-08-22T01:07:50.764086Z  WARN ok_fpga_server::sweep: auto-released resources for expired user user_id=Icy Rester released_count=1
+2026-08-22T01:08:11.104322Z  INFO ok_fpga_server::grpc::device_service: GetDeviceSettings: returned settings serial=22520013CC count=18
+2026-08-22T01:08:11.144503Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T01:08:11.148854Z  WARN ok_fpga_server::grpc::device_service: GetDeviceSensors: requires FFI — returning empty serial=22520013CC
+2026-08-22T01:13:56.482584Z  INFO ok_fpga_server::grpc::device_service: GetDeviceSettings: returned settings serial=22520013CC count=18
+2026-08-22T01:13:56.519916Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T01:13:56.522802Z  WARN ok_fpga_server::grpc::device_service: GetDeviceSensors: requires FFI — returning empty serial=22520013CC
+2026-08-22T01:23:34.246043Z  INFO ok_fpga_server::grpc::device_service: GetDeviceSettings: returned settings serial=22520013CC count=18
+2026-08-22T01:23:34.285457Z  INFO ok_fpga_server::grpc::device_service: GetSyzygyPorts: discovered ports serial=22520013CC count=3
+2026-08-22T01:23:34.289348Z  WARN ok_fpga_server::grpc::device_service: GetDeviceSensors: requires FFI — returning empty serial=22520013CC
+2026-08-22T01:28:53.803689Z  INFO ok_fpga_server: shutdown signal received
+2026-08-22T01:28:53.804089Z  INFO ok_fpga_core::service_manager: stopping service service=mdns
+2026-08-22T01:28:53.804289Z  INFO ok_fpga_server::mdns: Deregistering mDNS service (OS-native)
+2026-08-22T01:28:53.804449Z  INFO ok_fpga_server::mdns: mDNS discovery service stopped
+2026-08-22T01:28:53.804640Z  INFO ok_fpga_core::service_manager: service stopped service=mdns
+2026-08-22T01:28:53.804745Z  INFO ok_fpga_core::service_manager: stopping service service=grpc
+2026-08-22T01:28:53.805283Z  INFO ok_fpga_server::grpc: gRPC server stopped
+2026-08-22T01:28:54.014019Z  INFO ok_fpga_server::grpc::managed: gRPC server stopped
+2026-08-22T01:28:54.014226Z  INFO ok_fpga_core::service_manager: service stopped service=grpc
+2026-08-22T01:28:54.014369Z  INFO ok_fpga_core::service_manager: stopping service service=rest
+2026-08-22T01:28:54.216442Z  INFO ok_fpga_server::rest::managed: REST server stopped
+2026-08-22T01:28:54.216632Z  INFO ok_fpga_core::service_manager: service stopped service=rest
+2026-08-22T01:28:54.216921Z  INFO ok_fpga_core::service_manager: all services stopped
+2026-08-22T01:28:54.217327Z  INFO ok_fpga_server: ok-FPGA-Server shut down cleanly.
