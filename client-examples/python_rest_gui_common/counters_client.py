@@ -107,6 +107,7 @@ class CountersClient:
         self.user_id = user_id
         self.session = requests.Session()
         self.session.headers["X-User-Id"] = user_id
+        self._syzygy_cache: dict[str, str] = {}  # Phase 34-B: cache labels
 
     def _get(self, path: str):
         resp = self.session.get(f"{self.base_url}{path}")
@@ -158,12 +159,17 @@ class CountersClient:
             dataport=d.get("dataport", ""),
             is_front_panel_enabled=d.get("is_front_panel_enabled", False),
         ) for d in device_list]
-        # Phase 34-B: Populate SYZYGY labels.
+        # Phase 34-B: Populate SYZYGY labels (cached — only fetches once per serial).
         for dev in devices:
-            try:
-                dev.syzygy_label = self._get_syzygy_label(dev.serial)
-            except Exception:
-                pass
+            if dev.serial in self._syzygy_cache:
+                dev.syzygy_label = self._syzygy_cache[dev.serial]
+            else:
+                try:
+                    label = self._get_syzygy_label(dev.serial)
+                    self._syzygy_cache[dev.serial] = label
+                    dev.syzygy_label = label
+                except Exception:
+                    pass
         return devices
 
     def _get_syzygy_label(self, serial: str) -> str:

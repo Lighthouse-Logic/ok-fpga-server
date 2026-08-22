@@ -25,6 +25,8 @@ pub mod mdns_browser;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::Mutex;
 
 // ============================================================================
 // Error Type
@@ -205,6 +207,8 @@ pub struct CountersClient {
     base_url: String,
     /// User identity sent via X-User-Id header for session tracking.
     user_id: String,
+    /// Phase 34-B: Cache SYZYGY labels per serial to avoid re-fetching on every refresh.
+    syzygy_cache: Mutex<HashMap<String, String>>,
 }
 
 impl CountersClient {
@@ -218,6 +222,7 @@ impl CountersClient {
             client: Client::new(),
             base_url: format!("{}/api/v1", rest_url.trim_end_matches('/')),
             user_id: user_id.to_string(),
+            syzygy_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -306,9 +311,13 @@ impl CountersClient {
         // Unwrap the {"devices": [...]} wrapper per OpenAPI spec.
         let response: DeviceListResponse = serde_json::from_value(val)?;
         let mut devices = response.devices;
-        // Phase 34-B: Populate SYZYGY labels.
+        // Phase 34-B: Populate SYZYGY labels (cached — only fetches once per serial).
         for dev in &mut devices {
-            if let Ok(label) = self.get_syzygy_label(&dev.serial).await {
+            let cached = self.syzygy_cache.lock().unwrap().get(&dev.serial).cloned();
+            if let Some(label) = cached {
+                dev.syzygy_label = label;
+            } else if let Ok(label) = self.get_syzygy_label(&dev.serial).await {
+                self.syzygy_cache.lock().unwrap().insert(dev.serial.clone(), label.clone());
                 dev.syzygy_label = label;
             }
         }

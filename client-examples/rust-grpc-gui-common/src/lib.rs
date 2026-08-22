@@ -17,6 +17,7 @@ use okfpga::v1::{
     server_service_client::ServerServiceClient,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tonic::transport::Channel;
 
 // ============================================================================
@@ -105,6 +106,8 @@ pub struct CountersGrpcClient {
     #[allow(dead_code)]
     server: ServerServiceClient<Channel>,
     user_id: String,
+    /// Phase 34-B: Cache SYZYGY labels per serial to avoid re-fetching on every refresh.
+    syzygy_cache: HashMap<String, String>,
 }
 
 impl CountersGrpcClient {
@@ -120,6 +123,7 @@ impl CountersGrpcClient {
             classic: ClassicDataPortServiceClient::new(channel.clone()),
             server: ServerServiceClient::new(channel),
             user_id: user_id.to_string(),
+            syzygy_cache: HashMap::new(),
         })
     }
 
@@ -168,9 +172,12 @@ impl CountersGrpcClient {
                 syzygy_label: String::new(),
             })
             .collect();
-        // Phase 34-B: Populate SYZYGY labels.
+        // Phase 34-B: Populate SYZYGY labels (cached — only fetches once per serial).
         for dev in &mut devices {
-            if let Ok(label) = self.get_syzygy_label(&dev.serial).await {
+            if let Some(cached) = self.syzygy_cache.get(&dev.serial) {
+                dev.syzygy_label = cached.clone();
+            } else if let Ok(label) = self.get_syzygy_label(&dev.serial).await {
+                self.syzygy_cache.insert(dev.serial.clone(), label.clone());
                 dev.syzygy_label = label;
             }
         }
