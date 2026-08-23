@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-08-21
+> **Last Updated:** 2026-08-23
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -44,23 +44,63 @@
 | **Phase 33** | Read-Aware Lock Enforcement | ADR-024, 026 | ✅ Completed |
 | **Phase 34** | Client UX & Device Metadata Improvements | ADR-004 (F), ADR-005 (C) | ✅ Completed |
 | **Phase 35** | Client Demo Bug Fixes & README Update | — | ✅ Completed |
-| **Phase 36+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
+| **Phase 36** | Configure FPGA API Alignment | ADR-028 | 🟢 Now |
+| **Phase 37** | API Response Compliance Audit | — | 🟡 Next |
+| **Phase 38+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
 ## 🟢 Now
 
-*No phase active. Promote a "Next" item to begin new work.*
+### Phase 36 — Configure FPGA API Alignment
+
+**Goal:** Split the configure endpoint into two REST paths, implement proper multipart
+parsing, and align the server response with the OpenAPI spec.
+
+**ADR:** [ADR-028](architecture/adr/ADR-028-configure-fpga-api-alignment.md)
+
+**Deliverables:**
+
+| # | Task | Notes |
+|---|------|-------|
+| 1 | Add `POST /devices/{serial}/configure_from_server_path` route | JSON body `{"bitfile_path": "..."}`, calls `ConfigureFPGA` from disk |
+| 2 | Refactor `/devices/{serial}/configure` handler | Replace raw-bytes hack with proper `axum::extract::Multipart` parsing |
+| 3 | Extract `filename`, `description` from multipart form fields | Currently `description` is hard-coded to `None` |
+| 4 | Fix response to return `BitfileInfo` | Replace `ConfigureResponse {status, serial, message}` |
+| 5 | Update server doc comment on `configure_fpga` handler | Fix `"path"` → `"bitfile_path"` and describe both endpoints |
+| 6 | Update Rust GUI clients | `configure_fpga()` → `/configure_from_server_path`; `configure_fpga_from_file()` → true multipart |
+| 7 | Update integration tests | Verify both endpoints work against running server |
+
+**Exit Criteria:**
+- Both endpoints return `BitfileInfo` per OpenAPI spec
+- Server parses true `multipart/form-data` (no raw-bytes hack)
+- Rust GUI clients work with both modes (ServerPath / LocalFile)
+- `cargo test` passes, `cargo build` succeeds
 
 ---
 
 ## 🟡 Next
 
-*No phase queued. Promote a "Later" item to begin new work.*
+### Phase 37 — API Response Compliance Audit
+
+**Goal:** Audit every REST endpoint's actual response struct against its OpenAPI schema
+and fix any discrepancies.
+
+**Deliverables:**
+- Comparison table of every endpoint's OpenAPI response schema vs actual Rust response struct
+- Fix any mismatched field names, missing fields, or wrong status codes
+- Ensure all `ProblemDetail` error responses match the schema
+- Update doc comments on all fixed handlers
 
 ## 🔵 Later: Future Horizons
 
 Features in this section represent uncommitted research or long-term capabilities:
+
+* **User identification consistency (`user_id` vs `X-User-Id`)** — the OpenAPI spec
+  defines `user_id` as a request body field in 8 endpoints (19 occurrences), but the
+  server reads `X-User-Id` from a header. The gRPC proto uses `user_id` as a message
+  field. This needs a dedicated cross-cutting analysis to determine the canonical
+  approach, considering REST conventions, gRPC parity, and access control middleware.
 
 * **gRPC AXI FFI wiring** — all 14 AXI RPCs in `AXIDataPortService` (Lite, Full,
   Stream) are `UNIMPLEMENTED` stubs. REST AXI is fully wired, but gRPC was not

@@ -387,11 +387,19 @@ paths:
   /devices/{serial}/configure:
     post:
       tags: [Devices]
-      summary: Program the FPGA with a bitfile
+      summary: Program the FPGA with an uploaded bitfile
       description: |
-        Uploads and programs a bitfile to the specified FPGA. The bitfile can be
-        sent as a multipart file upload. After successful programming, the device
-        transitions from Connected to Programmed state and resources can be created.
+        Uploads and programs a bitfile to the specified FPGA via multipart file
+        upload. The bitfile binary is sent as the `bitfile` form field. After
+        successful programming, the device transitions from Connected to
+        Programmed state and resources can be created.
+
+        For server-side path programming (bitfile already on the server's
+        filesystem), use `POST /devices/{serial}/configure_from_server_path`
+        instead.
+
+        User identification is provided via the `X-User-Id` header (consistent
+        with all other endpoints).
       operationId: configureFPGA
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -409,13 +417,10 @@ paths:
                   description: The .bit or .rbf bitfile to program
                 filename:
                   type: string
-                  description: Original filename of the bitfile (optional, Phase 34-C)
+                  description: Original filename of the bitfile (optional)
                 description:
                   type: string
                   description: Optional description of the bitfile
-                user_id:
-                  type: string
-                  description: User performing the programming
       responses:
         '200':
           description: FPGA configured successfully
@@ -463,6 +468,62 @@ paths:
                 $ref: '#/components/schemas/ProblemDetail'
         '409':
           description: Device has resources in use
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /devices/{serial}/configure_from_server_path:
+    post:
+      tags: [Devices]
+      summary: Program the FPGA from a server-side file path
+      description: |
+        Programs the FPGA using a bitfile that already exists on the server's
+        filesystem. The client sends only the path; the server reads and programs
+        the file directly.
+
+        For uploading a bitfile from the client machine, use
+        `POST /devices/{serial}/configure` with `multipart/form-data` instead.
+
+        User identification is provided via the `X-User-Id` header.
+      operationId: configureFPGAFromServerPath
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bitfile_path]
+              properties:
+                bitfile_path:
+                  type: string
+                  description: Path to the bitfile on the server's filesystem
+                description:
+                  type: string
+                  description: Optional description of the bitfile
+      responses:
+        '200':
+          description: FPGA configured successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BitfileInfo'
+        '400':
+          description: Invalid path or FPGA configuration error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '409':
+          description: Device has resources in use — cannot reprogram
           content:
             application/json:
               schema:
@@ -1675,11 +1736,11 @@ components:
         file_path:
           type: string
           nullable: true
-          description: Full path on the server filesystem (null for client uploads, Phase 34-C)
+          description: Full path on the server filesystem (null for client uploads)
         md5_hash:
           type: string
           nullable: true
-          description: MD5 hash of the bitfile content, hex-encoded (Phase 34-C)
+          description: MD5 hash of the bitfile content, hex-encoded
 
     DeviceSensor:
       type: object
