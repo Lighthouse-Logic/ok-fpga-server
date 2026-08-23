@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -124,27 +124,36 @@ struct AddressRangeBody {
 }
 
 /// Request body for acquiring a resource.
+///
+/// `user_id` is optional in the Rust struct (ADR-029): if absent, the handler
+/// falls back to the `X-User-Id` header.
 #[derive(Deserialize)]
 struct AcquireResourceRequest {
-    /// User identifier.
-    user_id: String,
+    /// User identifier (optional — falls back to X-User-Id header).
+    user_id: Option<String>,
     /// Access mode: "shared" or "exclusive" (optional, defaults to the
     /// resource's declared access_mode).
     mode: Option<String>,
 }
 
 /// Request body for releasing a resource.
+///
+/// `user_id` is optional in the Rust struct (ADR-029): if absent, the handler
+/// falls back to the `X-User-Id` header.
 #[derive(Deserialize)]
 struct ReleaseResourceRequest {
-    /// User identifier.
-    user_id: String,
+    /// User identifier (optional — falls back to X-User-Id header).
+    user_id: Option<String>,
 }
 
 /// Request body for lock/unlock operations.
+///
+/// `user_id` is optional in the Rust struct (ADR-029): if absent, the handler
+/// falls back to the `X-User-Id` header.
 #[derive(Deserialize)]
 struct LockUnlockRequest {
-    /// User identifier.
-    user_id: String,
+    /// User identifier (optional — falls back to X-User-Id header).
+    user_id: Option<String>,
 }
 
 /// Resource list response.
@@ -496,8 +505,12 @@ async fn delete_resource(
 async fn acquire_resource(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<AcquireResourceRequest>,
 ) -> Result<Json<ResourceView>, ProblemDetail> {
+    // Resolve user identity: body first, then X-User-Id header (ADR-029).
+    let user_id = super::resolve_user_id(body.user_id.as_deref(), &headers)?;
+
     // Look up the resource's declared access mode.
     let resource = state
         .resource_registry
@@ -518,11 +531,11 @@ async fn acquire_resource(
 
     state
         .resource_registry
-        .acquire(&id, &body.user_id, mode)
+        .acquire(&id, &user_id, mode)
         .map_err(|e| ProblemDetail::conflict(&format!("{}", e)))?;
 
     // Track the user session (implicit heartbeat on acquire).
-    state.user_sessions.touch(&body.user_id);
+    state.user_sessions.touch(&user_id);
 
     let resource = state.resource_registry.get(&id).unwrap();
 
@@ -538,7 +551,7 @@ async fn acquire_resource(
     // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
     state.broadcast_event(&format!(
         r#"{{"type":"resource_acquired","resource_id":"{}","user_id":"{}"}}"#,
-        id, body.user_id
+        id, user_id
     ));
 
     Ok(Json(ResourceView::from(&resource)))
@@ -548,11 +561,15 @@ async fn acquire_resource(
 async fn release_resource(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<ReleaseResourceRequest>,
 ) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    if state.resource_registry.release(&id, &body.user_id) {
+    // Resolve user identity: body first, then X-User-Id header (ADR-029).
+    let user_id = super::resolve_user_id(body.user_id.as_deref(), &headers)?;
+
+    if state.resource_registry.release(&id, &user_id) {
         // Track the user session (implicit heartbeat on release).
-        state.user_sessions.touch(&body.user_id);
+        state.user_sessions.touch(&user_id);
 
         // Determine new state after release.
         let new_state = state
@@ -573,17 +590,17 @@ async fn release_resource(
         // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
         state.broadcast_event(&format!(
             r#"{{"type":"resource_released","resource_id":"{}","user_id":"{}"}}"#,
-            id, body.user_id
+            id, user_id
         ));
 
         Ok(Json(serde_json::json!({
             "success": true,
-            "message": format!("Resource '{}' released by '{}'", id, body.user_id),
+            "message": format!("Resource '{}' released by '{}'", id, user_id),
         })))
     } else {
         Err(ProblemDetail::not_found(&format!(
             "Resource '{}' not found or user '{}' was not holding it",
-            id, body.user_id
+            id, user_id
         )))
     }
 }
@@ -595,11 +612,15 @@ async fn release_resource(
 async fn lock_resource(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<LockUnlockRequest>,
 ) -> Result<Json<ResourceView>, ProblemDetail> {
+    // Resolve user identity: body first, then X-User-Id header (ADR-029).
+    let user_id = super::resolve_user_id(body.user_id.as_deref(), &headers)?;
+
     state
         .resource_registry
-        .lock(&id, &body.user_id)
+        .lock(&id, &user_id)
         .map_err(|e| ProblemDetail::conflict(&e))?;
 
     let resource = state.resource_registry.get(&id).unwrap();
@@ -616,7 +637,7 @@ async fn lock_resource(
     // Broadcast event for dashboard auto-refresh (Phase 28D — was missing).
     state.broadcast_event(&format!(
         r#"{{"type":"resource_locked","resource_id":"{}","user_id":"{}"}}"#,
-        id, body.user_id
+        id, user_id
     ));
 
     Ok(Json(ResourceView::from(&resource)))
@@ -628,11 +649,15 @@ async fn lock_resource(
 async fn unlock_resource(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<LockUnlockRequest>,
 ) -> Result<Json<ResourceView>, ProblemDetail> {
+    // Resolve user identity: body first, then X-User-Id header (ADR-029).
+    let user_id = super::resolve_user_id(body.user_id.as_deref(), &headers)?;
+
     state
         .resource_registry
-        .unlock(&id, &body.user_id)
+        .unlock(&id, &user_id)
         .map_err(|e| ProblemDetail::conflict(&e))?;
 
     let resource = state.resource_registry.get(&id).unwrap();
@@ -649,7 +674,7 @@ async fn unlock_resource(
     // Broadcast event for dashboard auto-refresh (Phase 28D — was missing).
     state.broadcast_event(&format!(
         r#"{{"type":"resource_unlocked","resource_id":"{}","user_id":"{}"}}"#,
-        id, body.user_id
+        id, user_id
     ));
 
     Ok(Json(ResourceView::from(&resource)))

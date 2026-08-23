@@ -45,7 +45,7 @@
 | **Phase 35** | Client Demo Bug Fixes & README Update | — | ✅ Completed |
 | **Phase 36** | Configure FPGA API Alignment | ADR-028 | ✅ [Archived](archive/roadmap-phases-36.md) |
 | **Phase 37** | API Response Compliance Audit | — | ✅ [Archived](archive/roadmap-phases-37.md) |
-| **Phase 38** | User Identification Consistency | — | 🟢 Now |
+| **Phase 38** | User Identification Consistency | ADR-029 | 🟢 Now |
 | **Phase 39+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
@@ -111,8 +111,15 @@ Features in this section represent uncommitted research or long-term capabilitie
   See [ADR-026](architecture/adr/ADR-026-readonly-acquisition.md) and
   [archive](archive/roadmap-phases-30.md).
 
-* **Native TLS termination** — embedded `rustls` for secure lab deployments
-  without a reverse proxy.
+* **Native TLS termination & certificate-based identity** — embedded `rustls` for
+  secure lab deployments without a reverse proxy. When mutual TLS (mTLS) is enabled,
+  user identity can be extracted from the client certificate's CN/SAN fields,
+  providing cryptographically verified identity without requiring a login flow.
+  The `resolve_user_id()` chain (ADR-029) is designed to be extensible: a future
+  TLS phase would add certificate identity as the highest-priority source
+  (cert CN → body `user_id` → `X-User-Id` header → "Unknown"). This applies to
+  both REST (HTTPS) and gRPC (gRPC-TLS channel credentials). See ADR-029 §Future
+  Considerations for details.
 
 * **Persistent resource definitions** — save resource registrations to disk so
   they survive server restarts. This would have to do a quick state save of 

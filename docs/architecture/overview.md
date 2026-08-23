@@ -206,6 +206,7 @@ Cross-platform packaging:
 | [ADR-026](adr/ADR-026-readonly-acquisition.md) | Read-Only Acquisition & Private Data | Implemented ✅ |
 | [ADR-027](adr/ADR-027-native-mdns-registration.md) | OS-Native mDNS Registration | Accepted (Phase 31) |
 | [ADR-028](adr/ADR-028-configure-fpga-api-alignment.md) | Configure FPGA API Alignment | Proposed (Phase 36) |
+| [ADR-029](adr/ADR-029-user-identification-consistency.md) | User Identification Consistency | Proposed (Phase 38) |
 
 ## 9. References
 

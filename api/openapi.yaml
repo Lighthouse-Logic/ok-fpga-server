@@ -425,7 +425,11 @@ paths:
                   description: Optional description of the bitfile
                 user_id:
                   type: string
-                  description: User performing the programming (should match X-User-Id header)
+                  description: >
+                    User performing the programming. Should match the X-User-Id
+                    header. If omitted, the server falls back to the X-User-Id
+                    header value. If both are present and differ, the server
+                    returns 400 Bad Request (ADR-029).
       responses:
         '200':
           description: FPGA configured successfully
@@ -511,7 +515,11 @@ paths:
                   description: Optional description of the bitfile
                 user_id:
                   type: string
-                  description: User performing the programming (should match X-User-Id header)
+                  description: >
+                    User performing the programming. Should match the X-User-Id
+                    header. If omitted, the server falls back to the X-User-Id
+                    header value. If both are present and differ, the server
+                    returns 400 Bad Request (ADR-029).
       responses:
         '200':
           description: FPGA configured successfully
@@ -1277,6 +1285,11 @@ paths:
               properties:
                 user_id:
                   type: string
+                  description: >
+                    User acquiring the resource. Should match the X-User-Id
+                    header. If omitted, the server falls back to the X-User-Id
+                    header value. If both are present and differ, the server
+                    returns 400 Bad Request (ADR-029).
                 mode:
                   type: string
                   enum: [shared, exclusive, read_only]
@@ -1318,6 +1331,11 @@ paths:
               properties:
                 user_id:
                   type: string
+                  description: >
+                    User releasing the resource. Should match the X-User-Id
+                    header. If omitted, the server falls back to the X-User-Id
+                    header value. If both are present and differ, the server
+                    returns 400 Bad Request (ADR-029).
       responses:
         '200':
           description: Resource released
@@ -1354,7 +1372,12 @@ paths:
               properties:
                 user_id:
                   type: string
-                  description: The user requesting the lock. Must be a current holder of the resource.
+                  description: >
+                    The user requesting the lock. Must be a current holder of
+                    the resource. Should match the X-User-Id header. If omitted,
+                    the server falls back to the X-User-Id header value. If both
+                    are present and differ, the server returns 400 Bad Request
+                    (ADR-029).
       responses:
         '200':
           description: Resource locked successfully. Returns the updated resource state.
@@ -1398,7 +1421,11 @@ paths:
               properties:
                 user_id:
                   type: string
-                  description: The user who holds the lock.
+                  description: >
+                    The user who holds the lock. Should match the X-User-Id
+                    header. If omitted, the server falls back to the X-User-Id
+                    header value. If both are present and differ, the server
+                    returns 400 Bad Request (ADR-029).
       responses:
         '200':
           description: Resource unlocked successfully. Returns the updated resource state.
@@ -1487,7 +1514,11 @@ paths:
               properties:
                 user_id:
                   type: string
-                  description: The user identifier sending the heartbeat.
+                  description: >
+                    The user identifier sending the heartbeat. Should match the
+                    X-User-Id header. If omitted, the server falls back to the
+                    X-User-Id header value. If both are present and differ, the
+                    server returns 400 Bad Request (ADR-029).
       responses:
         '200':
           description: Heartbeat acknowledged
@@ -1533,7 +1564,11 @@ paths:
               properties:
                 user_id:
                   type: string
-                  description: The user identifier to disconnect.
+                  description: >
+                    The user identifier to disconnect. Should match the X-User-Id
+                    header. If omitted, the server falls back to the X-User-Id
+                    header value. If both are present and differ, the server
+                    returns 400 Bad Request (ADR-029).
       responses:
         '200':
           description: User disconnected successfully

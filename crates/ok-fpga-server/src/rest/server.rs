@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use axum::extract::Path;
 use axum::extract::State;
+use axum::http::HeaderMap;
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -212,10 +213,14 @@ async fn restart_service(
 // ============================================================================
 
 /// Request body for the heartbeat endpoint.
+///
+/// `user_id` is optional in the Rust struct (ADR-029): if absent, the handler
+/// falls back to the `X-User-Id` header.
 #[derive(Deserialize)]
 struct HeartbeatRequest {
-    /// User identifier sending the heartbeat.
-    user_id: String,
+    /// User identifier sending the heartbeat (optional — falls back to
+    /// X-User-Id header).
+    user_id: Option<String>,
 }
 
 /// Response body for the heartbeat endpoint.
@@ -230,24 +235,29 @@ struct HeartbeatResponse {
 /// `POST /heartbeat` — User liveness heartbeat (ADR-020 §5).
 ///
 /// Clients should call this periodically to keep their session alive.
-/// The server responds with the current server time. In the future, this
-/// will update the user session's `last_seen_at` timestamp.
+/// The server responds with the current server time. User identity is
+/// resolved from the body `user_id` field first, then the `X-User-Id`
+/// header (ADR-029).
 async fn heartbeat(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<HeartbeatRequest>,
 ) -> Result<Json<HeartbeatResponse>, ProblemDetail> {
-    if body.user_id.is_empty() {
+    // Resolve user identity: body first, then X-User-Id header (ADR-029).
+    let user_id = super::resolve_user_id(body.user_id.as_deref(), &headers)?;
+
+    if user_id == "Unknown" {
         return Err(ProblemDetail::bad_request("user_id is required"));
     }
 
     // Update the user session's last_seen_at timestamp (ADR-020 §5).
-    state.user_sessions.touch(&body.user_id);
+    state.user_sessions.touch(&user_id);
 
     let server_time = chrono::Utc::now().to_rfc3339();
 
     Ok(Json(HeartbeatResponse {
         server_time,
-        user_id: body.user_id,
+        user_id,
     }))
 }
 
@@ -256,10 +266,13 @@ async fn heartbeat(
 // ============================================================================
 
 /// Request body for the disconnect endpoint.
+///
+/// `user_id` is optional in the Rust struct (ADR-029): if absent, the handler
+/// falls back to the `X-User-Id` header.
 #[derive(Deserialize)]
 struct DisconnectRequest {
-    /// User identifier to disconnect.
-    user_id: String,
+    /// User identifier to disconnect (optional — falls back to X-User-Id header).
+    user_id: Option<String>,
 }
 
 /// Response body for the disconnect endpoint.
@@ -283,22 +296,29 @@ struct DisconnectResponse {
 /// - Resources are released immediately (no timeout delay)
 /// - The dashboard reflects the change right away
 /// - Other clients can acquire those resources without waiting
+///
+/// User identity is resolved from the body `user_id` field first, then the
+/// `X-User-Id` header (ADR-029).
 async fn disconnect(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<DisconnectRequest>,
 ) -> Result<Json<DisconnectResponse>, ProblemDetail> {
-    if body.user_id.is_empty() {
+    // Resolve user identity: body first, then X-User-Id header (ADR-029).
+    let user_id = super::resolve_user_id(body.user_id.as_deref(), &headers)?;
+
+    if user_id == "Unknown" {
         return Err(ProblemDetail::bad_request("user_id is required"));
     }
 
     // Release all resources held by this user across all devices.
-    let released = state.resource_registry.release_all_for_user(&body.user_id);
+    let released = state.resource_registry.release_all_for_user(&user_id);
 
     // Remove the user session entirely.
-    state.user_sessions.remove(&body.user_id);
+    state.user_sessions.remove(&user_id);
 
     info!(
-        user_id = %body.user_id,
+        user_id = %user_id,
         released_count = released,
         "User disconnected via POST /disconnect"
     );
@@ -306,11 +326,11 @@ async fn disconnect(
     // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
     state.broadcast_event(&format!(
         r#"{{"type":"user_disconnected","user_id":"{}"}}"#,
-        body.user_id
+        user_id
     ));
 
     Ok(Json(DisconnectResponse {
-        user_id: body.user_id,
+        user_id,
         released_resources: released,
         message: "Disconnected successfully".to_string(),
     }))

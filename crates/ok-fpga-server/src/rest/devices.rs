@@ -812,27 +812,7 @@ async fn get_syzygy_ports(
     Ok(Json(serde_json::to_value(SyzygyPortsBody { ports }).unwrap()))
 }
 
-/// Resolve the user identity for a configure request.
-///
-/// Checks the request body's `user_id` field first, then falls back to the
-/// `X-User-Id` header. Returns `"Unknown"` if neither is provided.
-/// This dual-mechanism approach keeps the API self-documenting (body field
-/// visible in OpenAPI/Swagger) while supporting the access control middleware
-/// (which reads headers). See ADR-028.
-fn resolve_user_id(body_user_id: Option<&str>, headers: &HeaderMap) -> String {
-    // Prefer the body field (self-documenting, matches gRPC proto).
-    body_user_id
-        .filter(|s| !s.is_empty())
-        .or_else(|| {
-            // Fall back to the X-User-Id header (used by middleware).
-            headers
-                .get("x-user-id")
-                .and_then(|v| v.to_str().ok())
-                .filter(|s| !s.is_empty())
-        })
-        .unwrap_or("Unknown")
-        .to_string()
-}
+// `resolve_user_id` is now a shared function in `crate::rest::mod.rs` (ADR-029).
 
 /// Shared post-configure logic: update device state, broadcast events, clear stale resources.
 ///
@@ -984,7 +964,7 @@ async fn configure_fpga(
         .map_err(|e| ffi_error_to_problem(&e))?;
 
     // Build the BitfileRecord for the response and device state.
-    let programmed_by = resolve_user_id(user_id.as_deref(), &headers);
+    let programmed_by = super::resolve_user_id(user_id.as_deref(), &headers)?;
     let record = BitfileRecord {
         filename: filename.unwrap_or_else(|| "uploaded".to_string()),
         description,
@@ -1055,7 +1035,7 @@ async fn configure_fpga_from_server_path(
     };
 
     // Resolve user identity: body field first, then X-User-Id header.
-    let programmed_by = resolve_user_id(req.user_id.as_deref(), &headers);
+    let programmed_by = super::resolve_user_id(req.user_id.as_deref(), &headers)?;
 
     let record = BitfileRecord {
         filename,

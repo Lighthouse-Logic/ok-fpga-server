@@ -62,14 +62,29 @@ class OkFpgaRestClient:
         resp.raise_for_status()
         return resp.json()
 
-    async def _post(self, path: str, json: Any = None) -> Any:
+    async def _post(self, path: str, json: Any = None, **kwargs: Any) -> Any:
         """POST request with optional JSON body, return parsed JSON."""
-        resp = await self._client.post(path, json=json)
+        resp = await self._client.post(path, json=json, **kwargs)
         resp.raise_for_status()
         # Some endpoints return 202 with no body.
         if resp.status_code == 202 or not resp.content:
             return {"status": "accepted"}
         return resp.json()
+
+    async def _post_with_user(
+        self, path: str, user_id: str, json: dict | None = None
+    ) -> Any:
+        """POST with user_id in both JSON body and X-User-Id header (ADR-029).
+
+        Ensures the server receives user identity via both mechanisms:
+        the request body ``user_id`` field (primary) and the ``X-User-Id``
+        header (fallback for middleware).
+        """
+        body = json or {}
+        body["user_id"] = user_id
+        return await self._post(
+            path, json=body, headers={"X-User-Id": user_id}
+        )
 
     async def _put(self, path: str, json: Any = None) -> Any:
         """PUT request with JSON body, return parsed JSON."""
@@ -320,16 +335,16 @@ class OkFpgaRestClient:
 
     async def acquire_resource(self, resource_id: str, mode: str, user_id: str) -> dict:
         """POST /resources/{resource_id}/acquire — Acquire a resource."""
-        return await self._post(
+        return await self._post_with_user(
             f"/resources/{resource_id}/acquire",
-            json={"mode": mode, "user_id": user_id},
+            user_id,
+            json={"mode": mode},
         )
 
     async def release_resource(self, resource_id: str, user_id: str) -> dict:
         """POST /resources/{resource_id}/release — Release a resource."""
-        return await self._post(
-            f"/resources/{resource_id}/release",
-            json={"user_id": user_id},
+        return await self._post_with_user(
+            f"/resources/{resource_id}/release", user_id
         )
 
     async def create_resource(
@@ -365,21 +380,23 @@ class OkFpgaRestClient:
 
     async def lock_resource(self, resource_id: str, user_id: str) -> dict:
         """POST /resources/{resource_id}/lock — Lock a shared resource (ADR-020 §3)."""
-        return await self._post(
-            f"/resources/{resource_id}/lock",
-            json={"user_id": user_id},
+        return await self._post_with_user(
+            f"/resources/{resource_id}/lock", user_id
         )
 
     async def unlock_resource(self, resource_id: str, user_id: str) -> dict:
         """POST /resources/{resource_id}/unlock — Unlock a locked resource (ADR-020 §3)."""
-        return await self._post(
-            f"/resources/{resource_id}/unlock",
-            json={"user_id": user_id},
+        return await self._post_with_user(
+            f"/resources/{resource_id}/unlock", user_id
         )
 
     async def heartbeat(self, user_id: str) -> dict:
         """POST /heartbeat — User liveness heartbeat (ADR-020 §5)."""
-        return await self._post("/heartbeat", json={"user_id": user_id})
+        return await self._post_with_user("/heartbeat", user_id)
+
+    async def disconnect(self, user_id: str) -> dict:
+        """POST /disconnect — Disconnect user and release all resources."""
+        return await self._post_with_user("/disconnect", user_id)
 
     # ========================================================================
     # Users (/users/*)
