@@ -3,9 +3,17 @@
 //! REST endpoints for device discovery, info, sensors, settings, SYZYGY,
 //! and configuration. Implements the `/devices/*` paths from ADR-004.
 //!
+//! ## FPGA Configuration (ADR-028)
+//!
+//! Two separate configure endpoints exist:
+//! - `POST /configure` — client uploads bitfile via `multipart/form-data`
+//! - `POST /configure_from_server_path` — server reads bitfile from its own disk
+//!
+//! Both return `BitfileRecord` (the `BitfileInfo` OpenAPI schema) on success.
+//!
 //! ## FFI Integration (Phase 19 + 19G)
 //!
-//! The `configure_fpga`, `get_device_sensors`, `get_bitfile_info`,
+//! The configure handlers, `get_device_sensors`, `get_bitfile_info`,
 //! `get_dataport_type`, `get_device_settings`, `get_device_setting`,
 //! `set_device_setting`, and `get_syzygy_ports` handlers are wired to the
 //! FrontPanel DLL via the `DeviceHandlePool` in `AppState`.
@@ -13,7 +21,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{DefaultBodyLimit, Multipart, Path, State};
 use axum::http::HeaderMap;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -37,7 +45,13 @@ pub fn routes() -> Router<Arc<AppState>> {
             get(get_device_setting).put(set_device_setting),
         )
         .route("/devices/{serial}/syzygy", get(get_syzygy_ports))
-        .route("/devices/{serial}/configure", post(configure_fpga))
+        .route(
+            "/devices/{serial}/configure",
+            // Multipart uploads can be large (bitfiles are typically ~11MB, max ~50MB).
+            // Override axum's default 2MB body limit for this route only.
+            post(configure_fpga).layer(DefaultBodyLimit::max(100 * 1024 * 1024)),
+        )
+        .route("/devices/{serial}/configure_from_server_path", post(configure_fpga_from_server_path))
         .route("/devices/{serial}/bitfile", get(get_bitfile_info))
         .route("/devices/{serial}/dataport", get(get_dataport_type))
 }
@@ -127,11 +141,20 @@ fn device_to_full_info(d: &ok_fpga_core::device::FpgaDevice) -> DeviceFullInfo {
     }
 }
 
-/// Request body for JSON-path-based FPGA configuration.
+/// Request body for `POST /devices/{serial}/configure_from_server_path`.
+///
+/// The client sends a JSON object with the path to a bitfile on the server's
+/// filesystem. The server reads and programs the file directly. Fields match
+/// the OpenAPI schema for this endpoint (ADR-028).
 #[derive(Deserialize)]
 struct ConfigurePathRequest {
-    /// Local filesystem path to the bitfile.
+    /// Server filesystem path to the bitfile (e.g., "/opt/bitfiles/Counters.bit").
     bitfile_path: String,
+    /// Optional human-readable description for dashboard display.
+    description: Option<String>,
+    /// User performing the programming (should match `X-User-Id` header).
+    /// If absent, the handler falls back to the `X-User-Id` header value.
+    user_id: Option<String>,
 }
 
 /// Request body for `PUT /devices/{serial}/settings/{key}`.
@@ -146,14 +169,6 @@ struct SetDeviceSettingRequest {
     string_value: Option<String>,
     /// Integer value (used when `value_type == "integer"`).
     int_value: Option<u32>,
-}
-
-/// Successful configuration response.
-#[derive(Serialize)]
-struct ConfigureResponse {
-    status: String,
-    serial: String,
-    message: String,
 }
 
 /// Sensor reading response.
@@ -711,132 +726,62 @@ async fn get_syzygy_ports(
     Ok(Json(serde_json::json!({ "ports": ports })))
 }
 
-/// `POST /devices/{serial}/configure` — Program FPGA with a bitfile.
+/// Resolve the user identity for a configure request.
 ///
-/// Supports two content types (ADR-017):
-/// - `application/json` with `{"path": "/path/to/file.bit"}` — local path
-/// - `multipart/form-data` with bitfile binary — remote upload
-///
-/// On success, updates the device state to `Programmed` and acquires
-/// data port handles for subsequent endpoint operations.
-async fn configure_fpga(
-    State(state): State<Arc<AppState>>,
-    Path(serial): Path<String>,
-    headers: HeaderMap,
-    body: axum::body::Bytes,
-) -> Result<Json<ConfigureResponse>, ProblemDetail> {
-    // Verify device exists in registry.
-    if !state.device_manager.registry().contains(&serial) {
-        return Err(ProblemDetail::not_found(format!("device '{}' not found", serial)));
-    }
-
-    let pool = state
-        .handle_pool
-        .as_ref()
-        .ok_or_else(|| ProblemDetail::not_implemented("FrontPanel DLL not loaded"))?;
-
-    // Phase 34-D: Extract the user who programmed the device from X-User-Id.
-    // Falls back to "Unknown" if the header is absent or empty.
-    let programmed_by = headers
-        .get("x-user-id")
-        .and_then(|v| v.to_str().ok())
+/// Checks the request body's `user_id` field first, then falls back to the
+/// `X-User-Id` header. Returns `"Unknown"` if neither is provided.
+/// This dual-mechanism approach keeps the API self-documenting (body field
+/// visible in OpenAPI/Swagger) while supporting the access control middleware
+/// (which reads headers). See ADR-028.
+fn resolve_user_id(body_user_id: Option<&str>, headers: &HeaderMap) -> String {
+    // Prefer the body field (self-documenting, matches gRPC proto).
+    body_user_id
         .filter(|s| !s.is_empty())
+        .or_else(|| {
+            // Fall back to the X-User-Id header (used by middleware).
+            headers
+                .get("x-user-id")
+                .and_then(|v| v.to_str().ok())
+                .filter(|s| !s.is_empty())
+        })
         .unwrap_or("Unknown")
-        .to_string();
+        .to_string()
+}
 
-    // Determine configuration mode by Content-Type.
-    let content_type = headers
-        .get(axum::http::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/json");
-
-    // Phase 34-C: Track filename, file_path, and MD5 hash per configuration mode.
-    let filename: String;
-    let file_path: Option<String>;
-    let md5_hash: Option<String>;
-
-    if content_type.contains("multipart") || content_type.contains("octet-stream") {
-        // Binary upload mode — configure from memory.
-        pool.configure_from_memory(&serial, &body)
-            .await
-            .map_err(|e| ffi_error_to_problem(&e))?;
-
-        // Phase 34-C: Extract filename from Content-Disposition header if present,
-        // otherwise fall back to "uploaded". The client can also send a custom
-        // X-Filename header as a simpler alternative.
-        filename = headers
-            .get("x-filename")
-            .and_then(|v| v.to_str().ok())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-            .or_else(|| {
-                // Try Content-Disposition: attachment; filename="foo.bit"
-                headers.get("content-disposition")
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|cd| {
-                        cd.split("filename=").nth(1)
-                            .map(|f| f.trim_matches('"').trim_matches('\'').to_string())
-                    })
-                    .filter(|s| !s.is_empty())
-            })
-            .unwrap_or_else(|| "uploaded".to_string());
-
-        file_path = None;
-        md5_hash = Some(format!("{:x}", md5::compute(&body)));
-    } else {
-        // JSON path mode — configure from local path.
-        let req: ConfigurePathRequest = serde_json::from_slice(&body)
-            .map_err(|e| ProblemDetail::bad_request(format!("invalid JSON: {}", e)))?;
-
-        let path = std::path::Path::new(&req.bitfile_path);
-        if !path.exists() {
-            return Err(ProblemDetail::bad_request(format!(
-                "bitfile not found: {}",
-                req.bitfile_path
-            )));
-        }
-
-        pool.configure_from_path(&serial, path)
-            .await
-            .map_err(|e| ffi_error_to_problem(&e))?;
-
-        // Phase 34-C: Extract filename as basename, full path as file_path.
-        filename = path.file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| req.bitfile_path.clone());
-        file_path = Some(req.bitfile_path.clone());
-
-        // Compute MD5 from the file on disk.
-        md5_hash = match std::fs::read(path) {
-            Ok(data) => Some(format!("{:x}", md5::compute(&data))),
-            Err(_) => None,
-        };
-    }
-
-    // Update device state in the registry.
+/// Shared post-configure logic: update device state, broadcast events, clear stale resources.
+///
+/// Called by both `configure_fpga` (multipart upload) and
+/// `configure_fpga_from_server_path` (JSON path) after successful FPGA
+/// programming. Performs three steps:
+///
+/// 1. Updates the device's state to `Programmed` with the given `BitfileRecord`.
+/// 2. Broadcasts a `device_programmed` SSE event for dashboard auto-refresh.
+/// 3. Clears any existing resources for the device (old bitfile's resources
+///    are invalid after re-programming — Phase 25-Fix-F, F3).
+///
+/// Returns the `BitfileRecord` unchanged (for use as the HTTP response body).
+fn finalize_configure(
+    state: &AppState,
+    serial: &str,
+    bitfile: BitfileRecord,
+) -> BitfileRecord {
+    // 1. Update device state in the registry.
     state.device_manager.registry().update_state(
-        &serial,
+        serial,
         DeviceState::Programmed {
-            bitfile: BitfileRecord {
-                filename,
-                description: None,
-                programmed_at: chrono::Utc::now(),
-                programmed_by,
-                file_path,
-                md5_hash,
-            },
+            bitfile: bitfile.clone(),
         },
     );
 
-    // Broadcast device_programmed event for dashboard auto-refresh (Phase 28D).
+    // 2. Broadcast device_programmed event for dashboard auto-refresh (Phase 28D).
     state.broadcast_event(&format!(
         r#"{{"type":"device_programmed","device_serial":"{}"}}"#,
         serial
     ));
 
-    // Clear any existing resources for this device — the old bitfile's
-    // resources are invalid after re-programming (Phase 25-Fix-F, F3).
-    let cleared = state.resource_registry.remove_for_device(&serial);
+    // 3. Clear any existing resources for this device — the old bitfile's
+    //    resources are invalid after re-programming (Phase 25-Fix-F, F3).
+    let cleared = state.resource_registry.remove_for_device(serial);
     if cleared > 0 {
         tracing::info!(serial = %serial, cleared, "Cleared resources for re-programmed device");
 
@@ -847,11 +792,198 @@ async fn configure_fpga(
         ));
     }
 
-    Ok(Json(ConfigureResponse {
-        status: "ok".to_string(),
-        serial: serial.clone(),
-        message: format!("FPGA '{}' configured successfully", serial),
-    }))
+    bitfile
+}
+
+/// `POST /devices/{serial}/configure` — Program FPGA with an uploaded bitfile.
+///
+/// Accepts `multipart/form-data` with the following fields:
+/// - `bitfile` (required) — the `.bit` or `.rbf` binary data
+/// - `filename` (optional) — original filename for the `BitfileInfo` record
+/// - `description` (optional) — human-readable description for dashboard display
+/// - `user_id` (optional) — user performing the programming (falls back to `X-User-Id` header)
+///
+/// Returns `BitfileInfo` (serialized `BitfileRecord`) on success.
+///
+/// ## gRPC equivalent
+/// Maps to `ConfigureFPGAFromMemory(stream ConfigureFPGAChunk)` in the proto.
+///
+/// ## Body limit
+/// This route has a 100MB body limit (most bitfiles are ~11MB).
+/// The limit is configured via `DefaultBodyLimit` in the route definition.
+async fn configure_fpga(
+    State(state): State<Arc<AppState>>,
+    Path(serial): Path<String>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Result<Json<BitfileRecord>, ProblemDetail> {
+    // Verify device exists in registry.
+    if !state.device_manager.registry().contains(&serial) {
+        return Err(ProblemDetail::not_found(format!("device '{}' not found", serial)));
+    }
+
+    let pool = state
+        .handle_pool
+        .as_ref()
+        .ok_or_else(|| ProblemDetail::not_implemented("FrontPanel DLL not loaded"))?;
+
+    // Parse the multipart form fields. We iterate all fields and collect
+    // the binary data and text metadata separately.
+    let mut bitfile_data: Option<Vec<u8>> = None;
+    let mut filename: Option<String> = None;
+    let mut description: Option<String> = None;
+    let mut user_id: Option<String> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ProblemDetail::bad_request(format!("multipart parse error: {}", e)))?
+    {
+        let field_name = field.name().unwrap_or("").to_string();
+        match field_name.as_str() {
+            "bitfile" => {
+                // Extract filename from the multipart Content-Disposition if the
+                // client set it (e.g., `filename="Counters.bit"` in the part header).
+                if filename.is_none() {
+                    if let Some(fn_str) = field.file_name() {
+                        let fn_owned = fn_str.to_string();
+                        if !fn_owned.is_empty() {
+                            filename = Some(fn_owned);
+                        }
+                    }
+                }
+                bitfile_data = Some(
+                    field.bytes().await
+                        .map_err(|e| ProblemDetail::bad_request(format!("failed to read bitfile field: {}", e)))?
+                        .to_vec()
+                );
+            }
+            "filename" => {
+                // Explicit filename field overrides the Content-Disposition filename.
+                let text = field.text().await
+                    .map_err(|e| ProblemDetail::bad_request(format!("failed to read filename field: {}", e)))?;
+                if !text.is_empty() {
+                    filename = Some(text);
+                }
+            }
+            "description" => {
+                let text = field.text().await
+                    .map_err(|e| ProblemDetail::bad_request(format!("failed to read description field: {}", e)))?;
+                if !text.is_empty() {
+                    description = Some(text);
+                }
+            }
+            "user_id" => {
+                let text = field.text().await
+                    .map_err(|e| ProblemDetail::bad_request(format!("failed to read user_id field: {}", e)))?;
+                if !text.is_empty() {
+                    user_id = Some(text);
+                }
+            }
+            other => {
+                // Ignore unknown fields but log them for debugging.
+                tracing::debug!(field = %other, "Ignoring unknown multipart field");
+            }
+        }
+    }
+
+    // The bitfile field is required — reject the request if it was not provided.
+    let data = bitfile_data.ok_or_else(|| {
+        ProblemDetail::bad_request("missing required 'bitfile' field in multipart form data")
+    })?;
+
+    // Program the FPGA from the received bytes.
+    pool.configure_from_memory(&serial, &data)
+        .await
+        .map_err(|e| ffi_error_to_problem(&e))?;
+
+    // Build the BitfileRecord for the response and device state.
+    let programmed_by = resolve_user_id(user_id.as_deref(), &headers);
+    let record = BitfileRecord {
+        filename: filename.unwrap_or_else(|| "uploaded".to_string()),
+        description,
+        programmed_at: chrono::Utc::now(),
+        programmed_by,
+        file_path: None, // Client uploads have no server-side path.
+        md5_hash: Some(format!("{:x}", md5::compute(&data))),
+    };
+
+    // Update state, broadcast events, clear stale resources.
+    let record = finalize_configure(&state, &serial, record);
+
+    Ok(Json(record))
+}
+
+/// `POST /devices/{serial}/configure_from_server_path` — Program FPGA from a server-side file.
+///
+/// Accepts `application/json` with:
+/// ```json
+/// {"bitfile_path": "/path/on/server/Counters.bit", "description": "optional", "user_id": "optional"}
+/// ```
+///
+/// The bitfile must exist on the server's filesystem. Returns `BitfileInfo`
+/// (serialized `BitfileRecord`) on success.
+///
+/// ## gRPC equivalent
+/// Maps to `ConfigureFPGA(ConfigureFPGARequest)` in the proto definition.
+async fn configure_fpga_from_server_path(
+    State(state): State<Arc<AppState>>,
+    Path(serial): Path<String>,
+    headers: HeaderMap,
+    Json(req): Json<ConfigurePathRequest>,
+) -> Result<Json<BitfileRecord>, ProblemDetail> {
+    // Verify device exists in registry.
+    if !state.device_manager.registry().contains(&serial) {
+        return Err(ProblemDetail::not_found(format!("device '{}' not found", serial)));
+    }
+
+    let pool = state
+        .handle_pool
+        .as_ref()
+        .ok_or_else(|| ProblemDetail::not_implemented("FrontPanel DLL not loaded"))?;
+
+    // Verify the bitfile exists on the server's filesystem.
+    let path = std::path::Path::new(&req.bitfile_path);
+    if !path.exists() {
+        return Err(ProblemDetail::bad_request(format!(
+            "bitfile not found: {}",
+            req.bitfile_path
+        )));
+    }
+
+    // Program the FPGA from the file on disk.
+    pool.configure_from_path(&serial, path)
+        .await
+        .map_err(|e| ffi_error_to_problem(&e))?;
+
+    // Extract filename as the basename of the path.
+    let filename = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| req.bitfile_path.clone());
+
+    // Compute MD5 hash of the file on disk.
+    let md5_hash = match std::fs::read(path) {
+        Ok(data) => Some(format!("{:x}", md5::compute(&data))),
+        Err(_) => None,
+    };
+
+    // Resolve user identity: body field first, then X-User-Id header.
+    let programmed_by = resolve_user_id(req.user_id.as_deref(), &headers);
+
+    let record = BitfileRecord {
+        filename,
+        description: req.description,
+        programmed_at: chrono::Utc::now(),
+        programmed_by,
+        file_path: Some(req.bitfile_path.clone()),
+        md5_hash,
+    };
+
+    // Update state, broadcast events, clear stale resources.
+    let record = finalize_configure(&state, &serial, record);
+
+    Ok(Json(record))
 }
 
 /// `GET /devices/{serial}/bitfile` — Get current bitfile info.

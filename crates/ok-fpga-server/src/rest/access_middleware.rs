@@ -460,6 +460,11 @@ mod tests {
             classify_route("/api/v1/devices/SN001/sensors"),
             RouteTier::DeviceLevel
         ));
+        // ADR-028: new configure endpoint is also DeviceLevel.
+        assert!(matches!(
+            classify_route("/api/v1/devices/SN001/configure_from_server_path"),
+            RouteTier::DeviceLevel
+        ));
     }
 
     #[test]

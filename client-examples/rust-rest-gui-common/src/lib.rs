@@ -349,24 +349,30 @@ impl CountersClient {
     // FPGA Configuration
     // ========================================================================
 
-    /// `POST /devices/{serial}/configure` — Program FPGA from a server-side path.
+    /// `POST /devices/{serial}/configure_from_server_path` — Program FPGA from a server-side path.
     ///
     /// Sends a JSON body `{"bitfile_path": "..."}` to the server. The bitfile
     /// must exist on the server's filesystem. Use this when the bitfile is
     /// hosted on the same machine as the server.
+    ///
+    /// Returns `BitfileInfo` on success (ADR-028).
     pub async fn configure_fpga(&self, serial: &str, bitfile_path: &str) -> Result<Value, ClientError> {
         let body = serde_json::json!({ "bitfile_path": bitfile_path });
-        self.post(&format!("/devices/{}/configure", serial), Some(body)).await
+        self.post(&format!("/devices/{}/configure_from_server_path", serial), Some(body)).await
     }
 
     /// `POST /devices/{serial}/configure` — Program FPGA from a local file.
     ///
-    /// Reads the bitfile from the client's local filesystem and streams it
-    /// to the server as `application/octet-stream`. The server calls
+    /// Reads the bitfile from the client's local filesystem and uploads it
+    /// to the server as `multipart/form-data`. The server calls
     /// `ConfigureFPGAFromMemory` with the received bytes.
     ///
-    /// Use this when the bitfile is on the GUI client's machine, not on the
-    /// server.
+    /// The multipart form includes:
+    /// - `bitfile` — the binary data with the original filename
+    /// - `filename` — the basename of the local file
+    /// - `user_id` — the client's user identity
+    ///
+    /// Returns `BitfileInfo` on success (ADR-028).
     pub async fn configure_fpga_from_file(
         &self, serial: &str, local_path: &std::path::Path,
     ) -> Result<Value, ClientError> {
@@ -376,11 +382,29 @@ impl CountersClient {
                 body: format!("failed to read local file '{}': {}", local_path.display(), e),
             }
         })?;
+
+        // Extract the filename from the local path for the form fields.
+        let filename = local_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "uploaded.bit".to_string());
+
+        // Build a multipart form with the bitfile binary and metadata fields.
+        let form = reqwest::multipart::Form::new()
+            .part(
+                "bitfile",
+                reqwest::multipart::Part::bytes(data)
+                    .file_name(filename.clone())
+                    .mime_str("application/octet-stream")
+                    .unwrap(),
+            )
+            .text("filename", filename)
+            .text("user_id", self.user_id.clone());
+
         let url = format!("{}/devices/{}/configure", self.base_url, serial);
         let resp = self.client.post(&url)
             .header("X-User-Id", &self.user_id)
-            .header("Content-Type", "application/octet-stream")
-            .body(data)
+            .multipart(form)
             .send().await?;
         let status = resp.status().as_u16();
         if status >= 400 {
@@ -853,13 +877,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_configure_fpga_sends_bitfile_path() {
+    async fn test_configure_fpga_sends_bitfile_path_to_server_path_endpoint() {
         let mut server = mockito::Server::new_async().await;
-        let mock = server.mock("POST", "/api/v1/devices/SN001/configure")
+        // ADR-028: server-side path configuration now uses the dedicated endpoint.
+        let mock = server.mock("POST", "/api/v1/devices/SN001/configure_from_server_path")
             .match_header("X-User-Id", "test-user")
             .match_body(mockito::Matcher::JsonString(r#"{"bitfile_path":"Counters.bit"}"#.to_string()))
             .with_status(200)
-            .with_body(r#"{"result":"ok"}"#)
+            .with_body(r#"{"filename":"Counters.bit","programmed_at":"2026-08-23T00:00:00Z","programmed_by":"test-user"}"#)
             .create_async().await;
 
         let client = CountersClient::new(&server.url(), "test-user");

@@ -282,7 +282,7 @@ async fn create_resource(
         Some(dev) => {
             if !dev.is_programmed() {
                 return Err(ProblemDetail::conflict(
-                    "FPGA is not programmed — program it first with POST /configure",
+                    "FPGA is not programmed -- program it first with POST /configure or /configure_from_server_path",
                 ));
             }
         }

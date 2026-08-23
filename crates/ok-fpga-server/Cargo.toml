@@ -84,7 +84,7 @@ hostname = "0.4"
 
 # Axum is the HTTP framework for BOTH the management server (always-on,
 # port 9090) and the REST API server (optional, port 8080).
-axum = { version = "0.8", features = ["ws"] }
+axum = { version = "0.8", features = ["ws", "multipart"] }
 
 # Tower provides middleware (logging, timeouts, CORS, etc.) used by the
 # management server and REST API.
