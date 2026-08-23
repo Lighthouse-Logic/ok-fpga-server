@@ -1,9 +1,10 @@
 # ADR-028: Configure FPGA API Alignment
 
-**Status:** Proposed
+**Status:** Implemented ✅
 **Date:** 2026-08-23
 **Deciders:** Architecture Team
 **Roadmap Phase:** 36
+**Commit:** `2fb31b2`
 
 ---
 
@@ -209,7 +210,17 @@ This will be tracked as a separate task, not part of Phase 36.
 
 ## Files Changed
 
-*(To be populated on implementation)*
+| File | Changes |
+|------|---------|
+| `crates/ok-fpga-server/Cargo.toml` | Added `multipart` feature to axum |
+| `crates/ok-fpga-server/src/rest/devices.rs` | Split `configure_fpga` into two handlers, added `Multipart` parsing, `resolve_user_id`, `finalize_configure`, returns `BitfileRecord` |
+| `crates/ok-fpga-server/src/rest/resources.rs` | Updated error message with new endpoint name |
+| `crates/ok-fpga-server/src/rest/access_middleware.rs` | Added test for new endpoint classification |
+| `client-examples/rust-rest-gui-common/Cargo.toml` | Added `multipart` feature to reqwest |
+| `client-examples/rust-rest-gui-common/src/lib.rs` | Updated `configure_fpga()` URL, rewrote `configure_fpga_from_file()` with multipart, updated test |
+| `api/openapi.yaml` | Added `/configure_from_server_path` endpoint, cleaned Phase 34-C annotations |
+
+**Commit:** `2fb31b2`
 
 ---
 
