@@ -41,51 +41,16 @@
 
 | Horizon | Focus Area | ADR | Status |
 |---------|-----------|-----|--------|
-| **Phase 33** | Read-Aware Lock Enforcement | ADR-024, 026 | ✅ Completed |
 | **Phase 34** | Client UX & Device Metadata Improvements | ADR-004 (F), ADR-005 (C) | ✅ Completed |
 | **Phase 35** | Client Demo Bug Fixes & README Update | — | ✅ Completed |
-| **Phase 36** | Configure FPGA API Alignment | ADR-028 | ✅ Completed |
-| **Phase 37** | API Response Compliance Audit | — | 🟡 Next |
-| **Phase 38+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
+| **Phase 36** | Configure FPGA API Alignment | ADR-028 | ✅ [Archived](archive/roadmap-phases-36.md) |
+| **Phase 37** | API Response Compliance Audit | — | 🟢 Now |
+| **Phase 38** | User Identification Consistency | — | 🟡 Next |
+| **Phase 39+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
 ## 🟢 Now
-
-### Phase 36 — Configure FPGA API Alignment
-
-**Goal:** Split the configure endpoint into two REST paths, implement proper multipart
-parsing, and align the server response with the OpenAPI spec.
-
-**ADR:** [ADR-028](architecture/adr/ADR-028-configure-fpga-api-alignment.md)
-
-**Deliverables:**
-
-| # | Task | Notes |
-|---|------|-------|
-| 1 | Add `POST /devices/{serial}/configure_from_server_path` route | JSON body `{"bitfile_path": "..."}`, calls `ConfigureFPGA` from disk |
-| 2 | Refactor `/devices/{serial}/configure` handler | Replace raw-bytes hack with proper `axum::extract::Multipart` parsing |
-| 3 | Extract `filename`, `description` from multipart form fields | Currently `description` is hard-coded to `None` |
-| 4 | Fix response to return `BitfileInfo` | Replace `ConfigureResponse {status, serial, message}` |
-| 5 | Update server doc comment on `configure_fpga` handler | Fix `"path"` → `"bitfile_path"` and describe both endpoints |
-| 6 | Update Rust GUI clients | `configure_fpga()` → `/configure_from_server_path`; `configure_fpga_from_file()` → true multipart |
-| 7 | Update integration tests | Verify both endpoints work against running server |
-
-**Exit Criteria:**
-- Both endpoints return `BitfileInfo` per OpenAPI spec ✅
-- Server parses true `multipart/form-data` (no raw-bytes hack) ✅
-- Rust GUI clients work with both modes (ServerPath / LocalFile) ✅
-- `cargo test` passes, `cargo build` succeeds ✅
-
-**Commits:** `2fb31b2` (server + Rust GUI client), `59702ad` (ADR-028 status)
-
-**Addendum:** All REST client examples updated (Python common, Python
-standalone, Rust standalone) to use `/configure_from_server_path` for
-server-side path mode and `multipart/form-data` for client upload mode.
-
----
-
-## 🟡 Next
 
 ### Phase 37 — API Response Compliance Audit
 
@@ -93,23 +58,48 @@ server-side path mode and `multipart/form-data` for client upload mode.
 and fix any discrepancies.
 
 **Deliverables:**
-- Comparison table of every endpoint's OpenAPI response schema vs actual Rust response struct
-- Fix any mismatched field names, missing fields, or wrong status codes
-- Ensure all `ProblemDetail` error responses match the schema
-- Update doc comments on all fixed handlers
+
+| # | Task | Notes |
+|---|------|-------|
+| 1 | Build comparison table | Every endpoint's OpenAPI response schema vs actual Rust return type |
+| 2 | Fix mismatched field names or missing fields | e.g., `serde_json::Value` vs typed struct |
+| 3 | Ensure all `ProblemDetail` error responses match the schema | Consistent `type`, `title`, `status`, `detail` fields |
+| 4 | Update doc comments on all fixed handlers | Reflect correct response schemas |
+
+**Exit Criteria:**
+- Every endpoint's response matches its OpenAPI schema exactly
+- `ProblemDetail` errors are consistent across all handlers
+- `cargo test` passes, `cargo build` succeeds
+- Comparison table documents the audit results
+
+---
+
+## 🟡 Next
+
+### Phase 38 — User Identification Consistency (`user_id` vs `X-User-Id`)
+
+**Goal:** Perform a cross-cutting analysis of `user_id` across all endpoints and
+align the server implementation so that `user_id` is read from the request body
+first, falling back to the `X-User-Id` header if absent.
+
+**Context:** The OpenAPI spec defines `user_id` as a request body field in 8
+endpoints (~19 occurrences). The server currently reads `X-User-Id` from a
+header and ignores the body field. The gRPC proto uses `user_id` as a message
+field. The preferred direction is to **preserve `user_id` in the OpenAPI request
+schemas** (self-documenting for code generators and Swagger UI).
+
+**Deliverables:**
+- Audit of all 8 endpoints with `user_id` in their request bodies
+- Update server handlers to read `user_id` from body first, `X-User-Id` header as fallback
+- Extend the `resolve_user_id()` pattern from Phase 36 to all affected endpoints
+- Update all client libraries to send `user_id` in both body and header
+- ADR documenting the canonical approach
+
+---
 
 ## 🔵 Later: Future Horizons
 
 Features in this section represent uncommitted research or long-term capabilities:
-
-* **User identification consistency (`user_id` vs `X-User-Id`)** — the OpenAPI spec
-  defines `user_id` as a request body field in 8 endpoints (~19 occurrences). The
-  server currently reads `X-User-Id` from a header and ignores the body field. The
-  gRPC proto uses `user_id` as a message field. The preferred direction is to
-  **preserve `user_id` in the OpenAPI request schemas** (self-documenting for code
-  generators and Swagger UI) and update the server to read `user_id` from the
-  request body first, falling back to `X-User-Id` header if absent. Both should
-  be set by clients for now.
 
 * **gRPC AXI FFI wiring** — all 14 AXI RPCs in `AXIDataPortService` (Lite, Full,
   Stream) are `UNIMPLEMENTED` stubs. REST AXI is fully wired, but gRPC was not
