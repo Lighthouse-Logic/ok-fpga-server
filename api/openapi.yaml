@@ -398,8 +398,10 @@ paths:
         filesystem), use `POST /devices/{serial}/configure_from_server_path`
         instead.
 
-        User identification is provided via the `X-User-Id` header (consistent
-        with all other endpoints).
+        User identification is provided via both the `user_id` form field and
+        the `X-User-Id` header. Both should be set to the same value. The
+        `user_id` field makes the API self-documenting in OpenAPI/Swagger UI;
+        the `X-User-Id` header is used by the server's access control middleware.
       operationId: configureFPGA
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -421,6 +423,9 @@ paths:
                 description:
                   type: string
                   description: Optional description of the bitfile
+                user_id:
+                  type: string
+                  description: User performing the programming (should match X-User-Id header)
       responses:
         '200':
           description: FPGA configured successfully
@@ -485,7 +490,8 @@ paths:
         For uploading a bitfile from the client machine, use
         `POST /devices/{serial}/configure` with `multipart/form-data` instead.
 
-        User identification is provided via the `X-User-Id` header.
+        User identification is provided via both the `user_id` JSON field and
+        the `X-User-Id` header. Both should be set to the same value.
       operationId: configureFPGAFromServerPath
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -503,6 +509,9 @@ paths:
                 description:
                   type: string
                   description: Optional description of the bitfile
+                user_id:
+                  type: string
+                  description: User performing the programming (should match X-User-Id header)
       responses:
         '200':
           description: FPGA configured successfully

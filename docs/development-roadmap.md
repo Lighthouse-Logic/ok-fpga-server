@@ -97,10 +97,13 @@ and fix any discrepancies.
 Features in this section represent uncommitted research or long-term capabilities:
 
 * **User identification consistency (`user_id` vs `X-User-Id`)** — the OpenAPI spec
-  defines `user_id` as a request body field in 8 endpoints (19 occurrences), but the
-  server reads `X-User-Id` from a header. The gRPC proto uses `user_id` as a message
-  field. This needs a dedicated cross-cutting analysis to determine the canonical
-  approach, considering REST conventions, gRPC parity, and access control middleware.
+  defines `user_id` as a request body field in 8 endpoints (~19 occurrences). The
+  server currently reads `X-User-Id` from a header and ignores the body field. The
+  gRPC proto uses `user_id` as a message field. The preferred direction is to
+  **preserve `user_id` in the OpenAPI request schemas** (self-documenting for code
+  generators and Swagger UI) and update the server to read `user_id` from the
+  request body first, falling back to `X-User-Id` header if absent. Both should
+  be set by clients for now.
 
 * **gRPC AXI FFI wiring** — all 14 AXI RPCs in `AXIDataPortService` (Lite, Full,
   Stream) are `UNIMPLEMENTED` stubs. REST AXI is fully wired, but gRPC was not

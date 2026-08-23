@@ -76,6 +76,9 @@ requestBody:
           description:
             type: string
             description: Optional description of the bitfile
+          user_id:
+            type: string
+            description: User performing the programming (should match X-User-Id header)
 ```
 
 **Why `multipart/form-data` instead of `application/octet-stream`:**
@@ -107,6 +110,9 @@ requestBody:
           description:
             type: string
             description: Optional description of the bitfile
+          user_id:
+            type: string
+            description: User performing the programming (should match X-User-Id header)
 ```
 
 ### Response: Both endpoints return `BitfileInfo`
@@ -128,11 +134,18 @@ The current `ConfigureResponse {status, serial, message}` struct must be replace
 
 ### User identification
 
-The `user_id` field has been removed from the `/configure` multipart schema. User
-identification continues to use the `X-User-Id` header, which is consistent with
-how every other REST endpoint identifies the user. A separate cross-cutting task
-will audit the `user_id` field across all 8 endpoints that define it in their
-request bodies to determine the canonical approach (see Deferred Items below).
+Both endpoints include a `user_id` field in their request schema. This makes the
+API self-documenting — OpenAPI code generators and Swagger UI consumers can
+discover the field without reading external documentation.
+
+The `X-User-Id` header must also be set to the same value. The header is used by
+the server's access control middleware (which inspects headers on all requests),
+while the body field provides the value for the `BitfileRecord.programmed_by`
+audit trail.
+
+A future cross-cutting task will audit all 8 endpoints that define `user_id` in
+their request bodies and align the server implementation to read from both the
+body field and the header consistently (see Deferred Items below).
 
 ### gRPC proto
 
@@ -173,16 +186,21 @@ No proto changes are needed for this ADR.
 ### User Identification Consistency (`user_id` vs `X-User-Id`)
 
 The OpenAPI spec defines `user_id` as a request body field in 8 endpoints
-(`/configure`, `/resources/{id}/acquire`, `/resources/{id}/release`,
-`/heartbeat`, `/disconnect`, etc.) totaling 19 occurrences. The server
-implementation reads `X-User-Id` from a header on most of these. The gRPC proto
-uses `user_id` as a message field.
+(`/configure`, `/configure_from_server_path`, `/resources/{id}/acquire`,
+`/resources/{id}/release`, `/heartbeat`, `/disconnect`, etc.) totaling ~19
+occurrences. The server implementation currently reads `X-User-Id` from a
+header on most of these and ignores the body field.
 
-This discrepancy needs a dedicated analysis to determine the canonical approach,
-considering:
-- REST convention (header vs body)
-- Consistency with gRPC (message field)
-- Access control middleware (header-based is easier for middleware)
+The preferred direction is to **preserve `user_id` in the OpenAPI request
+schemas** so the API remains self-documenting for code generators and Swagger
+UI. The server should be updated to read `user_id` from the request body
+(falling back to `X-User-Id` header if absent), aligning with the gRPC proto
+which uses `user_id` as a message field.
+
+This analysis should consider:
+- Reading `user_id` from body first, `X-User-Id` header as fallback
+- Consistency with gRPC (proto uses `user_id` message field)
+- Access control middleware implications
 - Impact on all existing client libraries
 
 This will be tracked as a separate task, not part of Phase 36.
