@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-08-23
+> **Last Updated:** 2026-08-23 (Phase 37 archived, Phase 38 promoted)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -44,37 +44,13 @@
 | **Phase 34** | Client UX & Device Metadata Improvements | ADR-004 (F), ADR-005 (C) | ✅ Completed |
 | **Phase 35** | Client Demo Bug Fixes & README Update | — | ✅ Completed |
 | **Phase 36** | Configure FPGA API Alignment | ADR-028 | ✅ [Archived](archive/roadmap-phases-36.md) |
-| **Phase 37** | API Response Compliance Audit | — | 🟢 Now |
-| **Phase 38** | User Identification Consistency | — | 🟡 Next |
+| **Phase 37** | API Response Compliance Audit | — | ✅ [Archived](archive/roadmap-phases-37.md) |
+| **Phase 38** | User Identification Consistency | — | 🟢 Now |
 | **Phase 39+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
 ## 🟢 Now
-
-### Phase 37 — API Response Compliance Audit
-
-**Goal:** Audit every REST endpoint's actual response struct against its OpenAPI schema
-and fix any discrepancies.
-
-**Deliverables:**
-
-| # | Task | Notes |
-|---|------|-------|
-| 1 | Build comparison table | Every endpoint's OpenAPI response schema vs actual Rust return type |
-| 2 | Fix mismatched field names or missing fields | e.g., `serde_json::Value` vs typed struct |
-| 3 | Ensure all `ProblemDetail` error responses match the schema | Consistent `type`, `title`, `status`, `detail` fields |
-| 4 | Update doc comments on all fixed handlers | Reflect correct response schemas |
-
-**Exit Criteria:**
-- Every endpoint's response matches its OpenAPI schema exactly
-- `ProblemDetail` errors are consistent across all handlers
-- `cargo test` passes, `cargo build` succeeds
-- Comparison table documents the audit results
-
----
-
-## 🟡 Next
 
 ### Phase 38 — User Identification Consistency (`user_id` vs `X-User-Id`)
 
@@ -94,6 +70,12 @@ schemas** (self-documenting for code generators and Swagger UI).
 - Extend the `resolve_user_id()` pattern from Phase 36 to all affected endpoints
 - Update all client libraries to send `user_id` in both body and header
 - ADR documenting the canonical approach
+
+---
+
+## 🟡 Next
+
+*(Empty — no phase is currently planned for Next.)*
 
 ---
 
@@ -231,6 +213,8 @@ implementation details, verification steps, and acceptance criteria.
 | 33 | Read-Aware Lock Enforcement | 2026-08-21 | ADR-024, 026 | [phase 33](archive/roadmap-phases-33.md) |
 | 34 | Client UX & Device Metadata Improvements | 2026-08-21 | ADR-004 (F), ADR-005 (C) | [phase 34](archive/roadmap-phases-34.md) |
 | 35 | Client Demo Bug Fixes & README Update | 2026-08-21 | — | [phase 35](archive/roadmap-phases-35.md) |
+| 36 | Configure FPGA API Alignment | 2026-08-23 | ADR-028 | [phase 36](archive/roadmap-phases-36.md) |
+| 37 | API Response Compliance Audit | 2026-08-23 | — | [phase 37](archive/roadmap-phases-37.md) |
 
 ---
 
