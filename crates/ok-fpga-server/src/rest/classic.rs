@@ -157,34 +157,47 @@ struct BlockPipeRequest {
     data: Option<String>,
 }
 
-/// Response for a single wire-out read (per OpenAPI `WireOutResponse`).
-///
-/// Used as documentation of the JSON shape returned by `get_wire_out`.
-/// The handler constructs the JSON via `serde_json::json!` for flexibility.
+/// Response for a single wire-out read — matches OpenAPI `WireOutResponse` (Phase 37).
 #[derive(Serialize)]
-#[allow(dead_code)]
 struct WireOutResponse {
     endpoint: i32,
     value: u32,
 }
 
-/// Response for a single trigger-out read (per OpenAPI `TriggerOutResponse`).
-///
-/// Used as documentation of the JSON shape returned by `get_trigger_out`.
-/// The handler constructs the JSON via `serde_json::json!` for flexibility.
+/// Response for a single trigger-out read — matches OpenAPI `TriggerOutResponse` (Phase 37).
 #[derive(Serialize)]
-#[allow(dead_code)]
 struct TriggerOutResponse {
     endpoint: i32,
     triggered: bool,
-    /// Full 32-bit trigger vector (per OpenAPI `TriggerOutResponse.vector`).
+    /// Full 32-bit trigger vector.
     vector: u32,
 }
 
+/// Register read response — matches OpenAPI `RegisterEntry` (Phase 37).
 #[derive(Serialize)]
 struct RegisterResponse {
     address: u32,
     value: u32,
+}
+
+/// StatusResponse for operations that don't return data — matches OpenAPI `StatusResponse`.
+#[derive(Serialize)]
+struct StatusResponse {
+    success: bool,
+    message: String,
+}
+
+/// Pipe transfer response — matches OpenAPI `PipeTransferResponse` (Phase 37).
+#[derive(Serialize)]
+struct PipeTransferResponse {
+    bytes_transferred: i32,
+}
+
+/// Pipe read response — extends `PipeTransferResponse` with base64 data.
+#[derive(Serialize)]
+struct PipeReadResponse {
+    bytes_transferred: i32,
+    data: String,
 }
 
 // ============================================================================
@@ -399,7 +412,7 @@ async fn set_wire_in(
     Path(serial): Path<String>,
     headers: axum::http::HeaderMap,
     Json(req): Json<WireInRequest>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<StatusResponse>, ProblemDetail> {
     // ADR-024: endpoint-level enforcement.
     enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::WireIn, Some(req.value))?;
     let device_arc = get_device!(state, &serial);
@@ -424,14 +437,17 @@ async fn set_wire_in(
         FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
     }
 
-    Ok(Json(serde_json::json!({"status": "ok", "endpoint": req.endpoint, "value": req.value})))
+    Ok(Json(StatusResponse {
+        success: true,
+        message: format!("WireIn 0x{:02x} set to 0x{:08x}", req.endpoint, req.value),
+    }))
 }
 
 /// `POST /devices/{serial}/classic/wires/in/update` — Flush all wire-in values.
 async fn update_wire_ins(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<StatusResponse>, ProblemDetail> {
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -445,14 +461,17 @@ async fn update_wire_ins(
         FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
     }
 
-    Ok(Json(serde_json::json!({"status": "ok"})))
+    Ok(Json(StatusResponse {
+        success: true,
+        message: "WireIns updated".to_string(),
+    }))
 }
 
 /// `POST /devices/{serial}/classic/wires/out/update` — Read all wire-out values from FPGA.
 async fn update_wire_outs(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<StatusResponse>, ProblemDetail> {
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -466,7 +485,10 @@ async fn update_wire_outs(
         FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
     }
 
-    Ok(Json(serde_json::json!({"status": "ok"})))
+    Ok(Json(StatusResponse {
+        success: true,
+        message: "WireOuts updated".to_string(),
+    }))
 }
 
 /// `GET /devices/{serial}/classic/wires/out?endpoint=N` — Read wire-out value(s).
@@ -495,13 +517,13 @@ async fn get_wire_out(
     let dll = device.dll();
 
     if let Some(endpoint) = query.endpoint {
-        // Single endpoint query — return {"endpoint": N, "value": V}.
+        // Single endpoint query — return typed WireOutResponse.
         let value = unsafe {
             let rc = (dll.classic_update_wire_outs)(classic);
             FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
             (dll.classic_get_wire_out_value)(classic, endpoint) as u32
         };
-        Ok(Json(serde_json::json!({ "endpoint": endpoint, "value": value })))
+        Ok(Json(serde_json::to_value(WireOutResponse { endpoint, value }).unwrap()))
     } else {
         // Batch query — return all standard wire-outs (0x20–0x3F).
         let wires = unsafe {
@@ -524,7 +546,7 @@ async fn activate_trigger_in(
     Path(serial): Path<String>,
     headers: axum::http::HeaderMap,
     Json(req): Json<TriggerInRequest>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<StatusResponse>, ProblemDetail> {
     enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::TriggerIn, Some(1u32 << req.bit))?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
@@ -539,14 +561,17 @@ async fn activate_trigger_in(
         FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
     }
 
-    Ok(Json(serde_json::json!({"status": "ok", "endpoint": req.endpoint, "bit": req.bit})))
+    Ok(Json(StatusResponse {
+        success: true,
+        message: format!("TriggerIn 0x{:02x} bit {} activated", req.endpoint, req.bit),
+    }))
 }
 
 /// `POST /devices/{serial}/classic/triggers/out/update` — Read trigger-out state.
 async fn update_trigger_outs(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<StatusResponse>, ProblemDetail> {
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -560,7 +585,10 @@ async fn update_trigger_outs(
         FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
     }
 
-    Ok(Json(serde_json::json!({"status": "ok"})))
+    Ok(Json(StatusResponse {
+        success: true,
+        message: "TriggerOuts updated".to_string(),
+    }))
 }
 
 /// `GET /devices/{serial}/classic/triggers/out?endpoint=N&mask=M` — Read trigger-out.
@@ -600,11 +628,11 @@ async fn get_trigger_out(
             let vec_val = (dll.classic_get_trigger_out_vector)(classic, endpoint) as u32;
             (is_triggered, vec_val)
         };
-        Ok(Json(serde_json::json!({
-            "endpoint": endpoint,
-            "triggered": triggered,
-            "vector": vector,
-        })))
+        Ok(Json(serde_json::to_value(TriggerOutResponse {
+            endpoint,
+            triggered,
+            vector,
+        }).unwrap()))
     } else {
         // Batch query — return all standard trigger-outs (0x60–0x7F).
         let triggers = unsafe {
@@ -627,7 +655,7 @@ async fn write_to_pipe_in(
     Path(serial): Path<String>,
     headers: axum::http::HeaderMap,
     Json(req): Json<PipeRequest>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<PipeTransferResponse>, ProblemDetail> {
     enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::PipeIn, None)?;
     let data = req.data.as_deref().unwrap_or("");
     let bytes = base64_decode(data)?;
@@ -656,7 +684,9 @@ async fn write_to_pipe_in(
         )));
     }
 
-    Ok(Json(serde_json::json!({"status": "ok", "bytes_transferred": transferred})))
+    Ok(Json(PipeTransferResponse {
+        bytes_transferred: transferred,
+    }))
 }
 
 /// `POST /devices/{serial}/classic/pipes/out` — Read data from a pipe-out endpoint.
@@ -665,7 +695,7 @@ async fn read_from_pipe_out(
     Path(serial): Path<String>,
     headers: axum::http::HeaderMap,
     Json(req): Json<PipeRequest>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<PipeReadResponse>, ProblemDetail> {
     enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::PipeOut, None)?;
     let length = req.length;
 
@@ -699,7 +729,10 @@ async fn read_from_pipe_out(
     use base64::Engine;
     let encoded = base64::engine::general_purpose::STANDARD.encode(&buffer);
 
-    Ok(Json(serde_json::json!({"status": "ok", "bytes_transferred": transferred, "data": encoded})))
+    Ok(Json(PipeReadResponse {
+        bytes_transferred: transferred,
+        data: encoded,
+    }))
 }
 
 /// `POST /devices/{serial}/classic/pipes/block-in` — Write to a block pipe-in.
@@ -707,7 +740,7 @@ async fn write_to_block_pipe_in(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
     Json(req): Json<BlockPipeRequest>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<PipeTransferResponse>, ProblemDetail> {
     let data = req.data.as_deref().unwrap_or("");
     let bytes = base64_decode(data)?;
 
@@ -736,7 +769,9 @@ async fn write_to_block_pipe_in(
         )));
     }
 
-    Ok(Json(serde_json::json!({"status": "ok", "bytes_transferred": transferred})))
+    Ok(Json(PipeTransferResponse {
+        bytes_transferred: transferred,
+    }))
 }
 
 /// `POST /devices/{serial}/classic/pipes/block-out` — Read from a block pipe-out.
@@ -744,7 +779,7 @@ async fn read_from_block_pipe_out(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
     Json(req): Json<BlockPipeRequest>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<PipeReadResponse>, ProblemDetail> {
     let length = req.length;
 
     let device_arc = get_device!(state, &serial);
@@ -778,7 +813,10 @@ async fn read_from_block_pipe_out(
     use base64::Engine;
     let encoded = base64::engine::general_purpose::STANDARD.encode(&buffer);
 
-    Ok(Json(serde_json::json!({"status": "ok", "bytes_transferred": transferred, "data": encoded})))
+    Ok(Json(PipeReadResponse {
+        bytes_transferred: transferred,
+        data: encoded,
+    }))
 }
 
 /// `POST /devices/{serial}/classic/registers/read` — Read a register.
@@ -815,7 +853,7 @@ async fn write_register(
     Path(serial): Path<String>,
     headers: axum::http::HeaderMap,
     Json(req): Json<RegisterRequest>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<StatusResponse>, ProblemDetail> {
     enforce_address(&state, &headers, &serial, req.address, true)?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
@@ -830,14 +868,17 @@ async fn write_register(
         FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
     }
 
-    Ok(Json(serde_json::json!({"status": "ok", "address": req.address, "value": req.value})))
+    Ok(Json(StatusResponse {
+        success: true,
+        message: format!("Register 0x{:08x} written with 0x{:08x}", req.address, req.value),
+    }))
 }
 
 /// `POST /devices/{serial}/classic/reset` — Reset the FPGA via Classic data port.
 async fn reset_fpga(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<StatusResponse>, ProblemDetail> {
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -851,7 +892,10 @@ async fn reset_fpga(
         FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
     }
 
-    Ok(Json(serde_json::json!({"status": "ok", "serial": serial, "message": "FPGA reset"})))
+    Ok(Json(StatusResponse {
+        success: true,
+        message: "FPGA reset".to_string(),
+    }))
 }
 
 // ============================================================================

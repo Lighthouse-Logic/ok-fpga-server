@@ -153,7 +153,7 @@ struct ResourceListBody {
     resources: Vec<ResourceView>,
 }
 
-/// Serializable view of a resource for API responses.
+/// Serializable view of a resource for API responses — matches OpenAPI `Resource` schema (Phase 37).
 #[derive(Serialize)]
 struct ResourceView {
     id: String,
@@ -167,6 +167,8 @@ struct ResourceView {
     access_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     locked_by: Option<String>,
+    /// If true, ReadOnly acquisition is denied entirely (ADR-026).
+    private: bool,
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     metadata: HashMap<String, String>,
 }
@@ -182,6 +184,7 @@ impl From<&Resource> for ResourceView {
             holders: r.holder_ids().iter().map(|s| s.to_string()).collect(),
             access_mode: r.access_mode.map(|m| format!("{}", m)),
             locked_by: r.locked_by.clone(),
+            private: r.private,
             metadata: r.metadata.clone(),
         }
     }
@@ -574,9 +577,8 @@ async fn release_resource(
         ));
 
         Ok(Json(serde_json::json!({
-            "status": "released",
-            "resource_id": id,
-            "user_id": body.user_id,
+            "success": true,
+            "message": format!("Resource '{}' released by '{}'", id, body.user_id),
         })))
     } else {
         Err(ProblemDetail::not_found(&format!(

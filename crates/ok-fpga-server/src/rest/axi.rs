@@ -73,6 +73,39 @@ struct AXILiteReadResponse {
     value: u32,
 }
 
+/// StatusResponse for AXI operations — matches OpenAPI `StatusResponse` (Phase 37).
+#[derive(Serialize)]
+struct StatusResponse {
+    success: bool,
+    message: String,
+}
+
+/// Datapath width response (Phase 37).
+#[derive(Serialize)]
+struct DatapathWidthResponse {
+    width: i32,
+}
+
+/// AXI Stream datapath widths response (Phase 37).
+#[derive(Serialize)]
+struct StreamWidthsResponse {
+    write_datapath_width_bytes: i32,
+    read_datapath_width_bytes: i32,
+}
+
+/// AXI Stream read response (Phase 37).
+#[derive(Serialize)]
+struct AXIStreamReadResponse {
+    bytes_transferred: u64,
+    data_base64: String,
+}
+
+/// AXI Stream write response (Phase 37).
+#[derive(Serialize)]
+struct AXIStreamWriteResponse {
+    bytes_written: u64,
+}
+
 // ============================================================================
 // Helper
 // ============================================================================
@@ -163,7 +196,7 @@ async fn axi_lite_write(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
     Json(req): Json<AXILiteWriteRequest>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<StatusResponse>, ProblemDetail> {
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -182,7 +215,10 @@ async fn axi_lite_write(
         FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
     }
 
-    Ok(Json(serde_json::json!({"status": "ok", "address": req.address, "value": req.value})))
+    Ok(Json(StatusResponse {
+        success: true,
+        message: format!("AXI Lite 0x{:016x} written with 0x{:08x}", req.address, req.value),
+    }))
 }
 
 /// `POST /devices/{serial}/axi/lite/reset` — Reset the AXI Lite interface.
@@ -191,7 +227,7 @@ async fn axi_lite_write(
 async fn axi_lite_reset(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<StatusResponse>, ProblemDetail> {
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -207,7 +243,10 @@ async fn axi_lite_reset(
         FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
     }
 
-    Ok(Json(serde_json::json!({"status": "ok", "message": "AXI Lite reset"})))
+    Ok(Json(StatusResponse {
+        success: true,
+        message: "AXI Lite reset".to_string(),
+    }))
 }
 
 // ============================================================================
@@ -218,7 +257,7 @@ async fn axi_lite_reset(
 async fn axi_full_widths(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<DatapathWidthResponse>, ProblemDetail> {
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -229,7 +268,7 @@ async fn axi_full_widths(
 
     let width = unsafe { (dll.axi_full_get_datapath_width)(axi_full) };
 
-    Ok(Json(serde_json::json!({"datapath_width_bytes": width})))
+    Ok(Json(DatapathWidthResponse { width: width.into() }))
 }
 
 /// `POST /devices/{serial}/axi/full/read` — Read via AXI Full.
@@ -270,7 +309,7 @@ async fn axi_full_write(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
     Json(req): Json<AXILiteWriteRequest>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<StatusResponse>, ProblemDetail> {
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -292,14 +331,17 @@ async fn axi_full_write(
         FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
     }
 
-    Ok(Json(serde_json::json!({"status": "ok", "address": req.address, "value": req.value})))
+    Ok(Json(StatusResponse {
+        success: true,
+        message: format!("AXI Full 0x{:016x} written with 0x{:08x}", req.address, req.value),
+    }))
 }
 
 /// `POST /devices/{serial}/axi/full/reset` — Reset AXI Full interface.
 async fn axi_full_reset(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<StatusResponse>, ProblemDetail> {
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -313,7 +355,10 @@ async fn axi_full_reset(
         FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
     }
 
-    Ok(Json(serde_json::json!({"status": "ok", "message": "AXI Full reset"})))
+    Ok(Json(StatusResponse {
+        success: true,
+        message: "AXI Full reset".to_string(),
+    }))
 }
 
 // ============================================================================
@@ -344,7 +389,7 @@ struct AXIStreamWriteRequest {
 async fn axi_stream_widths(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<StreamWidthsResponse>, ProblemDetail> {
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -360,10 +405,10 @@ async fn axi_stream_widths(
     let write_width = unsafe { (dll.axi_stream_get_write_datapath_width)(axi_stream) };
     let read_width = unsafe { (dll.axi_stream_get_read_datapath_width)(axi_stream) };
 
-    Ok(Json(serde_json::json!({
-        "write_datapath_width_bytes": write_width,
-        "read_datapath_width_bytes": read_width,
-    })))
+    Ok(Json(StreamWidthsResponse {
+        write_datapath_width_bytes: write_width.into(),
+        read_datapath_width_bytes: read_width.into(),
+    }))
 }
 
 /// `POST /devices/{serial}/axi/stream/read` — Read bytes from AXI Stream FIFO.
@@ -374,7 +419,7 @@ async fn axi_stream_read(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
     Json(req): Json<AXIStreamReadRequest>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<AXIStreamReadResponse>, ProblemDetail> {
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -406,10 +451,10 @@ async fn axi_stream_read(
     use base64::Engine;
     let encoded = base64::engine::general_purpose::STANDARD.encode(&buffer);
 
-    Ok(Json(serde_json::json!({
-        "bytes_transferred": transferred,
-        "data_base64": encoded,
-    })))
+    Ok(Json(AXIStreamReadResponse {
+        bytes_transferred: transferred,
+        data_base64: encoded,
+    }))
 }
 
 /// `POST /devices/{serial}/axi/stream/write` — Write bytes to AXI Stream FIFO.
@@ -420,7 +465,7 @@ async fn axi_stream_write(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
     Json(req): Json<AXIStreamWriteRequest>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<AXIStreamWriteResponse>, ProblemDetail> {
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -449,16 +494,16 @@ async fn axi_stream_write(
         FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
     }
 
-    Ok(Json(serde_json::json!({
-        "bytes_written": transferred,
-    })))
+    Ok(Json(AXIStreamWriteResponse {
+        bytes_written: transferred,
+    }))
 }
 
 /// `POST /devices/{serial}/axi/stream/reset` — Reset the AXI Stream interface.
 async fn axi_stream_reset(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<StatusResponse>, ProblemDetail> {
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -474,5 +519,8 @@ async fn axi_stream_reset(
         FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
     }
 
-    Ok(Json(serde_json::json!({"status": "ok", "message": "AXI Stream reset"})))
+    Ok(Json(StatusResponse {
+        success: true,
+        message: "AXI Stream reset".to_string(),
+    }))
 }

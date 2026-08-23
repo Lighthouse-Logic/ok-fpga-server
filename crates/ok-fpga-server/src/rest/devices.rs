@@ -100,13 +100,17 @@ struct DeviceFullInfo {
 
 /// Bitfile info returned as part of DeviceFullInfo.
 ///
-/// Maps to the OpenAPI `BitfileInfo` schema.
+/// Maps to the OpenAPI `BitfileInfo` schema (Phase 37).
 #[derive(Serialize)]
 struct BitfileFullInfo {
     filename: String,
     description: String,
     programmed_at: String,
     programmed_by: String,
+    /// Full path on the server filesystem (null for client uploads).
+    file_path: Option<String>,
+    /// MD5 hash of the bitfile content, hex-encoded (null if unavailable).
+    md5_hash: Option<String>,
 }
 
 /// Build a `DeviceFullInfo` from a core `FpgaDevice`.
@@ -119,6 +123,8 @@ fn device_to_full_info(d: &ok_fpga_core::device::FpgaDevice) -> DeviceFullInfo {
         description: b.description.clone().unwrap_or_default(),
         programmed_at: b.programmed_at.to_rfc3339(),
         programmed_by: b.programmed_by.clone(),
+        file_path: b.file_path.clone(),
+        md5_hash: b.md5_hash.clone(),
     });
     DeviceFullInfo {
         serial: d.info.serial.clone(),
@@ -171,15 +177,74 @@ struct SetDeviceSettingRequest {
     int_value: Option<u32>,
 }
 
-/// Sensor reading response.
+/// Sensor reading response — matches OpenAPI `DeviceSensor` schema (Phase 37).
 #[derive(Serialize)]
 struct SensorReading {
     id: i32,
+    sensor_type: String,
     name: String,
-    value: String,
-    minimum: String,
-    maximum: String,
     description: String,
+    min: f64,
+    max: f64,
+    step: f64,
+    value: f64,
+}
+
+/// Device setting response — matches OpenAPI `DeviceSetting` schema (Phase 37).
+#[derive(Serialize)]
+struct DeviceSettingView {
+    key: String,
+    value_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    string_value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    int_value: Option<u32>,
+}
+
+/// Settings list response body.
+#[derive(Serialize)]
+struct SettingsListBody {
+    settings: Vec<DeviceSettingView>,
+}
+
+/// Sensors list response body.
+#[derive(Serialize)]
+struct SensorsListBody {
+    sensors: Vec<SensorReading>,
+}
+
+/// SYZYGY port response — matches OpenAPI `SyzygyPort` schema (Phase 37).
+#[derive(Serialize)]
+struct SyzygyPortView {
+    index: u32,
+    port_status_mv: u32,
+    is_populated: bool,
+    manufacturer_name: String,
+    product_name: String,
+    product_model: String,
+    product_version: String,
+    serial_number: String,
+}
+
+/// SYZYGY ports list response body.
+#[derive(Serialize)]
+struct SyzygyPortsBody {
+    ports: Vec<SyzygyPortView>,
+}
+
+/// Dataport response — matches OpenAPI schema (Phase 37).
+#[derive(Serialize)]
+struct DataportResponse {
+    serial: String,
+    dataport: String,
+    dataport_raw: i32,
+}
+
+/// StatusResponse for device operations (Phase 37).
+#[derive(Serialize)]
+struct DeviceStatusResponse {
+    success: bool,
+    message: String,
 }
 
 // ============================================================================
@@ -237,17 +302,19 @@ async fn list_devices(State(state): State<Arc<AppState>>) -> Json<DeviceListBody
 }
 
 /// `GET /devices/{serial}` — Get detailed device info.
+///
+/// Returns a `DeviceFullInfo` matching the OpenAPI `DeviceInfo` schema (Phase 37).
 async fn get_device_info(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<DeviceFullInfo>, ProblemDetail> {
     let dev = state
         .device_manager
         .registry()
         .get(&serial)
         .ok_or_else(|| ProblemDetail::not_found(format!("device '{}' not found", serial)))?;
 
-    Ok(Json(serde_json::to_value(&dev.info).unwrap_or_default()))
+    Ok(Json(device_to_full_info(&dev)))
 }
 
 /// `GET /devices/{serial}/sensors` — Get device sensor readings.
@@ -298,13 +365,27 @@ async fn get_device_sensors(
             let sensor = (dll.sensors_get_sensor)(sensors_handle, i);
             let name = cstr_from_char_array(&sensor.name);
             let description = cstr_from_char_array(&sensor.description);
+            // Map the C sensor type enum to the OpenAPI string.
+            let sensor_type_str = match sensor.type_ as u32 {
+                1 => "bool",
+                2 => "integer",
+                3 => "float",
+                4 => "voltage",
+                5 => "current",
+                6 => "temperature",
+                7 => "fan_rpm",
+                8 => "power",
+                _ => "invalid",
+            };
             readings.push(SensorReading {
                 id: sensor.id,
+                sensor_type: sensor_type_str.to_string(),
                 name,
-                value: format!("{:.2}", sensor.value),
-                minimum: format!("{:.2}", sensor.min),
-                maximum: format!("{:.2}", sensor.max),
                 description,
+                min: sensor.min as f64,
+                max: sensor.max as f64,
+                step: sensor.step as f64,
+                value: sensor.value as f64,
             });
         }
 
@@ -312,7 +393,7 @@ async fn get_device_sensors(
         readings
     };
 
-    Ok(Json(serde_json::to_value(&sensors).unwrap_or_default()))
+    Ok(Json(serde_json::to_value(SensorsListBody { sensors }).unwrap()))
 }
 
 /// `GET /devices/{serial}/settings` — List all device settings.
@@ -342,7 +423,7 @@ async fn get_device_settings(
 
     // SAFETY: handle is valid (from pool). We construct settings + names
     // containers, populate from the device, iterate keys, then destroy both.
-    let settings_list: Vec<serde_json::Value> = unsafe {
+    let settings_list: Vec<DeviceSettingView> = unsafe {
         let settings = (dll.settings_construct)();
         if settings.is_null() {
             return Err(ProblemDetail::internal("Failed to construct settings handle"));
@@ -394,11 +475,12 @@ async fn get_device_settings(
             let int_rc = (dll.settings_get_int)(settings, key_c.as_ptr(), &mut int_val);
 
             if int_rc as i32 == ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
-                result.push(serde_json::json!({
-                    "key": key,
-                    "value_type": "integer",
-                    "int_value": int_val,
-                }));
+                result.push(DeviceSettingView {
+                    key,
+                    value_type: "integer".to_string(),
+                    string_value: None,
+                    int_value: Some(int_val),
+                });
             } else {
                 // Try as string.
                 let mut str_buf = vec![0i8; 256];
@@ -410,17 +492,20 @@ async fn get_device_settings(
                 );
                 if str_rc as i32 == ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
                     let val = cstr_from_char_array(&str_buf);
-                    result.push(serde_json::json!({
-                        "key": key,
-                        "value_type": "string",
-                        "string_value": val,
-                    }));
+                    result.push(DeviceSettingView {
+                        key,
+                        value_type: "string".to_string(),
+                        string_value: Some(val),
+                        int_value: None,
+                    });
                 } else {
                     // Key exists but neither type read succeeded — report as unknown.
-                    result.push(serde_json::json!({
-                        "key": key,
-                        "value_type": "unknown",
-                    }));
+                    result.push(DeviceSettingView {
+                        key,
+                        value_type: "unknown".to_string(),
+                        string_value: None,
+                        int_value: None,
+                    });
                 }
             }
         }
@@ -430,7 +515,7 @@ async fn get_device_settings(
         result
     };
 
-    Ok(Json(serde_json::json!({ "settings": settings_list })))
+    Ok(Json(serde_json::to_value(SettingsListBody { settings: settings_list }).unwrap()))
 }
 
 /// `GET /devices/{serial}/settings/{key}` — Get a single setting.
@@ -482,11 +567,12 @@ async fn get_device_setting(
         let int_rc = (dll.settings_get_int)(settings, key_c.as_ptr(), &mut int_val);
 
         let value = if int_rc as i32 == ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
-            serde_json::json!({
-                "key": key,
-                "value_type": "integer",
-                "int_value": int_val,
-            })
+            serde_json::to_value(DeviceSettingView {
+                key: key.clone(),
+                value_type: "integer".to_string(),
+                string_value: None,
+                int_value: Some(int_val),
+            }).unwrap()
         } else {
             // Try string.
             let mut str_buf = vec![0i8; 256];
@@ -498,11 +584,12 @@ async fn get_device_setting(
             );
             if str_rc as i32 == ok_fpga_ffi::ok_ErrorCode::ok_NoError as i32 {
                 let val = cstr_from_char_array(&str_buf);
-                serde_json::json!({
-                    "key": key,
-                    "value_type": "string",
-                    "string_value": val,
-                })
+                serde_json::to_value(DeviceSettingView {
+                    key: key.clone(),
+                    value_type: "string".to_string(),
+                    string_value: Some(val),
+                    int_value: None,
+                }).unwrap()
             } else {
                 (dll.settings_destruct)(settings);
                 return Err(ProblemDetail::not_found(format!(
@@ -617,11 +704,10 @@ async fn set_device_setting(
         }
     }
 
-    Ok(Json(serde_json::json!({
-        "status": "ok",
-        "key": key,
-        "message": format!("Setting '{}' updated on device '{}'", key, serial),
-    })))
+    Ok(Json(serde_json::to_value(DeviceStatusResponse {
+        success: true,
+        message: format!("Setting '{}' updated on device '{}'", key, serial),
+    }).unwrap()))
 }
 
 /// `GET /devices/{serial}/syzygy` — Discover SYZYGY ports.
@@ -652,7 +738,7 @@ async fn get_syzygy_ports(
 
     // SAFETY: handle is valid (from pool). Construct settings, populate,
     // probe SYZYGY keys, then destroy.
-    let ports: Vec<serde_json::Value> = unsafe {
+    let ports: Vec<SyzygyPortView> = unsafe {
         let settings = (dll.settings_construct)();
         if settings.is_null() {
             return Err(ProblemDetail::internal("Failed to construct settings handle"));
@@ -707,23 +793,23 @@ async fn get_syzygy_ports(
                 }
             }
 
-            result.push(serde_json::json!({
-                "index": n,
-                "port_status_mv": port_status,
-                "is_populated": is_populated,
-                "manufacturer_name": dna.get("MANUFACTURER_NAME").cloned().unwrap_or_default(),
-                "product_name": dna.get("PRODUCT_NAME").cloned().unwrap_or_default(),
-                "product_model": dna.get("PRODUCT_MODEL").cloned().unwrap_or_default(),
-                "product_version": dna.get("PRODUCT_VERSION").cloned().unwrap_or_default(),
-                "serial_number": dna.get("SERIAL_NUMBER").cloned().unwrap_or_default(),
-            }));
+            result.push(SyzygyPortView {
+                index: n,
+                port_status_mv: port_status,
+                is_populated,
+                manufacturer_name: dna.get("MANUFACTURER_NAME").cloned().unwrap_or_default(),
+                product_name: dna.get("PRODUCT_NAME").cloned().unwrap_or_default(),
+                product_model: dna.get("PRODUCT_MODEL").cloned().unwrap_or_default(),
+                product_version: dna.get("PRODUCT_VERSION").cloned().unwrap_or_default(),
+                serial_number: dna.get("SERIAL_NUMBER").cloned().unwrap_or_default(),
+            });
         }
 
         (dll.settings_destruct)(settings);
         result
     };
 
-    Ok(Json(serde_json::json!({ "ports": ports })))
+    Ok(Json(serde_json::to_value(SyzygyPortsBody { ports }).unwrap()))
 }
 
 /// Resolve the user identity for a configure request.
@@ -1013,18 +1099,18 @@ async fn get_bitfile_info(
 async fn get_dataport_type(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
+) -> Result<Json<DataportResponse>, ProblemDetail> {
     let dev = state
         .device_manager
         .registry()
         .get(&serial)
         .ok_or_else(|| ProblemDetail::not_found(format!("device '{}' not found", serial)))?;
 
-    Ok(Json(serde_json::json!({
-        "serial": serial,
-        "dataport": dev.info.dataport.to_string(),
-        "dataport_raw": dev.info.dataport as i32,
-    })))
+    Ok(Json(DataportResponse {
+        serial,
+        dataport: dev.info.dataport.to_string(),
+        dataport_raw: dev.info.dataport as i32,
+    }))
 }
 
 /// Extract a Rust `String` from a C `char` array (null-terminated).

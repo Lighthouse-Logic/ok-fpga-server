@@ -34,13 +34,28 @@ pub fn routes() -> Router<Arc<AppState>> {
 // Response Types
 // ============================================================================
 
-/// Server status response body.
+/// Server status response body — matches OpenAPI `ServerStatus` schema (Phase 37).
 #[derive(Serialize)]
 struct ServerStatusBody {
-    api_version: String,
+    /// ok-fpga-server version (from Cargo.toml).
+    server_version: String,
+    /// OpenAPI spec version (api/openapi.yaml info.version).
+    openapi_version: String,
+    /// FrontPanel DLL version string (e.g., "6.1.0"). Null if DLL not loaded.
+    frontpanel_version: Option<String>,
+    /// Server platform (e.g., "windows-x86_64").
+    platform: String,
+    /// Server description from TOML config.
     description: String,
-    uptime_secs: u64,
-    device_count: usize,
+    /// Human-readable uptime (e.g., "2h 15m 30s").
+    uptime: String,
+    /// Uptime in seconds.
+    uptime_seconds: u64,
+    /// Number of connected FPGA devices.
+    connected_devices: usize,
+    /// Number of registered resources.
+    active_resources: usize,
+    /// Status of all managed services.
     services: Vec<ServiceInfo>,
 }
 
@@ -62,11 +77,14 @@ struct StatusResponseBody {
 // ============================================================================
 
 /// `GET /server/status` — Get server status, uptime, and service states.
+///
+/// Returns a `ServerStatus` response matching the OpenAPI schema (Phase 37).
 async fn get_server_status(State(state): State<Arc<AppState>>) -> Json<ServerStatusBody> {
     let services = state.service_manager.list();
-    let device_count = state.device_manager.device_count();
+    let connected_devices = state.device_manager.device_count();
+    let active_resources = state.resource_registry.count();
 
-    // Read description from runtime config. Fall back to "ok-fpga-server"
+    // Read description from runtime config. Fall back to the mDNS instance name
     // if the config has no description set.
     let description = {
         let cfg = state.config.read().unwrap();
@@ -77,11 +95,35 @@ async fn get_server_status(State(state): State<Arc<AppState>>) -> Json<ServerSta
         }
     };
 
+    // Get FrontPanel DLL version if loaded.
+    let frontpanel_version = state
+        .handle_pool
+        .as_ref()
+        .map(|pool| pool.dll().api_version_string());
+
+    // Build human-readable uptime string.
+    let secs = state.uptime_secs();
+    let uptime = if secs >= 3600 {
+        format!("{}h {}m {}s", secs / 3600, (secs % 3600) / 60, secs % 60)
+    } else if secs >= 60 {
+        format!("{}m {}s", secs / 60, secs % 60)
+    } else {
+        format!("{}s", secs)
+    };
+
+    // Detect platform at compile time.
+    let platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
+
     Json(ServerStatusBody {
-        api_version: state.api_version.to_string(),
+        server_version: state.api_version.to_string(),
+        openapi_version: "1.0.0".to_string(),
+        frontpanel_version,
+        platform,
         description,
-        uptime_secs: state.uptime_secs(),
-        device_count,
+        uptime,
+        uptime_seconds: secs,
+        connected_devices,
+        active_resources,
         services,
     })
 }

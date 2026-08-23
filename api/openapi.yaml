@@ -2063,23 +2063,42 @@ components:
 
     ServerStatus:
       type: object
-      description: Server status information.
+      description: Server status information returned by GET /server/status.
       properties:
-        version:
+        server_version:
           type: string
+          description: ok-fpga-server version (from Cargo.toml)
+        openapi_version:
+          type: string
+          description: OpenAPI spec version (api/openapi.yaml info.version)
         frontpanel_version:
           type: string
+          description: FrontPanel DLL version string (e.g., "6.1.0")
+          nullable: true
         platform:
           type: string
+          description: Server platform (e.g., "windows-x86_64", "linux-aarch64")
+        description:
+          type: string
+          description: Server description from TOML config
         uptime:
           type: string
+          description: Human-readable uptime (e.g., "2h 15m 30s")
         uptime_seconds:
           type: integer
           format: int64
+          description: Uptime in seconds
         connected_devices:
           type: integer
+          description: Number of connected FPGA devices
         active_resources:
           type: integer
+          description: Number of registered resources
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceInfo'
+          description: Status of all managed services (REST, gRPC, MQTT, mDNS)
 
     LogEntry:
       type: object
