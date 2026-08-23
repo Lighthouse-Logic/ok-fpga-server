@@ -105,7 +105,7 @@ class TestDeviceEndpoints:
         assert exc_info.value.response.status_code in (404, 501)
 
     async def test_configure_fpga_not_implemented(self, client: OkFpgaRestClient) -> None:
-        """POST /devices/{serial}/configure returns 501 (stub)."""
+        """POST /devices/{serial}/configure_from_server_path returns 501 (stub)."""
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
             await client.configure_fpga("TEST0001", "test.bit")
         assert exc_info.value.response.status_code in (404, 501)

@@ -191,27 +191,34 @@ class CountersClient:
     # --- FPGA Configuration ---
 
     def configure_fpga(self, serial: str, bitfile_path: str):
-        """Program FPGA from a server-side path.
+        """Program FPGA from a server-side path (ADR-028).
 
-        Sends ``{"bitfile_path": "..."}`` as JSON. The bitfile must exist
+        Sends ``{"bitfile_path": "..."}`` as JSON to the dedicated
+        ``/configure_from_server_path`` endpoint. The bitfile must exist
         on the server's filesystem.
         """
-        return self._post(f"/devices/{serial}/configure",
+        return self._post(f"/devices/{serial}/configure_from_server_path",
                           {"bitfile_path": bitfile_path})
 
     def configure_fpga_from_file(self, serial: str, local_path: str):
-        """Program FPGA from a local file.
+        """Program FPGA from a local file (ADR-028).
 
         Reads the bitfile from the client's local filesystem and uploads
-        it to the server as ``application/octet-stream``. The server calls
+        it to the server as ``multipart/form-data``. The server calls
         ``ConfigureFPGAFromMemory`` with the received bytes.
+
+        The multipart form includes the bitfile binary, the original
+        filename, and the user_id for audit trail purposes.
         """
+        import os
         with open(local_path, "rb") as f:
             data = f.read()
+        filename = os.path.basename(local_path) or "uploaded.bit"
         url = f"{self.base_url}/devices/{serial}/configure"
         resp = self.session.post(
-            url, data=data,
-            headers={"Content-Type": "application/octet-stream"},
+            url,
+            files={"bitfile": (filename, data, "application/octet-stream")},
+            data={"filename": filename, "user_id": self.user_id},
         )
         if resp.status_code >= 400:
             raise ClientError(resp.status_code, resp.text)

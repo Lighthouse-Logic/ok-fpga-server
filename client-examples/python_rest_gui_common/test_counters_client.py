@@ -209,11 +209,12 @@ class TestCountersClientHTTP:
         assert result["status"] == "ok"
 
     @responses.activate
-    def test_configure_fpga_sends_bitfile_path(self):
+    def test_configure_fpga_sends_bitfile_path_to_server_path_endpoint(self):
+        # ADR-028: server-side path configuration uses the dedicated endpoint.
         responses.add(
             responses.POST,
-            "http://localhost:8088/api/v1/devices/SN001/configure",
-            json={"result": "ok"}, status=200,
+            "http://localhost:8088/api/v1/devices/SN001/configure_from_server_path",
+            json={"filename": "Counters.bit", "programmed_by": "test-user"}, status=200,
         )
         client = CountersClient("http://localhost:8088", "test-user")
         client.configure_fpga("SN001", "Counters.bit")
@@ -378,15 +379,15 @@ class TestListResources:
 
 
 class TestConfigureFpgaFromFile:
-    """Tests for configure_fpga_from_file() — F5 Local File mode."""
+    """Tests for configure_fpga_from_file() -- multipart upload mode (ADR-028)."""
 
     @responses.activate
-    def test_configure_fpga_from_file_sends_binary(self, tmp_path):
-        """F5: Local File mode reads file and uploads as octet-stream."""
+    def test_configure_fpga_from_file_sends_multipart(self, tmp_path):
+        """ADR-028: Local File mode reads file and uploads as multipart/form-data."""
         responses.add(
             responses.POST,
             "http://localhost:8088/api/v1/devices/SN001/configure",
-            json={"result": "ok"}, status=200,
+            json={"filename": "test.bit", "programmed_by": "test-user"}, status=200,
         )
         # Create a small temp bitfile.
         bitfile = tmp_path / "test.bit"
@@ -395,9 +396,9 @@ class TestConfigureFpgaFromFile:
         client = CountersClient("http://localhost:8088", "test-user")
         client.configure_fpga_from_file("SN001", str(bitfile))
 
-        # Verify binary payload was sent.
-        assert responses.calls[0].request.headers["Content-Type"] == "application/octet-stream"
-        assert responses.calls[0].request.body == b"\x00\x09\x0f\x01\x00\x00\x01\x0d"
+        # Verify multipart content type was used.
+        content_type = responses.calls[0].request.headers["Content-Type"]
+        assert "multipart/form-data" in content_type
 
     def test_configure_fpga_from_file_missing_file_raises(self):
         """F5: Non-existent local file raises FileNotFoundError."""

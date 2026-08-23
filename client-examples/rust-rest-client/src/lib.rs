@@ -224,7 +224,9 @@ impl OkFpgaRestClient {
     // FPGA Configuration Endpoints
     // ========================================================================
 
-    /// `POST /devices/{serial}/configure` — Program the FPGA with a bitfile.
+    /// `POST /devices/{serial}/configure_from_server_path` — Program the FPGA (ADR-028).
+    ///
+    /// Sends a JSON body with the server-side bitfile path.
     ///
     /// # Arguments
     /// * `serial` — Device serial number
@@ -235,7 +237,7 @@ impl OkFpgaRestClient {
         bitfile_path: &str,
     ) -> Result<Value, ClientError> {
         self.post(
-            &format!("/devices/{}/configure", serial),
+            &format!("/devices/{}/configure_from_server_path", serial),
             Some(serde_json::json!({ "bitfile_path": bitfile_path })),
         )
         .await

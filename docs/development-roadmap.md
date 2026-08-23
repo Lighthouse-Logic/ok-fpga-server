@@ -44,7 +44,7 @@
 | **Phase 33** | Read-Aware Lock Enforcement | ADR-024, 026 | ✅ Completed |
 | **Phase 34** | Client UX & Device Metadata Improvements | ADR-004 (F), ADR-005 (C) | ✅ Completed |
 | **Phase 35** | Client Demo Bug Fixes & README Update | — | ✅ Completed |
-| **Phase 36** | Configure FPGA API Alignment | ADR-028 | 🟢 Now |
+| **Phase 36** | Configure FPGA API Alignment | ADR-028 | ✅ Completed |
 | **Phase 37** | API Response Compliance Audit | — | 🟡 Next |
 | **Phase 38+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
@@ -72,10 +72,16 @@ parsing, and align the server response with the OpenAPI spec.
 | 7 | Update integration tests | Verify both endpoints work against running server |
 
 **Exit Criteria:**
-- Both endpoints return `BitfileInfo` per OpenAPI spec
-- Server parses true `multipart/form-data` (no raw-bytes hack)
-- Rust GUI clients work with both modes (ServerPath / LocalFile)
-- `cargo test` passes, `cargo build` succeeds
+- Both endpoints return `BitfileInfo` per OpenAPI spec ✅
+- Server parses true `multipart/form-data` (no raw-bytes hack) ✅
+- Rust GUI clients work with both modes (ServerPath / LocalFile) ✅
+- `cargo test` passes, `cargo build` succeeds ✅
+
+**Commits:** `2fb31b2` (server + Rust GUI client), `59702ad` (ADR-028 status)
+
+**Addendum:** All REST client examples updated (Python common, Python
+standalone, Rust standalone) to use `/configure_from_server_path` for
+server-side path mode and `multipart/form-data` for client upload mode.
 
 ---
 

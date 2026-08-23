@@ -147,9 +147,13 @@ class OkFpgaRestClient:
     # ========================================================================
 
     async def configure_fpga(self, serial: str, bitfile_path: str) -> dict:
-        """POST /devices/{serial}/configure — Program the FPGA."""
+        """POST /devices/{serial}/configure_from_server_path -- Program the FPGA (ADR-028).
+
+        Sends a JSON body with the server-side bitfile path. The bitfile
+        must exist on the server's filesystem.
+        """
         return await self._post(
-            f"/devices/{serial}/configure",
+            f"/devices/{serial}/configure_from_server_path",
             json={"bitfile_path": bitfile_path},
         )
 
