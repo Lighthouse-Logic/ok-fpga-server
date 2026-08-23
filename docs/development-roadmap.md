@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-08-23 (Phase 37 archived, Phase 38 promoted)
+> **Last Updated:** 2026-08-23 (Phase 38 archived)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -45,31 +45,14 @@
 | **Phase 35** | Client Demo Bug Fixes & README Update | — | ✅ Completed |
 | **Phase 36** | Configure FPGA API Alignment | ADR-028 | ✅ [Archived](archive/roadmap-phases-36.md) |
 | **Phase 37** | API Response Compliance Audit | — | ✅ [Archived](archive/roadmap-phases-37.md) |
-| **Phase 38** | User Identification Consistency | ADR-029 | 🟢 Now |
+| **Phase 38** | User Identification Consistency | ADR-029 | ✅ [Archived](archive/roadmap-phases-38.md) |
 | **Phase 39+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
 ## 🟢 Now
 
-### Phase 38 — User Identification Consistency (`user_id` vs `X-User-Id`)
-
-**Goal:** Perform a cross-cutting analysis of `user_id` across all endpoints and
-align the server implementation so that `user_id` is read from the request body
-first, falling back to the `X-User-Id` header if absent.
-
-**Context:** The OpenAPI spec defines `user_id` as a request body field in 8
-endpoints (~19 occurrences). The server currently reads `X-User-Id` from a
-header and ignores the body field. The gRPC proto uses `user_id` as a message
-field. The preferred direction is to **preserve `user_id` in the OpenAPI request
-schemas** (self-documenting for code generators and Swagger UI).
-
-**Deliverables:**
-- Audit of all 8 endpoints with `user_id` in their request bodies
-- Update server handlers to read `user_id` from body first, `X-User-Id` header as fallback
-- Extend the `resolve_user_id()` pattern from Phase 36 to all affected endpoints
-- Update all client libraries to send `user_id` in both body and header
-- ADR documenting the canonical approach
+*(Empty — no phase is currently active.)*
 
 ---
 
