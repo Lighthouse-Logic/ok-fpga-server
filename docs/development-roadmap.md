@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-08-23 (Phase 39 defined)
+> **Last Updated:** 2026-08-23 (Phase 39 archived)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -46,47 +46,14 @@
 | **Phase 36** | Configure FPGA API Alignment | ADR-028 | ✅ [Archived](archive/roadmap-phases-36.md) |
 | **Phase 37** | API Response Compliance Audit | — | ✅ [Archived](archive/roadmap-phases-37.md) |
 | **Phase 38** | User Identification Consistency | ADR-029 | ✅ [Archived](archive/roadmap-phases-38.md) |
-| **Phase 39** | SSE Event Expansion | ADR-030 | 🟢 Now |
+| **Phase 39** | SSE Event Expansion | ADR-030 | ✅ [Archived](archive/roadmap-phases-39.md) |
 | **Phase 40+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
 ## 🟢 Now
 
-### Phase 39 — SSE Event Expansion
-
-**Goal:** Expand the `DeviceEvent` enum and SSE broadcast to include user
-session lifecycle, resource lifecycle, and server shutdown events — bringing
-the SSE endpoint to parity with the dashboard WebSocket.
-
-**ADR:** [ADR-030](architecture/adr/ADR-030-sse-event-expansion.md)
-
-**New `DeviceEvent` variants:**
-
-| Variant | Trigger | Broadcast Location |
-|---------|---------|--------------------|
-| `UserConnected` | First API call from a user (new session) | `heartbeat_middleware.rs` |
-| `UserDisconnected` (explicit) | User calls disconnect | `server.rs` |
-| `UserDisconnected` (timeout) | Sweep detects expired heartbeat | `sweep.rs` |
-| `ResourceCreated` | `POST /resources` | `resources.rs` |
-| `ResourceDeleted` | `DELETE /resources/{id}` | `resources.rs` |
-| `ServerShutdown` | SIGINT/SIGTERM received | `main.rs` |
-
-**Key Decisions (→ ADR-030):**
-
-- `HeartbeatTimeout` folded into `UserDisconnected { reason: "timeout" }`
-- `UserSessionRegistry::touch()` returns `bool` (true = new session) — purely
-  internal, no network effect
-- SSE handler match is exhaustive (compiler-enforced)
-- Also fixes client-example SSE path bug (`/events/stream` → `/events`)
-
-**Exit Criteria:**
-
-- `cargo test` — all pass (new enum variants + serialization tests)
-- `cargo build` — exhaustive match enforced (no warnings)
-- Manual curl test: all 5 new event types appear on SSE stream
-- `openapi.yaml` documents all 9 event types
-- Rust REST client-example uses correct `/events` path
+*(Empty — no phase is currently active.)*
 
 ---
 
