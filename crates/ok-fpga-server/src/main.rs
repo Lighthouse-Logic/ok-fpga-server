@@ -271,6 +271,15 @@ async fn main() -> anyhow::Result<()> {
     tokio::signal::ctrl_c().await?;
     info!("shutdown signal received");
 
+    // Broadcast ServerShutdown event for SSE subscribers (Phase 39, ADR-030).
+    // This fires *before* stopping services so connected clients receive it.
+    let _ = app_state.device_manager.broadcast(
+        ok_fpga_core::manager::DeviceEvent::ServerShutdown {
+            reason: "signal".to_string(),
+            timestamp: chrono::Utc::now(),
+        },
+    );
+
     // Gracefully stop all services.
     service_manager.stop_all().await;
 

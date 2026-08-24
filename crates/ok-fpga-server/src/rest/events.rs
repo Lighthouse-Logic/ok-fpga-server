@@ -70,6 +70,18 @@ async fn subscribe_events(
                     ok_fpga_core::manager::DeviceEvent::ResourceChanged { .. } => {
                         "ResourceChanged"
                     }
+                    // Phase 39 (ADR-030): New event types
+                    ok_fpga_core::manager::DeviceEvent::UserConnected { .. } => "UserConnected",
+                    ok_fpga_core::manager::DeviceEvent::UserDisconnected { .. } => {
+                        "UserDisconnected"
+                    }
+                    ok_fpga_core::manager::DeviceEvent::ResourceCreated { .. } => {
+                        "ResourceCreated"
+                    }
+                    ok_fpga_core::manager::DeviceEvent::ResourceDeleted { .. } => {
+                        "ResourceDeleted"
+                    }
+                    ok_fpga_core::manager::DeviceEvent::ServerShutdown { .. } => "ServerShutdown",
                 };
 
                 let sse_event = Event::default().event(event_type).data(json);

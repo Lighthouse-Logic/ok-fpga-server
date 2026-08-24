@@ -323,6 +323,15 @@ async fn disconnect(
         "User disconnected via POST /disconnect"
     );
 
+    // Broadcast DeviceEvent for SSE subscribers (Phase 39, ADR-030).
+    let _ = state.device_manager.broadcast(
+        ok_fpga_core::manager::DeviceEvent::UserDisconnected {
+            user_id: user_id.clone(),
+            reason: "explicit".to_string(),
+            timestamp: chrono::Utc::now(),
+        },
+    );
+
     // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
     state.broadcast_event(&format!(
         r#"{{"type":"user_disconnected","user_id":"{}"}}"#,

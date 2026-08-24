@@ -130,14 +130,20 @@ impl UserSessionRegistry {
     /// If the user already exists, their `last_seen_at` is updated to `Utc::now()`.
     /// If they don't exist, a new session is created.
     ///
+    /// Returns `true` if a **new** session was created, `false` if an existing
+    /// session was refreshed. This allows callers (e.g., the heartbeat middleware)
+    /// to broadcast a `UserConnected` event only on first contact.
+    ///
     /// This is the primary "heartbeat" mechanism — every API call that
     /// identifies a user should call this.
-    pub fn touch(&self, user_id: &str) {
+    pub fn touch(&self, user_id: &str) -> bool {
         let mut sessions = self.sessions.write().expect("session lock poisoned");
+        let is_new = !sessions.contains_key(user_id);
         let entry = sessions
             .entry(user_id.to_string())
             .or_insert_with(|| UserSession::new(user_id));
         entry.last_seen_at = Utc::now();
+        is_new
     }
 
     /// Get a snapshot of a specific user's session.
@@ -233,7 +239,8 @@ mod tests {
         let registry = UserSessionRegistry::new();
         assert_eq!(registry.count(), 0);
 
-        registry.touch("alice");
+        let is_new = registry.touch("alice");
+        assert!(is_new, "touch() should return true for a new session");
         assert_eq!(registry.count(), 1);
 
         let session = registry.get("alice").unwrap();
@@ -243,12 +250,14 @@ mod tests {
     #[test]
     fn test_registry_touch_updates_existing_session() {
         let registry = UserSessionRegistry::new();
-        registry.touch("alice");
+        let is_new = registry.touch("alice");
+        assert!(is_new);
         let first_seen = registry.get("alice").unwrap().last_seen_at;
 
         // Sleep briefly so the timestamp differs
         thread::sleep(Duration::from_millis(10));
-        registry.touch("alice");
+        let is_new_again = registry.touch("alice");
+        assert!(!is_new_again, "touch() should return false for existing session");
         let second_seen = registry.get("alice").unwrap().last_seen_at;
 
         assert!(second_seen >= first_seen);

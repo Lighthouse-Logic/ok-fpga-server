@@ -445,6 +445,16 @@ async fn create_resource(
     if state.resource_registry.register(resource) {
         let created = state.resource_registry.get(&resource_id).unwrap();
 
+        // Broadcast DeviceEvent for SSE subscribers (Phase 39, ADR-030).
+        let _ = state.device_manager.broadcast(
+            ok_fpga_core::manager::DeviceEvent::ResourceCreated {
+                resource_id: resource_id.clone(),
+                device_serial: body.device_serial.clone(),
+                name: body.name.clone(),
+                timestamp: chrono::Utc::now(),
+            },
+        );
+
         // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
         state.broadcast_event(&format!(
             r#"{{"type":"resource_registered","resource_id":"{}","device_serial":"{}"}}"#,
@@ -488,6 +498,14 @@ async fn delete_resource(
     }
 
     state.resource_registry.remove(&id);
+
+    // Broadcast DeviceEvent for SSE subscribers (Phase 39, ADR-030).
+    let _ = state.device_manager.broadcast(
+        ok_fpga_core::manager::DeviceEvent::ResourceDeleted {
+            resource_id: id.clone(),
+            timestamp: chrono::Utc::now(),
+        },
+    );
 
     // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
     state.broadcast_event(&format!(

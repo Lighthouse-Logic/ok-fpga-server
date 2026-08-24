@@ -132,6 +132,14 @@ pub fn spawn_sweep_task(
                     );
                 }
 
+                // Broadcast DeviceEvent for SSE subscribers (Phase 39, ADR-030).
+                // HeartbeatTimeout is modeled as UserDisconnected { reason: "timeout" }.
+                let _ = device_manager.broadcast(DeviceEvent::UserDisconnected {
+                    user_id: session.user_id.clone(),
+                    reason: "timeout".to_string(),
+                    timestamp: chrono::Utc::now(),
+                });
+
                 // Broadcast user_disconnected event (Phase 25-Fix-H, F9).
                 if let Some(ref tx) = event_tx {
                     let _ = tx.send(format!(

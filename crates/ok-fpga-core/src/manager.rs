@@ -98,6 +98,54 @@ pub enum DeviceEvent {
         /// When the change occurred.
         timestamp: DateTime<Utc>,
     },
+
+    // ── New variants (Phase 39, ADR-030) ─────────────────────────
+
+    /// A user session was created (first API call from this user).
+    UserConnected {
+        /// The user who connected.
+        user_id: String,
+        /// When the session was created.
+        timestamp: DateTime<Utc>,
+    },
+
+    /// A user session ended (explicit disconnect or sweep expiration).
+    UserDisconnected {
+        /// The user who disconnected.
+        user_id: String,
+        /// Why: "explicit" (user called disconnect) or "timeout" (sweep expired).
+        reason: String,
+        /// When the disconnection occurred.
+        timestamp: DateTime<Utc>,
+    },
+
+    /// A new resource definition was registered (POST /resources).
+    ResourceCreated {
+        /// The newly created resource ID.
+        resource_id: String,
+        /// The device this resource belongs to.
+        device_serial: String,
+        /// Human-readable resource name.
+        name: String,
+        /// When the resource was created.
+        timestamp: DateTime<Utc>,
+    },
+
+    /// A resource definition was deleted (DELETE /resources/{id}).
+    ResourceDeleted {
+        /// The deleted resource ID.
+        resource_id: String,
+        /// When the resource was deleted.
+        timestamp: DateTime<Utc>,
+    },
+
+    /// The server is shutting down gracefully.
+    ServerShutdown {
+        /// Why: "signal" (SIGINT/SIGTERM).
+        reason: String,
+        /// When the shutdown was initiated.
+        timestamp: DateTime<Utc>,
+    },
 }
 
 // ============================================================================
@@ -429,5 +477,98 @@ mod tests {
 
         let device = registry.get("ABC123").unwrap();
         assert!(device.is_programmed());
+    }
+
+    // ── Phase 39 (ADR-030): New DeviceEvent serialization tests ──
+
+    #[test]
+    fn user_connected_event_serializes_correctly() {
+        let event = DeviceEvent::UserConnected {
+            user_id: "alice".to_string(),
+            timestamp: Utc::now(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"UserConnected\"") || json.contains("\"user_id\":\"alice\""));
+        // Deserialize round-trip
+        let parsed: DeviceEvent = serde_json::from_str(&json).unwrap();
+        match parsed {
+            DeviceEvent::UserConnected { user_id, .. } => assert_eq!(user_id, "alice"),
+            _ => panic!("Expected UserConnected"),
+        }
+    }
+
+    #[test]
+    fn user_disconnected_event_serializes_correctly() {
+        let event = DeviceEvent::UserDisconnected {
+            user_id: "bob".to_string(),
+            reason: "timeout".to_string(),
+            timestamp: Utc::now(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"bob\""));
+        assert!(json.contains("\"timeout\""));
+        let parsed: DeviceEvent = serde_json::from_str(&json).unwrap();
+        match parsed {
+            DeviceEvent::UserDisconnected { user_id, reason, .. } => {
+                assert_eq!(user_id, "bob");
+                assert_eq!(reason, "timeout");
+            }
+            _ => panic!("Expected UserDisconnected"),
+        }
+    }
+
+    #[test]
+    fn resource_created_event_serializes_correctly() {
+        let event = DeviceEvent::ResourceCreated {
+            resource_id: "XEM7320:counters".to_string(),
+            device_serial: "XEM7320".to_string(),
+            name: "counters".to_string(),
+            timestamp: Utc::now(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"XEM7320:counters\""));
+        let parsed: DeviceEvent = serde_json::from_str(&json).unwrap();
+        match parsed {
+            DeviceEvent::ResourceCreated { resource_id, device_serial, name, .. } => {
+                assert_eq!(resource_id, "XEM7320:counters");
+                assert_eq!(device_serial, "XEM7320");
+                assert_eq!(name, "counters");
+            }
+            _ => panic!("Expected ResourceCreated"),
+        }
+    }
+
+    #[test]
+    fn resource_deleted_event_serializes_correctly() {
+        let event = DeviceEvent::ResourceDeleted {
+            resource_id: "XEM7320:counters".to_string(),
+            timestamp: Utc::now(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"XEM7320:counters\""));
+        let parsed: DeviceEvent = serde_json::from_str(&json).unwrap();
+        match parsed {
+            DeviceEvent::ResourceDeleted { resource_id, .. } => {
+                assert_eq!(resource_id, "XEM7320:counters");
+            }
+            _ => panic!("Expected ResourceDeleted"),
+        }
+    }
+
+    #[test]
+    fn server_shutdown_event_serializes_correctly() {
+        let event = DeviceEvent::ServerShutdown {
+            reason: "signal".to_string(),
+            timestamp: Utc::now(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"signal\""));
+        let parsed: DeviceEvent = serde_json::from_str(&json).unwrap();
+        match parsed {
+            DeviceEvent::ServerShutdown { reason, .. } => {
+                assert_eq!(reason, "signal");
+            }
+            _ => panic!("Expected ServerShutdown"),
+        }
     }
 }

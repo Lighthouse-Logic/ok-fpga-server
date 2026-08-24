@@ -83,13 +83,19 @@ pub async fn start_grpc_server(
         if let Some(user_id) = req.metadata().get("x-user-id") {
             if let Ok(user_id_str) = user_id.to_str() {
                 if !user_id_str.is_empty() {
-                    // Check if this is a new user (first time we've seen them).
-                    let is_new = heartbeat_state.user_sessions.get(user_id_str).is_none();
+                    // touch() returns true if this is a brand-new session.
+                    let is_new = heartbeat_state.user_sessions.touch(user_id_str);
 
-                    heartbeat_state.user_sessions.touch(user_id_str);
-
-                    // Broadcast user_connected for dashboard auto-refresh.
                     if is_new {
+                        // Broadcast DeviceEvent for SSE subscribers (Phase 39, ADR-030).
+                        let _ = heartbeat_state.device_manager.broadcast(
+                            ok_fpga_core::manager::DeviceEvent::UserConnected {
+                                user_id: user_id_str.to_string(),
+                                timestamp: chrono::Utc::now(),
+                            },
+                        );
+
+                        // Broadcast user_connected for dashboard auto-refresh.
                         heartbeat_state.broadcast_event(&format!(
                             r#"{{"type":"user_connected","user_id":"{}"}}"#,
                             user_id_str

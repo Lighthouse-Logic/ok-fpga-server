@@ -1598,14 +1598,20 @@ paths:
       tags: [Events]
       summary: Subscribe to real-time events (SSE)
       description: |
-        Opens a Server-Sent Events (SSE) stream that pushes device and resource
-        events in real time.  The stream stays open until the client disconnects.
+        Opens a Server-Sent Events (SSE) stream that pushes device, resource,
+        user, and server lifecycle events in real time.  The stream stays open
+        until the client disconnects.
 
         **Event types** (sent as the SSE `event:` field):
         - `DeviceAdded` — A new FPGA was connected
         - `DeviceRemoved` — An FPGA was disconnected
         - `DeviceProgrammed` — An FPGA was programmed with a bitfile
         - `ResourceChanged` — A resource's state changed (acquired, released, invalidated)
+        - `UserConnected` — A new user session was created *(Phase 39)*
+        - `UserDisconnected` — A user session ended *(Phase 39)*
+        - `ResourceCreated` — A resource definition was registered *(Phase 39)*
+        - `ResourceDeleted` — A resource definition was deleted *(Phase 39)*
+        - `ServerShutdown` — The server is shutting down gracefully *(Phase 39)*
 
         **Keep-alive:** The server sends a `:ping` comment every 15 seconds
         to prevent proxy/load-balancer timeouts.
@@ -2173,13 +2179,20 @@ components:
       description: |
         A real-time event sent via SSE.  The SSE `event:` field carries the
         variant name (`DeviceAdded`, `DeviceRemoved`, `DeviceProgrammed`,
-        `ResourceChanged`).  The SSE `data:` field carries a JSON object
-        whose shape depends on the variant (see `oneOf` variants below).
+        `ResourceChanged`, `UserConnected`, `UserDisconnected`,
+        `ResourceCreated`, `ResourceDeleted`, `ServerShutdown`).
+        The SSE `data:` field carries a JSON object whose shape depends on
+        the variant (see `oneOf` variants below).
       oneOf:
         - $ref: '#/components/schemas/DeviceAddedEvent'
         - $ref: '#/components/schemas/DeviceRemovedEvent'
         - $ref: '#/components/schemas/DeviceProgrammedEvent'
         - $ref: '#/components/schemas/ResourceChangedEvent'
+        - $ref: '#/components/schemas/UserConnectedEvent'
+        - $ref: '#/components/schemas/UserDisconnectedEvent'
+        - $ref: '#/components/schemas/ResourceCreatedEvent'
+        - $ref: '#/components/schemas/ResourceDeletedEvent'
+        - $ref: '#/components/schemas/ServerShutdownEvent'
 
     DeviceAddedEvent:
       type: object
@@ -2237,6 +2250,80 @@ components:
         new_state:
           type: string
           description: New resource state (e.g., "available", "in_use_shared", "unavailable").
+        timestamp:
+          type: string
+          format: date-time
+
+    # ── Phase 39 (ADR-030) event types ──────────────────────────
+
+    UserConnectedEvent:
+      type: object
+      description: Fired when a new user session is created (first API call).
+      required: [user_id, timestamp]
+      properties:
+        user_id:
+          type: string
+          description: The user who connected.
+        timestamp:
+          type: string
+          format: date-time
+
+    UserDisconnectedEvent:
+      type: object
+      description: |
+        Fired when a user session ends, either by explicit disconnect or
+        heartbeat timeout (sweep expiration).
+      required: [user_id, reason, timestamp]
+      properties:
+        user_id:
+          type: string
+          description: The user who disconnected.
+        reason:
+          type: string
+          enum: [explicit, timeout]
+          description: Why the session ended.
+        timestamp:
+          type: string
+          format: date-time
+
+    ResourceCreatedEvent:
+      type: object
+      description: Fired when a new resource definition is registered.
+      required: [resource_id, device_serial, name, timestamp]
+      properties:
+        resource_id:
+          type: string
+          description: The newly created resource ID (format device_serial:name).
+        device_serial:
+          type: string
+          description: The device this resource belongs to.
+        name:
+          type: string
+          description: Human-readable resource name.
+        timestamp:
+          type: string
+          format: date-time
+
+    ResourceDeletedEvent:
+      type: object
+      description: Fired when a resource definition is deleted.
+      required: [resource_id, timestamp]
+      properties:
+        resource_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    ServerShutdownEvent:
+      type: object
+      description: Fired when the server is shutting down gracefully.
+      required: [reason, timestamp]
+      properties:
+        reason:
+          type: string
+          enum: [signal]
+          description: Why the server is shutting down.
         timestamp:
           type: string
           format: date-time

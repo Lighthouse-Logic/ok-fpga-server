@@ -589,15 +589,15 @@ impl OkFpgaRestClient {
     }
 
     // ========================================================================
-    // Event Stream (/events/stream)
+    // Event Stream (/events)
     // ========================================================================
 
-    /// `GET /events/stream` — Subscribe to SSE event stream.
+    /// `GET /events` — Subscribe to SSE event stream.
     ///
     /// Returns the raw response for the caller to process as an SSE stream.
     /// This is a long-lived connection — the caller should read events in a loop.
     pub async fn watch_events_raw(&self) -> Result<reqwest::Response, ClientError> {
-        let url = format!("{}/events/stream", self.base_url);
+        let url = format!("{}/events", self.base_url);
         let resp = self.client.get(&url).send().await?;
         let status = resp.status().as_u16();
         if status >= 400 {

@@ -63,13 +63,19 @@ pub async fn heartbeat_middleware(
         .and_then(|v| v.to_str().ok())
     {
         if !user_id.is_empty() {
-            // Check if this is a new user (first time we've seen them).
-            let is_new = state.user_sessions.get(user_id).is_none();
+            // touch() returns true if this is a brand-new session.
+            let is_new = state.user_sessions.touch(user_id);
 
-            state.user_sessions.touch(user_id);
-
-            // Broadcast user_connected event for dashboard (Phase 25-Fix-H, F9).
             if is_new {
+                // Broadcast DeviceEvent for SSE subscribers (Phase 39, ADR-030).
+                let _ = state.device_manager.broadcast(
+                    ok_fpga_core::manager::DeviceEvent::UserConnected {
+                        user_id: user_id.to_string(),
+                        timestamp: chrono::Utc::now(),
+                    },
+                );
+
+                // Broadcast user_connected event for dashboard (Phase 25-Fix-H, F9).
                 state.broadcast_event(&format!(
                     r#"{{"type":"user_connected","user_id":"{}"}}"#,
                     user_id
