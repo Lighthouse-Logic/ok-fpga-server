@@ -3750,3 +3750,9 @@
 2026-08-24T00:51:33.615971Z  INFO ok_fpga_server: ok-FPGA-Server is ready. Press Ctrl+C to shut down.
 2026-08-24T00:51:39.871816Z  INFO ok_fpga_server::config: configuration saved to disk path=config.toml
 2026-08-24T00:51:39.871965Z  INFO ok_fpga_server::management: Server settings updated via management API description=A Dual Port Beast enforcement_changed=true
+2026-08-24T00:59:29.557759Z  INFO ok_fpga_server::rest::server: User disconnected via POST /disconnect user_id=integration-test-user released_count=0
+2026-08-24T00:59:36.606182Z  INFO ok_fpga_server::rest::server: User disconnected via POST /disconnect user_id=integration-test-user released_count=0
+2026-08-24T01:11:36.260933Z  INFO ok_fpga_server::rest::server: User disconnected via POST /disconnect user_id=integration-test-user released_count=0
+2026-08-24T01:11:43.319683Z  INFO ok_fpga_server::rest::server: User disconnected via POST /disconnect user_id=integration-test-user released_count=0
+2026-08-24T01:12:16.056298Z  INFO ok_fpga_server::rest::server: User disconnected via POST /disconnect user_id=integration-test-user released_count=0
+2026-08-24T01:12:23.102361Z  INFO ok_fpga_server::rest::server: User disconnected via POST /disconnect user_id=integration-test-user released_count=0

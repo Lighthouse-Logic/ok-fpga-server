@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-08-23 (Phase 38 archived)
+> **Last Updated:** 2026-08-23 (SSE Event Expansion added to Now)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -52,7 +52,25 @@
 
 ## 🟢 Now
 
-*(Empty — no phase is currently active.)*
+### Server-Side SSE Event Expansion
+
+**Goal:** Expand the SSE event stream (`GET /api/v1/events`) to broadcast
+additional event types that the client's `EnvironmentMonitor` (ADR-C-009)
+would automatically pick up.
+
+The SSE stream currently broadcasts four events: `DeviceAdded`,
+`DeviceRemoved`, `DeviceProgrammed`, and `ResourceChanged`. The following
+events are missing and would improve client visibility:
+
+- `UserConnected` / `UserDisconnected` — track user sessions
+- `HeartbeatTimeout` — notify when a user's heartbeat expires
+- `ServerShutdown` — graceful shutdown notification
+- `ResourceCreated` / `ResourceDeleted` — resource lifecycle events
+
+These would be additions to the `DeviceEvent` enum in
+`ok-fpga-core::manager`. The Python LabVIEW client's `EnvironmentMonitor`
+parses the SSE `event:` field generically, so it will automatically
+surface any new event types without client-side code changes.
 
 ---
 
