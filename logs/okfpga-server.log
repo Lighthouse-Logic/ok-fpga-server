@@ -3694,3 +3694,17 @@
 2026-08-23T20:47:30.960098Z  INFO ok_fpga_server::rest::server: User disconnected via POST /disconnect user_id=LabVIEW-Test-1 released_count=0
 2026-08-23T20:47:39.366363Z  INFO ok_fpga_server::rest::server: User disconnected via POST /disconnect user_id=LabVIEW-Test-1 released_count=0
 2026-08-23T20:57:28.320138Z  INFO ok_fpga_server::rest::server: User disconnected via POST /disconnect user_id=LabVIEW-Test-1 released_count=0
+2026-08-24T00:51:20.971589Z  INFO ok_fpga_server: shutdown signal received
+2026-08-24T00:51:20.975728Z  INFO ok_fpga_core::service_manager: stopping service service=mdns
+2026-08-24T00:51:20.975969Z  INFO ok_fpga_server::mdns: Deregistering mDNS service (OS-native)
+2026-08-24T00:51:20.976163Z  INFO ok_fpga_server::mdns: mDNS discovery service stopped
+2026-08-24T00:51:20.976249Z  INFO ok_fpga_core::service_manager: service stopped service=mdns
+2026-08-24T00:51:20.976422Z  INFO ok_fpga_core::service_manager: stopping service service=grpc
+2026-08-24T00:51:20.977311Z  INFO ok_fpga_server::grpc: gRPC server stopped
+2026-08-24T00:51:21.178022Z  INFO ok_fpga_server::grpc::managed: gRPC server stopped
+2026-08-24T00:51:21.178210Z  INFO ok_fpga_core::service_manager: service stopped service=grpc
+2026-08-24T00:51:21.178342Z  INFO ok_fpga_core::service_manager: stopping service service=rest
+2026-08-24T00:51:21.379314Z  INFO ok_fpga_server::rest::managed: REST server stopped
+2026-08-24T00:51:21.379429Z  INFO ok_fpga_core::service_manager: service stopped service=rest
+2026-08-24T00:51:21.379539Z  INFO ok_fpga_core::service_manager: all services stopped
+2026-08-24T00:51:21.379616Z  INFO ok_fpga_server: ok-FPGA-Server shut down cleanly.

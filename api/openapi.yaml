@@ -1593,18 +1593,31 @@ paths:
 
   # ---- Events ----
 
-  /events/stream:
+  /events:
     get:
       tags: [Events]
       summary: Subscribe to real-time events (SSE)
       description: |
-        Opens a Server-Sent Events stream that pushes device and resource events
-        as they occur. Event types include: device_added, device_removed,
-        bitfile_programmed, resource_state_changed.
+        Opens a Server-Sent Events (SSE) stream that pushes device and resource
+        events in real time.  The stream stays open until the client disconnects.
+
+        **Event types** (sent as the SSE `event:` field):
+        - `DeviceAdded` — A new FPGA was connected
+        - `DeviceRemoved` — An FPGA was disconnected
+        - `DeviceProgrammed` — An FPGA was programmed with a bitfile
+        - `ResourceChanged` — A resource's state changed (acquired, released, invalidated)
+
+        **Keep-alive:** The server sends a `:ping` comment every 15 seconds
+        to prevent proxy/load-balancer timeouts.
+
+        **Usage:**
+        ```
+        curl -N http://localhost:8088/api/v1/events
+        ```
       operationId: watchEvents
       responses:
         '200':
-          description: SSE event stream
+          description: SSE event stream (never terminates until client disconnects)
           content:
             text/event-stream:
               schema:
@@ -2157,49 +2170,76 @@ components:
     # ---- Events ----
 
     DeviceEvent:
+      description: |
+        A real-time event sent via SSE.  The SSE `event:` field carries the
+        variant name (`DeviceAdded`, `DeviceRemoved`, `DeviceProgrammed`,
+        `ResourceChanged`).  The SSE `data:` field carries a JSON object
+        whose shape depends on the variant (see `oneOf` variants below).
+      oneOf:
+        - $ref: '#/components/schemas/DeviceAddedEvent'
+        - $ref: '#/components/schemas/DeviceRemovedEvent'
+        - $ref: '#/components/schemas/DeviceProgrammedEvent'
+        - $ref: '#/components/schemas/ResourceChangedEvent'
+
+    DeviceAddedEvent:
       type: object
-      description: A real-time event for SSE streaming.
+      description: Fired when a new FPGA device is connected.
+      required: [serial, product_name, interface, timestamp]
       properties:
+        serial:
+          type: string
+          description: Serial number of the newly connected device.
+        product_name:
+          type: string
+          description: Product name (e.g., "XEM8320-AU25P").
+        interface:
+          type: string
+          description: Device interface type (e.g., "USB 3.0").
         timestamp:
           type: string
           format: date-time
-        event_type:
+
+    DeviceRemovedEvent:
+      type: object
+      description: Fired when a device is disconnected.
+      required: [serial, timestamp]
+      properties:
+        serial:
           type: string
-          enum: [device_added, device_removed, bitfile_programmed, resource_state_changed]
-        device_added:
-          type: object
-          properties:
-            serial:
-              type: string
-            product_name:
-              type: string
-            device_interface:
-              type: string
-        device_removed:
-          type: object
-          properties:
-            serial:
-              type: string
-        bitfile_programmed:
-          type: object
-          properties:
-            serial:
-              type: string
-            filename:
-              type: string
-            programmed_by:
-              type: string
-        resource_state_changed:
-          type: object
-          properties:
-            resource_id:
-              type: string
-            previous_state:
-              type: string
-            new_state:
-              type: string
-            device_serial:
-              type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    DeviceProgrammedEvent:
+      type: object
+      description: Fired when an FPGA is successfully programmed.
+      required: [serial, bitfile, programmed_by, timestamp]
+      properties:
+        serial:
+          type: string
+        bitfile:
+          type: string
+          description: Name of the bitfile that was loaded.
+        programmed_by:
+          type: string
+          description: User who programmed the device.
+        timestamp:
+          type: string
+          format: date-time
+
+    ResourceChangedEvent:
+      type: object
+      description: Fired when a resource's state changes.
+      required: [resource_id, new_state, timestamp]
+      properties:
+        resource_id:
+          type: string
+        new_state:
+          type: string
+          description: New resource state (e.g., "available", "in_use_shared", "unavailable").
+        timestamp:
+          type: string
+          format: date-time
 
   securitySchemes:
     basicAuth:

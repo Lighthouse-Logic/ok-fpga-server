@@ -51,7 +51,7 @@ organizational_units = ["Users"]
 uid_attribute = "uid"
 
 [access_control]
-endpoint_enforcement = "enforce"
+endpoint_enforcement = "off"
 
 [catalog]
 syzygy_boards = []
