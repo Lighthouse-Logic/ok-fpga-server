@@ -217,8 +217,39 @@ impl ManagedService for MqttPublisher {
                             false,
                             msg.to_string(),
                         ).await;
+
+                        // --- Phase 41: Clear all retained topics ---
+                        //
+                        // Per MQTT spec §3.3.1.3, publishing an empty payload
+                        // with retain=true tells the broker to DELETE the
+                        // retained message for that topic. This prevents the
+                        // broker from accumulating stale retained state from
+                        // servers that have shut down cleanly.
+                        let retained_topics = [
+                            format!("{}/status", topic_prefix),
+                            format!("{}/services/status", topic_prefix),
+                            format!("{}/devices/inventory", topic_prefix),
+                            format!("{}/resources/inventory", topic_prefix),
+                            format!("{}/server/announce", topic_prefix),
+                        ];
+
+                        for topic in &retained_topics {
+                            let _ = client.publish(
+                                topic,
+                                QoS::AtLeastOnce,
+                                true,      // retain flag
+                                Vec::new() // empty payload = delete retained
+                            ).await;
+                        }
+
+                        // Allow time for the broker to process the retained
+                        // clears before disconnecting (Phase 41).
+                        tokio::time::sleep(
+                            tokio::time::Duration::from_millis(200)
+                        ).await;
+
                         let _ = client.disconnect().await;
-                        info!("MQTT publisher disconnected");
+                        info!("MQTT publisher disconnected (retained topics cleared)");
                         break;
                     }
                     event = eventloop.poll() => {

@@ -136,6 +136,23 @@ async fn main() -> anyhow::Result<()> {
     // Load configuration (TOML file + env overrides + feature validation).
     let (mut cfg, config_path) = config::load_config();
 
+    // ── Phase 41: Singleton guard ────────────────────────────────────
+    // Check that all ports needed by enabled services are available
+    // BEFORE loading the FrontPanel DLL, initializing tracing, or
+    // starting any services. If any port is in use, exit immediately.
+    if let Err(conflicts) = check_port_availability(&cfg) {
+        eprintln!();
+        eprintln!("ERROR: Cannot start ok-FPGA-Server — port conflict detected:");
+        eprintln!();
+        for line in &conflicts {
+            eprintln!("  - {}", line);
+        }
+        eprintln!();
+        eprintln!("Is another ok-FPGA-Server instance already running?");
+        eprintln!("Only one instance is allowed per host.");
+        std::process::exit(1);
+    }
+
     // Derive MQTT client_id and topic_prefix from the system hostname.
     // These are always "okfpga-server-<hostname>" and "okfpga/server-<hostname>"
     // — not user-configurable, ensuring uniqueness per host.
@@ -767,4 +784,172 @@ fn print_banner(cfg: &ServerConfig) {
 
     // Suppress unused warning when features are disabled.
     let _ = cfg;
+}
+
+// ============================================================================
+// Phase 41 — Singleton Instance Guard
+// ============================================================================
+
+/// Check that all ports required by enabled services are available.
+///
+/// Attempts a synchronous TCP bind on each enabled port. Returns `Ok(())`
+/// if all ports are free, or `Err(conflicts)` with a list of human-readable
+/// conflict descriptions.
+///
+/// This runs **before** tracing, DLL loading, or any service registration,
+/// ensuring the server exits cleanly if another instance is already running.
+///
+/// Uses synchronous `std::net::TcpListener` (not tokio) because this must
+/// run before the async runtime is fully committed to service work. The
+/// listener is dropped immediately, releasing the port for the actual
+/// async bind by each service later.
+fn check_port_availability(
+    cfg: &config::ServerConfig,
+) -> Result<(), Vec<String>> {
+    let mut ports_to_check: Vec<(&str, &str, u16)> = vec![
+        (
+            "management",
+            &cfg.server.management_bind,
+            cfg.server.management_port,
+        ),
+    ];
+
+    #[cfg(feature = "rest")]
+    if cfg.rest.enabled {
+        ports_to_check.push(("REST", &cfg.rest.bind, cfg.rest.port));
+    }
+
+    #[cfg(feature = "grpc")]
+    if cfg.grpc.enabled {
+        ports_to_check.push(("gRPC", &cfg.grpc.bind, cfg.grpc.port));
+    }
+
+    let mut conflicts = Vec::new();
+
+    for (name, bind, port) in &ports_to_check {
+        let addr = format!("{}:{}", bind, port);
+        match std::net::TcpListener::bind(&addr) {
+            Ok(_listener) => {
+                // Port is available. Listener is dropped here, releasing
+                // the port for the actual service to bind later.
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                conflicts.push(format!(
+                    "port {} ({}) is already in use",
+                    port, name
+                ));
+            }
+            Err(e) => {
+                conflicts.push(format!(
+                    "port {} ({}) bind error: {}",
+                    port, name, e
+                ));
+            }
+        }
+    }
+
+    if conflicts.is_empty() {
+        Ok(())
+    } else {
+        Err(conflicts)
+    }
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify that `check_port_availability` detects a port that is already
+    /// in use (e.g., by another ok-FPGA-Server instance).
+    #[test]
+    fn port_check_detects_in_use() {
+        // Bind an ephemeral port to simulate an occupied port.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        // Build a config that uses the occupied port as the management port.
+        // Disable other services so only management is checked.
+        let mut cfg = config::ServerConfig::default();
+        cfg.server.management_bind = "127.0.0.1".to_string();
+        cfg.server.management_port = port;
+        cfg.rest.enabled = false;
+        cfg.grpc.enabled = false;
+
+        // The check should fail because the management port is occupied.
+        let result = check_port_availability(&cfg);
+        assert!(result.is_err(), "expected port conflict");
+        let conflicts = result.unwrap_err();
+        assert_eq!(conflicts.len(), 1);
+        assert!(
+            conflicts[0].contains("management"),
+            "conflict should mention 'management'"
+        );
+    }
+
+    /// Verify that disabled services are NOT checked — a conflict on a
+    /// disabled service's port should not prevent startup.
+    #[test]
+    fn port_check_skips_disabled_services() {
+        // Bind an ephemeral port to simulate an occupied port.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        // Build a config where REST uses the occupied port but is disabled.
+        let mut cfg = config::ServerConfig::default();
+        // Use a free port for management (port 0 auto-assigns).
+        cfg.server.management_bind = "127.0.0.1".to_string();
+        cfg.server.management_port = 0;
+        cfg.rest.enabled = false;
+        cfg.rest.bind = "127.0.0.1".to_string();
+        cfg.rest.port = port;
+
+        // The check should pass — REST is disabled, so its port isn't checked.
+        let result = check_port_availability(&cfg);
+        assert!(result.is_ok(), "disabled service port should not cause conflict");
+    }
+
+    /// Verify that all enabled ports are checked (management + REST + gRPC).
+    #[test]
+    fn port_check_detects_multiple_conflicts() {
+        // Bind two ephemeral ports.
+        let listener1 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port1 = listener1.local_addr().unwrap().port();
+        let listener2 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port2 = listener2.local_addr().unwrap().port();
+
+        let mut cfg = config::ServerConfig::default();
+        cfg.server.management_bind = "127.0.0.1".to_string();
+        cfg.server.management_port = port1;
+        cfg.rest.enabled = true;
+        cfg.rest.bind = "127.0.0.1".to_string();
+        cfg.rest.port = port2;
+
+        let result = check_port_availability(&cfg);
+        assert!(result.is_err(), "expected multiple conflicts");
+        let conflicts = result.unwrap_err();
+        assert!(
+            conflicts.len() >= 2,
+            "expected at least 2 conflicts, got {}",
+            conflicts.len()
+        );
+    }
+
+    /// Verify that free ports pass the check.
+    #[test]
+    fn port_check_passes_when_free() {
+        let mut cfg = config::ServerConfig::default();
+        // Use port 0 (auto-assign) for all — guaranteed free.
+        cfg.server.management_bind = "127.0.0.1".to_string();
+        cfg.server.management_port = 0;
+        cfg.rest.enabled = true;
+        cfg.rest.bind = "127.0.0.1".to_string();
+        cfg.rest.port = 0;
+
+        let result = check_port_availability(&cfg);
+        assert!(result.is_ok(), "all ports free should pass");
+    }
 }

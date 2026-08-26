@@ -241,6 +241,30 @@ async fn mqtt_publish_to_mosquitto() {
 
     println!("✅ Published: {prefix}/server/announce (server.announce)");
 
+    // --- Phase 41: Clean up any retained messages on the test prefix ---
+    //
+    // Although all test messages above use retain=false, this cleanup
+    // ensures the broker is clean even if a previous test run left stale
+    // retained messages (e.g., during development or debugging).
+    //
+    // Per MQTT spec §3.3.1.3, an empty payload with retain=true deletes
+    // the retained message for that topic.
+    let retained_cleanup_topics = [
+        format!("{prefix}/status"),
+        format!("{prefix}/services/status"),
+        format!("{prefix}/devices/inventory"),
+        format!("{prefix}/resources/inventory"),
+        format!("{prefix}/server/announce"),
+    ];
+
+    for topic in &retained_cleanup_topics {
+        let _ = client
+            .publish(topic, QoS::AtLeastOnce, true, Vec::new())
+            .await;
+    }
+
+    println!("🧹 Cleared retained messages for test prefix: {prefix}");
+
     // Allow the event loop to flush.
     sleep(Duration::from_millis(1000)).await;
     let _ = client.disconnect().await;
@@ -249,5 +273,5 @@ async fn mqtt_publish_to_mosquitto() {
     let _ = tokio::time::timeout(Duration::from_secs(3), loop_handle).await;
 
     println!("\n🎉 All 7 MQTT message types published successfully to Mosquitto at 127.0.0.1:1883");
-    println!("   (non-retained — no stale messages left on the broker)");
+    println!("   (test topics cleaned up — no stale messages left on the broker)");
 }
