@@ -4,6 +4,9 @@
 //! Verifies that the ok-fpga-server MQTT message format works correctly
 //! with a live Mosquitto broker at 127.0.0.1:1883.
 //!
+//! All messages are published with `retain=false` so they do not persist
+//! on the broker after the test completes.
+//!
 //! Run: cargo test -p ok-fpga-server --features mqtt --test mqtt_integration -- --nocapture
 
 use rumqttc::{AsyncClient, MqttOptions, QoS};
@@ -12,6 +15,9 @@ use tokio::time::sleep;
 
 /// Test that we can connect to the local Mosquitto broker and publish
 /// messages in the ADR-011 format.
+///
+/// Uses a dedicated `okfpga/integration-test/` topic prefix to avoid
+/// collisions with real server topics. All messages are non-retained.
 #[tokio::test]
 async fn mqtt_publish_to_mosquitto() {
     // Connect to the local broker.
@@ -37,7 +43,9 @@ async fn mqtt_publish_to_mosquitto() {
     // Give it a moment to connect.
     sleep(Duration::from_millis(500)).await;
 
-    // Publish a server.status heartbeat (QoS 0, retained).
+    let prefix = "okfpga/integration-test";
+
+    // Publish a server.status heartbeat (QoS 0, NOT retained).
     let status_msg = serde_json::json!({
         "v": 1,
         "ts": chrono::Utc::now().to_rfc3339(),
@@ -53,17 +61,17 @@ async fn mqtt_publish_to_mosquitto() {
 
     client
         .publish(
-            "okfpga/test/status",
+            format!("{prefix}/status"),
             QoS::AtMostOnce,
-            true,
+            false, // NOT retained — no stale messages on the broker
             status_msg.to_string(),
         )
         .await
         .expect("publish server.status");
 
-    println!("✅ Published: okfpga/test/status (server.status heartbeat)");
+    println!("✅ Published: {prefix}/status (server.status heartbeat)");
 
-    // Publish a services.status message (QoS 1, retained).
+    // Publish a services.status message (QoS 1, NOT retained).
     let services_msg = serde_json::json!({
         "v": 1,
         "ts": chrono::Utc::now().to_rfc3339(),
@@ -81,17 +89,17 @@ async fn mqtt_publish_to_mosquitto() {
 
     client
         .publish(
-            "okfpga/test/services/status",
+            format!("{prefix}/services/status"),
             QoS::AtLeastOnce,
-            true,
+            false,
             services_msg.to_string(),
         )
         .await
         .expect("publish services.status");
 
-    println!("✅ Published: okfpga/test/services/status (services.status)");
+    println!("✅ Published: {prefix}/services/status (services.status)");
 
-    // Publish a devices.inventory message (QoS 1, retained).
+    // Publish a devices.inventory message (QoS 1, NOT retained).
     let devices_msg = serde_json::json!({
         "v": 1,
         "ts": chrono::Utc::now().to_rfc3339(),
@@ -109,17 +117,17 @@ async fn mqtt_publish_to_mosquitto() {
 
     client
         .publish(
-            "okfpga/test/devices/inventory",
+            format!("{prefix}/devices/inventory"),
             QoS::AtLeastOnce,
-            true,
+            false,
             devices_msg.to_string(),
         )
         .await
         .expect("publish devices.inventory");
 
-    println!("✅ Published: okfpga/test/devices/inventory (devices.inventory)");
+    println!("✅ Published: {prefix}/devices/inventory (devices.inventory)");
 
-    // Publish a device.state message (QoS 1, retained).
+    // Publish a device.state message (QoS 1, NOT retained).
     let state_msg = serde_json::json!({
         "v": 1,
         "ts": chrono::Utc::now().to_rfc3339(),
@@ -135,17 +143,17 @@ async fn mqtt_publish_to_mosquitto() {
 
     client
         .publish(
-            "okfpga/test/devices/TEST1234567/state",
+            format!("{prefix}/devices/TEST1234567/state"),
             QoS::AtLeastOnce,
-            true,
+            false,
             state_msg.to_string(),
         )
         .await
         .expect("publish device.state");
 
-    println!("✅ Published: okfpga/test/devices/TEST1234567/state (device.state)");
+    println!("✅ Published: {prefix}/devices/TEST1234567/state (device.state)");
 
-    // Publish a device.sensors message (QoS 0, not retained).
+    // Publish a device.sensors message (QoS 0, NOT retained).
     let sensors_msg = serde_json::json!({
         "v": 1,
         "ts": chrono::Utc::now().to_rfc3339(),
@@ -162,7 +170,7 @@ async fn mqtt_publish_to_mosquitto() {
 
     client
         .publish(
-            "okfpga/test/devices/TEST1234567/sensors",
+            format!("{prefix}/devices/TEST1234567/sensors"),
             QoS::AtMostOnce,
             false,
             sensors_msg.to_string(),
@@ -170,9 +178,9 @@ async fn mqtt_publish_to_mosquitto() {
         .await
         .expect("publish device.sensors");
 
-    println!("✅ Published: okfpga/test/devices/TEST1234567/sensors (device.sensors)");
+    println!("✅ Published: {prefix}/devices/TEST1234567/sensors (device.sensors)");
 
-    // Publish a resource.state message (QoS 1).
+    // Publish a resource.state message (QoS 1, NOT retained).
     let resource_msg = serde_json::json!({
         "v": 1,
         "ts": chrono::Utc::now().to_rfc3339(),
@@ -188,7 +196,7 @@ async fn mqtt_publish_to_mosquitto() {
 
     client
         .publish(
-            "okfpga/test/resources/TEST1234567:dac_ch1/state",
+            format!("{prefix}/resources/TEST1234567:dac_ch1/state"),
             QoS::AtLeastOnce,
             false,
             resource_msg.to_string(),
@@ -196,7 +204,42 @@ async fn mqtt_publish_to_mosquitto() {
         .await
         .expect("publish resource.state");
 
-    println!("✅ Published: okfpga/test/resources/TEST1234567:dac_ch1/state (resource.state)");
+    println!("✅ Published: {prefix}/resources/TEST1234567:dac_ch1/state (resource.state)");
+
+    // --- Phase 40: Publish a server.announce message (NOT retained in test) ---
+    let announce_msg = serde_json::json!({
+        "v": 1,
+        "ts": chrono::Utc::now().to_rfc3339(),
+        "type": "server.announce",
+        "server_id": "okfpga-integration-test",
+        "payload": {
+            "description": "Integration Test Server",
+            "rest_url": "http://127.0.0.1:8080",
+            "grpc_url": "grpc://127.0.0.1:50051",
+            "dashboard_url": "http://127.0.0.1:9090",
+            "mqtt_topic_prefix": prefix,
+            "api_version": "0.1.0",
+            "device_count": 1,
+            "services": {
+                "rest": true,
+                "grpc": false,
+                "mqtt": true,
+                "mdns": false
+            }
+        }
+    });
+
+    client
+        .publish(
+            format!("{prefix}/server/announce"),
+            QoS::AtLeastOnce,
+            false,
+            announce_msg.to_string(),
+        )
+        .await
+        .expect("publish server.announce");
+
+    println!("✅ Published: {prefix}/server/announce (server.announce)");
 
     // Allow the event loop to flush.
     sleep(Duration::from_millis(1000)).await;
@@ -205,6 +248,6 @@ async fn mqtt_publish_to_mosquitto() {
     // Wait for event loop to finish.
     let _ = tokio::time::timeout(Duration::from_secs(3), loop_handle).await;
 
-    println!("\n🎉 All 6 MQTT message types published successfully to Mosquitto at 127.0.0.1:1883");
-    println!("   Verify with: mosquitto_sub -h 127.0.0.1 -t \"okfpga/test/#\" -v");
+    println!("\n🎉 All 7 MQTT message types published successfully to Mosquitto at 127.0.0.1:1883");
+    println!("   (non-retained — no stale messages left on the broker)");
 }

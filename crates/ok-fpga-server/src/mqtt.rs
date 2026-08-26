@@ -579,23 +579,35 @@ async fn publish_server_announce(
 /// 5. Otherwise, walk `preferred_subnets` and use the first match.
 /// 6. Fall back to the first candidate.
 ///
+/// On Windows, `netdev` returns the adapter GUID as `name` and the
+/// user-visible name (e.g. "Ethernet", "Wi-Fi") as `friendly_name`.
+/// We use `friendly_name` for display and `announce_interface` matching,
+/// falling back to `name` on platforms where `friendly_name` is `None`.
+///
 /// Returns `None` if no routable IPv4 address can be found.
 fn resolve_routable_ip(config: &MqttConfig) -> Option<Ipv4Addr> {
-    // Step 1-2: enumerate interfaces and filter.
-    let candidates: Vec<(String, Ipv4Addr)> = netdev::get_interfaces()
+    // Each candidate stores:
+    //   display_name  — friendly_name if available, else system name
+    //   system_name   — raw OS identifier (GUID on Windows, "eth0" on Linux)
+    //   ip            — non-APIPA IPv4 address
+    let candidates: Vec<(String, String, Ipv4Addr)> = netdev::get_interfaces()
         .into_iter()
-        .filter(|iface| {
-            // Skip loopback interfaces.
-            !iface.is_loopback()
-        })
+        .filter(|iface| !iface.is_loopback())
         .flat_map(|iface| {
-            // Collect all non-APIPA IPv4 addresses from this interface.
+            // Prefer the user-visible friendly name (Windows: "Ethernet", "Wi-Fi").
+            // Fall back to the system name (Linux: "eth0", "ens192").
+            let iface_label = iface
+                .friendly_name
+                .clone()
+                .unwrap_or_else(|| iface.name.clone());
+            let sys_name = iface.name.clone();
+
             iface
                 .ipv4
                 .iter()
                 .map(|net| net.addr())
                 .filter(|addr| !is_apipa(*addr))
-                .map(|addr| (iface.name.clone(), addr))
+                .map(|addr| (iface_label.clone(), sys_name.clone(), addr))
                 .collect::<Vec<_>>()
         })
         .collect();
@@ -606,17 +618,21 @@ fn resolve_routable_ip(config: &MqttConfig) -> Option<Ipv4Addr> {
 
     // Step 3: single candidate — no ambiguity.
     if candidates.len() == 1 {
-        let (ref name, addr) = candidates[0];
-        debug!(interface = %name, ip = %addr, "MQTT announce: single interface auto-detected");
+        let (ref label, ref sys, addr) = candidates[0];
+        debug!(
+            interface = %label, system_name = %sys, ip = %addr,
+            "MQTT announce: single interface auto-detected"
+        );
         return Some(addr);
     }
 
-    // Step 4: if announce_interface is configured, find it by name.
+    // Step 4: if announce_interface is configured, match against both
+    // the friendly name and the system name for cross-platform flexibility.
     if !config.announce_interface.is_empty() {
-        for (ref name, addr) in &candidates {
-            if name == &config.announce_interface {
+        for (ref label, ref sys, addr) in &candidates {
+            if label == &config.announce_interface || sys == &config.announce_interface {
                 debug!(
-                    interface = %name, ip = %addr,
+                    interface = %label, system_name = %sys, ip = %addr,
                     "MQTT announce: using configured announce_interface"
                 );
                 return Some(*addr);
@@ -631,10 +647,11 @@ fn resolve_routable_ip(config: &MqttConfig) -> Option<Ipv4Addr> {
     // Step 5: walk preferred_subnets in order.
     for cidr_str in &config.preferred_subnets {
         if let Some((net_addr, prefix_len)) = parse_cidr(cidr_str) {
-            for (ref name, addr) in &candidates {
+            for (ref label, ref sys, addr) in &candidates {
                 if ip_in_subnet(*addr, net_addr, prefix_len) {
                     debug!(
-                        interface = %name, ip = %addr, subnet = %cidr_str,
+                        interface = %label, system_name = %sys,
+                        ip = %addr, subnet = %cidr_str,
                         "MQTT announce: matched preferred subnet"
                     );
                     return Some(*addr);
@@ -646,9 +663,9 @@ fn resolve_routable_ip(config: &MqttConfig) -> Option<Ipv4Addr> {
     }
 
     // Step 6: fallback to first available.
-    let (ref name, addr) = candidates[0];
+    let (ref label, ref sys, addr) = candidates[0];
     debug!(
-        interface = %name, ip = %addr,
+        interface = %label, system_name = %sys, ip = %addr,
         "MQTT announce: no preferred subnet matched, using first available interface"
     );
     Some(addr)

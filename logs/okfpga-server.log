@@ -4042,3 +4042,127 @@
 2026-08-26T10:46:41.271801Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
 2026-08-26T10:46:46.272951Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
 2026-08-26T10:46:51.278623Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:50:41.171928Z  INFO ok_fpga_server: configuration loaded config_log_level=info management_port=9090
+2026-08-26T10:50:41.172416Z  INFO ok_fpga_server::scanner: attempting to load FrontPanel DLL dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-26T10:50:41.177854Z  INFO ok_fpga_server::scanner: FrontPanel DLL loaded successfully api_version=6.1.0 dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-26T10:50:41.196809Z  INFO ok_fpga_server: initial device scan complete count=0
+2026-08-26T10:50:41.197356Z  INFO ok_fpga_server: device polling task started (2s interval)
+2026-08-26T10:50:41.197444Z  INFO ok_fpga_server::scanner: attempting to load FrontPanel DLL dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-26T10:50:41.197513Z  INFO ok_fpga_server: authentication provider initialized provider="none" required=false
+2026-08-26T10:50:41.197692Z  INFO ok_fpga_server: Endpoint access enforcement: off
+2026-08-26T10:50:41.197966Z  INFO ok_fpga_server::scanner: FrontPanel DLL loaded successfully api_version=6.1.0 dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-26T10:50:41.198045Z  INFO ok_fpga_core::service_manager: registered service service=rest enabled=true
+2026-08-26T10:50:41.198243Z  INFO ok_fpga_server: registered REST service bind=0.0.0.0 port=8088 enabled=true
+2026-08-26T10:50:41.198384Z  INFO ok_fpga_core::service_manager: registered service service=grpc enabled=true
+2026-08-26T10:50:41.198594Z  INFO ok_fpga_server: registered gRPC service bind=0.0.0.0 port=50051 enabled=true
+2026-08-26T10:50:41.198854Z  INFO ok_fpga_core::service_manager: registered service service=mqtt enabled=true
+2026-08-26T10:50:41.199162Z  INFO ok_fpga_server: registered MQTT service broker=mqtt://localhost:1883 topic_prefix=okfpga/server01 enabled=true
+2026-08-26T10:50:41.199377Z  INFO ok_fpga_core::service_manager: registered service service=mdns enabled=true
+2026-08-26T10:50:41.199558Z  INFO ok_fpga_server: registered mDNS service instance_name=okfpga-server enabled=true
+2026-08-26T10:50:41.199744Z  INFO ok_fpga_server: compiled features features=["rest", "dashboard", "grpc", "mqtt", "mdns"]
+2026-08-26T10:50:41.200102Z  INFO ok_fpga_core::service_manager: starting service service=rest
+2026-08-26T10:50:41.205740Z  INFO ok_fpga_server::rest::managed: REST server bound successfully address=0.0.0.0:8088
+2026-08-26T10:50:41.206002Z  INFO ok_fpga_server::rest::managed: REST server is running address=0.0.0.0:8088
+2026-08-26T10:50:41.206172Z  INFO ok_fpga_core::service_manager: service started service=rest
+2026-08-26T10:50:41.206363Z  INFO ok_fpga_core::service_manager: starting service service=grpc
+2026-08-26T10:50:41.206622Z  INFO ok_fpga_server::grpc: starting gRPC server address=0.0.0.0:50051
+2026-08-26T10:50:41.324590Z  INFO ok_fpga_server::grpc::managed: gRPC server is running address=0.0.0.0:50051
+2026-08-26T10:50:41.324823Z  INFO ok_fpga_core::service_manager: service started service=grpc
+2026-08-26T10:50:41.325010Z  INFO ok_fpga_core::service_manager: starting service service=mqtt
+2026-08-26T10:50:41.355582Z  INFO ok_fpga_server::mqtt: MQTT announce: resolved routable IP for cross-subnet discovery ip=172.19.224.1
+2026-08-26T10:50:41.355805Z  INFO ok_fpga_server::mqtt: MQTT publisher connecting broker=mqtt://localhost:1883 client_id=okfpga-server-01 topic_prefix=okfpga/server01
+2026-08-26T10:50:41.356146Z  INFO ok_fpga_server::mqtt: MQTT publisher started
+2026-08-26T10:50:41.356430Z  INFO ok_fpga_core::service_manager: service started service=mqtt
+2026-08-26T10:50:41.356686Z  INFO ok_fpga_core::service_manager: starting service service=mdns
+2026-08-26T10:50:41.362494Z  INFO ok_fpga_server::mqtt: MQTT connected to broker
+2026-08-26T10:50:42.161192Z  INFO ok_fpga_server::mdns: mDNS service registered via OS daemon (PTR+SRV+TXT+A) instance=okfpga-server service_type="_okfpga._tcp" port=9090 hostname=THE-EXPANSE ipv4=192.168.50.78 method="os-native" txt_records=["version=0.1.0", "description=A Dual Port Beast", "rest=8088", "grpc=50051", "mqtt=okfpga/server01", "dashboard=9090", "devices=0"]
+2026-08-26T10:50:42.161554Z  INFO ok_fpga_server::mdns: mDNS discovery service started
+2026-08-26T10:50:42.161763Z  INFO ok_fpga_core::service_manager: service started service=mdns
+2026-08-26T10:50:42.162021Z  INFO ok_fpga_server: service state service=rest status=running compiled=true enabled=true
+2026-08-26T10:50:42.162297Z  INFO ok_fpga_server: service state service=grpc status=running compiled=true enabled=true
+2026-08-26T10:50:42.162517Z  INFO ok_fpga_server: service state service=mqtt status=running compiled=true enabled=true
+2026-08-26T10:50:42.162698Z  INFO ok_fpga_server: service state service=mdns status=running compiled=true enabled=true
+2026-08-26T10:50:42.163448Z  INFO ok_fpga_server: management server started (dashboard + mgmt API) address=0.0.0.0:9090
+2026-08-26T10:50:42.163711Z  INFO ok_fpga_server::sweep: starting user session sweep task timeout_secs=60 sweep_interval_secs=10
+2026-08-26T10:50:42.163919Z  INFO ok_fpga_server: ok-FPGA-Server is ready. Press Ctrl+C to shut down.
+2026-08-26T10:50:53.247796Z  INFO ok_fpga_server: FPGA device connected (hot-plug detected by polling) serial=22520013CC product=XEM7320-A75T interface=USB 3.0
+2026-08-26T10:50:53.271309Z  INFO ok_fpga_server::handle_pool: device handle opened and added to pool serial=22520013CC
+2026-08-26T10:55:05.200835Z  INFO ok_fpga_server: FPGA device disconnected (hot-unplug detected by polling) serial=22520013CC
+2026-08-26T10:55:05.201030Z  INFO ok_fpga_server::handle_pool: device handle closed and removed from pool serial=22520013CC
+2026-08-26T10:55:17.309952Z  INFO ok_fpga_server: FPGA device connected (hot-plug detected by polling) serial=22520013CC product=XEM7320-A75T interface=USB 3.0
+2026-08-26T10:55:17.352132Z  INFO ok_fpga_server::handle_pool: device handle opened and added to pool serial=22520013CC
+2026-08-26T10:55:22.317843Z  INFO ok_fpga_server: shutdown signal received
+2026-08-26T10:55:22.318087Z  INFO ok_fpga_core::service_manager: stopping service service=mdns
+2026-08-26T10:55:22.318378Z  INFO ok_fpga_server::mdns: Deregistering mDNS service (OS-native)
+2026-08-26T10:55:22.318668Z  INFO ok_fpga_server::mdns: mDNS discovery service stopped
+2026-08-26T10:55:22.319015Z  INFO ok_fpga_core::service_manager: service stopped service=mdns
+2026-08-26T10:55:22.319238Z  INFO ok_fpga_core::service_manager: stopping service service=grpc
+2026-08-26T10:55:22.319739Z  INFO ok_fpga_server::grpc: gRPC server stopped
+2026-08-26T10:55:22.533273Z  INFO ok_fpga_server::grpc::managed: gRPC server stopped
+2026-08-26T10:55:22.533465Z  INFO ok_fpga_core::service_manager: service stopped service=grpc
+2026-08-26T10:55:22.533633Z  INFO ok_fpga_core::service_manager: stopping service service=rest
+2026-08-26T10:55:22.737019Z  INFO ok_fpga_server::rest::managed: REST server stopped
+2026-08-26T10:55:22.737234Z  INFO ok_fpga_core::service_manager: service stopped service=rest
+2026-08-26T10:55:22.737377Z  INFO ok_fpga_core::service_manager: stopping service service=mqtt
+2026-08-26T10:55:22.737687Z  INFO ok_fpga_server::mqtt: MQTT publisher disconnected
+2026-08-26T10:55:23.247857Z  INFO ok_fpga_server::mqtt: MQTT publisher stopped
+2026-08-26T10:55:23.248043Z  INFO ok_fpga_core::service_manager: service stopped service=mqtt
+2026-08-26T10:55:23.248260Z  INFO ok_fpga_core::service_manager: all services stopped
+2026-08-26T10:55:23.248493Z  INFO ok_fpga_server: ok-FPGA-Server shut down cleanly.
+2026-08-26T10:55:25.237990Z  INFO ok_fpga_server: configuration loaded config_log_level=info management_port=9090
+2026-08-26T10:55:25.238425Z  INFO ok_fpga_server::scanner: attempting to load FrontPanel DLL dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-26T10:55:25.243331Z  INFO ok_fpga_server::scanner: FrontPanel DLL loaded successfully api_version=6.1.0 dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-26T10:55:25.277393Z  INFO ok_fpga_server: initial device scan complete count=1
+2026-08-26T10:55:25.277636Z  INFO ok_fpga_server: discovered FPGA device (initial scan) serial=22520013CC product=XEM7320-A75T interface=USB 3.0
+2026-08-26T10:55:25.304537Z  INFO ok_fpga_server::handle_pool: device handle opened and added to pool serial=22520013CC
+2026-08-26T10:55:25.304882Z  INFO ok_fpga_server: device polling task started (2s interval)
+2026-08-26T10:55:25.304984Z  INFO ok_fpga_server::scanner: attempting to load FrontPanel DLL dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-26T10:55:25.305039Z  INFO ok_fpga_server: authentication provider initialized provider="none" required=false
+2026-08-26T10:55:25.305203Z  INFO ok_fpga_server: Endpoint access enforcement: off
+2026-08-26T10:55:25.305422Z  INFO ok_fpga_core::service_manager: registered service service=rest enabled=true
+2026-08-26T10:55:25.305559Z  INFO ok_fpga_server: registered REST service bind=0.0.0.0 port=8088 enabled=true
+2026-08-26T10:55:25.305733Z  INFO ok_fpga_server::scanner: FrontPanel DLL loaded successfully api_version=6.1.0 dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-26T10:55:25.305783Z  INFO ok_fpga_core::service_manager: registered service service=grpc enabled=true
+2026-08-26T10:55:25.305871Z  INFO ok_fpga_server: registered gRPC service bind=0.0.0.0 port=50051 enabled=true
+2026-08-26T10:55:25.305962Z  INFO ok_fpga_core::service_manager: registered service service=mqtt enabled=true
+2026-08-26T10:55:25.306050Z  INFO ok_fpga_server: registered MQTT service broker=mqtt://localhost:1883 topic_prefix=okfpga/server01 enabled=true
+2026-08-26T10:55:25.306146Z  INFO ok_fpga_core::service_manager: registered service service=mdns enabled=true
+2026-08-26T10:55:25.306215Z  INFO ok_fpga_server: registered mDNS service instance_name=okfpga-server enabled=true
+2026-08-26T10:55:25.306281Z  INFO ok_fpga_server: compiled features features=["rest", "dashboard", "grpc", "mqtt", "mdns"]
+2026-08-26T10:55:25.306392Z  INFO ok_fpga_core::service_manager: starting service service=rest
+2026-08-26T10:55:25.310564Z  INFO ok_fpga_server::rest::managed: REST server bound successfully address=0.0.0.0:8088
+2026-08-26T10:55:25.310730Z  INFO ok_fpga_server::rest::managed: REST server is running address=0.0.0.0:8088
+2026-08-26T10:55:25.311006Z  INFO ok_fpga_core::service_manager: service started service=rest
+2026-08-26T10:55:25.311387Z  INFO ok_fpga_core::service_manager: starting service service=grpc
+2026-08-26T10:55:25.311675Z  INFO ok_fpga_server::grpc: starting gRPC server address=0.0.0.0:50051
+2026-08-26T10:55:25.423740Z  INFO ok_fpga_server::grpc::managed: gRPC server is running address=0.0.0.0:50051
+2026-08-26T10:55:25.424034Z  INFO ok_fpga_core::service_manager: service started service=grpc
+2026-08-26T10:55:25.424336Z  INFO ok_fpga_core::service_manager: starting service service=mqtt
+2026-08-26T10:55:25.454753Z  INFO ok_fpga_server::mqtt: MQTT announce: resolved routable IP for cross-subnet discovery ip=172.19.224.1
+2026-08-26T10:55:25.454919Z  INFO ok_fpga_server::mqtt: MQTT publisher connecting broker=mqtt://localhost:1883 client_id=okfpga-server-01 topic_prefix=okfpga/server01
+2026-08-26T10:55:25.455166Z  INFO ok_fpga_server::mqtt: MQTT publisher started
+2026-08-26T10:55:25.455357Z  INFO ok_fpga_core::service_manager: service started service=mqtt
+2026-08-26T10:55:25.455512Z  INFO ok_fpga_core::service_manager: starting service service=mdns
+2026-08-26T10:55:25.466570Z  INFO ok_fpga_server::mqtt: MQTT connected to broker
+2026-08-26T10:55:26.244212Z  INFO ok_fpga_server::mdns: mDNS service registered via OS daemon (PTR+SRV+TXT+A) instance=okfpga-server service_type="_okfpga._tcp" port=9090 hostname=THE-EXPANSE ipv4=192.168.50.78 method="os-native" txt_records=["version=0.1.0", "description=A Dual Port Beast", "rest=8088", "grpc=50051", "mqtt=okfpga/server01", "dashboard=9090", "devices=1"]
+2026-08-26T10:55:26.244459Z  INFO ok_fpga_server::mdns: mDNS discovery service started
+2026-08-26T10:55:26.244598Z  INFO ok_fpga_core::service_manager: service started service=mdns
+2026-08-26T10:55:26.244783Z  INFO ok_fpga_server: service state service=rest status=running compiled=true enabled=true
+2026-08-26T10:55:26.244945Z  INFO ok_fpga_server: service state service=grpc status=running compiled=true enabled=true
+2026-08-26T10:55:26.245105Z  INFO ok_fpga_server: service state service=mqtt status=running compiled=true enabled=true
+2026-08-26T10:55:26.245289Z  INFO ok_fpga_server: service state service=mdns status=running compiled=true enabled=true
+2026-08-26T10:55:26.246259Z  INFO ok_fpga_server: management server started (dashboard + mgmt API) address=0.0.0.0:9090
+2026-08-26T10:55:26.246682Z  INFO ok_fpga_server::sweep: starting user session sweep task timeout_secs=60 sweep_interval_secs=10
+2026-08-26T10:55:26.247019Z  INFO ok_fpga_server: ok-FPGA-Server is ready. Press Ctrl+C to shut down.
+2026-08-26T10:58:10.824737Z  WARN ok_fpga_server::mqtt: MQTT connection lost — will retry error=Mqtt state: Io error: Custom { kind: ConnectionAborted, error: "connection closed by peer" }
+2026-08-26T10:58:15.837468Z  INFO ok_fpga_server::mqtt: MQTT connected to broker
+2026-08-26T11:01:26.266429Z  INFO ok_fpga_server: shutdown signal received
+2026-08-26T11:01:26.266691Z  INFO ok_fpga_core::service_manager: stopping service service=mdns
+2026-08-26T11:01:26.266887Z  INFO ok_fpga_server::mdns: Deregistering mDNS service (OS-native)
+2026-08-26T11:01:26.267022Z  INFO ok_fpga_server::mdns: mDNS discovery service stopped
+2026-08-26T11:01:26.267120Z  INFO ok_fpga_core::service_manager: service stopped service=mdns
+2026-08-26T11:01:26.267385Z  INFO ok_fpga_core::service_manager: stopping service service=grpc
+2026-08-26T11:01:26.267830Z  INFO ok_fpga_server::grpc: gRPC server stopped
+2026-08-26T11:01:26.481118Z  INFO ok_fpga_server::grpc::managed: gRPC server stopped
+2026-08-26T11:01:26.481332Z  INFO ok_fpga_core::service_manager: service stopped service=grpc
+2026-08-26T11:01:26.481562Z  INFO ok_fpga_core::service_manager: stopping service service=rest
