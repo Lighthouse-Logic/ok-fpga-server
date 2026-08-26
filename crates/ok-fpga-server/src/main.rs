@@ -134,7 +134,12 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Load configuration (TOML file + env overrides + feature validation).
-    let (cfg, config_path) = config::load_config();
+    let (mut cfg, config_path) = config::load_config();
+
+    // Derive MQTT client_id and topic_prefix from the system hostname.
+    // These are always "okfpga-server-<hostname>" and "okfpga/server-<hostname>"
+    // — not user-configurable, ensuring uniqueness per host.
+    cfg.mqtt.resolve_hostname_fields();
 
     // Initialize tracing (structured logging) with the configured log level.
     // Returns the broadcast handles needed for the dashboard log viewer.
@@ -491,7 +496,14 @@ async fn start_management_server(
     let listener = match tokio::net::TcpListener::bind(mgmt_addr).await {
         Ok(l) => l,
         Err(e) => {
-            tracing::error!(address = %mgmt_addr, error = %e, "failed to bind management server");
+            if e.kind() == std::io::ErrorKind::AddrInUse {
+                tracing::error!(
+                    address = %mgmt_addr,
+                    "management port already in use — is another ok-FPGA-Server instance running?"
+                );
+            } else {
+                tracing::error!(address = %mgmt_addr, error = %e, "failed to bind management server");
+            }
             return;
         }
     };

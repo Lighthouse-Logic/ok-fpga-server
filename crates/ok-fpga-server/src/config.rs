@@ -189,10 +189,20 @@ pub struct MqttConfig {
     /// MQTT broker URL (e.g., `mqtt://localhost:1883`).
     pub broker_url: String,
 
-    /// MQTT client ID. Should be unique per server instance.
+    /// MQTT client ID. Automatically derived as `okfpga-server-<hostname>`.
+    ///
+    /// There should only ever be one ok-FPGA-Server per host, so the
+    /// hostname provides natural uniqueness. This field is not
+    /// user-configurable — it is computed at startup.
+    #[serde(skip)]
     pub client_id: String,
 
-    /// Topic prefix for all published messages.
+    /// Topic prefix for all published messages. Automatically derived
+    /// as `okfpga/server-<hostname>`.
+    ///
+    /// Like `client_id`, this is computed from the hostname at startup
+    /// and is not set in config.toml.
+    #[serde(skip)]
     pub topic_prefix: String,
 
     /// How often to check for state changes (seconds).
@@ -240,13 +250,33 @@ impl Default for MqttConfig {
         Self {
             enabled: false,
             broker_url: "mqtt://localhost:1883".to_string(),
-            client_id: "okfpga-server-01".to_string(),
-            topic_prefix: "okfpga/server01".to_string(),
+            // Computed at startup from hostname — see MqttConfig::resolve_hostname_fields()
+            client_id: String::new(),
+            topic_prefix: String::new(),
             publish_interval_secs: 5,
             heartbeat_max_secs: 300,
             announce_interface: String::new(),
             preferred_subnets: Vec::new(),
         }
+    }
+}
+
+impl MqttConfig {
+    /// Populate `client_id` and `topic_prefix` from the system hostname.
+    ///
+    /// Called once at startup, after config is loaded from TOML. The TOML
+    /// file does not contain these fields — they are always derived as:
+    /// - `client_id`    = `"okfpga-server-<hostname>"`
+    /// - `topic_prefix` = `"okfpga/server-<hostname>"`
+    ///
+    /// This ensures uniqueness per host without manual configuration.
+    pub fn resolve_hostname_fields(&mut self) {
+        let host = hostname::get()
+            .map(|h| h.to_string_lossy().to_lowercase())
+            .unwrap_or_else(|_| "unknown".to_string());
+
+        self.client_id = format!("okfpga-server-{}", host);
+        self.topic_prefix = format!("okfpga/server-{}", host);
     }
 }
 

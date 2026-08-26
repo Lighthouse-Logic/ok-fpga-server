@@ -20,8 +20,9 @@ port = 50051
 [mqtt]
 enabled = true
 broker_url = "mqtt://localhost:1883"
-client_id = "okfpga-server-01"
-topic_prefix = "okfpga/server01"
+# client_id and topic_prefix are derived automatically from the system
+# hostname as "okfpga-server-<hostname>" and "okfpga/server-<hostname>".
+# They are not configurable — only one ok-FPGA-Server should run per host.
 # How often to check for state changes (seconds). Messages are only
 # published when underlying data has changed — not on every tick.
 publish_interval_secs = 5
