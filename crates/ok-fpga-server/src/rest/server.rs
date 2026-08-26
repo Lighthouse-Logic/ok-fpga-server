@@ -8,7 +8,7 @@ use std::sync::Arc;
 use axum::extract::Path;
 use axum::extract::State;
 use axum::http::HeaderMap;
-use axum::routing::{get, post, put};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use tracing::info;

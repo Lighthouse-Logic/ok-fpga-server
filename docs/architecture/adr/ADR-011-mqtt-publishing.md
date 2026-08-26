@@ -234,3 +234,4 @@ It subscribes to the `DeviceManager` event channel and publishes corresponding M
 - [rumqttc Crate](https://crates.io/crates/rumqttc)
 - [Mosquitto Broker](https://mosquitto.org/)
 - [ADR-010 Service Manager](ADR-010-service-manager.md) — feature flags and lifecycle
+- [ADR-031 MQTT Cross-Subnet Discovery](ADR-031-mqtt-discovery.md) — extends this ADR with `server.announce`, LWT, and IP resolution (Phase 40)

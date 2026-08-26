@@ -18,7 +18,7 @@ bind = "0.0.0.0"
 port = 50051
 
 [mqtt]
-enabled = false
+enabled = true
 broker_url = "mqtt://localhost:1883"
 client_id = "okfpga-server-01"
 topic_prefix = "okfpga/server01"

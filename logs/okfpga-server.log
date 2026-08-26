@@ -3882,3 +3882,163 @@
 2026-08-26T10:36:03.845358Z  INFO ok_fpga_core::service_manager: service stopped service=rest
 2026-08-26T10:36:03.845597Z  INFO ok_fpga_core::service_manager: all services stopped
 2026-08-26T10:36:03.845758Z  INFO ok_fpga_server: ok-FPGA-Server shut down cleanly.
+2026-08-26T10:41:20.253535Z  INFO ok_fpga_server: configuration loaded config_log_level=info management_port=9090
+2026-08-26T10:41:20.254214Z  INFO ok_fpga_server::scanner: attempting to load FrontPanel DLL dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-26T10:41:20.339923Z  INFO ok_fpga_server::scanner: FrontPanel DLL loaded successfully api_version=6.1.0 dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-26T10:41:20.414095Z  INFO ok_fpga_server: initial device scan complete count=0
+2026-08-26T10:41:20.414529Z  INFO ok_fpga_server: device polling task started (2s interval)
+2026-08-26T10:41:20.414679Z  INFO ok_fpga_server::scanner: attempting to load FrontPanel DLL dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-26T10:41:20.414837Z  INFO ok_fpga_server: authentication provider initialized provider="none" required=false
+2026-08-26T10:41:20.415054Z  INFO ok_fpga_server: Endpoint access enforcement: off
+2026-08-26T10:41:20.415323Z  INFO ok_fpga_core::service_manager: registered service service=rest enabled=true
+2026-08-26T10:41:20.415484Z  INFO ok_fpga_server::scanner: FrontPanel DLL loaded successfully api_version=6.1.0 dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-26T10:41:20.415911Z  INFO ok_fpga_server: registered REST service bind=0.0.0.0 port=8088 enabled=true
+2026-08-26T10:41:20.416152Z  INFO ok_fpga_core::service_manager: registered service service=grpc enabled=true
+2026-08-26T10:41:20.416378Z  INFO ok_fpga_server: registered gRPC service bind=0.0.0.0 port=50051 enabled=true
+2026-08-26T10:41:20.416593Z  INFO ok_fpga_core::service_manager: registered service service=mqtt enabled=false
+2026-08-26T10:41:20.416776Z  INFO ok_fpga_server: registered MQTT service broker=mqtt://localhost:1883 topic_prefix=okfpga/server01 enabled=false
+2026-08-26T10:41:20.417006Z  INFO ok_fpga_core::service_manager: registered service service=mdns enabled=true
+2026-08-26T10:41:20.417557Z  INFO ok_fpga_server: registered mDNS service instance_name=okfpga-server enabled=true
+2026-08-26T10:41:20.417759Z  INFO ok_fpga_server: compiled features features=["rest", "dashboard", "grpc", "mqtt", "mdns"]
+2026-08-26T10:41:20.418046Z  INFO ok_fpga_core::service_manager: starting service service=rest
+2026-08-26T10:41:20.426765Z  INFO ok_fpga_server::rest::managed: REST server bound successfully address=0.0.0.0:8088
+2026-08-26T10:41:20.427105Z  INFO ok_fpga_server::rest::managed: REST server is running address=0.0.0.0:8088
+2026-08-26T10:41:20.427400Z  INFO ok_fpga_core::service_manager: service started service=rest
+2026-08-26T10:41:20.427570Z  INFO ok_fpga_core::service_manager: starting service service=grpc
+2026-08-26T10:41:20.427930Z  INFO ok_fpga_server::grpc: starting gRPC server address=0.0.0.0:50051
+2026-08-26T10:41:20.541121Z  INFO ok_fpga_server::grpc::managed: gRPC server is running address=0.0.0.0:50051
+2026-08-26T10:41:20.541401Z  INFO ok_fpga_core::service_manager: service started service=grpc
+2026-08-26T10:41:20.541658Z  INFO ok_fpga_core::service_manager: service disabled in config — skipping service=mqtt
+2026-08-26T10:41:20.541888Z  INFO ok_fpga_core::service_manager: starting service service=mdns
+2026-08-26T10:41:21.352997Z  INFO ok_fpga_server::mdns: mDNS service registered via OS daemon (PTR+SRV+TXT+A) instance=okfpga-server service_type="_okfpga._tcp" port=9090 hostname=THE-EXPANSE ipv4=192.168.50.78 method="os-native" txt_records=["version=0.1.0", "description=A Dual Port Beast", "rest=8088", "grpc=50051", "dashboard=9090", "devices=0"]
+2026-08-26T10:41:21.353221Z  INFO ok_fpga_server::mdns: mDNS discovery service started
+2026-08-26T10:41:21.353472Z  INFO ok_fpga_core::service_manager: service started service=mdns
+2026-08-26T10:41:21.353655Z  INFO ok_fpga_server: service state service=rest status=running compiled=true enabled=true
+2026-08-26T10:41:21.353771Z  INFO ok_fpga_server: service state service=grpc status=running compiled=true enabled=true
+2026-08-26T10:41:21.353938Z  INFO ok_fpga_server: service state service=mqtt status=stopped compiled=true enabled=false
+2026-08-26T10:41:21.354117Z  INFO ok_fpga_server: service state service=mdns status=running compiled=true enabled=true
+2026-08-26T10:41:21.355052Z  INFO ok_fpga_server: management server started (dashboard + mgmt API) address=0.0.0.0:9090
+2026-08-26T10:41:21.355276Z  INFO ok_fpga_server::sweep: starting user session sweep task timeout_secs=60 sweep_interval_secs=10
+2026-08-26T10:41:21.355482Z  INFO ok_fpga_server: ok-FPGA-Server is ready. Press Ctrl+C to shut down.
+2026-08-26T10:41:29.544249Z  INFO ok_fpga_server: shutdown signal received
+2026-08-26T10:41:29.544612Z  INFO ok_fpga_core::service_manager: stopping service service=mdns
+2026-08-26T10:41:29.544815Z  INFO ok_fpga_server::mdns: Deregistering mDNS service (OS-native)
+2026-08-26T10:41:29.545043Z  INFO ok_fpga_server::mdns: mDNS discovery service stopped
+2026-08-26T10:41:29.545289Z  INFO ok_fpga_core::service_manager: service stopped service=mdns
+2026-08-26T10:41:29.545504Z  INFO ok_fpga_core::service_manager: stopping service service=grpc
+2026-08-26T10:41:29.546003Z  INFO ok_fpga_server::grpc: gRPC server stopped
+2026-08-26T10:41:29.749324Z  INFO ok_fpga_server::grpc::managed: gRPC server stopped
+2026-08-26T10:41:29.749570Z  INFO ok_fpga_core::service_manager: service stopped service=grpc
+2026-08-26T10:41:29.749742Z  INFO ok_fpga_core::service_manager: stopping service service=rest
+2026-08-26T10:41:29.964747Z  INFO ok_fpga_server::rest::managed: REST server stopped
+2026-08-26T10:41:29.964911Z  INFO ok_fpga_core::service_manager: service stopped service=rest
+2026-08-26T10:41:29.965065Z  INFO ok_fpga_core::service_manager: all services stopped
+2026-08-26T10:41:29.965199Z  INFO ok_fpga_server: ok-FPGA-Server shut down cleanly.
+2026-08-26T10:41:41.104808Z  INFO ok_fpga_server: configuration loaded config_log_level=info management_port=9090
+2026-08-26T10:41:41.105167Z  INFO ok_fpga_server::scanner: attempting to load FrontPanel DLL dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-26T10:41:41.109928Z  INFO ok_fpga_server::scanner: FrontPanel DLL loaded successfully api_version=6.1.0 dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-26T10:41:41.126015Z  INFO ok_fpga_server: initial device scan complete count=0
+2026-08-26T10:41:41.126417Z  INFO ok_fpga_server: device polling task started (2s interval)
+2026-08-26T10:41:41.126474Z  INFO ok_fpga_server::scanner: attempting to load FrontPanel DLL dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-26T10:41:41.126584Z  INFO ok_fpga_server: authentication provider initialized provider="none" required=false
+2026-08-26T10:41:41.126697Z  INFO ok_fpga_server: Endpoint access enforcement: off
+2026-08-26T10:41:41.126881Z  INFO ok_fpga_core::service_manager: registered service service=rest enabled=true
+2026-08-26T10:41:41.126988Z  INFO ok_fpga_server: registered REST service bind=0.0.0.0 port=8088 enabled=true
+2026-08-26T10:41:41.127106Z  INFO ok_fpga_server::scanner: FrontPanel DLL loaded successfully api_version=6.1.0 dll_path=FrontPanel-6.1.0\okFrontPanel.dll
+2026-08-26T10:41:41.127174Z  INFO ok_fpga_core::service_manager: registered service service=grpc enabled=true
+2026-08-26T10:41:41.127315Z  INFO ok_fpga_server: registered gRPC service bind=0.0.0.0 port=50051 enabled=true
+2026-08-26T10:41:41.127439Z  INFO ok_fpga_core::service_manager: registered service service=mqtt enabled=true
+2026-08-26T10:41:41.127540Z  INFO ok_fpga_server: registered MQTT service broker=mqtt://localhost:1883 topic_prefix=okfpga/server01 enabled=true
+2026-08-26T10:41:41.127673Z  INFO ok_fpga_core::service_manager: registered service service=mdns enabled=true
+2026-08-26T10:41:41.127784Z  INFO ok_fpga_server: registered mDNS service instance_name=okfpga-server enabled=true
+2026-08-26T10:41:41.127874Z  INFO ok_fpga_server: compiled features features=["rest", "dashboard", "grpc", "mqtt", "mdns"]
+2026-08-26T10:41:41.128110Z  INFO ok_fpga_core::service_manager: starting service service=rest
+2026-08-26T10:41:41.133622Z  INFO ok_fpga_server::rest::managed: REST server bound successfully address=0.0.0.0:8088
+2026-08-26T10:41:41.133798Z  INFO ok_fpga_server::rest::managed: REST server is running address=0.0.0.0:8088
+2026-08-26T10:41:41.133892Z  INFO ok_fpga_core::service_manager: service started service=rest
+2026-08-26T10:41:41.133980Z  INFO ok_fpga_core::service_manager: starting service service=grpc
+2026-08-26T10:41:41.134148Z  INFO ok_fpga_server::grpc: starting gRPC server address=0.0.0.0:50051
+2026-08-26T10:41:41.243180Z  INFO ok_fpga_server::grpc::managed: gRPC server is running address=0.0.0.0:50051
+2026-08-26T10:41:41.243410Z  INFO ok_fpga_core::service_manager: service started service=grpc
+2026-08-26T10:41:41.243628Z  INFO ok_fpga_core::service_manager: starting service service=mqtt
+2026-08-26T10:41:41.244305Z  INFO ok_fpga_server::mqtt: MQTT publisher connecting broker=mqtt://localhost:1883 client_id=okfpga-server-01 topic_prefix=okfpga/server01
+2026-08-26T10:41:41.244477Z  INFO ok_fpga_server::mqtt: MQTT publisher started
+2026-08-26T10:41:41.244736Z  INFO ok_fpga_core::service_manager: service started service=mqtt
+2026-08-26T10:41:41.244965Z  INFO ok_fpga_core::service_manager: starting service service=mdns
+2026-08-26T10:41:41.249698Z  INFO ok_fpga_server::mqtt: MQTT connected to broker
+2026-08-26T10:41:41.274496Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:41:41.274584Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:41:42.035102Z  INFO ok_fpga_server::mdns: mDNS service registered via OS daemon (PTR+SRV+TXT+A) instance=okfpga-server service_type="_okfpga._tcp" port=9090 hostname=THE-EXPANSE ipv4=192.168.50.78 method="os-native" txt_records=["version=0.1.0", "description=A Dual Port Beast", "rest=8088", "grpc=50051", "mqtt=okfpga/server01", "dashboard=9090", "devices=0"]
+2026-08-26T10:41:42.035327Z  INFO ok_fpga_server::mdns: mDNS discovery service started
+2026-08-26T10:41:42.035514Z  INFO ok_fpga_core::service_manager: service started service=mdns
+2026-08-26T10:41:42.035680Z  INFO ok_fpga_server: service state service=rest status=running compiled=true enabled=true
+2026-08-26T10:41:42.035774Z  INFO ok_fpga_server: service state service=grpc status=running compiled=true enabled=true
+2026-08-26T10:41:42.035845Z  INFO ok_fpga_server: service state service=mqtt status=running compiled=true enabled=true
+2026-08-26T10:41:42.036056Z  INFO ok_fpga_server: service state service=mdns status=running compiled=true enabled=true
+2026-08-26T10:41:42.036849Z  INFO ok_fpga_server: management server started (dashboard + mgmt API) address=0.0.0.0:9090
+2026-08-26T10:41:42.037055Z  INFO ok_fpga_server::sweep: starting user session sweep task timeout_secs=60 sweep_interval_secs=10
+2026-08-26T10:41:42.037245Z  INFO ok_fpga_server: ok-FPGA-Server is ready. Press Ctrl+C to shut down.
+2026-08-26T10:41:46.264439Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:41:51.262843Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:41:56.267624Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:42:01.262865Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:42:06.269166Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:42:11.276598Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:42:16.267146Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:42:21.297954Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:42:26.265699Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:42:31.273136Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:42:35.249327Z  INFO ok_fpga_server: FPGA device connected (hot-plug detected by polling) serial=22520013CC product=XEM7320-A75T interface=USB 3.0
+2026-08-26T10:42:35.320169Z  INFO ok_fpga_server::handle_pool: device handle opened and added to pool serial=22520013CC
+2026-08-26T10:42:36.279290Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:42:41.286194Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:42:46.267411Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:42:51.272679Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:42:56.280403Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:43:01.292352Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:43:06.275834Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:43:11.270447Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:43:16.279018Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:43:21.263001Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:43:26.262123Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:43:31.264108Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:43:36.263937Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:43:41.264019Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:43:46.273228Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:43:51.264384Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:43:56.265147Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:44:01.271829Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:44:06.290206Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:44:11.281564Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:44:16.274722Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:44:21.272459Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:44:26.284708Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:44:31.281047Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:44:36.263065Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:44:41.287632Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:44:46.288516Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:44:51.269609Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:44:56.266982Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:45:01.278018Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:45:06.276956Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:45:11.280770Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:45:16.272240Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:45:21.266008Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:45:26.265258Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:45:31.268343Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:45:36.264717Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:45:41.289400Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:45:46.266163Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:45:51.274759Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:45:56.267197Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:46:01.263118Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:46:06.259913Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:46:11.265964Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:46:16.270221Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:46:21.290786Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:46:26.281590Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:46:31.296609Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:46:36.263046Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:46:41.271801Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:46:46.272951Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1
+2026-08-26T10:46:51.278623Z  WARN ok_fpga_server::mqtt: MQTT announce: no preferred subnet matched, using first available interface interface={952CCB50-2796-4D4F-B599-6ABDC12B3DD6} ip=172.19.224.1

@@ -54,7 +54,7 @@ use std::sync::Arc;
 use ok_fpga_core::service::{ManagedService, ServiceError, ServiceStatus};
 use rumqttc::{AsyncClient, LastWill, MqttOptions, QoS};
 use tokio::sync::Notify;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::config::MqttConfig;
 use crate::state::AppState;
@@ -164,6 +164,18 @@ impl ManagedService for MqttPublisher {
         let publish_interval = self.config.publish_interval_secs;
         let server_id = self.config.client_id.clone();
         let config_for_announce = self.config.clone();
+
+        // --- Phase 40 (ADR-031 §2): Resolve routable IP once at startup ---
+        //
+        // The IP is resolved here so we log it exactly once. Periodic
+        // heartbeat ticks silently re-resolve (in case DHCP changed it)
+        // but only log at debug! level.
+        let startup_ip = resolve_routable_ip(&self.config);
+        if let Some(ip) = startup_ip {
+            info!(ip = %ip, "MQTT announce: resolved routable IP for cross-subnet discovery");
+        } else {
+            warn!("MQTT announce: could not determine routable IPv4 address — announce messages will be skipped");
+        }
 
         info!(
             broker = %broker_url,
@@ -294,6 +306,15 @@ impl ManagedService for MqttPublisher {
                         publish_server_announce(
                             &periodic_client, &prefix2, &server_id2,
                             &state2, &config_for_periodic,
+                        ).await;
+                        // Re-publish device and resource inventory on each tick
+                        // so hot-plug events (devices added/removed after startup)
+                        // are reflected in MQTT.
+                        publish_device_inventory(
+                            &periodic_client, &prefix2, &server_id2, &state2
+                        ).await;
+                        publish_resource_inventory(
+                            &periodic_client, &prefix2, &server_id2, &state2
                         ).await;
                     }
                 }
@@ -586,7 +607,7 @@ fn resolve_routable_ip(config: &MqttConfig) -> Option<Ipv4Addr> {
     // Step 3: single candidate — no ambiguity.
     if candidates.len() == 1 {
         let (ref name, addr) = candidates[0];
-        info!(interface = %name, ip = %addr, "MQTT announce: single interface auto-detected");
+        debug!(interface = %name, ip = %addr, "MQTT announce: single interface auto-detected");
         return Some(addr);
     }
 
@@ -594,7 +615,7 @@ fn resolve_routable_ip(config: &MqttConfig) -> Option<Ipv4Addr> {
     if !config.announce_interface.is_empty() {
         for (ref name, addr) in &candidates {
             if name == &config.announce_interface {
-                info!(
+                debug!(
                     interface = %name, ip = %addr,
                     "MQTT announce: using configured announce_interface"
                 );
@@ -612,7 +633,7 @@ fn resolve_routable_ip(config: &MqttConfig) -> Option<Ipv4Addr> {
         if let Some((net_addr, prefix_len)) = parse_cidr(cidr_str) {
             for (ref name, addr) in &candidates {
                 if ip_in_subnet(*addr, net_addr, prefix_len) {
-                    info!(
+                    debug!(
                         interface = %name, ip = %addr, subnet = %cidr_str,
                         "MQTT announce: matched preferred subnet"
                     );
@@ -626,7 +647,7 @@ fn resolve_routable_ip(config: &MqttConfig) -> Option<Ipv4Addr> {
 
     // Step 6: fallback to first available.
     let (ref name, addr) = candidates[0];
-    warn!(
+    debug!(
         interface = %name, ip = %addr,
         "MQTT announce: no preferred subnet matched, using first available interface"
     );
