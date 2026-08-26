@@ -48,7 +48,7 @@
 | **Phase 38** | User Identification Consistency | ADR-029 | ✅ [Archived](archive/roadmap-phases-38.md) |
 | **Phase 39** | SSE Event Expansion | ADR-030 | ✅ [Archived](archive/roadmap-phases-39.md) |
 | **Phase 40** | MQTT Discovery, Report-by-Exception, Hostname Identity | ADR-011, ADR-031, ADR-032 | ✅ Completed |
-| **Phase 41** | Singleton Instance Guard | — | 🟡 Next |
+| **Phase 41** | Singleton Instance Guard & Startup Safety | — | 🟡 Next |
 | **Phase 42+ (Later)** | TLS, CI, persistent storage, packaging | — | 📘 Exploratory |
 
 ---
@@ -61,15 +61,17 @@
 
 ## 🟡 Next
 
-### Phase 41 — Singleton Instance Guard
+### Phase 41 — Singleton Instance Guard & Startup Safety
 
 **Goal:** Prevent a second ok-FPGA-Server instance from starting on the
-same host. Currently, if a user launches a second server, it logs
-`ERROR` messages (e.g., port bind failures) to stdout but **continues
-running** — attempting to load the FrontPanel DLL, register mDNS
-services, connect to MQTT, and bind REST/gRPC ports. This causes
-resource conflicts, duplicate mDNS announcements, and confusing MQTT
-topics.
+same host, and ensure the server validates all required port bindings
+*before* loading the FrontPanel DLL or registering any services.
+
+Currently, if a user launches a second server, it logs `ERROR` messages
+(e.g., port bind failures) to stdout but **continues running** —
+attempting to load the FrontPanel DLL, register mDNS services, connect
+to MQTT, and bind REST/gRPC ports. This causes resource conflicts,
+duplicate mDNS announcements, and confusing MQTT topics.
 
 **Problem Statement:**
 The management port bind (`0.0.0.0:9090`) fails with `AddrInUse` when
@@ -81,24 +83,56 @@ management port is bound, so they have already started by the time the
 conflict is detected.
 
 **Requirements:**
-1. **Early detection** — check for a running instance *before*
-   initializing any services or loading the FrontPanel DLL.
-2. **Hard exit** — if another instance is detected, print a clear error
-   message and exit with a non-zero status code. Do not start any
-   services.
+1. **Early port validation** — at the very top of `main()`, before
+   loading the FrontPanel DLL or initializing any services, attempt to
+   bind every port the server is configured to use. Only check ports
+   for **enabled** services:
+   - Management port (always required)
+   - REST port (if `[rest] enabled = true`)
+   - gRPC port (if `[grpc] enabled = true`)
+   
+   If *any* enabled port is already in use, print a clear error message
+   listing which port(s) conflict and exit with a non-zero status code.
+   
+2. **Hard exit** — if any port conflict is detected, exit immediately.
+   Do not load the FrontPanel DLL, do not register mDNS, do not connect
+   to MQTT, do not start any service.
+
 3. **Cross-platform** — must work on both Windows 11 and Ubuntu
    22.04/24.04.
 
-**Possible Approaches:**
+4. **Graceful shutdown: retained topic cleanup** — on graceful shutdown,
+   after publishing the `server.offline` message, publish **empty
+   payloads** (zero-byte retained messages) to every topic that was
+   previously published with `retain=true`. Per MQTT spec, an empty
+   retained message tells the broker to **delete** the retained message
+   for that topic. This prevents the broker from accumulating stale
+   retained state from servers that have shut down cleanly. Topics to
+   clear:
+   - `{prefix}/status`
+   - `{prefix}/services/status`
+   - `{prefix}/devices/inventory`
+   - `{prefix}/resources/inventory`
+   - `{prefix}/server/announce`
+
+5. **Test coverage** — add unit tests and/or integration tests:
+   - Test that a second bind attempt on an in-use port returns
+     `AddrInUse` and the guard function returns an error.
+   - Test that disabled services are *not* checked (e.g., gRPC disabled
+     → gRPC port not validated).
+   - Test that all enabled ports are checked (management + REST + gRPC
+     when all enabled).
+
+**Possible Approaches for Singleton Guard:**
+- **Port pre-check** — attempt a non-blocking TCP bind on each enabled
+  port at the very start of `main()`, before loading config or DLL. If
+  any fails with `AddrInUse`, exit immediately. Release the sockets and
+  re-bind later when each service is ready. (Simplest approach but has a
+  small TOCTOU window.)
 - **Named mutex / file lock** — create a platform-specific named mutex
   (Windows: `CreateMutexW("okfpga-server")`; Linux: `flock()` on a
   lockfile). Check at the very top of `main()` before any
   initialization.
-- **Port pre-check** — attempt a non-blocking TCP bind on the management
-  port at the very start of `main()`, before loading config or DLL. If
-  it fails with `AddrInUse`, exit immediately. Release the socket and
-  re-bind later when the management server is ready. (Simplest approach
-  but has a small TOCTOU window.)
 - **PID file** — write PID to a file, check on startup. Less robust
   than mutex/lock on crash.
 
@@ -106,15 +140,22 @@ conflict is detected.
 
 | File | Changes |
 |------|---------|
-| `main.rs` | Add singleton guard at the top of `main()`, before config load |
-| `main.rs` | Reorder initialization: guard → config → tracing → DLL → services |
+| `main.rs` | Add `check_port_availability()` guard at top of `main()`, before any initialization |
+| `main.rs` | Reorder initialization: port guard → config → tracing → DLL → services |
+| `mqtt.rs` | On graceful shutdown, publish empty retained payloads to clear all retained topics |
+| `mqtt.rs` tests | Test retained topic cleanup on shutdown |
+| `main.rs` tests | Test port pre-check logic (AddrInUse detection, disabled service skip) |
 
 **Acceptance Criteria:**
 - Starting a second `ok-fpga-server` instance prints a clear message
-  (e.g., *"Another ok-FPGA-Server is already running on this host.
-  Exiting."*) and exits with code 1.
+  (e.g., *"Port 9090 (management) is already in use — is another
+  ok-FPGA-Server running? Exiting."*) and exits with code 1.
 - No FrontPanel DLL is loaded, no mDNS registration, no MQTT connection,
   no port binding occurs in the second instance.
+- Disabled services do not trigger false positives (e.g., gRPC port
+  used by another program does not block startup if gRPC is disabled).
+- On graceful shutdown, all retained MQTT topics are cleared with empty
+  payloads before disconnecting.
 - The first instance is unaffected.
 
 ---
