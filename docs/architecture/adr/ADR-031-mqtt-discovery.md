@@ -1,6 +1,6 @@
 # ADR-031: MQTT Cross-Subnet Server Discovery
 
-**Status**: Proposed (Phase 40)
+**Status**: Implemented ✅
 **Date**: 2026-08-26
 **Deciders**: Architecture Team
 **Supersedes**: — (Extends [ADR-011](ADR-011-mqtt-publishing.md))
@@ -166,6 +166,35 @@ These are needed by `publish_server_announce()` to build URLs.
 
 - [ADR-011: MQTT Status Publishing](ADR-011-mqtt-publishing.md) — base MQTT architecture
 - [ADR-012: mDNS Service Discovery](ADR-012-mdns-service-discovery.md) — link-local discovery
+- [ADR-032: Report-by-Exception Publishing](ADR-032-mqtt-report-by-exception.md) — refines periodic publishing to change-driven model
 - [netdev crate](https://crates.io/crates/netdev) — cross-platform network interface enumeration
 - [MQTT v5.0 — Will Message](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901033)
 - [RFC 3927 — Link-Local (169.254.0.0/16)](https://tools.ietf.org/html/rfc3927)
+
+---
+
+## Addendum A — Windows Friendly Names & Heartbeat (2026-08-26)
+
+### Interface Name Resolution
+
+The `netdev` crate returns the Windows adapter **GUID** (e.g.,
+`{952CCB50-2796-...}`) as `Interface.name` on Windows. This is not
+human-readable. `netdev` 0.31 provides `Interface.friendly_name:
+Option<String>` which contains the user-visible name ("Ethernet",
+"Wi-Fi") on Windows.
+
+The IP resolution algorithm (§2) now uses
+`friendly_name.unwrap_or(name)` for display and `announce_interface`
+matching, checking both fields for cross-platform flexibility.
+
+### Heartbeat Integration
+
+The `server.announce` message is no longer re-published on every
+periodic tick (ADR-032). It is published:
+1. On initial MQTT connection (unchanged)
+2. When the announce payload data changes (device added/removed,
+   service started/stopped, IP change in DHCP environments)
+3. On the forced heartbeat interval (`heartbeat_max_secs`, default 300s)
+
+See [ADR-032](ADR-032-mqtt-report-by-exception.md) for the full
+report-by-exception publishing model.

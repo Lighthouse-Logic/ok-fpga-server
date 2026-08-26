@@ -235,3 +235,25 @@ It subscribes to the `DeviceManager` event channel and publishes corresponding M
 - [Mosquitto Broker](https://mosquitto.org/)
 - [ADR-010 Service Manager](ADR-010-service-manager.md) — feature flags and lifecycle
 - [ADR-031 MQTT Cross-Subnet Discovery](ADR-031-mqtt-discovery.md) — extends this ADR with `server.announce`, LWT, and IP resolution (Phase 40)
+- [ADR-032 Report-by-Exception Publishing](ADR-032-mqtt-report-by-exception.md) — supersedes the constant-interval publishing model defined here
+
+---
+
+## Addendum A — Report-by-Exception (2026-08-26)
+
+**Superseded by**: [ADR-032](ADR-032-mqtt-report-by-exception.md)
+
+The constant-interval publishing model described in this ADR (publish all
+topics every `publish_interval_secs` regardless of state changes) has been
+replaced with a **report-by-exception** model in ADR-032.
+
+Key behavioral changes:
+- Messages are now published **only when underlying data changes**
+  (excluding timestamps and `uptime_secs`)
+- A configurable `heartbeat_max_secs` (default 300s) forces a periodic
+  re-publish for liveness confirmation
+- `publish_interval_secs` is now a state-check polling interval, not a
+  forced publish interval
+
+The message format, topic structure, QoS levels, and retained message
+behavior defined in this ADR remain unchanged.
