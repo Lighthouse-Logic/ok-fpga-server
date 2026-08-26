@@ -267,6 +267,12 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    // Create the API-triggered shutdown signal.
+    // This Notify is shared with the management router so that
+    // POST /mgmt/shutdown can trigger the same graceful shutdown
+    // flow as Ctrl+C.
+    let api_shutdown = Arc::new(tokio::sync::Notify::new());
+
     // Start the management server (always-on, serves dashboard + mgmt API).
     start_management_server(
         &app_state,
@@ -274,6 +280,7 @@ async fn main() -> anyhow::Result<()> {
         event_tx.clone(),
         log_tx,
         log_ring_buffer,
+        api_shutdown.clone(),
     )
     .await;
 
@@ -289,9 +296,15 @@ async fn main() -> anyhow::Result<()> {
 
     info!("ok-FPGA-Server is ready. Press Ctrl+C to shut down.");
 
-    // Wait for shutdown signal.
-    tokio::signal::ctrl_c().await?;
-    info!("shutdown signal received");
+    // Wait for shutdown signal (Ctrl+C or POST /mgmt/shutdown).
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            info!("shutdown signal received (Ctrl+C)");
+        }
+        _ = api_shutdown.notified() => {
+            info!("shutdown signal received (API request)");
+        }
+    }
 
     // Broadcast ServerShutdown event for SSE subscribers (Phase 39, ADR-030).
     // This fires *before* stopping services so connected clients receive it.
@@ -494,6 +507,7 @@ async fn start_management_server(
     event_tx: tokio::sync::broadcast::Sender<String>,
     log_tx: tokio::sync::broadcast::Sender<log_broadcast::LogEvent>,
     log_ring_buffer: std::sync::Arc<log_broadcast::LogRingBuffer>,
+    shutdown_tx: Arc<tokio::sync::Notify>,
 ) {
     let mgmt_addr: std::net::SocketAddr = format!(
         "{}:{}",
@@ -508,6 +522,7 @@ async fn start_management_server(
         event_tx,
         log_tx,
         log_ring_buffer,
+        shutdown_tx,
     );
 
     let listener = match tokio::net::TcpListener::bind(mgmt_addr).await {

@@ -242,13 +242,36 @@ impl ManagedService for MqttPublisher {
                             ).await;
                         }
 
-                        // Allow time for the broker to process the retained
-                        // clears before disconnecting (Phase 41).
-                        tokio::time::sleep(
-                            tokio::time::Duration::from_millis(200)
-                        ).await;
-
+                        // Queue the disconnect. rumqttc will internally
+                        // enqueue an MQTT DISCONNECT packet.
                         let _ = client.disconnect().await;
+
+                        // Continue polling the event loop to flush all
+                        // queued messages (offline, shutdown, empty retained
+                        // clears, disconnect) over the wire. rumqttc needs
+                        // the poll loop to keep running — without this, the
+                        // queued publishes would never actually be sent.
+                        //
+                        // We poll with a timeout: once the disconnect is
+                        // processed the loop will error, breaking out.
+                        let flush_deadline = tokio::time::Instant::now()
+                            + tokio::time::Duration::from_millis(2000);
+                        loop {
+                            match tokio::time::timeout_at(
+                                flush_deadline,
+                                eventloop.poll(),
+                            )
+                            .await
+                            {
+                                Ok(Ok(_)) => {} // keep flushing
+                                Ok(Err(_)) => break, // connection closed
+                                Err(_) => {
+                                    warn!("MQTT flush timed out during shutdown");
+                                    break;
+                                }
+                            }
+                        }
+
                         info!("MQTT publisher disconnected (retained topics cleared)");
                         break;
                     }

@@ -51,6 +51,7 @@ pub fn build_management_router(
     event_tx: broadcast::Sender<String>,
     log_tx: broadcast::Sender<LogEvent>,
     log_ring_buffer: Arc<LogRingBuffer>,
+    shutdown_tx: Arc<tokio::sync::Notify>,
 ) -> Router {
     let mgmt_state = Arc::new(MgmtState {
         app: state,
@@ -58,6 +59,7 @@ pub fn build_management_router(
         event_tx,
         log_tx,
         log_ring_buffer,
+        shutdown_tx,
     });
 
     let mut router = Router::new()
@@ -114,6 +116,11 @@ struct MgmtState {
 
     /// Ring buffer for log backfill on new WebSocket connections (ADR-022).
     log_ring_buffer: Arc<LogRingBuffer>,
+
+    /// Shutdown signal — notifying this triggers the graceful shutdown
+    /// flow in `main()` (stop all services, clear MQTT retained topics,
+    /// broadcast SSE ServerShutdown event, then exit).
+    shutdown_tx: Arc<tokio::sync::Notify>,
 }
 
 // ============================================================================
@@ -554,10 +561,14 @@ async fn mgmt_shutdown(
         .to_string(),
     );
     // Spawn delayed shutdown so the response is sent first.
-    tokio::spawn(async {
+    // Notify the shared shutdown signal which `main()` is `select!`-ing on.
+    // This triggers the full graceful shutdown path: SSE broadcast,
+    // service_manager.stop_all() (including MQTT retained topic cleanup),
+    // then clean process exit.
+    let shutdown_tx = state.shutdown_tx.clone();
+    tokio::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        // Send SIGINT to self (triggers the ctrl_c handler in main).
-        std::process::exit(0);
+        shutdown_tx.notify_one();
     });
 
     (
@@ -1015,7 +1026,7 @@ mod tests {
         let (log_tx, _) = broadcast::channel::<LogEvent>(16);
         let log_ring_buffer = Arc::new(LogRingBuffer::new());
 
-        build_management_router(app_state, config, event_tx, log_tx, log_ring_buffer)
+        build_management_router(app_state, config, event_tx, log_tx, log_ring_buffer, Arc::new(tokio::sync::Notify::new()))
     }
 
     /// Build a router with a pre-populated device in the registry.
@@ -1070,7 +1081,7 @@ mod tests {
         let (log_tx, _) = broadcast::channel::<LogEvent>(16);
         let log_ring_buffer = Arc::new(LogRingBuffer::new());
 
-        build_management_router(app_state, config, event_tx, log_tx, log_ring_buffer)
+        build_management_router(app_state, config, event_tx, log_tx, log_ring_buffer, Arc::new(tokio::sync::Notify::new()))
     }
 
     /// Helper: parse a JSON response body into a serde_json::Value.
@@ -1357,7 +1368,7 @@ mod tests {
         let (event_tx, _) = broadcast::channel::<String>(16);
         let (log_tx, _) = broadcast::channel::<LogEvent>(16);
         let log_ring_buffer = Arc::new(LogRingBuffer::new());
-        let router = build_management_router(app_state, config, event_tx, log_tx, log_ring_buffer);
+        let router = build_management_router(app_state, config, event_tx, log_tx, log_ring_buffer, Arc::new(tokio::sync::Notify::new()));
 
         let response = router
             .oneshot(
@@ -1432,7 +1443,7 @@ mod tests {
         let (event_tx, _) = broadcast::channel::<String>(16);
         let (log_tx, _) = broadcast::channel::<LogEvent>(16);
         let log_ring_buffer = Arc::new(LogRingBuffer::new());
-        let router = build_management_router(app_state, config, event_tx, log_tx, log_ring_buffer);
+        let router = build_management_router(app_state, config, event_tx, log_tx, log_ring_buffer, Arc::new(tokio::sync::Notify::new()));
 
         let response = router
             .oneshot(
