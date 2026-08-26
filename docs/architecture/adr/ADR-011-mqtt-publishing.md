@@ -257,3 +257,25 @@ Key behavioral changes:
 
 The message format, topic structure, QoS levels, and retained message
 behavior defined in this ADR remain unchanged.
+
+---
+
+## Addendum B — Hostname-Derived Identity (2026-08-26)
+
+The `client_id` and `topic_prefix` fields in the `[mqtt]` config section
+have been removed from user configuration. They are now **automatically
+derived from the system hostname** at startup:
+
+| Field | Format | Example (`hostname = "LAB-BENCH-1"`) |
+|-------|--------|--------------------------------------|
+| `client_id` | `okfpga-server-<hostname>` | `okfpga-server-lab-bench-1` |
+| `topic_prefix` | `okfpga/server-<hostname>` | `okfpga/server-lab-bench-1` |
+
+**Rationale:** Only one ok-FPGA-Server should run per host (enforced by
+management port binding). The hostname provides natural uniqueness without
+requiring manual configuration. The TOML fields are marked `#[serde(skip)]`
+and populated by `MqttConfig::resolve_hostname_fields()` at startup.
+
+This change affects the topic structure defined in this ADR — the `{prefix}`
+is no longer a user-chosen string like `okfpga/server01` but is always
+`okfpga/server-<hostname>`.

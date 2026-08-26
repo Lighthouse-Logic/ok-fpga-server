@@ -198,3 +198,12 @@ periodic tick (ADR-032). It is published:
 
 See [ADR-032](ADR-032-mqtt-report-by-exception.md) for the full
 report-by-exception publishing model.
+
+### Hostname-Derived Identity
+
+The `client_id` and `topic_prefix` fields referenced in §1 are no longer
+user-configurable. They are derived from the system hostname at startup
+as `okfpga-server-<hostname>` and `okfpga/server-<hostname>` respectively.
+The `mqtt_topic_prefix` field in the announce payload (§1) reflects this.
+
+See [ADR-011 Addendum B](ADR-011-mqtt-publishing.md) for details.

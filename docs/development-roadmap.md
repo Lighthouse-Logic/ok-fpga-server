@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-08-26 (Phase 40 promoted to Next)
+> **Last Updated:** 2026-08-26 (Phase 40 completed; Phase 41 planned)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -47,8 +47,9 @@
 | **Phase 37** | API Response Compliance Audit | — | ✅ [Archived](archive/roadmap-phases-37.md) |
 | **Phase 38** | User Identification Consistency | ADR-029 | ✅ [Archived](archive/roadmap-phases-38.md) |
 | **Phase 39** | SSE Event Expansion | ADR-030 | ✅ [Archived](archive/roadmap-phases-39.md) |
-| **Phase 40** | MQTT Server Discovery Messages | ADR-011 | 🟡 Next |
-| **Phase 41+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
+| **Phase 40** | MQTT Discovery, Report-by-Exception, Hostname Identity | ADR-011, ADR-031, ADR-032 | ✅ Completed |
+| **Phase 41** | Singleton Instance Guard | — | 🟡 Next |
+| **Phase 42+ (Later)** | TLS, CI, persistent storage, packaging | — | 📘 Exploratory |
 
 ---
 
@@ -60,35 +61,61 @@
 
 ## 🟡 Next
 
-### Phase 40 — MQTT Server Discovery Messages
+### Phase 41 — Singleton Instance Guard
 
-**Goal:** Extend the existing MQTT status publisher (ADR-011) to include a
-`server.announce` retained message with full server connectivity information
-(REST/gRPC/dashboard URLs, description, device count, service states),
-enabling cross-subnet discovery via a shared MQTT broker.
+**Goal:** Prevent a second ok-FPGA-Server instance from starting on the
+same host. Currently, if a user launches a second server, it logs
+`ERROR` messages (e.g., port bind failures) to stdout but **continues
+running** — attempting to load the FrontPanel DLL, register mDNS
+services, connect to MQTT, and bind REST/gRPC ports. This causes
+resource conflicts, duplicate mDNS announcements, and confusing MQTT
+topics.
 
-**ADR:** [ADR-031](architecture/adr/ADR-031-mqtt-discovery.md) —
-MQTT Cross-Subnet Server Discovery
+**Problem Statement:**
+The management port bind (`0.0.0.0:9090`) fails with `AddrInUse` when
+another instance is running, but the current error handling only logs a
+warning and returns from the management server setup — it does **not**
+prevent the rest of `main()` from continuing. Services (REST, gRPC,
+MQTT, mDNS) and the FrontPanel DLL are initialized *before* the
+management port is bound, so they have already started by the time the
+conflict is detected.
 
-**Depends On:** Phase 10 (MQTT publisher, ADR-011)
+**Requirements:**
+1. **Early detection** — check for a running instance *before*
+   initializing any services or loading the FrontPanel DLL.
+2. **Hard exit** — if another instance is detected, print a clear error
+   message and exit with a non-zero status code. Do not start any
+   services.
+3. **Cross-platform** — must work on both Windows 11 and Ubuntu
+   22.04/24.04.
 
-**Key Design Decisions:**
-- IP address auto-detected at publish time (DHCP-friendly). If multiple
-  interfaces exist, use configured `announce_interface` name or
-  `preferred_subnets` precedence list. Ignore `169.254.0.0/16` (APIPA).
-- **LWT (Last Will & Testament)** clears stale announce on crash/disconnect.
-- Graceful shutdown publishes `server.offline` retained message.
+**Possible Approaches:**
+- **Named mutex / file lock** — create a platform-specific named mutex
+  (Windows: `CreateMutexW("okfpga-server")`; Linux: `flock()` on a
+  lockfile). Check at the very top of `main()` before any
+  initialization.
+- **Port pre-check** — attempt a non-blocking TCP bind on the management
+  port at the very start of `main()`, before loading config or DLL. If
+  it fails with `AddrInUse`, exit immediately. Release the socket and
+  re-bind later when the management server is ready. (Simplest approach
+  but has a small TOCTOU window.)
+- **PID file** — write PID to a file, check on startup. Less robust
+  than mutex/lock on crash.
 
 **Deliverables:**
 
 | File | Changes |
-|------|--------|
-| `mqtt.rs` | Add `publish_server_announce()`, LWT setup, shutdown clear |
-| `config.rs` | Add `announce_interface`, `preferred_subnets` to `MqttConfig` |
-| `state.rs` | Add `rest_port`, `grpc_port`, `management_port`, `description` |
-| `main.rs` | Pass port/description info to `AppState` constructor |
-| `config.toml` | Add new config fields with defaults |
-| `mqtt.rs` tests | `test_build_announce_message`, `test_resolve_ip` |
+|------|---------|
+| `main.rs` | Add singleton guard at the top of `main()`, before config load |
+| `main.rs` | Reorder initialization: guard → config → tracing → DLL → services |
+
+**Acceptance Criteria:**
+- Starting a second `ok-fpga-server` instance prints a clear message
+  (e.g., *"Another ok-FPGA-Server is already running on this host.
+  Exiting."*) and exits with code 1.
+- No FrontPanel DLL is loaded, no mDNS registration, no MQTT connection,
+  no port binding occurs in the second instance.
+- The first instance is unaffected.
 
 ---
 
@@ -225,6 +252,9 @@ implementation details, verification steps, and acceptance criteria.
 | 35 | Client Demo Bug Fixes & README Update | 2026-08-21 | — | [phase 35](archive/roadmap-phases-35.md) |
 | 36 | Configure FPGA API Alignment | 2026-08-23 | ADR-028 | [phase 36](archive/roadmap-phases-36.md) |
 | 37 | API Response Compliance Audit | 2026-08-23 | — | [phase 37](archive/roadmap-phases-37.md) |
+| 38 | User Identification Consistency | 2026-08-23 | ADR-029 | [phase 38](archive/roadmap-phases-38.md) |
+| 39 | SSE Event Expansion | 2026-08-24 | ADR-030 | [phase 39](archive/roadmap-phases-39.md) |
+| 40 | MQTT Discovery, Report-by-Exception, Hostname Identity | 2026-08-26 | ADR-011(B), ADR-031, ADR-032 | — |
 
 ---
 
