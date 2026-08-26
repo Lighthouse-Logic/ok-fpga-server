@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-08-23 (Phase 39 archived)
+> **Last Updated:** 2026-08-26 (Phase 40 promoted to Next)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -47,7 +47,8 @@
 | **Phase 37** | API Response Compliance Audit | — | ✅ [Archived](archive/roadmap-phases-37.md) |
 | **Phase 38** | User Identification Consistency | ADR-029 | ✅ [Archived](archive/roadmap-phases-38.md) |
 | **Phase 39** | SSE Event Expansion | ADR-030 | ✅ [Archived](archive/roadmap-phases-39.md) |
-| **Phase 40+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
+| **Phase 40** | MQTT Server Discovery Messages | ADR-011 | 🟡 Next |
+| **Phase 41+ (Later)** | TLS, CI, persistent storage, packaging | — | 🔵 Exploratory |
 
 ---
 
@@ -59,7 +60,35 @@
 
 ## 🟡 Next
 
-*(Empty — no phase is currently planned for Next.)*
+### Phase 40 — MQTT Server Discovery Messages
+
+**Goal:** Extend the existing MQTT status publisher (ADR-011) to include a
+`server.announce` retained message with full server connectivity information
+(REST/gRPC/dashboard URLs, description, device count, service states),
+enabling cross-subnet discovery via a shared MQTT broker.
+
+**ADR:** [ADR-031](architecture/adr/ADR-031-mqtt-discovery.md) —
+MQTT Cross-Subnet Server Discovery
+
+**Depends On:** Phase 10 (MQTT publisher, ADR-011)
+
+**Key Design Decisions:**
+- IP address auto-detected at publish time (DHCP-friendly). If multiple
+  interfaces exist, use configured `announce_interface` name or
+  `preferred_subnets` precedence list. Ignore `169.254.0.0/16` (APIPA).
+- **LWT (Last Will & Testament)** clears stale announce on crash/disconnect.
+- Graceful shutdown publishes `server.offline` retained message.
+
+**Deliverables:**
+
+| File | Changes |
+|------|--------|
+| `mqtt.rs` | Add `publish_server_announce()`, LWT setup, shutdown clear |
+| `config.rs` | Add `announce_interface`, `preferred_subnets` to `MqttConfig` |
+| `state.rs` | Add `rest_port`, `grpc_port`, `management_port`, `description` |
+| `main.rs` | Pass port/description info to `AppState` constructor |
+| `config.toml` | Add new config fields with defaults |
+| `mqtt.rs` tests | `test_build_announce_message`, `test_resolve_ip` |
 
 ---
 
@@ -133,16 +162,6 @@ Features in this section represent uncommitted research or long-term capabilitie
 * **Rust egui demo unit tests** — egui does not provide a built-in test harness
   like iced's `iced_test`; implementing headless UI tests will require
   significant effort.
-
-* **MQTT server discovery messages** — extend the MQTT heartbeat/status
-  payload to include full server connectivity information (REST host:port,
-  gRPC host:port, dashboard URL, server description, device count). This
-  would allow any MQTT subscriber to discover and connect to the server even
-  across subnets — provided both the server and the subscriber share the same
-  MQTT broker. Unlike mDNS (which is link-local only), MQTT-based discovery
-  works across routed networks. The MQTT topic should be
-  `{prefix}/server/announce` with a retained message so new subscribers
-  receive the server info immediately upon connecting to the broker.
 
 * **mDNS browser unit tests** — deferred from Phase 28A. Test the
   `mdns_browser` module in each of the 4 common libraries (Rust + Python,

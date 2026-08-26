@@ -179,7 +179,7 @@ impl Default for GrpcConfig {
     }
 }
 
-/// MQTT status publisher configuration (Phase 10).
+/// MQTT status publisher configuration (Phase 10, extended Phase 40).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MqttConfig {
@@ -197,6 +197,27 @@ pub struct MqttConfig {
 
     /// How often to publish periodic status messages (seconds).
     pub publish_interval_secs: u64,
+
+    /// Name of the network interface to use for announce URLs (ADR-031 §2).
+    ///
+    /// Only needed when the machine has multiple non-loopback interfaces.
+    /// When empty and only one non-loopback, non-APIPA interface exists,
+    /// that interface is used automatically. When empty and multiple
+    /// interfaces exist, `preferred_subnets` is consulted.
+    ///
+    /// Example: `"Ethernet"`, `"eth0"`, `"ens192"`.
+    pub announce_interface: String,
+
+    /// Ordered list of preferred subnets (CIDR notation) for IP auto-detection
+    /// when `announce_interface` is not set and multiple interfaces exist
+    /// (ADR-031 §2).
+    ///
+    /// The first interface whose IPv4 address matches a listed subnet is used.
+    /// When empty and no `announce_interface` is set, the first available
+    /// non-loopback, non-APIPA interface is used.
+    ///
+    /// Example: `["10.0.1.0/24", "10.40.40.0/24"]`
+    pub preferred_subnets: Vec<String>,
 }
 
 impl Default for MqttConfig {
@@ -207,6 +228,8 @@ impl Default for MqttConfig {
             client_id: "okfpga-server-01".to_string(),
             topic_prefix: "okfpga/server01".to_string(),
             publish_interval_secs: 5,
+            announce_interface: String::new(),
+            preferred_subnets: Vec::new(),
         }
     }
 }

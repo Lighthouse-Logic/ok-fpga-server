@@ -35,7 +35,8 @@ dashboard = []
 grpc = ["dep:tonic", "dep:prost"]
 
 # MQTT status publisher. Publishes device/service events to an external broker.
-mqtt = ["dep:rumqttc"]
+# Phase 40 (ADR-031): also publishes server.announce for cross-subnet discovery.
+mqtt = ["dep:rumqttc", "dep:netdev"]
 
 # mDNS/DNS-SD service discovery. Advertises the server on the local network.
 # Uses dns-sd-native (OS daemon) as primary, mdns-sd as fallback (ADR-027).
@@ -103,6 +104,11 @@ prost = { version = "0.13", optional = true }
 # rumqttc is a pure-Rust async MQTT v5 client. Used to publish status
 # messages to an external broker (e.g., Mosquitto).
 rumqttc = { version = "0.24", optional = true }
+
+# netdev enumerates network interfaces with names + IPv4/IPv6 addresses.
+# Used by the MQTT announce publisher (ADR-031, Phase 40) to resolve the
+# server's routable IPv4 address for cross-subnet discovery URLs.
+netdev = { version = "0.31", optional = true }
 
 # --- mDNS feature dependencies ---
 

@@ -23,6 +23,16 @@ broker_url = "mqtt://localhost:1883"
 client_id = "okfpga-server-01"
 topic_prefix = "okfpga/server01"
 publish_interval_secs = 5
+# Network interface name for announce URLs (ADR-031).
+# If not set and only one non-loopback interface exists, it is used automatically.
+# If not set and multiple interfaces exist, preferred_subnets is consulted.
+# Example: "Ethernet", "eth0", "ens192"
+announce_interface = ""
+# Ordered list of preferred subnets (CIDR) for auto-detection when
+# announce_interface is not set and multiple non-loopback interfaces exist.
+# The first interface whose IPv4 address matches a listed subnet is used.
+# If empty and no announce_interface is set, the first available interface is used.
+preferred_subnets = []
 
 [mdns]
 enabled = true
