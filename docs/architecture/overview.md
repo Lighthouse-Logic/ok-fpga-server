@@ -214,6 +214,7 @@ Cross-platform packaging:
 | [ADR-030](adr/ADR-030-sse-event-expansion.md) | SSE Event Expansion | Proposed (Phase 39) |
 | [ADR-031](adr/ADR-031-mqtt-discovery.md) | MQTT Cross-Subnet Server Discovery | Implemented ✅ |
 | [ADR-032](adr/ADR-032-mqtt-report-by-exception.md) | MQTT Report-by-Exception Publishing | Implemented ✅ |
+| [ADR-033](adr/ADR-033-singleton-guard.md) | Singleton Instance Guard & Startup Safety | Implemented ✅ |
 
 ## 9. References
 
