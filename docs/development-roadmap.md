@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-08-26 (Phase 41 promoted to Now)
+> **Last Updated:** 2026-08-26 (Phase 41 completed and archived)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -47,122 +47,21 @@
 | **Phase 37** | API Response Compliance Audit | — | ✅ [Archived](archive/roadmap-phases-37.md) |
 | **Phase 38** | User Identification Consistency | ADR-029 | ✅ [Archived](archive/roadmap-phases-38.md) |
 | **Phase 39** | SSE Event Expansion | ADR-030 | ✅ [Archived](archive/roadmap-phases-39.md) |
-| **Phase 40** | MQTT Discovery, Report-by-Exception, Hostname Identity | ADR-011, ADR-031, ADR-032 | ✅ Completed |
-| **Phase 41** | Singleton Instance Guard & Startup Safety | — | 🟢 Now |
+| **Phase 40** | MQTT Discovery, Report-by-Exception, Hostname Identity | ADR-011, ADR-031, ADR-032 | ✅ [Archived](archive/roadmap-phases-40-41.md) |
+| **Phase 41** | Singleton Instance Guard & Startup Safety | ADR-033 | ✅ [Archived](archive/roadmap-phases-40-41.md) |
 | **Phase 42+ (Later)** | TLS, CI, persistent storage, packaging | — | 📘 Exploratory |
 
 ---
 
 ## 🟢 Now
 
-### Phase 41 — Singleton Instance Guard & Startup Safety
-
-*See implementation details below.*
+*(Empty — no phase is currently active.)*
 
 ---
 
 ## 🟡 Next
 
 *(Empty — no phase is currently queued.)*
-
----
-
-## Phase 41 Details
-
-**Goal:** Prevent a second ok-FPGA-Server instance from starting on the
-same host, and ensure the server validates all required port bindings
-*before* loading the FrontPanel DLL or registering any services.
-
-Currently, if a user launches a second server, it logs `ERROR` messages
-(e.g., port bind failures) to stdout but **continues running** —
-attempting to load the FrontPanel DLL, register mDNS services, connect
-to MQTT, and bind REST/gRPC ports. This causes resource conflicts,
-duplicate mDNS announcements, and confusing MQTT topics.
-
-**Problem Statement:**
-The management port bind (`0.0.0.0:9090`) fails with `AddrInUse` when
-another instance is running, but the current error handling only logs a
-warning and returns from the management server setup — it does **not**
-prevent the rest of `main()` from continuing. Services (REST, gRPC,
-MQTT, mDNS) and the FrontPanel DLL are initialized *before* the
-management port is bound, so they have already started by the time the
-conflict is detected.
-
-**Requirements:**
-1. **Early port validation** — at the very top of `main()`, before
-   loading the FrontPanel DLL or initializing any services, attempt to
-   bind every port the server is configured to use. Only check ports
-   for **enabled** services:
-   - Management port (always required)
-   - REST port (if `[rest] enabled = true`)
-   - gRPC port (if `[grpc] enabled = true`)
-   
-   If *any* enabled port is already in use, print a clear error message
-   listing which port(s) conflict and exit with a non-zero status code.
-   
-2. **Hard exit** — if any port conflict is detected, exit immediately.
-   Do not load the FrontPanel DLL, do not register mDNS, do not connect
-   to MQTT, do not start any service.
-
-3. **Cross-platform** — must work on both Windows 11 and Ubuntu
-   22.04/24.04.
-
-4. **Graceful shutdown: retained topic cleanup** — on graceful shutdown,
-   after publishing the `server.offline` message, publish **empty
-   payloads** (zero-byte retained messages) to every topic that was
-   previously published with `retain=true`. Per MQTT spec, an empty
-   retained message tells the broker to **delete** the retained message
-   for that topic. This prevents the broker from accumulating stale
-   retained state from servers that have shut down cleanly. Topics to
-   clear:
-   - `{prefix}/status`
-   - `{prefix}/services/status`
-   - `{prefix}/devices/inventory`
-   - `{prefix}/resources/inventory`
-   - `{prefix}/server/announce`
-
-5. **Test coverage** — add unit tests and/or integration tests:
-   - Test that a second bind attempt on an in-use port returns
-     `AddrInUse` and the guard function returns an error.
-   - Test that disabled services are *not* checked (e.g., gRPC disabled
-     → gRPC port not validated).
-   - Test that all enabled ports are checked (management + REST + gRPC
-     when all enabled).
-
-**Possible Approaches for Singleton Guard:**
-- **Port pre-check** — attempt a non-blocking TCP bind on each enabled
-  port at the very start of `main()`, before loading config or DLL. If
-  any fails with `AddrInUse`, exit immediately. Release the sockets and
-  re-bind later when each service is ready. (Simplest approach but has a
-  small TOCTOU window.)
-- **Named mutex / file lock** — create a platform-specific named mutex
-  (Windows: `CreateMutexW("okfpga-server")`; Linux: `flock()` on a
-  lockfile). Check at the very top of `main()` before any
-  initialization.
-- **PID file** — write PID to a file, check on startup. Less robust
-  than mutex/lock on crash.
-
-**Deliverables:**
-
-| File | Changes |
-|------|---------|
-| `main.rs` | Add `check_port_availability()` guard at top of `main()`, before any initialization |
-| `main.rs` | Reorder initialization: port guard → config → tracing → DLL → services |
-| `mqtt.rs` | On graceful shutdown, publish empty retained payloads to clear all retained topics |
-| `mqtt.rs` tests | Test retained topic cleanup on shutdown |
-| `main.rs` tests | Test port pre-check logic (AddrInUse detection, disabled service skip) |
-
-**Acceptance Criteria:**
-- Starting a second `ok-fpga-server` instance prints a clear message
-  (e.g., *"Port 9090 (management) is already in use — is another
-  ok-FPGA-Server running? Exiting."*) and exits with code 1.
-- No FrontPanel DLL is loaded, no mDNS registration, no MQTT connection,
-  no port binding occurs in the second instance.
-- Disabled services do not trigger false positives (e.g., gRPC port
-  used by another program does not block startup if gRPC is disabled).
-- On graceful shutdown, all retained MQTT topics are cleared with empty
-  payloads before disconnecting.
-- The first instance is unaffected.
 
 ---
 
@@ -301,7 +200,8 @@ implementation details, verification steps, and acceptance criteria.
 | 37 | API Response Compliance Audit | 2026-08-23 | — | [phase 37](archive/roadmap-phases-37.md) |
 | 38 | User Identification Consistency | 2026-08-23 | ADR-029 | [phase 38](archive/roadmap-phases-38.md) |
 | 39 | SSE Event Expansion | 2026-08-24 | ADR-030 | [phase 39](archive/roadmap-phases-39.md) |
-| 40 | MQTT Discovery, Report-by-Exception, Hostname Identity | 2026-08-26 | ADR-011(B), ADR-031, ADR-032 | — |
+| 40 | MQTT Discovery, Report-by-Exception, Hostname Identity | 2026-08-26 | ADR-011(B), ADR-031, ADR-032 | [phases 40–41](archive/roadmap-phases-40-41.md) |
+| 41 | Singleton Instance Guard & Startup Safety | 2026-08-26 | ADR-033 | [phases 40–41](archive/roadmap-phases-40-41.md) |
 
 ---
 
