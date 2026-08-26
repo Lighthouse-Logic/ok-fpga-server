@@ -195,8 +195,23 @@ pub struct MqttConfig {
     /// Topic prefix for all published messages.
     pub topic_prefix: String,
 
-    /// How often to publish periodic status messages (seconds).
+    /// How often to check for state changes (seconds).
+    ///
+    /// The server polls its own state at this interval and publishes an
+    /// MQTT message **only if the underlying data has changed**. This avoids
+    /// the IoT anti-pattern of publishing identical payloads with new
+    /// timestamps. Set lower for faster change detection (e.g. 5s), higher
+    /// to reduce CPU usage on the poll loop.
     pub publish_interval_secs: u64,
+
+    /// Maximum seconds between forced heartbeat publishes, even if no state
+    /// has changed.
+    ///
+    /// Confirms the server is still alive and reachable. Subscribers can
+    /// treat the absence of a heartbeat within this window as a potential
+    /// problem. Set to 0 to disable the heartbeat and rely solely on
+    /// LWT for crash detection.
+    pub heartbeat_max_secs: u64,
 
     /// Name of the network interface to use for announce URLs (ADR-031 §2).
     ///
@@ -228,6 +243,7 @@ impl Default for MqttConfig {
             client_id: "okfpga-server-01".to_string(),
             topic_prefix: "okfpga/server01".to_string(),
             publish_interval_secs: 5,
+            heartbeat_max_secs: 300,
             announce_interface: String::new(),
             preferred_subnets: Vec::new(),
         }

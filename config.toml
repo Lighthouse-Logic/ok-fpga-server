@@ -22,7 +22,13 @@ enabled = true
 broker_url = "mqtt://localhost:1883"
 client_id = "okfpga-server-01"
 topic_prefix = "okfpga/server01"
+# How often to check for state changes (seconds). Messages are only
+# published when underlying data has changed — not on every tick.
 publish_interval_secs = 5
+# Maximum seconds between forced heartbeat publishes, even if no state
+# has changed. Confirms the server is alive. Set to 0 to disable and
+# rely solely on LWT for crash detection.
+heartbeat_max_secs = 300
 # Network interface name for announce URLs (ADR-031).
 # If not set and only one non-loopback interface exists, it is used automatically.
 # If not set and multiple interfaces exist, preferred_subnets is consulted.

@@ -264,15 +264,22 @@ impl ManagedService for MqttPublisher {
             }
         });
 
-        // Spawn the periodic heartbeat publisher.
-        // Uses a separate MQTT client on a timer to publish status and announce
-        // at the configured interval.
+        // Spawn the periodic state-change publisher.
+        //
+        // This task polls the server state at `publish_interval_secs` and
+        // publishes an MQTT message **only when the underlying data has
+        // changed** (report-by-exception). A forced heartbeat is published
+        // every `heartbeat_max_secs` regardless, to confirm liveness.
+        //
+        // This avoids the IoT anti-pattern of publishing identical payloads
+        // with new timestamps on every tick.
         let shutdown2 = self.shutdown_signal.clone();
         let state2 = self.state.clone();
         let prefix2 = self.config.topic_prefix.clone();
         let server_id2 = self.config.client_id.clone();
         let host2 = host.clone();
         let config_for_periodic = self.config.clone();
+        let heartbeat_max = self.config.heartbeat_max_secs;
 
         tokio::spawn(async move {
             let mut interval =
@@ -294,28 +301,92 @@ impl ManagedService for MqttPublisher {
                 }
             });
 
+            // State fingerprints: the serialized payload (without timestamps)
+            // from the last publish. We compare against these on each tick
+            // and only re-publish when the data has actually changed.
+            let mut prev_status: Option<String> = None;
+            let mut prev_announce: Option<String> = None;
+            let mut prev_devices: Option<String> = None;
+            let mut prev_resources: Option<String> = None;
+            let mut prev_services: Option<String> = None;
+            let mut last_heartbeat = std::time::Instant::now();
+
             loop {
                 tokio::select! {
                     _ = shutdown2.notified() => break,
                     _ = interval.tick() => {
-                        publish_server_status(
-                            &periodic_client, &prefix2, &server_id2, &state2
-                        ).await;
-                        // Phase 40: re-publish announce on every heartbeat tick
-                        // so device_count stays current and IP changes are picked up.
-                        publish_server_announce(
-                            &periodic_client, &prefix2, &server_id2,
+                        // Determine if a forced heartbeat is due.
+                        let force = heartbeat_max > 0
+                            && last_heartbeat.elapsed().as_secs() >= heartbeat_max;
+
+                        // --- Status ---
+                        let cur_status = build_status_payload(&state2);
+                        if force || prev_status.as_ref() != Some(&cur_status) {
+                            publish_with_payload(
+                                &periodic_client, &server_id2,
+                                "server.status", &cur_status,
+                                &format!("{}/status", prefix2),
+                                QoS::AtMostOnce, true,
+                            ).await;
+                            prev_status = Some(cur_status);
+                        }
+
+                        // --- Announce ---
+                        let cur_announce = build_announce_payload(
                             &state2, &config_for_periodic,
-                        ).await;
-                        // Re-publish device and resource inventory on each tick
-                        // so hot-plug events (devices added/removed after startup)
-                        // are reflected in MQTT.
-                        publish_device_inventory(
-                            &periodic_client, &prefix2, &server_id2, &state2
-                        ).await;
-                        publish_resource_inventory(
-                            &periodic_client, &prefix2, &server_id2, &state2
-                        ).await;
+                        );
+                        if let Some(ref payload) = cur_announce {
+                            if force || prev_announce.as_ref() != Some(payload) {
+                                publish_with_payload(
+                                    &periodic_client, &server_id2,
+                                    "server.announce", payload,
+                                    &format!("{}/server/announce", prefix2),
+                                    QoS::AtLeastOnce, true,
+                                ).await;
+                                prev_announce = Some(payload.clone());
+                            }
+                        }
+
+                        // --- Device inventory ---
+                        let cur_devices = build_device_inventory_payload(&state2);
+                        if force || prev_devices.as_ref() != Some(&cur_devices) {
+                            publish_with_payload(
+                                &periodic_client, &server_id2,
+                                "devices.inventory", &cur_devices,
+                                &format!("{}/devices/inventory", prefix2),
+                                QoS::AtLeastOnce, true,
+                            ).await;
+                            prev_devices = Some(cur_devices);
+                        }
+
+                        // --- Resource inventory ---
+                        let cur_resources = build_resource_inventory_payload(&state2);
+                        if force || prev_resources.as_ref() != Some(&cur_resources) {
+                            publish_with_payload(
+                                &periodic_client, &server_id2,
+                                "resources.inventory", &cur_resources,
+                                &format!("{}/resources/inventory", prefix2),
+                                QoS::AtLeastOnce, true,
+                            ).await;
+                            prev_resources = Some(cur_resources);
+                        }
+
+                        // --- Services status ---
+                        let cur_services = build_services_payload(&state2);
+                        if force || prev_services.as_ref() != Some(&cur_services) {
+                            publish_with_payload(
+                                &periodic_client, &server_id2,
+                                "services.status", &cur_services,
+                                &format!("{}/services/status", prefix2),
+                                QoS::AtLeastOnce, true,
+                            ).await;
+                            prev_services = Some(cur_services);
+                        }
+
+                        if force {
+                            last_heartbeat = std::time::Instant::now();
+                            debug!("MQTT heartbeat: forced re-publish of all topics");
+                        }
                     }
                 }
             }
@@ -342,10 +413,148 @@ impl ManagedService for MqttPublisher {
 }
 
 // ============================================================================
-// Publish Functions
+// Payload Builders (for fingerprinting / report-by-exception)
 // ============================================================================
 
-/// Publish server heartbeat status.
+/// Build the server status payload as a canonical JSON string.
+///
+/// This **excludes** `uptime_secs` from the fingerprint because uptime
+/// changes every second and would defeat the report-by-exception model.
+/// Uptime is still included in the published message.
+fn build_status_payload(state: &AppState) -> String {
+    // The fingerprint only includes values that represent real state changes.
+    // uptime_secs is excluded — it always increases and is not "state".
+    serde_json::json!({
+        "device_count": state.device_manager.device_count(),
+        "resource_count": state.resource_registry.count(),
+        "api_version": state.api_version,
+    })
+    .to_string()
+}
+
+/// Build the services status payload as a canonical JSON string.
+fn build_services_payload(state: &AppState) -> String {
+    let services: serde_json::Map<String, serde_json::Value> = state
+        .service_manager
+        .list()
+        .iter()
+        .map(|s| {
+            (
+                s.name.clone(),
+                serde_json::Value::String(format!("{}", s.status)),
+            )
+        })
+        .collect();
+
+    serde_json::json!({ "services": services }).to_string()
+}
+
+/// Build the device inventory payload as a canonical JSON string.
+fn build_device_inventory_payload(state: &AppState) -> String {
+    let devices: Vec<serde_json::Value> = state
+        .device_manager
+        .registry()
+        .list()
+        .iter()
+        .map(|d| {
+            serde_json::json!({
+                "serial": d.serial(),
+                "product_name": d.product_name(),
+            })
+        })
+        .collect();
+
+    serde_json::json!({ "devices": devices }).to_string()
+}
+
+/// Build the resource inventory payload as a canonical JSON string.
+fn build_resource_inventory_payload(state: &AppState) -> String {
+    serde_json::json!({
+        "count": state.resource_registry.count(),
+    })
+    .to_string()
+}
+
+/// Build the server announce payload as a canonical JSON string.
+///
+/// Returns `None` if the routable IP cannot be determined.
+fn build_announce_payload(
+    state: &AppState,
+    mqtt_config: &MqttConfig,
+) -> Option<String> {
+    let ip = resolve_routable_ip(mqtt_config)?;
+
+    let (rest_port, grpc_port, mgmt_port, description) = {
+        let cfg = state.config.read().expect("config lock poisoned");
+        (
+            cfg.rest.port,
+            cfg.grpc.port,
+            cfg.server.management_port,
+            cfg.server.description.clone(),
+        )
+    };
+
+    let service_states = state.service_manager.list();
+    let is_service_running = |name: &str| -> bool {
+        service_states
+            .iter()
+            .any(|s| s.name == name && s.status.to_string().contains("Running"))
+    };
+
+    Some(
+        serde_json::json!({
+            "description": description,
+            "rest_url": format!("http://{}:{}", ip, rest_port),
+            "grpc_url": format!("grpc://{}:{}", ip, grpc_port),
+            "dashboard_url": format!("http://{}:{}", ip, mgmt_port),
+            "mqtt_topic_prefix": mqtt_config.topic_prefix,
+            "api_version": state.api_version,
+            "device_count": state.device_manager.device_count(),
+            "services": {
+                "rest": is_service_running("rest"),
+                "grpc": is_service_running("grpc"),
+                "mqtt": true,
+                "mdns": is_service_running("mdns"),
+            },
+        })
+        .to_string(),
+    )
+}
+
+// ============================================================================
+// Publish Helpers
+// ============================================================================
+
+/// Publish a pre-built payload string, wrapping it in the standard message
+/// envelope (version, timestamp, server_id, type).
+///
+/// Used by the periodic state-change publisher. The `payload_json` is the
+/// canonical fingerprint string — it gets parsed back to a `Value` so we
+/// can wrap it with the envelope fields.
+async fn publish_with_payload(
+    client: &AsyncClient,
+    server_id: &str,
+    msg_type: &str,
+    payload_json: &str,
+    topic: &str,
+    qos: QoS,
+    retain: bool,
+) {
+    // Parse the fingerprint string back to a Value for the envelope.
+    let payload: serde_json::Value =
+        serde_json::from_str(payload_json).unwrap_or(serde_json::json!({}));
+
+    let msg = build_message(server_id, msg_type, payload);
+
+    if let Err(e) = client
+        .publish(topic, qos, retain, msg.to_string())
+        .await
+    {
+        warn!(error = %e, topic = %topic, "failed to publish MQTT message");
+    }
+}
+
+/// Publish server heartbeat status (used on initial connect).
 async fn publish_server_status(
     client: &AsyncClient,
     prefix: &str,
@@ -367,7 +576,7 @@ async fn publish_server_status(
         .publish(
             format!("{}/status", prefix),
             QoS::AtMostOnce,
-            true, // retained
+            true,
             msg.to_string(),
         )
         .await
@@ -376,7 +585,7 @@ async fn publish_server_status(
     }
 }
 
-/// Publish service states.
+/// Publish service states (used on initial connect).
 async fn publish_services_status(
     client: &AsyncClient,
     prefix: &str,
@@ -405,7 +614,7 @@ async fn publish_services_status(
         .publish(
             format!("{}/services/status", prefix),
             QoS::AtLeastOnce,
-            true, // retained
+            true,
             msg.to_string(),
         )
         .await
@@ -414,7 +623,7 @@ async fn publish_services_status(
     }
 }
 
-/// Publish the device inventory.
+/// Publish the device inventory (used on initial connect).
 async fn publish_device_inventory(
     client: &AsyncClient,
     prefix: &str,
@@ -444,7 +653,7 @@ async fn publish_device_inventory(
         .publish(
             format!("{}/devices/inventory", prefix),
             QoS::AtLeastOnce,
-            true, // retained
+            true,
             msg.to_string(),
         )
         .await
@@ -453,7 +662,7 @@ async fn publish_device_inventory(
     }
 }
 
-/// Publish the resource inventory.
+/// Publish the resource inventory (used on initial connect).
 async fn publish_resource_inventory(
     client: &AsyncClient,
     prefix: &str,
@@ -474,7 +683,7 @@ async fn publish_resource_inventory(
         .publish(
             format!("{}/resources/inventory", prefix),
             QoS::AtLeastOnce,
-            true, // retained
+            true,
             msg.to_string(),
         )
         .await
@@ -485,14 +694,8 @@ async fn publish_resource_inventory(
 
 /// Publish server announce for cross-subnet discovery (ADR-031 §1).
 ///
-/// This retained message contains full server connectivity information so
-/// MQTT subscribers on any subnet can discover and connect to the server.
-/// Published on initial connect and on every periodic heartbeat tick to
-/// keep dynamic values (device_count, IP address in DHCP environments)
-/// current.
-///
-/// If the server's routable IP cannot be determined, the announce is skipped
-/// and a warning is logged.
+/// Used on initial connect. The periodic task uses `build_announce_payload`
+/// + `publish_with_payload` instead.
 async fn publish_server_announce(
     client: &AsyncClient,
     prefix: &str,
@@ -500,61 +703,25 @@ async fn publish_server_announce(
     state: &AppState,
     mqtt_config: &MqttConfig,
 ) {
-    // Resolve the server's routable IPv4 address using the ADR-031 §2 algorithm.
-    let ip = match resolve_routable_ip(mqtt_config) {
-        Some(ip) => ip,
+    let payload = match build_announce_payload(state, mqtt_config) {
+        Some(p) => p,
         None => {
             warn!("MQTT announce skipped — could not determine routable IPv4 address");
             return;
         }
     };
 
-    // Read port and description from the runtime config.
-    // These are set from the TOML config at startup (and may be updated
-    // at runtime via the dashboard Settings panel).
-    let (rest_port, grpc_port, mgmt_port, description) = {
-        let cfg = state.config.read().expect("config lock poisoned");
-        (
-            cfg.rest.port,
-            cfg.grpc.port,
-            cfg.server.management_port,
-            cfg.server.description.clone(),
-        )
-    };
+    // Parse the canonical payload string back to a Value for the envelope.
+    let payload_value: serde_json::Value =
+        serde_json::from_str(&payload).unwrap_or(serde_json::json!({}));
 
-    // Check which services are compiled in and enabled.
-    let service_states = state.service_manager.list();
-    let is_service_running = |name: &str| -> bool {
-        service_states
-            .iter()
-            .any(|s| s.name == name && s.status.to_string().contains("Running"))
-    };
-
-    let msg = build_message(
-        server_id,
-        "server.announce",
-        serde_json::json!({
-            "description": description,
-            "rest_url": format!("http://{}:{}", ip, rest_port),
-            "grpc_url": format!("grpc://{}:{}", ip, grpc_port),
-            "dashboard_url": format!("http://{}:{}", ip, mgmt_port),
-            "mqtt_topic_prefix": mqtt_config.topic_prefix,
-            "api_version": state.api_version,
-            "device_count": state.device_manager.device_count(),
-            "services": {
-                "rest": is_service_running("rest"),
-                "grpc": is_service_running("grpc"),
-                "mqtt": true, // If we're publishing, MQTT is running.
-                "mdns": is_service_running("mdns"),
-            },
-        }),
-    );
+    let msg = build_message(server_id, "server.announce", payload_value);
 
     if let Err(e) = client
         .publish(
             format!("{}/server/announce", prefix),
             QoS::AtLeastOnce,
-            true, // retained — new subscribers get this immediately
+            true,
             msg.to_string(),
         )
         .await
@@ -562,6 +729,7 @@ async fn publish_server_announce(
         warn!(error = %e, "failed to publish server announce");
     }
 }
+
 
 // ============================================================================
 // IP Address Resolution (ADR-031 §2)
