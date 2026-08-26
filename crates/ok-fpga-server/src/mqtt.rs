@@ -164,6 +164,8 @@ impl ManagedService for MqttPublisher {
         let publish_interval = self.config.publish_interval_secs;
         let server_id = self.config.client_id.clone();
         let config_for_announce = self.config.clone();
+        let broker_host = host.clone();
+        let broker_port = port;
 
         // --- Phase 40 (ADR-031 §2): Resolve routable IP once at startup ---
         //
@@ -187,6 +189,7 @@ impl ManagedService for MqttPublisher {
         // Spawn the MQTT event loop handler.
         tokio::spawn(async move {
             let mut connected = false;
+            let mut initial_connect_warned = false;
 
             loop {
                 tokio::select! {
@@ -304,8 +307,18 @@ impl ManagedService for MqttPublisher {
                             Ok(_) => {} // Ignore other events.
                             Err(e) => {
                                 if connected {
+                                    // Was connected, now lost — always log.
                                     warn!(error = %e, "MQTT connection lost — will retry");
                                     connected = false;
+                                } else if !initial_connect_warned {
+                                    // Never connected yet — log once so the
+                                    // operator knows the broker is unreachable.
+                                    warn!(
+                                        broker = %format!("{}:{}", broker_host, broker_port),
+                                        error = %e,
+                                        "MQTT broker unreachable — will retry in background"
+                                    );
+                                    initial_connect_warned = true;
                                 }
                                 // rumqttc handles reconnection internally.
                                 tokio::time::sleep(

@@ -275,3 +275,214 @@ async fn mqtt_publish_to_mosquitto() {
     println!("\n🎉 All 7 MQTT message types published successfully to Mosquitto at 127.0.0.1:1883");
     println!("   (test topics cleaned up — no stale messages left on the broker)");
 }
+
+/// Test that a message published to the broker can be received by a subscriber.
+///
+/// This verifies the broker is functioning correctly end-to-end: publish a
+/// message on a test topic, subscribe to that topic, and verify the message
+/// arrives with the correct payload.
+#[tokio::test]
+async fn mqtt_publish_subscribe_round_trip() {
+    let prefix = "okfpga/test-round-trip";
+    let topic = format!("{prefix}/ping");
+
+    // --- Subscriber ---
+    let mut sub_opts = MqttOptions::new("okfpga-test-subscriber", "127.0.0.1", 1883);
+    sub_opts.set_keep_alive(Duration::from_secs(10));
+    sub_opts.set_clean_session(true);
+
+    let (sub_client, mut sub_loop) = AsyncClient::new(sub_opts, 16);
+
+    let received = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+    let received_clone = received.clone();
+
+    let sub_handle = tokio::spawn(async move {
+        loop {
+            match sub_loop.poll().await {
+                Ok(rumqttc::Event::Incoming(rumqttc::Packet::Publish(p))) => {
+                    let payload = String::from_utf8_lossy(&p.payload).to_string();
+                    received_clone.lock().await.push(payload);
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+    });
+
+    // Subscribe and wait for subscription to be established.
+    sleep(Duration::from_millis(300)).await;
+    sub_client
+        .subscribe(&topic, QoS::AtLeastOnce)
+        .await
+        .expect("subscribe");
+    sleep(Duration::from_millis(300)).await;
+
+    // --- Publisher ---
+    let mut pub_opts = MqttOptions::new("okfpga-test-publisher", "127.0.0.1", 1883);
+    pub_opts.set_keep_alive(Duration::from_secs(10));
+    pub_opts.set_clean_session(true);
+
+    let (pub_client, mut pub_loop) = AsyncClient::new(pub_opts, 16);
+    let pub_handle = tokio::spawn(async move {
+        for _ in 0..20 {
+            if pub_loop.poll().await.is_err() {
+                break;
+            }
+        }
+    });
+
+    sleep(Duration::from_millis(300)).await;
+
+    let test_msg = serde_json::json!({
+        "v": 1,
+        "type": "test.ping",
+        "payload": { "value": 42 }
+    });
+
+    pub_client
+        .publish(&topic, QoS::AtLeastOnce, false, test_msg.to_string())
+        .await
+        .expect("publish ping");
+
+    // Wait for the subscriber to receive the message.
+    sleep(Duration::from_millis(500)).await;
+
+    let messages = received.lock().await;
+    assert!(
+        !messages.is_empty(),
+        "subscriber should have received at least one message"
+    );
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&messages[0]).expect("valid JSON");
+    assert_eq!(parsed["type"], "test.ping");
+    assert_eq!(parsed["payload"]["value"], 42);
+
+    println!("✅ Round-trip test passed: published and received message on {topic}");
+
+    // Cleanup.
+    let _ = sub_client.disconnect().await;
+    let _ = pub_client.disconnect().await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), sub_handle).await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), pub_handle).await;
+}
+
+/// Test that connecting to an unreachable broker does not panic or hang.
+///
+/// Uses port 19999 which (by convention in tests) has no MQTT broker running.
+/// Verifies that rumqttc's event loop reports an error within a reasonable
+/// time and does not block indefinitely.
+#[tokio::test]
+async fn mqtt_unreachable_broker_does_not_hang() {
+    let mut opts = MqttOptions::new("okfpga-test-unreachable", "127.0.0.1", 19999);
+    opts.set_keep_alive(Duration::from_secs(5));
+    opts.set_clean_session(true);
+
+    let (_client, mut eventloop) = AsyncClient::new(opts, 16);
+
+    // The first poll should fail with a connection error (not hang forever).
+    let result = tokio::time::timeout(Duration::from_secs(5), eventloop.poll()).await;
+
+    assert!(
+        result.is_ok(),
+        "eventloop.poll() should return within 5 seconds, not hang"
+    );
+
+    let event = result.unwrap();
+    assert!(
+        event.is_err(),
+        "eventloop.poll() should return an error when broker is unreachable"
+    );
+
+    println!("✅ Unreachable broker test passed: poll returned error without hanging");
+}
+
+/// Test that publishing with retain=true followed by an empty retained publish
+/// correctly clears the retained message from the broker (MQTT spec §3.3.1.3).
+///
+/// This verifies our Phase 41 retained cleanup mechanism works correctly.
+#[tokio::test]
+async fn mqtt_retained_message_cleanup() {
+    let prefix = "okfpga/test-retain-cleanup";
+    let topic = format!("{prefix}/test-retained");
+
+    // --- Step 1: Publish a retained message ---
+    let mut opts = MqttOptions::new("okfpga-test-retain-pub", "127.0.0.1", 1883);
+    opts.set_keep_alive(Duration::from_secs(10));
+    opts.set_clean_session(true);
+
+    let (client, mut eventloop) = AsyncClient::new(opts, 16);
+
+    let loop_handle = tokio::spawn(async move {
+        for _ in 0..30 {
+            if eventloop.poll().await.is_err() {
+                break;
+            }
+        }
+    });
+
+    sleep(Duration::from_millis(500)).await;
+
+    // Publish a retained message.
+    let retained_msg = serde_json::json!({ "type": "test.retained", "value": "hello" });
+    client
+        .publish(&topic, QoS::AtLeastOnce, true, retained_msg.to_string())
+        .await
+        .expect("publish retained");
+
+    sleep(Duration::from_millis(300)).await;
+
+    // --- Step 2: Clear it with an empty retained publish ---
+    client
+        .publish(&topic, QoS::AtLeastOnce, true, Vec::<u8>::new())
+        .await
+        .expect("clear retained");
+
+    sleep(Duration::from_millis(300)).await;
+    let _ = client.disconnect().await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), loop_handle).await;
+
+    // --- Step 3: Subscribe and verify no retained message arrives ---
+    let mut sub_opts = MqttOptions::new("okfpga-test-retain-check", "127.0.0.1", 1883);
+    sub_opts.set_keep_alive(Duration::from_secs(10));
+    sub_opts.set_clean_session(true);
+
+    let (sub_client, mut sub_loop) = AsyncClient::new(sub_opts, 16);
+
+    let received_retained = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let received_clone = received_retained.clone();
+
+    let sub_handle = tokio::spawn(async move {
+        loop {
+            match sub_loop.poll().await {
+                Ok(rumqttc::Event::Incoming(rumqttc::Packet::Publish(p))) => {
+                    if p.retain && !p.payload.is_empty() {
+                        received_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+    });
+
+    sleep(Duration::from_millis(300)).await;
+    sub_client
+        .subscribe(&topic, QoS::AtLeastOnce)
+        .await
+        .expect("subscribe for retain check");
+
+    // Wait long enough for any retained message to arrive.
+    sleep(Duration::from_millis(1000)).await;
+
+    assert!(
+        !received_retained.load(std::sync::atomic::Ordering::SeqCst),
+        "no retained message should exist after clearing with empty payload"
+    );
+
+    println!("✅ Retained cleanup test passed: empty retain clears broker state");
+
+    // Cleanup.
+    let _ = sub_client.disconnect().await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), sub_handle).await;
+}

@@ -207,3 +207,64 @@ as `okfpga-server-<hostname>` and `okfpga/server-<hostname>` respectively.
 The `mqtt_topic_prefix` field in the announce payload (§1) reflects this.
 
 See [ADR-011 Addendum B](ADR-011-mqtt-publishing.md) for details.
+
+---
+
+## Addendum B — Graceful Shutdown Retained Cleanup (2026-08-26)
+
+### Retained Topic Cleanup (Phase 41)
+
+The graceful shutdown sequence in §4 has been extended. On `stop()`, the
+MQTT publisher now:
+
+1. Publishes `server.offline` to `{prefix}/server/announce` (retained).
+2. Publishes `server.shutdown` to `{prefix}/status` (non-retained).
+3. **Publishes empty payloads** (retain=true) to all 5 retained topics:
+   - `{prefix}/status`
+   - `{prefix}/services/status`
+   - `{prefix}/devices/inventory`
+   - `{prefix}/resources/inventory`
+   - `{prefix}/server/announce`
+4. Queues an MQTT DISCONNECT.
+5. **Flushes the rumqttc event loop** (up to 2s deadline) to ensure all
+   queued messages are actually sent over the wire before the TCP
+   connection closes.
+6. Logs `"MQTT publisher disconnected (retained topics cleared)"`.
+
+Per MQTT spec §3.3.1.3, publishing an empty payload with `retain=true`
+instructs the broker to **delete** the retained message for that topic.
+
+### Event Loop Flush
+
+The original implementation used a fixed 200ms sleep before disconnect,
+which did **not** work because rumqttc requires the event loop to keep
+polling for queued messages to be sent. The fix continues polling
+`eventloop.poll()` after queueing the cleanup messages and disconnect,
+with a 2-second timeout. This ensures all messages are flushed before
+the connection is torn down.
+
+### API Shutdown Integration
+
+`POST /mgmt/shutdown` now triggers the same graceful shutdown flow as
+Ctrl+C. A shared `Arc<Notify>` is passed from `main()` to the
+management router. The handler notifies it after a 500ms delay (to
+allow the HTTP response to be sent). `main()` uses `tokio::select!` to
+wait on either `ctrl_c()` or the API shutdown signal — both follow the
+identical graceful shutdown path (SSE broadcast → stop_all → exit).
+
+### Broker Unreachable Logging
+
+When the MQTT broker is unreachable on initial connection, the event
+loop now logs a single WARN:
+
+```
+WARN MQTT broker unreachable — will retry in background
+     broker=localhost:1883
+     error=I/O: Connection refused (os error 10061)
+```
+
+Subsequent retry failures are silent to avoid log spam. If a previously
+established connection is lost, the existing `"MQTT connection lost"`
+warning fires. This log-once behavior is controlled by an
+`initial_connect_warned` flag alongside the existing `connected` flag.
+

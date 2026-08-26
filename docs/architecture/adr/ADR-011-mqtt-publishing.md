@@ -279,3 +279,59 @@ and populated by `MqttConfig::resolve_hostname_fields()` at startup.
 This change affects the topic structure defined in this ADR — the `{prefix}`
 is no longer a user-chosen string like `okfpga/server01` but is always
 `okfpga/server-<hostname>`.
+
+---
+
+## Addendum C — Broker Resilience & Graceful Degradation (2026-08-26)
+
+### Corrected Retry Behavior
+
+The original text states the server uses "exponential backoff" when the
+broker is unavailable. The actual implementation uses a **fixed 5-second
+retry interval** via rumqttc's internal reconnection mechanism. This is
+simpler and sufficient for the use case (the server is always-on and the
+broker is expected to be a local or nearby service).
+
+### Log-Once Warning
+
+When MQTT is enabled but the broker is unreachable on initial connection,
+the server logs a single WARN message:
+
+```
+WARN MQTT broker unreachable — will retry in background
+     broker=localhost:1883
+     error=I/O: Connection refused (os error 10061)
+```
+
+Subsequent retry failures are silent. This prevents log spam while
+ensuring the operator is informed. If a previously established connection
+is lost (broker crash, network partition), a separate `"MQTT connection
+lost — will retry"` warning fires.
+
+### Server Does Not Fail to Start
+
+This behavior is confirmed: when the broker is unreachable, the server
+starts normally. All non-MQTT services (REST, gRPC, mDNS, management
+dashboard) function without degradation. The MQTT service reports as
+"running" in the service manager because it is actively attempting to
+connect — the background reconnection loop is part of normal operation.
+
+### Graceful Shutdown Without Broker
+
+If the server shuts down while the broker is unreachable, the retained
+cleanup messages are queued but will not be delivered (since there is no
+connection). The event loop flush times out after 2 seconds and the
+server exits cleanly. No error is logged for this expected case.
+
+### Integration Test Coverage
+
+Three integration tests verify broker behavior:
+
+| Test | Broker | Verifies |
+|------|--------|----------|
+| `mqtt_publish_subscribe_round_trip` | localhost:1883 | End-to-end pub/sub with payload verification |
+| `mqtt_unreachable_broker_does_not_hang` | localhost:19999 | No hang, immediate error return |
+| `mqtt_retained_message_cleanup` | localhost:1883 | Empty retained publish clears broker state (§3.3.1.3) |
+
+See [ADR-031 Addendum B](ADR-031-mqtt-discovery.md) for the retained
+cleanup and API shutdown details.
