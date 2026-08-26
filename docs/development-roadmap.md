@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-08-26 (Phase 40 completed; Phase 41 planned)
+> **Last Updated:** 2026-08-26 (Phase 41 promoted to Now)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -48,20 +48,26 @@
 | **Phase 38** | User Identification Consistency | ADR-029 | ✅ [Archived](archive/roadmap-phases-38.md) |
 | **Phase 39** | SSE Event Expansion | ADR-030 | ✅ [Archived](archive/roadmap-phases-39.md) |
 | **Phase 40** | MQTT Discovery, Report-by-Exception, Hostname Identity | ADR-011, ADR-031, ADR-032 | ✅ Completed |
-| **Phase 41** | Singleton Instance Guard & Startup Safety | — | 🟡 Next |
+| **Phase 41** | Singleton Instance Guard & Startup Safety | — | 🟢 Now |
 | **Phase 42+ (Later)** | TLS, CI, persistent storage, packaging | — | 📘 Exploratory |
 
 ---
 
 ## 🟢 Now
 
-*(Empty — no phase is currently active.)*
+### Phase 41 — Singleton Instance Guard & Startup Safety
+
+*See implementation details below.*
 
 ---
 
 ## 🟡 Next
 
-### Phase 41 — Singleton Instance Guard & Startup Safety
+*(Empty — no phase is currently queued.)*
+
+---
+
+## Phase 41 Details
 
 **Goal:** Prevent a second ok-FPGA-Server instance from starting on the
 same host, and ensure the server validates all required port bindings
