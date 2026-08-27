@@ -158,6 +158,11 @@ async fn main() -> anyhow::Result<()> {
     // — not user-configurable, ensuring uniqueness per host.
     cfg.mqtt.resolve_hostname_fields();
 
+    // Derive mDNS instance_name from the system hostname when still at
+    // the default value.  This aligns the mDNS identity with the MQTT
+    // server_id so both discovery methods produce the same server name.
+    cfg.mdns.populate_from_hostname();
+
     // Initialize tracing (structured logging) with the configured log level.
     // Returns the broadcast handles needed for the dashboard log viewer.
     let (log_tx, log_ring_buffer) = init_tracing(&cfg);

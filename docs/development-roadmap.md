@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-08-26 (Phase 41 completed and archived)
+> **Last Updated:** 2026-08-27 (Phase 42 promoted to Next)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -49,7 +49,8 @@
 | **Phase 39** | SSE Event Expansion | ADR-030 | ✅ [Archived](archive/roadmap-phases-39.md) |
 | **Phase 40** | MQTT Discovery, Report-by-Exception, Hostname Identity | ADR-011, ADR-031, ADR-032 | ✅ [Archived](archive/roadmap-phases-40-41.md) |
 | **Phase 41** | Singleton Instance Guard & Startup Safety | ADR-033 | ✅ [Archived](archive/roadmap-phases-40-41.md) |
-| **Phase 42+ (Later)** | TLS, CI, persistent storage, packaging | — | 📘 Exploratory |
+| **Phase 42** | mDNS Hostname Identity Alignment | — | 🟡 Next |
+| **Phase 43+ (Later)** | TLS, CI, persistent storage, packaging | — | 📘 Exploratory |
 
 ---
 
@@ -61,7 +62,28 @@
 
 ## 🟡 Next
 
-*(Empty — no phase is currently queued.)*
+### Phase 42 — mDNS Hostname Identity Alignment
+
+**Goal:** Align the mDNS `instance_name` default with the MQTT `client_id`
+pattern so both produce `"okfpga-server-{hostname}"`. Currently mDNS defaults
+to `"okfpga-server"` (no hostname), while MQTT uses
+`"okfpga-server-{hostname}"`. This prevents multihomed servers from being
+identified as the same server across discovery methods.
+
+**Change:** Add `MdnsConfig::populate_from_hostname()` (matching the existing
+`MqttConfig::populate_from_hostname()` pattern) that sets
+`instance_name = "okfpga-server-{hostname}"` when the default is unchanged.
+Call it from `main.rs` alongside the MQTT equivalent.
+
+**Depends On:** Nothing (standalone one-file change).
+**Required By:** Client Phase C-15 (Discovery JSON Normalization).
+
+**Deliverables:**
+
+| File | Changes |
+|------|---------|
+| `config.rs` | `MdnsConfig::populate_from_hostname()` method |
+| `main.rs` | Call `cfg.mdns.populate_from_hostname()` at startup |*
 
 ---
 

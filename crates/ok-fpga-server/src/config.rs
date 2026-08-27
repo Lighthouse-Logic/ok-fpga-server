@@ -300,6 +300,26 @@ impl Default for MdnsConfig {
     }
 }
 
+impl MdnsConfig {
+    /// Populate `instance_name` from the system hostname when still at the
+    /// default value.
+    ///
+    /// Called once at startup, after config is loaded from TOML.  If the user
+    /// has not overridden `instance_name` in the TOML, it is set to
+    /// `"okfpga-server-<hostname>"` — matching the MQTT `client_id` pattern
+    /// so that mDNS and MQTT discovery produce the same server identity.
+    ///
+    /// If the user has set a custom `instance_name`, it is left unchanged.
+    pub fn populate_from_hostname(&mut self) {
+        if self.instance_name == "okfpga-server" {
+            let host = hostname::get()
+                .map(|h| h.to_string_lossy().to_lowercase())
+                .unwrap_or_else(|_| "unknown".to_string());
+            self.instance_name = format!("okfpga-server-{}", host);
+        }
+    }
+}
+
 /// Web dashboard configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
