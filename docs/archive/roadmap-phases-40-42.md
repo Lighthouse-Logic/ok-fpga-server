@@ -1,6 +1,6 @@
-# Archive — Phases 40–41: MQTT Infrastructure & Singleton Guard
+# Archive — Phases 40–42: MQTT Infrastructure, Singleton Guard & mDNS Hostname
 
-> **Archived:** 2026-08-26
+> **Archived:** 2026-08-27
 > **Source:** [development-roadmap.md](../development-roadmap.md)
 
 ---
@@ -63,3 +63,32 @@ before loading the FrontPanel DLL or registering any services.
 **Verification:** `cargo test` — all passing (port pre-check, MQTT
 cleanup, broker resilience). MQTT Explorer confirms clean broker state
 after server shutdown.
+
+---
+
+## Phase 42 — mDNS Hostname Identity Alignment
+
+**Goal:** Align the mDNS `instance_name` default with the MQTT `client_id`
+pattern so both produce `"okfpga-server-{hostname}"`. Previously mDNS
+defaulted to `"okfpga-server"` (no hostname), while MQTT already used
+`"okfpga-server-{hostname}"` (Phase 40). This prevented multihomed servers
+from being identified as the same server across discovery methods.
+
+**Required By:** Client Phase C-15 (Discovery JSON Normalization).
+
+**Key Changes:**
+- Added `MdnsConfig::populate_from_hostname()` to `config.rs`, matching
+  the existing `MqttConfig::populate_from_hostname()` pattern
+- Sets `instance_name = "okfpga-server-{hostname}"` when the config
+  value is at its default (`"okfpga-server"`)
+- Called from `main.rs` alongside `cfg.mqtt.resolve_hostname_fields()`
+
+**Deliverables:**
+
+| File | Changes |
+|------|---------|
+| `config.rs` | `MdnsConfig::populate_from_hostname()` method |
+| `main.rs` | Call `cfg.mdns.populate_from_hostname()` at startup |
+
+**Verification:** `cargo check --features full` — passed.
+

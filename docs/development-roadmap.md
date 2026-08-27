@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-08-27 (Phase 42 promoted to Next)
+> **Last Updated:** 2026-08-27 (Phase 42 archived)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -47,9 +47,9 @@
 | **Phase 37** | API Response Compliance Audit | — | ✅ [Archived](archive/roadmap-phases-37.md) |
 | **Phase 38** | User Identification Consistency | ADR-029 | ✅ [Archived](archive/roadmap-phases-38.md) |
 | **Phase 39** | SSE Event Expansion | ADR-030 | ✅ [Archived](archive/roadmap-phases-39.md) |
-| **Phase 40** | MQTT Discovery, Report-by-Exception, Hostname Identity | ADR-011, ADR-031, ADR-032 | ✅ [Archived](archive/roadmap-phases-40-41.md) |
-| **Phase 41** | Singleton Instance Guard & Startup Safety | ADR-033 | ✅ [Archived](archive/roadmap-phases-40-41.md) |
-| **Phase 42** | mDNS Hostname Identity Alignment | — | 🟡 Next |
+| **Phase 40** | MQTT Discovery, Report-by-Exception, Hostname Identity | ADR-011, ADR-031, ADR-032 | ✅ [Archived](archive/roadmap-phases-40-42.md) |
+| **Phase 41** | Singleton Instance Guard & Startup Safety | ADR-033 | ✅ [Archived](archive/roadmap-phases-40-42.md) |
+| **Phase 42** | mDNS Hostname Identity Alignment | — | ✅ [Archived](archive/roadmap-phases-40-42.md) |
 | **Phase 43+ (Later)** | TLS, CI, persistent storage, packaging | — | 📘 Exploratory |
 
 ---
@@ -62,28 +62,7 @@
 
 ## 🟡 Next
 
-### Phase 42 — mDNS Hostname Identity Alignment
-
-**Goal:** Align the mDNS `instance_name` default with the MQTT `client_id`
-pattern so both produce `"okfpga-server-{hostname}"`. Currently mDNS defaults
-to `"okfpga-server"` (no hostname), while MQTT uses
-`"okfpga-server-{hostname}"`. This prevents multihomed servers from being
-identified as the same server across discovery methods.
-
-**Change:** Add `MdnsConfig::populate_from_hostname()` (matching the existing
-`MqttConfig::populate_from_hostname()` pattern) that sets
-`instance_name = "okfpga-server-{hostname}"` when the default is unchanged.
-Call it from `main.rs` alongside the MQTT equivalent.
-
-**Depends On:** Nothing (standalone one-file change).
-**Required By:** Client Phase C-15 (Discovery JSON Normalization).
-
-**Deliverables:**
-
-| File | Changes |
-|------|---------|
-| `config.rs` | `MdnsConfig::populate_from_hostname()` method |
-| `main.rs` | Call `cfg.mdns.populate_from_hostname()` at startup |*
+*(Empty — no phase is currently planned.)*
 
 ---
 
@@ -222,8 +201,9 @@ implementation details, verification steps, and acceptance criteria.
 | 37 | API Response Compliance Audit | 2026-08-23 | — | [phase 37](archive/roadmap-phases-37.md) |
 | 38 | User Identification Consistency | 2026-08-23 | ADR-029 | [phase 38](archive/roadmap-phases-38.md) |
 | 39 | SSE Event Expansion | 2026-08-24 | ADR-030 | [phase 39](archive/roadmap-phases-39.md) |
-| 40 | MQTT Discovery, Report-by-Exception, Hostname Identity | 2026-08-26 | ADR-011(B), ADR-031, ADR-032 | [phases 40–41](archive/roadmap-phases-40-41.md) |
-| 41 | Singleton Instance Guard & Startup Safety | 2026-08-26 | ADR-033 | [phases 40–41](archive/roadmap-phases-40-41.md) |
+| 40 | MQTT Discovery, Report-by-Exception, Hostname Identity | 2026-08-26 | ADR-011(B), ADR-031, ADR-032 | [phases 40–42](archive/roadmap-phases-40-42.md) |
+| 41 | Singleton Instance Guard & Startup Safety | 2026-08-26 | ADR-033 | [phases 40–42](archive/roadmap-phases-40-42.md) |
+| 42 | mDNS Hostname Identity Alignment | 2026-08-27 | — | [phases 40–42](archive/roadmap-phases-40-42.md) |
 
 ---
 
