@@ -304,6 +304,79 @@ pub async fn register_service(
     })
 }
 
+/// Attempt to deregister a stale DNS-SD service by name (Phase 43).
+///
+/// Constructs a minimal `DNS_SERVICE_INSTANCE` with the given fully-qualified
+/// name and calls `DnsServiceDeRegister`.  This is a **best-effort** cleanup:
+/// if the service doesn't exist in the Windows DNS Client cache, or if
+/// deregistration fails for any reason, the error is logged at `TRACE` level
+/// and ignored.
+///
+/// Use cases:
+/// - **Crash recovery**: remove a registration from a previous server run
+///   that exited ungracefully (the `Drop` impl never ran).
+/// - **Migration cleanup**: remove a registration under the old bare
+///   `"okfpga-server"` name from pre-Phase 42 binaries.
+pub fn try_deregister_stale(instance_name: &str, service_type: &str) {
+    let full_instance_name = format!("{}.{}.local", instance_name, service_type);
+    let instance_hstring = HSTRING::from(&full_instance_name);
+    // Host name is required but not used for deregistration matching.
+    let host_hstring = HSTRING::from("localhost.local");
+
+    // SAFETY: DnsServiceConstructInstance is the documented way to build the
+    // instance structure.  We pass None for pIp4/pIp6 and 0 for all numeric
+    // fields since only the instance name is needed for deregistration matching.
+    let instance = unsafe {
+        Dns::DnsServiceConstructInstance(
+            &instance_hstring,
+            &host_hstring,
+            None,  // pIp4
+            None,  // pIp6
+            0,     // port
+            0,     // priority
+            0,     // weight
+            0,     // property_count
+            std::ptr::null(),  // keys
+            std::ptr::null(),  // values
+        )
+    };
+
+    let Some(instance_ptr) = NonNull::new(instance) else {
+        trace!(
+            name = %full_instance_name,
+            "stale deregistration: DnsServiceConstructInstance returned null (ignored)"
+        );
+        return;
+    };
+
+    let instance = ServiceInstance(instance_ptr);
+
+    // Build a deregistration request using the same callback infrastructure.
+    let request = build_request(instance, None);
+
+    // SAFETY: request references the instance owned by the CallbackContext.
+    let result = unsafe { Dns::DnsServiceDeRegister(&request, None) };
+
+    if result == DNS_REQUEST_PENDING {
+        trace!(
+            name = %full_instance_name,
+            "stale deregistration submitted (pending callback)"
+        );
+        // The callback will fire asynchronously and reclaim the context.
+    } else {
+        // Reclaim the context since the callback won't fire.
+        let context_ptr = request.pQueryContext as *mut CallbackContext;
+        unsafe {
+            drop(Box::from_raw(context_ptr));
+        }
+        trace!(
+            name = %full_instance_name,
+            status = result,
+            "stale deregistration: no matching registration found (ignored)"
+        );
+    }
+}
+
 // ============================================================================
 // Internal helpers
 // ============================================================================

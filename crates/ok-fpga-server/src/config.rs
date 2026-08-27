@@ -261,6 +261,44 @@ impl Default for MqttConfig {
     }
 }
 
+// ============================================================================
+// Phase 43 — Hostname sanitization
+// ============================================================================
+
+/// Normalize a raw system hostname into a DNS/MQTT-safe identifier.
+///
+/// Transformations:
+/// - Lowercase the entire string
+/// - Replace spaces, underscores, and dots with hyphens
+/// - Strip any characters that are not ASCII alphanumeric or hyphen
+/// - Collapse consecutive hyphens into one
+/// - Trim leading/trailing hyphens
+/// - Fall back to `"unknown"` if the result is empty
+pub(crate) fn sanitize_hostname(raw: &str) -> String {
+    let s: String = raw
+        .to_lowercase()
+        .chars()
+        .map(|c| match c {
+            ' ' | '_' | '.' => '-',
+            c if c.is_ascii_alphanumeric() || c == '-' => c,
+            _ => '-',
+        })
+        .collect();
+
+    // Collapse consecutive hyphens and trim leading/trailing.
+    let s = s
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+
+    if s.is_empty() {
+        "unknown".to_string()
+    } else {
+        s
+    }
+}
+
 impl MqttConfig {
     /// Populate `client_id` and `topic_prefix` from the system hostname.
     ///
@@ -272,7 +310,7 @@ impl MqttConfig {
     /// This ensures uniqueness per host without manual configuration.
     pub fn resolve_hostname_fields(&mut self) {
         let host = hostname::get()
-            .map(|h| h.to_string_lossy().to_lowercase())
+            .map(|h| sanitize_hostname(&h.to_string_lossy()))
             .unwrap_or_else(|_| "unknown".to_string());
 
         self.client_id = format!("okfpga-server-{}", host);
@@ -313,7 +351,7 @@ impl MdnsConfig {
     pub fn populate_from_hostname(&mut self) {
         if self.instance_name == "okfpga-server" {
             let host = hostname::get()
-                .map(|h| h.to_string_lossy().to_lowercase())
+                .map(|h| sanitize_hostname(&h.to_string_lossy()))
                 .unwrap_or_else(|_| "unknown".to_string());
             self.instance_name = format!("okfpga-server-{}", host);
         }
@@ -823,5 +861,62 @@ mod tests {
         assert_eq!(cfg.rest.port, 8080);
         assert!(cfg.rest.enabled);
         assert_eq!(cfg.grpc.port, 50051);
+    }
+
+    // ── Phase 43: sanitize_hostname tests ──────────────────────────────
+
+    #[test]
+    fn sanitize_hostname_lowercases() {
+        assert_eq!(sanitize_hostname("THE-EXPANSE"), "the-expanse");
+    }
+
+    #[test]
+    fn sanitize_hostname_replaces_spaces() {
+        assert_eq!(sanitize_hostname("My Lab Server"), "my-lab-server");
+    }
+
+    #[test]
+    fn sanitize_hostname_replaces_underscores() {
+        assert_eq!(sanitize_hostname("lab_server_1"), "lab-server-1");
+    }
+
+    #[test]
+    fn sanitize_hostname_replaces_dots() {
+        assert_eq!(sanitize_hostname("server..name"), "server-name");
+    }
+
+    #[test]
+    fn sanitize_hostname_strips_special_chars() {
+        assert_eq!(sanitize_hostname("server@#$name!"), "server-name");
+    }
+
+    #[test]
+    fn sanitize_hostname_collapses_consecutive_hyphens() {
+        assert_eq!(sanitize_hostname("a---b"), "a-b");
+    }
+
+    #[test]
+    fn sanitize_hostname_trims_leading_trailing_hyphens() {
+        assert_eq!(sanitize_hostname("-server-"), "server");
+    }
+
+    #[test]
+    fn sanitize_hostname_all_invalid_returns_unknown() {
+        assert_eq!(sanitize_hostname("___"), "unknown");
+        assert_eq!(sanitize_hostname(""), "unknown");
+        assert_eq!(sanitize_hostname("---"), "unknown");
+    }
+
+    #[test]
+    fn sanitize_hostname_already_clean() {
+        assert_eq!(sanitize_hostname("already-clean"), "already-clean");
+    }
+
+    #[test]
+    fn sanitize_hostname_complex() {
+        assert_eq!(
+            sanitize_hostname("  My Server (Lab #2)  "),
+            "my-server-lab-2"
+        );
     }
 }

@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-08-27 (Phase 42 archived)
+> **Last Updated:** 2026-08-27 (Phase 43 promoted to Now)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -50,13 +50,35 @@
 | **Phase 40** | MQTT Discovery, Report-by-Exception, Hostname Identity | ADR-011, ADR-031, ADR-032 | ✅ [Archived](archive/roadmap-phases-40-42.md) |
 | **Phase 41** | Singleton Instance Guard & Startup Safety | ADR-033 | ✅ [Archived](archive/roadmap-phases-40-42.md) |
 | **Phase 42** | mDNS Hostname Identity Alignment | — | ✅ [Archived](archive/roadmap-phases-40-42.md) |
-| **Phase 43+ (Later)** | TLS, CI, persistent storage, packaging | — | 📘 Exploratory |
+| **Phase 43** | mDNS Stale Registration Cleanup & Hostname Sanitization | — | 🟢 Now |
 
 ---
 
 ## 🟢 Now
 
-*(Empty — no phase is currently active.)*
+### Phase 43 — mDNS Stale Registration Cleanup & Hostname Sanitization
+
+**Problem:** When the server binary is updated and the mDNS `instance_name`
+changes (e.g., from `"okfpga-server"` to `"okfpga-server-the-expanse"` after
+Phase 42), the Windows DNS Client service (`dnscache`) retains the **stale**
+registration from previous runs — especially after ungraceful exits (crash,
+`taskkill /F`, debugger detach). This manifests as a phantom server entry
+(`"okfpga-server(1)"`) visible to mDNS browsers.
+
+Additionally, system hostnames containing spaces or DNS-unsafe characters are
+not sanitized before being incorporated into identifiers.
+
+**Scope:**
+
+1. **Hostname sanitization** — shared `sanitize_hostname()` function in
+   `config.rs` used by both MQTT and mDNS identity derivation (spaces →
+   hyphens, strip non-DNS-safe chars, collapse runs).
+2. **Stale registration cleanup (Windows)** — on startup, call
+   `DnsServiceDeRegister` for the name we're about to register (crash
+   recovery) and the bare `"okfpga-server"` (migration from pre-Phase 42).
+3. **Config.toml cleanup** — remove explicit `instance_name = "okfpga-server"`
+   (the default + `populate_from_hostname()` handles it).
+4. **Unit tests** for `sanitize_hostname()`.
 
 ---
 

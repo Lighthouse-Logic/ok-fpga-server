@@ -170,6 +170,14 @@ async fn main() -> anyhow::Result<()> {
     // Print startup banner.
     print_banner(&cfg);
 
+    // Phase 43: Log the resolved identity fields for debugging.
+    info!(
+        mdns_instance = %cfg.mdns.instance_name,
+        mqtt_client_id = %cfg.mqtt.client_id,
+        mqtt_topic_prefix = %cfg.mqtt.topic_prefix,
+        "server identity resolved from hostname"
+    );
+
     info!(
         config_log_level = %cfg.server.log_level,
         management_port = cfg.server.management_port,

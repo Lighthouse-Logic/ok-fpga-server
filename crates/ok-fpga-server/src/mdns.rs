@@ -401,6 +401,30 @@ impl ManagedService for MdnsDiscoveryService {
         let ipv4_addr = Self::resolve_local_ipv4();
         let txt_props = self.build_txt_properties();
 
+        // --- Phase 43: Clean up stale registrations before registering ---
+        //
+        // On Windows, the DNS Client service (dnscache) can retain stale
+        // DNS-SD registrations from previous server runs that exited
+        // ungracefully.  We attempt to deregister:
+        //   1. Our own name (crash recovery from a previous run).
+        //   2. The bare "okfpga-server" name (migration from pre-Phase 42).
+        // This is best-effort; failures are logged at TRACE and ignored.
+        #[cfg(target_os = "windows")]
+        {
+            // win32_mdns is a submodule of this (mdns) module.
+
+            // 1. Crash recovery — deregister our own name from a previous crash.
+            win32_mdns::try_deregister_stale(instance_name, SERVICE_TYPE_SHORT);
+
+            // 2. Migration — deregister bare "okfpga-server" from pre-Phase 42.
+            if instance_name != "okfpga-server" {
+                win32_mdns::try_deregister_stale("okfpga-server", SERVICE_TYPE_SHORT);
+            }
+
+            // Give dnscache a moment to process the deregistrations.
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+
         // --- ADR-027: Tiered registration strategy ---
         //
         // 1. Try OS-native registration (dns-sd-native / Win32 direct).

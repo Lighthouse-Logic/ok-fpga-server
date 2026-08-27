@@ -43,7 +43,8 @@ preferred_subnets = []
 
 [mdns]
 enabled = true
-instance_name = "okfpga-server"
+# instance_name is auto-derived as "okfpga-server-<hostname>" at startup.
+# Override here only if you need a custom name (e.g. "okfpga-lab-bench-1").
 
 [dashboard]
 enabled = true
