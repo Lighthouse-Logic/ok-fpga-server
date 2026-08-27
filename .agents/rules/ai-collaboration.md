@@ -345,3 +345,29 @@ Examples:
   `cargo test` (which includes `cargo build`) is the minimum bar.
 
 ---
+
+## 11. Semantic Versioning
+
+When a phase introduces **functional changes** to the server or the
+Python LabVIEW client, bump the semantic version in the same commit.
+
+**Server** (`ok-fpga-server`):
+- Version is in `crates/ok-fpga-server/Cargo.toml` → `version = "…"`.
+- Bump **patch** (0.1.0 → 0.1.1) for bug fixes and non-breaking changes.
+- Bump **minor** (0.1.1 → 0.2.0) for new features or API additions.
+- Bump **major** for breaking API changes.
+
+**Python LabVIEW Client** (`okfpga-labview-client`):
+- Version is in `client/python-labview-client/pyproject.toml` → `version = "…"`.
+- Follow the same patch / minor / major rules.
+
+**Rules:**
+- **Always bump** after implementing a phase that changes behaviour —
+  even "small" phases.  A version number is the only reliable way to
+  confirm which binary or package is running.
+- The version bump must be included in the **same commit** as the code
+  change, not in a separate follow-up commit.
+- Log the version in startup banners and status endpoints so that
+  running instances can be identified.
+
+---
