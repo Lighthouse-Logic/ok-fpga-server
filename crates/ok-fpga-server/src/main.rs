@@ -204,10 +204,11 @@ async fn main() -> anyhow::Result<()> {
     // Spawn periodic device polling task (every 2 seconds).
     {
         let poll_dm = device_manager.clone();
+        let poll_rr = resource_registry.clone();
         let poll_tx = event_tx.clone();
         let poll_pool = handle_pool.clone();
         tokio::spawn(async move {
-            device_poll_loop(poll_dm, poll_tx, poll_pool).await;
+            device_poll_loop(poll_dm, poll_rr, poll_tx, poll_pool).await;
         });
         info!("device polling task started (2s interval)");
     }
@@ -401,6 +402,7 @@ async fn run_scanner_with_pool(
 ///   pool closes handle → next scan finds it → connect → cycle repeats.
 async fn device_poll_loop(
     device_manager: Arc<DeviceManager>,
+    resource_registry: Arc<ResourceRegistry>,
     event_tx: tokio::sync::broadcast::Sender<String>,
     handle_pool: Option<Arc<handle_pool::DeviceHandlePool>>,
 ) {
@@ -435,6 +437,17 @@ async fn device_poll_loop(
                         "FPGA device disconnected (hot-unplug detected by polling)"
                     );
                     device_manager.on_device_removed(serial);
+
+                    // ADR-020 §4: Delete all resources for the disconnected device.
+                    // Resources become invalid when the device state is unknown.
+                    let deleted = resource_registry.invalidate_device(serial);
+                    if !deleted.is_empty() {
+                        info!(
+                            serial = %serial,
+                            count = deleted.len(),
+                            "deleted resources for disconnected device"
+                        );
+                    }
 
                     // Close the persistent handle for this device.
                     pool.close(serial).await;

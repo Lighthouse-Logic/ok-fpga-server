@@ -6057,3 +6057,25 @@
 2026-09-13T11:37:09.670762Z  INFO ok_fpga_server::handle_pool: device handle opened and added to pool serial=2513001D4F
 2026-09-13T12:07:07.510134Z  INFO ok_fpga_server: FPGA device disconnected (hot-unplug detected by polling) serial=2513001D4F
 2026-09-13T12:07:07.510962Z  INFO ok_fpga_server::handle_pool: device handle closed and removed from pool serial=2513001D4F
+2026-09-13T15:30:49.568672Z  INFO ok_fpga_server: FPGA device connected (hot-plug detected by polling) serial=2513001D4F product=XEM8320-AU25P interface=USB 3.0
+2026-09-13T15:30:49.618881Z  INFO ok_fpga_server::handle_pool: device handle opened and added to pool serial=2513001D4F
+2026-09-13T15:41:59.601222Z  INFO ok_fpga_server: FPGA device connected (hot-plug detected by polling) serial=22520013CC product=XEM7320-A75T interface=USB 3.0
+2026-09-13T15:41:59.662837Z  INFO ok_fpga_server::handle_pool: device handle opened and added to pool serial=22520013CC
+2026-09-13T15:51:41.379051Z  INFO ok_fpga_server: shutdown signal received (Ctrl+C)
+2026-09-13T15:51:41.379732Z  INFO ok_fpga_core::service_manager: stopping service service=mdns
+2026-09-13T15:51:41.380141Z  INFO ok_fpga_server::mdns: Deregistering mDNS service (OS-native)
+2026-09-13T15:51:41.380606Z  INFO ok_fpga_server::mdns: mDNS discovery service stopped
+2026-09-13T15:51:41.380912Z  INFO ok_fpga_core::service_manager: service stopped service=mdns
+2026-09-13T15:51:41.381620Z  INFO ok_fpga_core::service_manager: stopping service service=grpc
+2026-09-13T15:51:41.382657Z  INFO ok_fpga_server::grpc: gRPC server stopped
+2026-09-13T15:51:41.584242Z  INFO ok_fpga_server::grpc::managed: gRPC server stopped
+2026-09-13T15:51:41.584883Z  INFO ok_fpga_core::service_manager: service stopped service=grpc
+2026-09-13T15:51:41.585792Z  INFO ok_fpga_core::service_manager: stopping service service=rest
+2026-09-13T15:51:41.791009Z  INFO ok_fpga_server::rest::managed: REST server stopped
+2026-09-13T15:51:41.791240Z  INFO ok_fpga_core::service_manager: service stopped service=rest
+2026-09-13T15:51:41.791434Z  INFO ok_fpga_core::service_manager: stopping service service=mqtt
+2026-09-13T15:51:41.793885Z  INFO ok_fpga_server::mqtt: MQTT publisher disconnected (retained topics cleared)
+2026-09-13T15:51:42.301333Z  INFO ok_fpga_server::mqtt: MQTT publisher stopped
+2026-09-13T15:51:42.301857Z  INFO ok_fpga_core::service_manager: service stopped service=mqtt
+2026-09-13T15:51:42.302429Z  INFO ok_fpga_core::service_manager: all services stopped
+2026-09-13T15:51:42.303010Z  INFO ok_fpga_server: ok-FPGA-Server shut down cleanly.

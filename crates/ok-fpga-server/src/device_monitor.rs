@@ -253,6 +253,7 @@ impl DeviceMonitor {
     pub fn start(
         &mut self,
         device_manager: Arc<DeviceManager>,
+        resource_registry: Arc<ok_fpga_core::resource::ResourceRegistry>,
         event_tx: tokio::sync::broadcast::Sender<String>,
     ) -> bool {
         // Take the receiver (can only start once).
@@ -306,7 +307,7 @@ impl DeviceMonitor {
         let mgr_handle = SendableManagerHandle(self.manager_handle);
 
         tokio::spawn(async move {
-            event_processor(rx, dll, mgr_handle, device_manager, event_tx).await;
+            event_processor(rx, dll, mgr_handle, device_manager, resource_registry, event_tx).await;
         });
 
         true
@@ -374,6 +375,7 @@ async fn event_processor(
     dll: Arc<FrontPanelDll>,
     manager_handle: SendableManagerHandle,
     device_manager: Arc<DeviceManager>,
+    resource_registry: Arc<ok_fpga_core::resource::ResourceRegistry>,
     event_tx: tokio::sync::broadcast::Sender<String>,
 ) {
     info!("device event processor started");
@@ -482,6 +484,16 @@ async fn event_processor(
 
                 if device_manager.on_device_removed(&serial).is_some() {
                     info!(serial = %serial, "FPGA device unregistered (hot-unplug)");
+
+                    // ADR-020 §4: Delete all resources for the disconnected device.
+                    let deleted = resource_registry.invalidate_device(&serial);
+                    if !deleted.is_empty() {
+                        info!(
+                            serial = %serial,
+                            count = deleted.len(),
+                            "deleted resources for disconnected device"
+                        );
+                    }
 
                     let _ = event_tx.send(
                         serde_json::json!({
