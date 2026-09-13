@@ -28,14 +28,14 @@ A **resource** is a named, addressable unit of functionality exposed by a progra
 ┌────────────────────────────────────┐
 │          FPGA (XEM8320)            │
 │  Serial: ABC1234567                │
-│  Bitfile: dsp_v2.bit              │
+│  Bitfile: dsp_v2.bit               │
 │                                    │
-│  ┌──────────┐  ┌──────────────┐   │
+│  ┌───────────┐  ┌──────────────┐   │
 │  │ Resource  │  │  Resource    │   │
 │  │ "dac_ch1" │  │ "adc_stream" │   │
 │  │ Locked    │  │ Shared       │   │
 │  │ User: bob │  │ Users:       │   │
-│  └──────────┘  │  alice, carol│   │
+│  └───────────┘  │  alice, carol│   │
 │                 └──────────────┘   │
 └────────────────────────────────────┘
 ```
