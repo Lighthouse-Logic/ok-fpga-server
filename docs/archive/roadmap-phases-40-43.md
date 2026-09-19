@@ -1,6 +1,6 @@
-# Archive — Phases 40–42: MQTT Infrastructure, Singleton Guard & mDNS Hostname
+# Archive — Phases 40–43: MQTT Infrastructure, Singleton Guard, mDNS Hostname & Stale Cleanup
 
-> **Archived:** 2026-08-27
+> **Archived:** 2026-09-19
 > **Source:** [development-roadmap.md](../development-roadmap.md)
 
 ---
@@ -92,3 +92,38 @@ from being identified as the same server across discovery methods.
 
 **Verification:** `cargo check --features full` — passed.
 
+---
+
+## Phase 43 — mDNS Stale Registration Cleanup & Hostname Sanitization
+
+**Goal:** Sanitize system hostnames before use in mDNS/MQTT identifiers,
+and clean up stale mDNS registrations on Windows that persist after
+ungraceful exits or binary updates.
+
+**Key Changes:**
+
+1. **`sanitize_hostname()` in `config.rs`** — shared function used by both
+   MQTT and mDNS identity derivation. Applies: lowercase, spaces/underscores/
+   dots → hyphens, strip non-DNS-safe chars, collapse consecutive hyphens,
+   trim leading/trailing hyphens, fallback to `"unknown"` if all chars invalid.
+2. **`try_deregister_stale()` in `win32_mdns.rs`** — on startup, calls
+   `DnsServiceDeRegister` for two names:
+   - The name about to be registered (crash recovery — clears orphaned
+     registration from a previous ungraceful exit)
+   - The bare `"okfpga-server"` (migration cleanup from pre-Phase 42 binaries)
+3. **`config.toml` cleanup** — removed explicit `instance_name = "okfpga-server"`;
+   auto-derivation via `populate_from_hostname()` is now the only default
+   path. Comment documents the override option.
+4. **10 unit tests** for `sanitize_hostname()` covering: lowercase, spaces,
+   underscores, dots, special chars, collapsed hyphens, leading/trailing
+   trim, all-invalid fallback, already-clean passthrough, complex mixed input.
+
+**Deliverables:**
+
+| File | Changes |
+|------|---------|
+| `config.rs` | `sanitize_hostname()` function + 10 unit tests |
+| `win32_mdns.rs` | `try_deregister_stale()` best-effort cleanup function |
+| `config.toml` | Removed `instance_name` key; added explanatory comment |
+
+**Verification:** `cargo test sanitize_hostname` — 10 passed, 0 failed.
