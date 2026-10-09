@@ -4,6 +4,17 @@ trigger: always_on
 
 # ok-fpga-server — AI Collaboration Rules
 
+These rules apply to any AI assistant (Antigravity, Gemini, Copilot, etc.)
+working on this codebase. They must be followed in every session.
+
+## 0. Local Models & Strata Protocol (For Hosted AI Assitants only (Antigravity, Gemini, Copilot, etc)
+- **Default Engine**: Use `local-strata` (`strata_chat`, `strata_generate`, `strata_review_files`) for planning, architecture, test code, >
+- **Fallbacks**: Use `local-ollama` (Qwen 2.5 VL) only for Playwright visual/UI tests, or when `local-strata` is unreachable (Qwen 3.8).
+- **Workspace & File Ingestion**: Pass workspace-relative paths or globs in `files: [...]` to `strata_chat` or `strata_review_files`. The >
+- **Unified Diffs Only**: Instruct `local-strata` to output code changes strictly as concise `diff -u` chunks with minimal rationale. Neve>
+- **Execution Mediation**: Hosted Antigravity agent inspects diffs and applies them via `replace_file_content` / `write_to_file`. No unmed>
+- **Token Allocation**: When calling local-strata, request max_tokens: 16384 (or 49152) and reasoning_budget_tokens: 8192 (or 16384). Mimi>
+
 **1. Explicit Approval & Scope**
 * WAIT FOR APPROVAL: Stop and wait for the user to explicitly approve a plan before modifying code. Feedback without an approval phrase is not approval.
 * SCOPE: Stick strictly to the agreed plan. If a significant deviation is needed, stop and request approval for the new scope. Minor mechanical fixes (typos, compile errors in the same file) are allowed without re-approval but must be noted.
