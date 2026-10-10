@@ -1,12 +1,14 @@
-# Resource Management — Findings & Recommendations (DRAFT rev 5)
+# Resource Management — Findings & Recommendations (DRAFT rev 6)
 
-> **Basis:** ADR-004, 005, 006, 015, 016, 017, 018, 020, 021, 023, 024, 025,
-> 026, 029; the owner decisions of 2026-10-10 (§1); the DualPort-Transceiver
-> `axibridge-access-guide-v2.md`; `api/openapi.yaml` (schemas only, for the
-> S-items); local Strata second opinion (§8). No code was reviewed.
+> **Basis:** ADR-003, 004, 005, 006, 015, 016, 017, 018, 020, 021, 023, 024,
+> 025, 026, 029; the owner decisions of 2026-10-10 (§1); the DualPort-Transceiver
+> `axibridge-access-guide-v2.md`; `api/openapi.yaml` and
+> `proto/okfpga/v1/okfpga.proto` (definitions only); local Strata second
+> opinion (§8). No code was reviewed.
 > Companion: [resource-management-developer-guide.md](resource-management-developer-guide.md).
-> **Status:** Draft rev 5, 2026-10-10. Nothing is decided until the owner
-> approves. No ADR, spec, roadmap or code has been changed.
+> **Status:** Draft rev 6, 2026-10-10. Nothing is decided until the owner
+> approves. No ADR, spec or code has been changed. The roadmap RBAC item was
+> widened (D31, D47).
 
 ---
 
@@ -25,12 +27,12 @@
 | **D7** | Q3 | A second acquire of the same resource by the same user (same mode) returns **idempotent 200**. |
 | **D8** | Q4 | **First registration wins.** A later registration that conflicts is denied with a meaningful error. |
 | **D9** | Q5 | The server does not dictate how resources are used; the HDL designer / software architect designs resources within the rules. The entity that programs the FPGA registers its resources. Alice writing Bob's exclusive range is denied, even when neither resource is locked. |
-| **D10** | Q6 | A per-EP `access: exclusive` inside a shared resource means "writable only by the locker" (like ADR-025 ranges). |
-| **D11** | Q7 | Expose `private` on EP entries and address ranges in the registration API (spec change; permission needed at implementation time). |
+| **D10** | Q6 | ~~A per-EP `access: exclusive` inside a shared resource means "writable only by the locker"~~ **Corrected by D44:** "writable only by the **holders** of the declaring resource". |
+| **D11** | Q7 | Expose `private` on EP entries and address ranges in the registration API. |
 | **D12** | Q8 | The server stays FPGA-agnostic. ReadOnly does not apply to ADR-025 developer-defined classic address ranges; it applies to FPGADataPortAXI and okRegisterBridge ranges. Future work: server-side sequences for multi-step transactions and FPGA authentication. |
 | **D13** | Q9 | The bridge register map is in `client/python-dualport-client/docs/` (now `axibridge-access-guide-v2.md`, D30). |
 | **D14** | Q10 | The Authenticator EPs are **shared in both** port resources. Whichever port is acquired first authenticates. |
-| **D15** | Q11 | (a) A legacy resource with no `endpoints` claims **all EPs as exclusive**. (b) Any user may reprogram; reprogramming unlocks all, releases all, deletes all resources, then writes the bitfile. (c) Anyone may delete a resource until RBAC exists. (d) ADR-029 is implemented; its status is stale. (e) The enforcement default becomes **`enforce`**. (f) ADR-020 §3 gets ReadOnly behaviour; ADR-026 §4 is correct (allow unless private). |
+| **D15** | Q11 | (a) A classic resource with no `endpoints` claims **all EPs as exclusive** (now "unspecified-classic", D45). (b) Any user may reprogram; reprogramming unlocks all, releases all, deletes all resources, then writes the bitfile. (c) Anyone may delete a resource until RBAC exists. (d) ADR-029 is implemented; its status is stale. (e) The enforcement default becomes **`enforce`**. (f) ADR-020 §3 gets ReadOnly behaviour; ADR-026 §4 is correct (allow unless private). |
 | **D16** | Q12 | A read of a **non-private** item is permitted, including during someone else's lock. The guide gets a read/write permission matrix. A consolidated ADR may supersede the older resource ADRs. |
 | **D17** | Q13 | No server restriction on reset EPs. Any holder of a resource that is not locked by another user (and not blocked) may write any WireIn the resource declares. Future RBAC *may* restrict this. |
 
@@ -39,23 +41,40 @@
 | ID | From | Decision |
 |---|---|---|
 | **D18** | Q1/N1 | Blocking is **non-transitive** (rule B4). |
-| **D19** | Q2/N2 | A blocked resource is blocked **as a whole**: no writes at all through it, including its own exclusive ranges and direct AXI/okRegisterBridge paths. |
-| **D20** | Q3/N3 | A **multi-step** transaction on a shared resource must run under the lock. A single-step (atomic) write to a shared item needs no lock. Until server-side atomic transactions exist, **every bridge transaction is multi-step**. |
-| **D21** | Q4/N4 | **No state-change classification.** Reads (incl. PipeOut/BTPipeOut) are simply allowed per D16. A design that other users' reads could harm must declare the resource **exclusive** (and/or `private`). The guide gets an example (guide §5.4). |
-| **D22** | Q5/N5 | `private` is part of an overlapping declaration: a mismatch gives **409** to the later registration (first wins). |
-| **D23** | Q6/N6 | A legacy resource registered first blocks all later classic resources on the device. Intended. |
+| **D19** | Q2/N2 | A blocked resource is blocked **as a whole**: no writes at all through it. |
+| **D20** | Q3/N3 | A **multi-step** transaction on a shared resource must run under the lock; a single-step one needs no lock. Until server-side atomic transactions exist, every bridge transaction is multi-step. *Clarified by D46: this is a client obligation; the server never requires a lock.* |
+| **D21** | Q4/N4 | **No state-change classification.** Reads (incl. PipeOut/BTPipeOut) are simply allowed per D16. A design that other users' reads could harm must declare the resource **exclusive** (and/or `private`). |
+| **D22** | Q5/N5 | A `private` mismatch between overlapping declarations gives **409** to the later registration (first wins). |
+| **D23** | Q6/N6 | An unspecified-classic resource registered first blocks all later classic resources on the device. |
 | **D24** | N7 | Authentication runs under the lock. |
-| **D25** | Q7/N8 | ReadOnly with exclusive resources: proposals (a), (b), (c) accepted (§3.2 N8). |
-| **D26** | N9 | Reprogramming is a **forced override** at every enforcement level, REST and gRPC alike. **All** holders on the device are informed, whatever their state (holding, locked, blocked, ReadOnly). Future RBAC will restrict who may reprogram. |
-| **D27** | Q8/N10 | All clients must comply. `off` / `warn` exist only as **debugging aids** for non-compliant clients; the default is `enforce`. |
-| **D28** | Q9/N11 | Same-mode repeat acquire = 200 (D7). A **different-mode** acquire is not a repeat but a change: it is **denied** with a message telling the client to release, then acquire. |
+| **D25** | Q7/N8 | ReadOnly with exclusive resources: (a) exclusive holder + ReadOnly acquire → allowed unless private, stays `InUseLocked`; (b) only ReadOnly holders → `InUseShared`; (c) exclusive acquire while ReadOnly holders exist → allowed → `InUseLocked`. |
+| **D26** | N9 | Reprogramming is a **forced override** at every enforcement level, REST and gRPC alike. **All** holders on the device are informed, whatever their state. Future RBAC will restrict who may reprogram. |
+| **D27** | Q8/N10 | All clients must comply. `off` / `warn` are **debugging aids** only; the default is `enforce`. |
+| **D28** | Q9/N11 | Same-mode repeat acquire = 200 (D7). A **different-mode** acquire is a change, and is **denied** with "release, then acquire". |
 | **D29** | Q10/N12 | ReadOnly holders are denied ADR-025 mapped access. |
-| **D30** | Q11/N13 | DualPort-Transceiver uses only **one-shot writes**, **burst writes** (PipeIn 0x80) and **burst reads** (PipeOut 0xA0), per `axibridge-access-guide-v2.md` (pipes §6, workflows §7). Authenticated status = **AXI Status Register 2, bit 7** (module base + 0x08). Field list in §3.4. |
-| **D31** | Q12/N14 | Widen the RBAC Future-work item in the roadmap. *Edit deferred (no other documents this round).* |
+| **D30** | Q11/N13 | DualPort-Transceiver uses only one-shot writes, burst writes (PipeIn 0x80) and burst reads (PipeOut 0xA0), per `axibridge-access-guide-v2.md`. Authenticated status = AXI Status Register 2 bit 7 (module base + 0x08). Field list in guide §6.1. |
+| **D31** | Q12/N14 | Widen the RBAC Future-work item. **Done** (D47). |
 | **D32** | Q13 | **One consolidated superseding ADR** (§4). |
 | **D33** | Q14/C1 | `access_mode` is **required** at registration; a missing value returns a meaningful error. |
-| **D34** | Q15 | Server-side **declarative sequences first** (future work, §5). |
-| **D35** | Q16 | A user who holds both port resources may lock one and write the other's exclusive ranges: she owns both, and her own lock never blocks her. (Which lock is required: N20.) |
+| **D34** | Q15 | ~~Server-side declarative sequences first~~ *Revised by D40.* |
+| **D35** | Q16 | A user who holds both port resources may lock one and write the other's exclusive ranges. *With D44/D46 no lock is needed for the write itself.* |
+
+### 1.3 Round 4 (D36–D47)
+
+| ID | From | Decision |
+|---|---|---|
+| **D36** | S1 | Spec fix approved for Phase 44: **remove** (not deprecate) `resource_type` and `capabilities` (no existing users); add `access_mode` (required), `interfaces`, `endpoints`, `address_ranges` (`name`, `private`), `metadata`, `private`. Applies to OpenAPI and, by parity, proto (P1). |
+| **D37** | S2 | Approved: `Resource.access_mode` = declared mode (`shared` / `exclusive`); `holders[]` = `{user_id, mode}`; add `locked_by` and the declaration fields. |
+| **D38** | S3 | Approved: 422 for validation; structured error body naming the conflicting resource / item or the locking resource. |
+| **D39** | S4 | The draft port JSON resources are corrected as part of C-SFPP-1. |
+| **D40** | §5 | When server-side sequences come due, the **embedded engine (option C)** will likely be explored first (extensibility; server-held keys for authentication). Decided at that phase. |
+| **D41** | — | The client project is renamed from the codename "dualport" to **DualPort-Transceiver** (`python-DualPort-Transceiver-client`); folders and the repo later. Documentation references updated. |
+| **D42** | N16 | `UpdateWireOuts` / `UpdateTriggerOuts` are **reads**: FrontPanel 6.1.0 calls that latch the outputs, and must precede the read. |
+| **D43** | N17 | A different-mode acquire returns **409**. |
+| **D44** | N18 | **D10 corrected:** an exclusive item (per-EP `access: exclusive`, or an exclusive range) in a shared resource is **writable by any holder** of the declaring resource, not only the locker. No lock is required. |
+| **D45** | N19 | **Legacy = Classic.** A Classic resource may use okRegisterBridge, but cannot use direct AXI. |
+| **D46** | N20 | The server **never requires a lock to write**. Multi-step writes and reads need the client to lock; single-step ones on any item do not. A user who knows she is alone (e.g. single-resource bitfile) carries no extra burden. Server-side atomic sequences are future work. |
+| **D47** | D31 | Roadmap RBAC Future-work item widened (`docs/development-roadmap.md`). |
 
 ---
 
@@ -63,149 +82,135 @@
 
 ### 2.1 Contradictions (⚠C) and gaps (❓G)
 
-| ID | Issue | Status |
-|---|---|---|
-| C1 | `access_mode` required vs default `shared` | **Resolved:** D33 (required). Spec still lacks the field (S1) |
-| C2 | Accepted acquire `mode` values | D3: `read_only` accepted at acquire. Wording only |
-| C3 | `InUseLocked` vs ReadOnly may join | **Resolved:** D15f, D25 |
-| C4 | No `endpoints`: "all exclusive" vs "covers all" | **Resolved:** D15a, D23 |
-| C5 / G2 / G7 | Lock reach across overlapping resources | **Resolved:** D1, D5, D18 |
-| C6 | Order-dependent result | **Resolved:** D5 (B2) |
-| C7, C9, C10, C12 | Stale ADR text | Fold into the consolidated ADR (D32) |
-| C8 | Reprogramming while held | **Resolved:** D15b, D26 |
-| C11 | L2/L3 Private not in the API | **Resolved:** D11 (spec change pending, S1) |
-| G1 | Exclusive vs shared EP overlap | **Resolved:** D8 |
-| G3 | Per-EP `access` has no runtime meaning | **Resolved:** D10 |
-| G4 | State after ReadOnly acquire | **Resolved:** D25 |
-| G5 | Explicit release by the locker | → `InUseShared` if other holders remain, else `Available` (unchanged) |
-| G8 | Heartbeat needs identity in `off` mode | Moot: `off` is a debug aid (D27) |
-| G9 | Who may delete | **Resolved:** D15c |
-| G10 | ADR-029 status Proposed | **Resolved:** D15d (status update in the consolidated ADR) |
-| G11 | Enforcement default `off` | **Resolved:** D15e, D27 |
-| G12 | ReadOnly on exclusive | **Resolved:** D15f, D25 |
-| G13 | Second acquire | **Resolved:** D7, D28 (status code: N17) |
-| G14 | Bridge reads need writes; ReadOnly can't | **Resolved:** D12, D29 |
-| G15 | Range ownership inside one shared resource | **Resolved:** D9, D35 |
-| G16 | Multi-call bridge transactions | **Resolved:** D20 (lock). Sequences are future work (D34) |
-| G17 | Exclusive resource with shared items | **Resolved:** D6 |
-| G18 | `AllowAlways` must not skip lock/ReadOnly checks | Open, wording only (consolidated ADR §10) |
-| G19 | Shared reset EPs | **Resolved:** D17 |
+All C- and G-items are resolved except **G18** (`AllowAlways` must not skip
+lock/ReadOnly/blocking checks; wording only, consolidated ADR §10). G13 is
+now closed by D43; G15 by D44. Full history: rev 5 (commit `8b6ae7c`).
 
-### 2.2 Round-2 gaps N1–N15
+### 2.2 Round-2/3 gaps N1–N20
 
-| ID | Issue | Status |
-|---|---|---|
-| N1 | Blocking transitivity | **Resolved:** D18 (B4) |
-| N2 | Blocked = whole resource | **Resolved:** D19 |
-| N3 | Writing your own exclusive range needs the lock | **Resolved for multi-step:** D20. Single-step writes to *exclusive* items: N18 |
-| N4 | "State-changing reads" | **Resolved, proposal withdrawn:** D21. No classification; reads are reads; declare exclusive/private if reads could harm. Update\*Outs wording: N16 |
-| N5 | `private` agreement on overlap | **Resolved:** D22 |
-| N6 | Legacy resource blocks later classic resources | **Resolved:** D23 |
-| N7 | Authentication under lock | **Resolved:** D24. The status check is itself a bridge read, so it also runs under the lock (§3.4) |
-| N8 | ReadOnly + exclusive states | **Resolved:** D25: (a) exclusive holder + ReadOnly acquire → allowed unless private, stays `InUseLocked`; (b) only ReadOnly holders → `InUseShared`; (c) exclusive acquire while ReadOnly holders exist → allowed → `InUseLocked`. ReadOnly holders never count against "exclusive" |
-| N9 | Reprogramming forced cleanup | **Resolved:** D26. Event order: §3.5 |
-| N10 | Default `enforce` migration | **Resolved:** D27. All clients must comply; migration order still matters for Phase 44 sequencing (§6) |
-| N11 | Different-mode repeat acquire | **Resolved:** D28 (status code: N17) |
-| N12 | ReadOnly vs ADR-025 mapped access | **Resolved:** D29 |
-| N13 | Register-map discrepancies | **Resolved:** D30 (v2 guide is authoritative). JSON fixes: S4 |
-| N14 | RBAC scope | **Resolved:** D31. Roadmap edit pending (§6) |
-| N15 | ADR-025 hooks are compiled | Noted. Changing a hook requires recompiling the server |
+| ID | Status |
+|---|---|
+| N1–N15 | Resolved in rev 5 (D18–D31) |
+| N16 | **Resolved:** D42 |
+| N17 | **Resolved:** D43 |
+| N18 | **Resolved:** D44 (proposal "exclusive needs the lock" rejected) |
+| N19 | **Partly resolved:** D45. Remaining: which ranges an unspecified-classic resource claims (§3.2 N19) |
+| N20 | **Resolved:** D46 |
 
 ---
 
-## 3. Rules, new gaps and discrepancies
+## 3. Rules, open gaps and discrepancies
 
-### 3.1 Proposed normative rules
+### 3.1 Normative rules (proposed for the consolidated ADR)
 
-- **R1 (registration, D6, D8, D22, D33).** `access_mode` is required. An
-  exclusive resource contains only exclusive items. A new declaration that
-  overlaps an existing one is allowed only if **both** are shared items in
-  shared resources and agree on type and `private`. Otherwise 409, naming
-  the existing resource and the conflicting item. A legacy resource claims
-  all EPs exclusively (D15a).
+- **R1 (registration, D6, D8, D22, D33, D45).** `access_mode` is required.
+  An exclusive resource contains only exclusive items. A new declaration
+  that overlaps an existing one is allowed only if **both** are shared items
+  in shared resources and agree on type and `private`. Otherwise 409, naming
+  the existing resource and the conflicting item. An unspecified-classic
+  resource claims all classic EPs exclusively. AXI interfaces on an
+  `OK_DATAPORT_LEGACY` device → 422.
 - **B1 (blocking, D5, D19).** Resource S is **blocked for user U** if another
   user V ≠ U holds the lock on a resource R ≠ S, and S and R declare at
   least one common shared item. S is also unusable for U if S itself is
   locked by V. A blocked or foreign-locked resource gives U **no write
-  rights** through it, for any of its items. Reads of non-private items
-  stay allowed (D16, D21).
-- **B2 (write authorisation).** A write by U to item X is allowed if U holds
-  at least one resource that covers X, is not ReadOnly, and is neither
-  locked by another user nor blocked; then the ADR-025 / D10 checks apply.
-  Because every resource that shares one of R's items is blocked, R's items
-  can only be written by the locker. No order dependence.
+  rights** through it. Reads of non-private items stay allowed (D16, D21).
+- **B2 (write authorisation, D44, D46).** A write by U to item X is allowed
+  if U holds at least one resource that covers X, is not ReadOnly, and is
+  neither locked by another user nor blocked; then the ADR-025 address check
+  ("address in one of that resource's ranges", D9) applies. **No lock is
+  required.** Each call is checked against the lock state at that moment.
 - **B3 (lock denial).** `lock` on S is denied (409) if S is locked or blocked
   for the caller. A user's own lock never blocks that user (D35).
-- **B4 (non-transitive, D18).** If R is locked, S overlaps R and T overlaps S
-  but not R, then T is not blocked.
-- **L1 (when to lock, D20, D24).** Multi-step transactions on a shared
-  resource, including authentication and every bridge transaction, run
-  under the client's lock. A single-step write to a **shared** item needs no
-  lock. (Exclusive items: N18.)
-- **A1 (acquire, D7, D28).** Same user, same resource, same mode → 200
-  (idempotent). Same user, different mode → denied, "release, then
-  acquire" (status code N17).
+- **B4 (non-transitive, D18).**
+- **L1 (client obligation, D20, D24, D46).** Multi-step operations (writes
+  or reads, incl. authentication and every bridge transaction) run under the
+  client's lock when other users may hold overlapping resources. The server
+  cannot detect or enforce this.
+- **A1 (acquire, D7, D28, D43).** Same mode → 200. Different mode → 409,
+  "release, then acquire".
+- **E1 (meaning of exclusive, D44).** An exclusive item belongs to exactly
+  one resource. It is not a mutex among that resource's holders; one-writer
+  guarantees come from an **exclusive resource** or from client locking.
 
-### 3.2 Open gaps (round 3, with Strata)
+### 3.2 Open gaps (round 4, with Strata)
 
 | ID | Issue | Proposal |
 |---|---|---|
-| **N16** | **`UpdateWireOuts` / `UpdateTriggerOuts`.** ADR-024 §6 and ADR-026 §1 list them as write-class. They only latch outputs, and REST `GET /wires/out` performs `UpdateWireOuts` + `GetWireOutValue` internally (ADR-004). Under D21 "reads are reads". | Treat both as **reads** (allowed during another user's lock and for ReadOnly, unless private). The consolidated ADR supersedes the ADR-024 §6 / ADR-026 §1 wording. |
-| **N17** | **Status code for a different-mode acquire (D28).** | **409 Conflict**, body: "already held as `shared`; release, then acquire as `read_only`". It is a conflict with the caller's existing hold, not a permission failure. |
-| **N18** | **Single-step write to an exclusive item.** D20 frees single-step writes on *shared* items from the lock. ADR-025 §3 and D10 make exclusive items "writable only by the locker". | Keep D10: exclusive items (per-EP `access: exclusive` or exclusive ranges in a shared resource) always need the lock, single-step or not. In an **exclusive resource** the sole holder is implicitly the locker, so no explicit lock is needed. |
-| **N19** | **Legacy resources and address ranges.** D15a covers EPs. | A legacy resource claims **no** address ranges (it has no ADR-025 map). Later resources may still not declare EPs, so this is only relevant for direct AXI / okRegisterBridge ranges. |
-| **N20** | **D35: which lock lets Alice write `port-b`'s exclusive ranges?** She holds both ports and locks `port-a`. | Under N18/ADR-025 §3 she must lock **`port-b`** (or both). Her lock on `port-a` does not block her `port-b`, but does not grant exclusive-write rights on it either. Alternative: any lock she holds on an overlapping resource suffices (more permissive, harder to state). |
+| **N19** | **Ranges of an unspecified-classic resource.** D45 says it may use okRegisterBridge. | It claims **only the ranges it declares**. Claiming "all register addresses" by default would block every other resource's register ranges. |
+| **N21** | **Name for the "no `endpoints` field" resource.** ADR-024 §3 calls it "legacy resource", which clashes with `OK_DATAPORT_LEGACY` (ADR-003) and with D45. | Rename to **"unspecified-classic resource"** in the consolidated ADR (Strata suggestion). |
+| **N22** | **Mixed interfaces.** ADR-020 §6 lets `interfaces` be a list, so one resource on a Gen3 device could list `classic` and `axi_lite`. D45 says a Classic resource cannot use direct AXI. | Either (a) a resource is Classic **or** AXI, never both (simplest; consistent with D45), or (b) mixing is allowed on Gen3 devices and D45 applies only to `OK_DATAPORT_LEGACY` devices. Proposed: **(a)**. |
+| **N23** | **Register-only classic resource.** A resource that only declares okRegisterBridge ranges and omits `endpoints` would become unspecified-classic and claim every EP. | Require an explicit empty `endpoints` object (`{"entries": []}`) to mean "no EPs"; omission keeps D15a. |
+| **N24** | **`ResetFPGA` RPC / `POST …/classic/reset`.** Device-wide, disturbs every user; not covered by D17 (reset EPs) or D26 (reprogram). | Treat as a **write** needing a usable (not foreign-locked, not blocked) resource on the device; does **not** clear resources. Candidate for RBAC (D47). |
+| **N25** | **Private visibility.** OpenAPI `Resource.private` and proto `Resource.private` say private resources are "only visible to holders with Shared or Exclusive access". ADR-026 only denies ReadOnly **acquisition**; it says nothing about hiding resources from listings. | Keep listings visible to all (needed to acquire at all); `private` restricts ReadOnly acquisition and reads only. Fix both spec comments (S6, P13). |
 
-### 3.3 Spec discrepancies (⚠S) — `api/openapi.yaml` vs ADRs/decisions
+Also noted, no question needed (Strata):
+- **Self-interleaving.** A user holding both ports can corrupt her own bridge
+  transactions; the server does not protect a user from herself (guide §6.2).
+- **Lock between unlocked steps.** If Bob locks between two unlocked calls by
+  Alice, her next write is denied mid-sequence. This is why L1 exists
+  (guide §4.3).
 
-These are **discrepancies between the spec and the ADRs / owner decisions**.
-Per the collaboration rules the spec stays authoritative and is **not
-changed without owner permission**. Until permission is given, the server
-implementation must match the spec, and the features below cannot be
-exposed.
+### 3.3 OpenAPI discrepancies (⚠S)
 
-| ID | Location | Discrepancy | Proposed spec change |
+These are **discrepancies between `api/openapi.yaml` and the ADRs / owner
+decisions**. S1–S3 are approved for Phase 44 (D36–D38); the spec itself is
+edited only at implementation time. S5–S6 need permission.
+
+| ID | Location | Discrepancy | Status |
 |---|---|---|---|
-| **S1** | `CreateResourceRequest` (~line 2042) | Has only `name`, `device_serial`, `description`, `resource_type`, `capabilities`; `required: [name, device_serial]`. Lacks `access_mode` (required, D33), `interfaces`, `endpoints` (`default_access`, `entries[]`: `address`, `type`, `access`, `private`, `description`), `address_ranges[]` (`start`, `end`, `access`, `private`, `name`), `metadata`, resource-level `private` (D11). `resource_type` / `capabilities` are not in ADR-020. | Add the ADR-020 / D11 / D33 fields; add `access_mode` to `required`; decide whether `resource_type` / `capabilities` stay (informational) or are deprecated. |
-| **S2** | `Resource` (~line 2065) | `access_mode` enum `[shared, exclusive, read_only]` described as the "current access mode if acquired": conflates the resource's declared mode with a holder's mode. `holders` is `string[]`; ADR-026 requires entries with `user_id` + `mode`. Lacks `locked_by`, `interfaces`, `endpoints`, `address_ranges`, `metadata`. | `access_mode` = declared mode (`shared` / `exclusive`); `holders[]` = `{user_id, mode}`; add `locked_by` and the declaration fields. |
-| **S3** | `createResource` responses; acquire/lock errors | Documents only 400/404/409. ADR-020 §10 uses 422 for validation. No documented error body for registration conflicts (resource + item), different-mode acquire (N17), or "blocked by lock on R" (B1). | Add 422 (or fold into 400, owner's choice) and a structured error body naming the conflicting resource/item or locking resource. |
+| **S1** | `CreateResourceRequest` (~L2042) | Only `name`, `device_serial`, `description`, `resource_type`, `capabilities`. | **Approved** (D36): remove `resource_type` / `capabilities`; add `access_mode` (required), `interfaces`, `endpoints` (`default_access`, `entries[]`: `address`, `type`, `access`, `private`, `description`), `address_ranges[]` (`name`, `start`, `end`, `access`, `private`), `metadata`, `private` |
+| **S2** | `Resource` (~L2065) | `access_mode` enum incl. `read_only`, described as "current access mode if acquired"; `holders` is `string[]`; no `locked_by` or declaration fields. | **Approved** (D37) |
+| **S3** | `createResource`, acquire, lock | Only 400/404/409 documented; no structured conflict body. | **Approved** (D38) |
+| **S5** | `/events` (~L1605), `DeviceEvent` (~L2178) | No `ResourceLocked` / `ResourceUnlocked` events, although ADR-020 §3 requires them and clients wait for `ResourceUnlocked` (guide §4.3). `ResourceChanged` covers "acquired, released, invalidated" only. No event says *why* resources vanished on reprogram (ADR-023 mentions a dashboard `resources_cleared` event that is not in the spec). | Proposed: add `ResourceLocked` / `ResourceUnlocked` (`resource_id`, `user_id`) and a reprogram/clear reason on `ResourceDeleted`. **Needs permission** |
+| **S6** | `Resource.private` description | "Private resources are only visible to holders…" (N25). | Proposed fix with N25. **Needs permission** |
+| **S4** | port-A/B JSON (not a spec) | Descriptions vs v2 guide: WO 0x20, 0x22/0x23, 0x31, 0x29; unused 0xA1 / large mode. | **Approved for C-SFPP-1** (D39) |
 
-The same audit is needed for `proto/okfpga/v1/okfpga.proto` before
-implementation (not reviewed this round).
+### 3.4 Proto discrepancies (⚠P) — `proto/okfpga/v1/okfpga.proto`, definition only
 
-### 3.4 DualPort register map (⚠S4, D30)
+Audited this round (D36–D38 apply "by parity"). Line numbers approximate.
 
-`axibridge-access-guide-v2.md` is authoritative. Status Register 2 (module
-base + 0x08):
+| ID | Location | Discrepancy | Proposed fix |
+|---|---|---|---|
+| **P1** | `CreateResourceRequest` (L902) | Same gaps as S1; comment cites ADR-016, not ADR-020. | As D36: remove fields 4–5 (`reserved 4, 5;` so the numbers are never reused), add the declaration messages (`EndpointDeclaration`, `EndpointEntry`, `AddressRange`), `metadata` map, `private` |
+| **P2** | `Resource` (L229) | No `access_mode`; `holders` is `repeated string`; no declaration fields. Has `locked_by` (OpenAPI lacks it). | As D37: `ResourceAccessMode access_mode`, `repeated Holder holders` (`user_id`, `mode`) — changing field 6's type needs a new field number |
+| **P3** | `AccessMode` enum (L114) | `ACCESS_MODE_SHARED = 0` is the proto3 default, so an omitted mode silently means "shared". Contradicts D33 for registration. | Separate `ResourceAccessMode { UNSPECIFIED = 0; SHARED; EXCLUSIVE; }` for registration (UNSPECIFIED → INVALID_ARGUMENT); give holder `AccessMode` an `UNSPECIFIED = 0` too |
+| **P4** | `AccessMode` comment (L117–120) | "ReadOnly holders cannot call UpdateWireOuts, fire triggers…" contradicts D42; "fire triggers" is ambiguous. | "cannot write input EPs or call ActivateTriggerIn; may call UpdateWireOuts / UpdateTriggerOuts (reads)" |
+| **P5** | `UserSession` (L249) | `held_resource_ids` has no holder mode. | `repeated Holding` (`resource_id`, `mode`, `locked`) |
+| **P6** | `DeviceEvent` (L280) | Only DeviceAdded, DeviceRemoved, BitfileProgrammed, ResourceStateChanged. Missing ADR-020 §11's `ResourceLocked` / `ResourceUnlocked`, and REST's ResourceCreated, ResourceDeleted, UserConnected, UserDisconnected, ServerShutdown. Names differ from REST (BitfileProgrammed vs DeviceProgrammed; ResourceStateChanged vs ResourceChanged). `ResourceState` has no "deleted". | Event parity with REST plus S5's lock events; one name per event across both specs |
+| **P7** | Errors (`ErrorCluster`, L27) | Resource RPCs return `ErrorCluster` (FrontPanel error codes). No defined mapping to gRPC status codes (PERMISSION_DENIED / FAILED_PRECONDITION / ALREADY_EXISTS / INVALID_ARGUMENT) and no structured detail for D38. | Document the status-code mapping per RPC; add an error-detail message (conflicting resource / item, locking resource + user, required action) |
+| **P8** | Identity | Data-port requests (e.g. `SetWireInValueRequest` L524) and `ResourceRequest` (create/delete), `DeviceRequest` (`ClearFPGAConfiguration`, `ResetFPGA`) have no `user_id`. The `x-user-id` metadata key (ADR-024 §4, ADR-029) is not documented anywhere in the proto. Under `enforce` this is the only way to identify. | Document `x-user-id` as required metadata in the file header and each service comment (no field changes needed) |
+| **P9** | `AXIDataPortService` comment (L1191) | "AXI Lite, Full, and Stream operations **via okRegisterBridge**" conflates direct AXI (FPGADataPortAXI) with the Classic register bridge (`ReadRegister` / `WriteRegister`, ClassicDataPortService). Contradicts D45. | "…via FPGADataPortAXI (FP-Gen3 devices only)"; mention okRegisterBridge under the Classic register RPCs |
+| **P10** | `LockResource` / `UnlockResource` (L1093) | Return `ResourceResponse`; ADR-020 §11 says `StatusResponse` and a separate `UnlockResourceRequest`. | Keep the proto (it is authoritative and more useful); consolidated ADR supersedes ADR-020 §11 |
+| **P11** | `DeleteResource` comment (L1083) | "Returns an error if held" — true for explicit delete, but reprogram / clear delete held resources (D15b, D26). | Add "configure / clear force-delete regardless (see …)" |
+| **P12** | `ClearFPGAConfiguration` (L1021) | Not described as a forced cleanup like ConfigureFPGA, and carries no user id. | Same forced-override semantics and notifications as reprogramming (D26); identity via P8 |
+| **P13** | `Resource.private` comment (L240) | Visibility claim not in ADR-026 (N25). | Fix with N25 |
+| **P14** | Address width | Register RPCs use `uint32` addresses, AXI RPCs `uint64`; ADR-020 §8 ranges are 32-bit. | Keep ranges 32-bit (all supported devices); state that AXI addresses above 32 bits cannot be covered by a range and are denied under `enforce` |
+| **P15** | Non-resource (noted only) | `GetServerStatus` exists in DeviceService and ServerService with different types; ServerService RPCs take `StatusResponse` as their **request** type. | Out of scope; separate cleanup item |
 
-| Module | Bits |
-|---|---|
-| Core and Trigger | Authenticated [7], Current State [4:1], txTriggerArmed [0] |
-| Core only | Core Ready [8], txControlState [14:12], last_non_idle_address [31:16] |
-| Trigger only | Trigger Armed [9], Triggered [10] |
+### 3.5 ADR text superseded by D42–D46 (for the consolidated ADR)
 
-Status Register 3 (+0x0C, Core) = capture's final block address pointer.
-Reading these is a **burst read** through PipeOut 0xA0, i.e. a multi-step
-bridge transaction under the client's own port lock (D20). ReadOnly users
-cannot do it (D29).
+Verified against the files:
 
-**S4 — port JSON descriptions to fix (C-SFPP-1 work, not a spec item):**
-WO 0x20 = bresp/rresp (JSON: "Status / Command Done"); WO 0x22/0x23 = TX/RX
-timeout flags (JSON: "Read Data Low/High"); WO 0x31 = read counter (JSON:
-"General Status"); WO 0x29 "Global Authenticated Status" is not the
-authoritative status (Status Register 2 bit 7 is); BTPipeOut 0xA1 and large
-mode (WI 0x04 count, TI 0x44 bit 1) are unused in 1.1. The v2 guide does not
-cover the Authenticator / GTY / DRP EPs, so their JSON descriptions cannot be
-verified from it.
+| ADR | Text | Superseded by |
+|---|---|---|
+| ADR-025 §3 table | "In an Exclusive range \| Locked by this user → ALLOW"; "Not locked / locked by other → DENY" | D44: holder of the declaring resource, resource usable → ALLOW |
+| ADR-025 §3 | "critical pattern: shared endpoints gating exclusive address ranges" (implies lock protection) | D44 (pattern stays; protection = ownership, not lock) |
+| ADR-025 §5 flow (L191) | "In Exclusive range → User holds lock?" | B2 |
+| ADR-025 Future Work (L250) | "Per-range lock semantics — instead of requiring a full resource lock for exclusive ranges" | Premise gone (D44) |
+| ADR-024 §2 (L92) | "A locked resource can ONLY be used by the user who holds the lock." | B1: writes only; reads stay allowed (D16) |
+| ADR-024 §6 (L314) | "state-disturbing operations (UpdateWireOuts, UpdateTriggerOuts)" denied to other holders | D42 |
+| ADR-020 §3 (L171) | "Other holders … cannot perform operations on the resource until it is unlocked." | B1 (writes only) |
+| ADR-020 §7 | No endpoints → "all endpoints in exclusive mode" | Keep; meaning of exclusive per D44; name per N21 |
+| ADR-020 §11 | Lock/Unlock return `StatusResponse` | Proto (P10) |
 
-### 3.5 Reprogramming event order (D15b, D26 — proposal)
+### 3.6 Reprogramming event order (D15b, D26 — proposal)
 
 Under the device lock, atomically, for each resource on the device:
-`ResourceUnlocked` (if locked) → release every holder → `ResourceStateChanged
-(deleted)`; then write the bitfile and emit the device event. All holders
-receive the events whatever their state. Acquire/lock calls cannot
-interleave. Confirm with the code review (ADR-023 Fix-F already clears
-resources).
+`ResourceUnlocked` (if locked) → release every holder → `ResourceDeleted`
+(reason: reprogram / clear); then write the bitfile (or clear) and emit the
+device event. All holders receive the events whatever their state.
+Requires S5 / P6.
 
 ---
 
@@ -217,58 +222,60 @@ ADRs stay in the log, marked *Superseded by ADR-0NN §x*.
 
 | § | Content | Supersedes / absorbs |
 |---|---|---|
-| 1 | Status, scope, authority (spec remains authoritative; S1–S3 need permission) | — |
-| 2 | Terminology: resource, item, holder, holder mode, lock, blocked, overlap, private, single-/multi-step transaction, ADR-025 mapped vs direct address | — |
-| 3 | Resource model and registration schema (`access_mode` required, `private` on EPs/ranges) | ADR-006 Resource Model; ADR-020 §1, §2, §6, §9; ADR-026 §2 |
-| 4 | Declaration rules R1 (D6, D8, D22, D33), legacy = all EPs exclusive (D15a, D23, N19) | ADR-020 §7, §8; ADR-024 §3 |
-| 5 | Acquisition A1 (D7, D28, N17), ReadOnly states (D25) | ADR-006 Acquisition; ADR-020 §3 (part); ADR-026 §3, §4, §7 |
-| 6 | Locking B1–B4, L1 (D20, N18), events, exclusive = implicit lock | ADR-020 §3; ADR-024 §6 |
-| 7 | Lifecycle: release, disconnect, heartbeat, device disconnect, reprogramming (D26, §3.5), delete (D15c) | ADR-006 Lifecycle; ADR-020 §4, §5, §10; ADR-023 Fix-F; ADR-024 §10 |
-| 8 | Reads vs writes (D16, D21, N16) and the permission matrix | ADR-024 §6; ADR-026 §1, §5 |
-| 9 | Enforcement levels, default `enforce`, `off`/`warn` as debug aids (D27), route tiers, pipeline, errors (S3) | ADR-024 §1, §2, §4, §5, §7, §9; ADR-026 §8 |
-| 10 | Address enforcement: ADR-025 hook (compiled), direct AXI / okRegisterBridge, ReadOnly applicability (D12, D29), `AllowAlways` limits (G18) | ADR-025 §2, §3, §5 |
+| 1 | Status, scope, authority (specs remain authoritative; S/P changes per D36–D38) | — |
+| 2 | Terminology: resource, item, holder, holder mode, lock, blocked, overlap, private, exclusive item (E1), single-/multi-step, unspecified-classic (N21), Classic vs AXI (D45), ADR-025 mapped vs register / direct address | — |
+| 3 | Resource model and registration schema | ADR-006 Resource Model; ADR-020 §1, §2, §6, §9; ADR-026 §2 |
+| 4 | Declaration rules R1, unspecified-classic (N19, N23), interfaces (N22) | ADR-020 §7, §8, §10; ADR-024 §3 |
+| 5 | Acquisition A1, ReadOnly states (D25) | ADR-006 Acquisition; ADR-020 §3 (part); ADR-026 §3, §4, §7 |
+| 6 | Locking B1–B4, client obligation L1, events | ADR-020 §3, §11; ADR-024 §6 |
+| 7 | Lifecycle: release, disconnect, heartbeat, device disconnect, reprogram / clear (D26, §3.6), delete (D15c), ResetFPGA (N24) | ADR-006 Lifecycle; ADR-020 §4, §5, §10; ADR-023 Fix-F; ADR-024 §10 |
+| 8 | Reads vs writes (D16, D21, D42) and the permission matrix (D44) | ADR-024 §6; ADR-026 §1, §5 |
+| 9 | Enforcement levels (D27), route tiers, pipeline (B2), errors and gRPC status mapping (D38, P7), identity metadata (P8) | ADR-024 §1, §2, §4, §5, §7, §9; ADR-026 §8 |
+| 10 | Address enforcement: ADR-025 hook (compiled), register / direct AXI, ReadOnly (D12, D29), `AllowAlways` (G18) | ADR-025 §2, §3, §5, Future Work |
 | 11 | Identity | ADR-029 (mark Accepted/Implemented) |
 | 12 | Consequences, test requirements | — |
-| 13 | Open items: RBAC (widened, D31), server-side sequences (D34), per-range leases | — |
+| 13 | Open items: RBAC (D47), server-side sequences (D40) | — |
 
 ---
 
-## 5. Future work: server-side sequences (D12, D34)
+## 5. Future work: server-side sequences (D12, D40)
 
 **Today:** ADR-025 hooks are compiled Rust. A DualPort one-shot write is
-about 5 REST calls and a burst read about 6–7; the client locks around them
-(D20).
+about 5 REST calls and a burst read about 6–7; clients lock around them
+(L1).
 
 | Option | What | Recompile? | Pros | Cons |
 |---|---|---|---|---|
 | A. Built-in DualPort ops | `axi_write`, `axi_read`, `authenticate` endpoints | Yes | Atomic, simple | Server becomes DualPort-aware: violates D12 |
-| **B. Declarative sequences (chosen first, D34)** | A named JSON sequence (set/update wires, trigger, poll WireOut with timeout, pipe read/write, `${param}`, return values), registered with the resources. The server runs it under the device mutex after one permission check against the caller's resources (B2, N18). | **No** | Generic, auditable, one round trip, becomes the "server-side atomic transaction" D20 anticipates | Schema + versioning; limited logic; auth maths needs a few built-in operators |
-| C. Embedded engine (Rhai, Lua, WASM) | Scripts from a server directory or the API | No | Fully flexible; keys can stay server-side | Sandbox, limits, security review, new dependency |
+| B. Declarative sequences | Named JSON sequences (set/update wires, trigger, poll, pipe I/O, parameters) run under the device mutex after one permission check | No | Generic, auditable, one round trip | Limited logic; auth maths needs built-in operators |
+| **C. Embedded engine (Rhai, Lua, WASM) — explore first (D40)** | Scripts from a server directory or the API, run under the device mutex after one permission check (B2) | No | Fully flexible; keys can stay server-side for authentication | Sandbox, limits, security review, new dependency |
 | D. Compiled trait hooks | ADR-025 style | Yes | Fast, type-safe | Per-bitfile logic built into the server |
 
-Path: **B first**, C later for authentication offload. Once B exists, a
-sequence counts as single-step, so D20's lock requirement relaxes for it.
+A sequence/script call counts as **single-step**, so L1's lock obligation
+falls away for it. Details are decided when the phase comes due.
 
 ---
 
 ## 6. Impact on the drafted plans (all on hold until approval)
 
-- **Server Phase 44:** consolidated ADR (§4). R1 with meaningful 409/422
-  bodies. B1–B4, L1/N18. A1 incl. different-mode denial. Reads per D21/N16.
-  Legacy = all EPs exclusive. Forced reprogram cleanup (§3.5). Default
-  `enforce`. Spec changes S1–S3 (+ proto audit) **only with permission**.
-  DualPort ADR-025 stub. ADR-029 status. Sequences stay Future (D34).
-- **Roadmap:** widen the RBAC Future-work item (`docs/development-roadmap.md`
-  line 330) to cover reprogramming, resource deletion and possibly reset EPs
-  (D31). Deferred until the owner allows other documents to be edited.
-- **LabVIEW C-17:** handle 403 (blocked / foreign lock / ReadOnly) and 409
-  (lock denied, registration conflict, different-mode acquire). Send a user
-  id everywhere. Lock around multi-step transactions.
-- **dualport C-SFPP-1:** two shared port resources, bridge / Authenticator
-  / GTY EPs shared, own ranges exclusive, `access_mode` explicit. Fix the
-  JSON descriptions (S4). Lock around authentication, every bridge
-  transaction and the Status Register 2 check. Never read PipeOut 0xA0
-  outside its own locked transaction. Handle the reprogram events.
+- **Server Phase 44:** consolidated ADR (§4). Spec work S1–S3 and the proto
+  equivalents P1–P9, P11–P14 (approved by D36–D38 for OpenAPI; proto
+  parity needs your confirmation, Q4); S5/S6 if approved. R1 with 409/422
+  bodies. B1–B4 without any lock requirement for writes (D44, D46). A1.
+  Reads per D42. Forced reprogram/clear cleanup (§3.6). Default `enforce`.
+  DualPort ADR-025 stub. ADR-029 status. Sequences stay Future (D40).
+- **Roadmap:** RBAC item widened (D47). The Phase 44 draft text in
+  `docs/development-roadmap.md` still reflects the older model (declare-once,
+  ADR-034/035, sequence endpoint) and needs a rewrite after approval.
+- **LabVIEW C-17:** handle 403 (blocked / foreign lock / ReadOnly), 409
+  (lock denied, registration conflict, different-mode acquire), 422. Send a
+  user id everywhere. Lock around multi-step operations.
+- **DualPort-Transceiver C-SFPP-1 (D41):** two shared port resources, bridge /
+  Authenticator / GTY EPs shared, own ranges exclusive, `access_mode`
+  explicit. Fix the JSON descriptions (D39). Lock around authentication,
+  every bridge transaction and the Status Register 2 check. Never read
+  PipeOut 0xA0 outside its own locked transaction. Handle the reprogram
+  events. Folder rename to `client/python-DualPort-Transceiver-client/` pending (Q6).
 
 Next step after approval: a code review against this model.
 
@@ -276,47 +283,48 @@ Next step after approval: a code review against this model.
 
 ## 7. Clarifying questions
 
-1. **N16:** treat `UpdateWireOuts` / `UpdateTriggerOuts` as reads,
-   superseding ADR-024 §6 / ADR-026 §1?
-2. **N17:** a different-mode acquire returns **409**?
-3. **N18:** single-step writes to **exclusive** items (in a shared resource)
-   still require the lock?
-4. **N19:** a legacy resource claims no address ranges?
-5. **N20:** to write `port-b`'s exclusive ranges, must Alice lock `port-b`
-   (proposed), or is her lock on `port-a` enough?
-6. **S1–S3:** may the spec changes be planned for Phase 44 (applied only
-   at implementation, with your go-ahead)? Keep or deprecate
-   `resource_type` / `capabilities`? 422 or 400 for validation errors?
-7. **D31:** may I widen the roadmap RBAC item now, or after these two
-   documents are approved?
+1. **N19 / N23:** an unspecified-classic resource claims only the ranges it
+   declares, and a register-only resource sends an explicit empty
+   `endpoints` object?
+2. **N21:** rename "legacy resource" to "unspecified-classic resource"?
+3. **N22:** a resource is either Classic or AXI, never both (proposed), or
+   may a Gen3 resource mix them?
+4. **Proto parity:** do D36–D38 also authorise the matching proto changes
+   (P1–P9, P11–P14), including `reserved` field numbers and a new
+   `ResourceAccessMode` enum with `UNSPECIFIED = 0`?
+5. **S5 / S6, N24, N25:** may I plan the lock events and private-visibility
+   fix, and treat `ResetFPGA` as a write needing a usable resource?
+6. **Rename (D41):** rename the folder to `client/python-DualPort-Transceiver-client/`
+   now or later? Import package `dualport_client` (a `.` is not valid in a Python
+   import name), distribution `okfpga-DualPort-Transceiver-client`? Rename the git
+   branch too?
 
 ---
 
 ## 8. Local Strata second opinion
 
-Job `job_f652958a` (rev 5 inputs: both docs rev 4, the owner's round-3
-answers, ADR-020/024/025/026, `axibridge-access-guide-v2.md`, the port-A
-JSON, `api/openapi.yaml` resource schemas). Claims were verified against the
-files before adoption.
+Job `job_1c030374` (inputs: both docs rev 5, the proto, ADR-003/020/024/
+025/026/029, the owner's round-4 answers; max_tokens 32768, reasoning
+16384). Claims were verified against the files before adoption.
 
 **Adopted:**
-- Q3 vs D10 reading → N18.
-- Update\*Outs are listed as write-class in ADR-024 §6 / ADR-026 §1 → N16.
-- 409 for a different-mode acquire → N17.
-- D35 lock question → N20.
-- Legacy resources and ranges → N19.
-- The spec gaps → S1–S3, each checked against `openapi.yaml`.
-- The JSON vs v2 guide differences → S4.
-- Reprogram event order → §3.5.
-- The authentication check is a bridge read under the port's own lock;
-  ReadOnly cannot do it (§3.4).
+- ADR text contradicted by D44/D46 → §3.5 (quotes checked; one quote Strata
+  attributed to ADR-025 was actually from the guide, dropped).
+- "Exclusive ≠ one writer" and "blocking overrides holder rights" → E1,
+  guide §2.1, §4.3, §5.3.
+- Lock between unlocked steps; self-interleaving → §3.2 notes.
+- Proto audit → P1–P14 (P3 default-enum issue, P4, P6 parity, P7 errors,
+  P8 identity, P9 okRegisterBridge wording, P10–P14). Non-resource items
+  → P15.
+- Name "unspecified-classic" → N21.
 
-**Reversed from rev 4:** the "state-changing reads" classification (old N4,
-also proposed by Strata in rev 4) is withdrawn per D21.
+**Differs:**
+- Strata says an unspecified-classic resource "does not imply absence of
+  AXI or register bridge". D45 says a Classic resource cannot use direct
+  AXI, so this is not adopted; the mixed-interface case is N22.
+- Strata did not see the register-only hole (N23), the `ResetFPGA` gap
+  (N24, partly raised) or the private-visibility mismatch (N25); added here.
 
-**Differs / deferred:** Strata suggests future atomic reads/writes on
-exclusive ranges; deferred to the sequences work (§5). A raw PipeOut read by
-a ReadOnly holder is allowed (not ADR-025 mapped access); Strata agrees.
-
-**Earlier rounds:** rev 1 and rev 3 runs agreed with D1 and identified
-G14–G17; the rev 4 run (`job_66b22b65`) produced N1–N13.
+**Quality note:** after about 50 findings the output degenerated into
+repetitive filler (sections 3.49–3.200, e.g. "ServiceInfo LabVIEW client
+status"); that part was ignored.
