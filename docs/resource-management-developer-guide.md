@@ -1,8 +1,8 @@
-# ok-fpga-server Resource Management — Developer Guide (DRAFT rev 6)
+# ok-fpga-server Resource Management — Developer Guide (DRAFT rev 7)
 
-> **Source of truth for this guide:** ADR-004, 005, 006, 015, 016, 017, 018,
-> 020, 021, 023, 024, 025, 026, 029, **plus the owner decisions D1–D47 of
-> 2026-10-10** (no source code, no other guides except the DualPort
+> **Source of truth for this guide:** ADR-003, 004, 005, 006, 015, 016, 017,
+> 018, 020, 021, 023, 024, 025, 026, 029, **plus the owner decisions D1–D60
+> of 2026-10-10** (no source code, no other guides except the DualPort
 > `axibridge-access-guide-v2.md` for §6). Where `api/openapi.yaml` or
 > `proto/okfpga/v1/okfpga.proto` disagree, this is flagged (recommendations
 > §3.3 S-items, §3.4 P-items).
@@ -42,9 +42,10 @@ FPGA (serial ABC123, bitfile dsp_v2.bit)
 | Topic | Original | Now governed by |
 |---|---|---|
 | Who creates resources | ADR-006 | ADR-020 §1 (client registers) |
-| `access_mode` | ADR-006 (acquire) | ADR-020 §3: chosen at registration, **required** (🟢 D33) |
-| Overlap between resources | ADR-020 §7–§8 | 🟢 D6, D8, D22 (first registration wins; shared-in-shared only) |
-| Resource with no `endpoints` field | ADR-020 §7 / ADR-024 §3 ("legacy resource") | 🟢 D15a, D23, D45: "**unspecified-classic** resource" (proposed name, ❓N21); all classic EPs exclusive |
+| `access_mode` | ADR-006 (acquire) | ADR-020 §3: chosen at registration, **required** (🟢 D33; missing-value handling ❓N27) |
+| Overlap between resources | ADR-020 §7–§8 | 🟢 D6, D8, D22, D48 (shared items in shared resources **may overlap**; any other overlap → first registration wins) |
+| Resource with no `endpoints` field | ADR-020 §7 / ADR-024 §3 ("legacy resource") | 🟢 D15a, D23, D53: "**unspecified-classic** resource"; all classic EPs exclusive. Explicit empty `endpoints` = no EPs (🟢 D55) |
+| The word "legacy" | ADR-024 §3 (resource) | 🟢 D49: **only** the dataport `OK_DATAPORT_LEGACY` (ADR-003) |
 | Meaning of an exclusive item | ADR-020 §7–§8, ADR-025 §3 (locker only) | 🟢 D44: writable by **holders** of the declaring resource; no lock required |
 | When a lock is needed | ADR-020 §3, ADR-025 §3 | 🟢 D20, D46: never required by the server; client obligation for multi-step operations |
 | Disconnect | ADR-006 | ADR-020 §4 (deleted) |
@@ -76,20 +77,29 @@ state `Available` (ADR-020 §1, §10–§11).
 | `name` | ✅ | Unique per device | ADR-020 §2 |
 | `description` | — | Free text | ADR-020 §2 |
 | `device_serial` | ✅ | Device connected **and programmed** | ADR-020 §2, §10 |
-| `access_mode` | ✅ | `shared` or `exclusive`. Missing → 422 that says so (🟢 D33, D38) | ADR-020 §3 |
-| `interfaces` | ✅ | `classic`, `axi_lite`, `axi_full`, `axi_stream` | ADR-020 §6 |
-| `endpoints` | if classic | Classic EP declarations (§2.1) | ADR-020 §7 |
+| `access_mode` | ✅ | `shared` or `exclusive`. Missing → 422 that says so (🟢 D33, D38). No "unspecified" value exists in either spec (🟢 D59); whether a missing value is instead defaulted: ❓N27 | ADR-020 §3 |
+| `interfaces` | ✅ | `classic`, `axi_lite`, `axi_full`, `axi_stream`; may combine classic and AXI (🟢 D54) | ADR-020 §6 |
+| `endpoints` | if classic | Classic EP declarations (§2.1). Omitted = unspecified-classic (§2.4); `{"entries": []}` = no EPs (🟢 D55) | ADR-020 §7 |
 | `address_ranges` | — | Memory-mapped ranges (§2.2) | ADR-020 §8 |
-| `metadata` | — | `map<string,string>` | ADR-020 §9 |
-| `private` | — | L1: forbids ReadOnly acquisition | ADR-026 §2 |
+| `metadata` | — | `map<string,string>` (any-JSON is open, recommendations §7 Q8) | ADR-020 §9 |
+| `private` | — | L1: forbids ReadOnly acquisition. Does **not** hide the resource from listings (🟢 D57) | ADR-026 §2 |
 
-**Classic vs AXI (🟢 D45).** "Legacy" and "Classic" mean the same thing.
-A **Classic** resource uses classic EPs and may use **okRegisterBridge**
-(`ReadRegister` / `WriteRegister`) addresses. It **cannot** use direct AXI
-(FPGADataPortAXI: AXI Lite / Full / Stream). A Legacy-dataport device
-(`OK_DATAPORT_LEGACY`) rejects AXI interfaces at registration (ADR-020 §10,
-422). Whether one resource on a Gen3 device may list both `classic` and
-`axi_*` interfaces: ❓N22.
+**Words (🟢 D49, D50).**
+- **Legacy** means only the FrontPanel dataport `OK_DATAPORT_LEGACY`
+  (FP Gen1/Gen2 USB transport, ADR-003). **Every supported device reports
+  it today.** A resource is never called "legacy".
+- **Classic** = FrontPanel classic EPs (WireIn/Out, TriggerIn/Out,
+  Pipes). A Classic resource may also use **okRegisterBridge**
+  (`ReadRegister` / `WriteRegister`) addresses, but **cannot** use direct
+  AXI.
+- **Direct AXI** = FPGADataPortAXI (AXI Lite / Full / Stream). It needs an
+  `OK_DATAPORT_AXI` device: future boards, with new HDL, bitfiles and
+  resources.
+
+**Interfaces (🟢 D54).** One resource may list both `classic` and `axi_*`
+interfaces (ADR-003). On an `OK_DATAPORT_LEGACY` device any `axi_*`
+interface is rejected with 422 (ADR-020 §10), so **today every resource is
+classic-only**. okRegisterBridge ranges need only `classic`.
 
 ### 2.1 Classic endpoint declarations
 
@@ -107,7 +117,12 @@ A **Classic** resource uses classic EPs and may use **okRegisterBridge**
 - `type` must match the address block (WireIn 0x00–0x1F, WireOut 0x20–0x3F,
   TriggerIn 0x40–0x5F, TriggerOut 0x60–0x7F, PipeIn/BTPipeIn 0x80–0x9F,
   PipeOut/BTPipeOut 0xA0–0xBF).
-- `default_access` applies to EPs not listed in `entries`.
+- `default_access`: **meaning open (❓N26).** ADR-020 §7 says it applies
+  to EPs not listed in `entries`, which would make a resource claim every
+  unlisted EP. The proposed alternative: it is only the default `access`
+  for listed entries that omit `access`, and a resource covers only its
+  listed entries. Until decided, list every EP you use and give each an
+  explicit `access`.
 - Per-EP `private` (L2) will be exposed in the API (🟢 D11).
 - **`access: shared`** = other shared resources may also declare this EP.
 - **`access: exclusive`** = **only this resource** may declare it, so only
@@ -131,7 +146,12 @@ by its holders without a lock. A range applies to ADR-025 mapped addresses,
 okRegisterBridge addresses (classic) or direct AXI addresses (AXI
 resources).
 
-### 2.3 Registration rules (🟢 D6, D8, D22, D33)
+### 2.3 Registration rules (🟢 D6, D8, D22, D33, D48)
+
+> [!IMPORTANT]
+> Several resources **may** declare the same EP or overlapping ranges, as
+> long as every overlap is a shared item in a shared resource on both sides
+> (row 1, row 8). There is no "declare once" rule (🟢 D48).
 
 **Rule A: exclusive resources contain only exclusive items.** A resource
 with `access_mode: exclusive` that declares any shared EP, any shared range,
@@ -160,24 +180,40 @@ with an error that names the existing resource and the conflicting item
 | 12 | **unspecified-classic** resource (no `endpoints` → all classic EPs exclusive) | any classic resource | ❌ 409: A claims every EP (🟢 D23) |
 | 13 | any | resource on the same device with the same `name` | ❌ 409 |
 | 14 | — | any resource **without `access_mode`** | ❌ 422: "access_mode is required (shared \| exclusive)" (🟢 D33, D38) |
-| 15 | — | classic resource on an `OK_DATAPORT_LEGACY` device listing an `axi_*` interface | ❌ 422 (ADR-020 §10, 🟢 D45) |
+| 15 | — | resource on an `OK_DATAPORT_LEGACY` device (every device today) listing an `axi_*` interface, with or without `classic` | ❌ 422 (ADR-020 §10, 🟢 D54) |
+| 16 | unspecified-classic resource A | resource with `"endpoints": {"entries": []}` and only register ranges that do not overlap A's ranges | ✅ 201: B claims no EPs (🟢 D55); A claims only its declared ranges (🟢 D52) |
 
 Order matters. Swapping rows 2 and 3 changes which registration fails, never
 whether both can coexist.
 
-### 2.4 Unspecified-classic resources (🟢 D15a, D23, D45)
+### 2.4 Unspecified-classic resources and empty `endpoints` (🟢 D15a, D23, D52, D53, D55)
 
-A classic resource with **no** `endpoints` field claims **every classic EP**
-of the device as **exclusive**. Once one exists, no other classic resource
-can be registered on that device. Use it only for a single-resource bitfile.
-It may also declare okRegisterBridge `address_ranges`; it claims only the
-ranges it declares (proposed, ❓N19). A resource that wants register-bridge
-addresses **without** claiming every EP must send an explicit, empty
-`endpoints` object (proposed, ❓N23).
+The `endpoints` field has three shapes:
 
-(ADR-024 §3 calls this a "legacy resource". That name clashes with
-`OK_DATAPORT_LEGACY` and with "Legacy = Classic" (D45), so the consolidated
-ADR renames it.)
+| Shape | Meaning |
+|---|---|
+| `endpoints` **omitted** (classic resource) | **Unspecified-classic:** claims **every classic EP** of the device as **exclusive**. Once one exists, no other resource that declares classic EPs can be registered on that device (row 12). Use it only for a single-resource bitfile. |
+| `"endpoints": {"entries": []}` | **No EPs.** Use this for a resource that only declares okRegisterBridge address ranges (row 16). |
+| `"endpoints": {"entries": [ … ]}` | Exactly the listed EPs (`default_access`: ❓N26). |
+
+In every shape a resource claims **only the address ranges it declares**
+(🟢 D52). Example of a register-only resource:
+
+```json
+{
+  "name": "dsp_regs",
+  "device_serial": "ABC123",
+  "access_mode": "exclusive",
+  "interfaces": ["classic"],
+  "endpoints": { "entries": [] },
+  "address_ranges": [
+    { "name": "dsp_ctrl", "start": "0x00001000", "end": "0x00001FFF", "access": "exclusive" }
+  ]
+}
+```
+
+(ADR-024 §3 calls the no-`endpoints` case a "legacy resource". "Legacy" is
+reserved for `OK_DATAPORT_LEGACY` (🟢 D49), so ADR-034 renames it.)
 
 ### 2.5 Deleting a resource
 
@@ -369,9 +405,11 @@ released (and their locks end).
 | Device disconnected | All its resources deleted; holders notified | ADR-020 §4 |
 | **Reprogrammed or cleared** by any user (REST or gRPC) | A forced override, atomic under the device lock: 1. all locks unlocked, 2. all holders released, 3. all resources deleted, 4. bitfile written (or configuration cleared). **Every holder of every resource on the device is informed, whatever its state** (locker, other holder, blocked, ReadOnly). Applies at every enforcement level; bypasses the "409 if held" delete rule. The programming client then registers new resources. | ADR-023 Fix-F, ADR-024 §10, 🟢 D15b, D26 |
 | Who may program | Any connected user, until RBAC restricts it to authorised, authenticated users | ADR-024 §10, D26, D31 |
+| `ResetFPGA` / `POST …/classic/reset` | **Not** a reprogram: resources stay. No special rule (🟢 D56); allowed under the normal data-port rules (exact gate: recommendations §7 Q5). Future RBAC may restrict it | 🟢 D56 |
 
-The event names needed for this (`ResourceLocked`, `ResourceUnlocked`,
-deleted / cleared) are not all in the specs yet (recommendations S5, P6).
+Approved events (🟢 D58), not yet in the specs: `ResourceLocked` and
+`ResourceUnlocked` (`resource_id`, `user_id`), and a reason (`reprogram` /
+`clear`) on `ResourceDeleted` (recommendations S5, P6).
 
 ---
 
@@ -471,12 +509,19 @@ client only reads 0xA0 inside its own locked bridge transaction.
           none left → deny 403
 5. WRITE via a classic EP, on a remaining candidate R:
      ADR-025 hook: NoMapping / AllowAlways → allow
-                   (AllowAlways skips only the address check, ❓G18)
+                   (AllowAlways skips only this address check, never
+                    steps 1–4, 🟢 D51)
                    MapsToAddress(a): a in one of R's ranges → allow  (D44)
                                      otherwise → deny               (D9)
 6. WRITE via okRegisterBridge / direct AXI address: a in one of R's
    ranges → allow, otherwise deny
+7. ResetFPGA: no item; steps 1–2 (🟢 D56; recommendations §7 Q5)
 ```
+
+- R's ranges means the ranges of **the same** usable resource that passed
+  step 4. A resource with no ranges cannot reach any address (D9), so a
+  resource that only declares the bridge EPs never reaches another
+  resource's ranges.
 
 - Checked **once per command**; transfers then run without per-byte checks
   (ADR-024 §5).
@@ -576,6 +621,9 @@ make each transaction a single call.
   metadata. Data-port and most management messages have **no** `user_id`
   field, and the proto does not yet document the metadata key
   (recommendations P8). gRPC clients must always send `x-user-id`.
+- gRPC enums have **no** `UNSPECIFIED` value (🟢 D59). Where absence
+  matters (registration and acquire mode), the proto will use `optional`
+  fields so the server can tell "not sent" from the first enum value.
 - Future: mTLS / LDAP identity; RBAC (roadmap, D31).
 
 ---
@@ -583,8 +631,10 @@ make each transaction a single call.
 ## 8. Client checklist
 
 1. Program the FPGA if needed (this clears all resources on the device).
-2. Register resources with an explicit `access_mode`. Expect `409` (conflict)
-   or `422` (validation) with a reason (§2.3).
+2. Register resources with an explicit `access_mode`, and an explicit
+   `access` on every EP and range. Send `"endpoints": {"entries": []}`
+   for a resource without EPs. Expect `409` (conflict) or `422`
+   (validation) with a reason (§2.3).
 3. Acquire (repeat acquire in the same mode = 200; a different mode = 409:
    release first). Use `read_only` if you only read. Holding is what lets
    you write.
