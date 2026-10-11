@@ -327,8 +327,9 @@ falls away for it. Details are decided when the phase comes due.
 - **Server Phase 44** ([development-roadmap.md](development-roadmap.md)):
   updated to D61–D72. The ❓ markers for N26–N32, Q4, Q5, Q7, Q8 are gone;
   the per-holder trigger cache is removed everywhere, including Later
-  (D67); a dashboard metadata item is added (D69). Still **Draft** until
-  you approve it. Remaining questions: §7.
+  (D67); a dashboard metadata item is added (D69). **Promoted to Now**
+  2026-10-10 (rev 4: REST and gRPC together, 44-I folded into the other
+  sub-phases, file lists and tests per sub-phase). Remaining questions: §7.
 - **Client docs, next round** (agreed): LabVIEW C-17 draft
   (`docs/client/client-development-roadmap.md`, uncommitted),
   `client/python-DualPort-Transceiver-client/docs/client-sfpp-development-roadmap.md`,
@@ -347,17 +348,10 @@ falls away for it. Details are decided when the phase comes due.
 
 ## 7. Clarifying questions
 
-No resource-model questions remain. Two Phase 44 planning questions carried
-over from 2026-10-08 (roadmap 44.7):
-
-1. **Q44-3 Pipes (S-05):** fix the server to the spec's binary
-   octet-stream form (recommended: cheaper, and the LabVIEW client already
-   uses it; the Rust/Python examples are updated in 44-G), or change the
-   spec to JSON/base64?
-2. **Q44-5:** make each REST change and its gRPC twin in the same
-   sub-phase (recommended), or REST first?
-
-Then: approve Phase 44 as a plan (it stays Draft until you do).
+No resource-model questions remain. Q44-3 (pipes → octet-stream) and Q44-5
+(all REST and gRPC changes together) were answered on 2026-10-10. The
+remaining implementation questions (Q44-13 error body shape, Q44-14
+configure/clear 409 removal) are in roadmap 44.7.
 
 ---
 
