@@ -587,6 +587,17 @@ N32 (D72). Dropped: Q44-7. Moved to Later: Q44-6, Q44-9, Q44-12.
 
 Features in this section represent uncommitted research or long-term capabilities:
 
+* **Configurable MQTT test broker host** (follow-up, 2026-10-11) —
+  `crates/ok-fpga-server/tests/mqtt_integration.rs` hardcodes
+  `127.0.0.1:1883`, so 3 tests fail with "connection refused" when no local
+  Mosquitto runs (the lab broker is `127.0.0.1`). Read the
+  host and port from environment variables (e.g. `OKFPGA_TEST_MQTT_HOST`,
+  `OKFPGA_TEST_MQTT_PORT`, defaulting to `127.0.0.1:1883`), document them in
+  the test module header, and decide whether the tests are skipped (or
+  `#[ignore]`d) when the broker is unreachable so `cargo test --features full`
+  stays green on machines without a broker. Use unique topic prefixes per run
+  so tests against a shared broker do not collide.
+
 * **gRPC AXI FFI wiring** — all 14 AXI RPCs in `AXIDataPortService` (Lite, Full,
   Stream) are `UNIMPLEMENTED` stubs. REST AXI is fully wired, but gRPC was not
   connected because no hardware with `FPGADataPortAXI` (Gen3-USB /
