@@ -123,7 +123,13 @@ struct WireOutQuery {
 #[derive(Deserialize)]
 struct TriggerOutQuery {
     endpoint: Option<i32>,
-    #[serde(default = "default_mask")]
+    /// Bits to test for `triggered` (`IsTriggered`). Defaults to **0**
+    /// (D78), so `triggered` is always `false` until the client names the
+    /// bits it cares about. Why not all-ones? With `0xFFFFFFFF` a client
+    /// that forgot the mask would *appear* to work, but would also report
+    /// `triggered = true` when some unrelated bit fired. The full vector is
+    /// returned in `vector` regardless of the mask.
+    #[serde(default)]
     mask: u32,
     /// Run `UpdateTriggerOuts` immediately before the read (D76). Default
     /// `false`: read the current snapshot only. Note that `UpdateTriggerOuts`
@@ -996,5 +1002,20 @@ mod tests {
         let (status, _) =
             get("/devices/SN1/classic/triggers/out?endpoint=96&update=true").await;
         assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+    }
+
+    // D78: an omitted mask must be 0, never all-ones.
+    #[test]
+    fn test_trigger_out_query_mask_omitted_defaults_to_zero() {
+        let uri: axum::http::Uri = "http://h/x?endpoint=96".parse().unwrap();
+        let Query(q) = Query::<TriggerOutQuery>::try_from_uri(&uri).unwrap();
+        assert_eq!(q.mask, 0);
+    }
+
+    #[test]
+    fn test_trigger_out_query_mask_given_is_used() {
+        let uri: axum::http::Uri = "http://h/x?endpoint=96&mask=5".parse().unwrap();
+        let Query(q) = Query::<TriggerOutQuery>::try_from_uri(&uri).unwrap();
+        assert_eq!(q.mask, 5);
     }
 }

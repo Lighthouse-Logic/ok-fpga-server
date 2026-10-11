@@ -63,7 +63,7 @@
 > 2026-10-10. Open items in 44.7 must be answered before the sub-phase
 > that needs them starts (Q44-13 blocks 44-A).
 > **Model source:** [resource-management-recommendations.md](resource-management-recommendations.md)
-> (decisions D1–D77, rules R1/B1–B4/L1/A1/E1/T1, spec items S1–S8 in §3.1,
+> (decisions D1–D78, rules R1/B1–B4/L1/A1/E1/T1, spec items S1–S8 in §3.1,
 > proto items P1–P16 in §3.2) and
 > [resource-management-developer-guide.md](resource-management-developer-guide.md).
 > D-numbers below are for traceability; each bullet states the rule itself.
@@ -86,9 +86,10 @@
 > runs `cargo test --features full` as well as `cargo test`.
 
 > **Versioning:** the workspace version (root `Cargo.toml`, currently
-> `0.3.0`) went to `0.2.0` in 44-A (breaking API contract) and to `0.3.0`
+> `0.3.1`) went to `0.2.0` in 44-A (breaking API contract), to `0.3.0`
 > with the post-44-A read-semantics change (breaking: whole-bank reads
-> removed, snapshot reads). It gets a patch bump in every later sub-phase.
+> removed, snapshot reads) and to `0.3.1` for the IsTriggered mask default
+> (D78). It gets a patch bump in every later sub-phase.
 > Python packages are bumped in the commit that changes them.
 
 #### 44.0 The model being implemented (summary)
@@ -309,7 +310,12 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
 - Enforcement of F1 / F2, the D77 coverage change and the F4 warning come
   in 44-E.
 - Commit: `feat: Opal Kelly snapshot reads, no whole-bank reads, ReadOnly
-  rule D75-D77` (0.3.0).
+  rule D75-D77` (0.3.0). **Done:** `5de5ab6` (+ `cc04972` ADR hash).
+- Follow-up D78 (0.3.1): IsTriggered `mask` defaults to 0 on REST and gRPC
+  (was `0xFFFFFFFF` on REST / OpenAPI). Tests
+  `test_trigger_out_query_mask_omitted_defaults_to_zero`,
+  `test_trigger_out_query_mask_given_is_used`. Commit `fix: IsTriggered mask
+  defaults to 0 (D78)`.
 
 **44-B Registration (R1)**
 - Files: `ok-fpga-core/src/resource.rs` (one validator), `rest/resources.rs`,

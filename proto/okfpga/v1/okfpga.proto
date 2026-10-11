@@ -748,7 +748,12 @@ message IsTriggeredRequest {
   // Device serial number.
   string serial = 1;
   int32 endpoint = 2;        // Endpoint address (0x60-0x7F)
-  uint32 mask = 3;            // Bitmask of trigger bits to check
+  // Bits to test (Opal Kelly IsTriggered mask). Not set = 0 (D78), so
+  // `triggered` is false until the caller names the bits it cares about.
+  // Deliberately not all-ones: that would make a client look correct while
+  // also reporting triggers on unrelated bits. Use GetTriggerOutVector for
+  // the full vector.
+  uint32 mask = 3;
   // When true, the server calls UpdateTriggerOuts immediately before the
   // read, under the same device lock (ADR-034 §9, D76). Not set / false =
   // read the current snapshot, exactly like Opal Kelly's IsTriggered.

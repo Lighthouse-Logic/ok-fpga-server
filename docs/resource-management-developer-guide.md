@@ -1,7 +1,7 @@
 # ok-fpga-server Resource Management — Developer Guide (DRAFT rev 10)
 
 > **Source of truth for this guide:** ADR-003, 004, 005, 006, 015, 016, 017,
-> 018, 020, 021, 023, 024, 025, 026, 029, **plus the owner decisions D1–D77
+> 018, 020, 021, 023, 024, 025, 026, 029, **plus the owner decisions D1–D78
 > of 2026-10-10/11** (no source code, no other guides except the DualPort
 > `axibridge-access-guide-v2.md` for §6). Where `api/openapi.yaml` or
 > `proto/okfpga/v1/okfpga.proto` disagree, this is flagged (recommendations
@@ -496,6 +496,9 @@ WireOut and TriggerOut **snapshot**:
   device lock, so no other client's Update can come in between.
 - Every read names **one** endpoint. There are no whole-bank reads (a
   missing `endpoint` is a 422).
+- The `IsTriggered` **mask defaults to 0** (🟢 D78): without a mask,
+  `triggered` is always `false`. Set it to exactly the bits you care
+  about; the full vector is always returned as well.
 
 U = requesting user; R = a resource U holds that covers the item. A write is
 allowed if **at least one** such R allows it. "Usable" = not locked by

@@ -801,8 +801,14 @@ paths:
           required: false
           schema:
             type: integer
-            default: 4294967295
-          description: Bitmask to check (default 0xFFFFFFFF)
+            default: 0
+          description: |
+            Bits to test for `triggered` (Opal Kelly `IsTriggered` mask).
+            **Default 0** (D78): with no mask, `triggered` is always
+            `false`. Set the mask to exactly the bits you care about. An
+            all-ones mask would make a client look correct while also
+            reporting `triggered` for unrelated bits. `vector` always
+            holds the full 32-bit vector.
         - name: update
           in: query
           required: false
@@ -2139,6 +2145,9 @@ components:
           type: integer
         triggered:
           type: boolean
+          description: |
+            `IsTriggered(endpoint, mask)`: true if any bit in `mask` is set
+            in the snapshot. Always false when `mask` is 0 (the default, D78).
         vector:
           type: integer
           format: int64

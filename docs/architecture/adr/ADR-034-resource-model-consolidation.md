@@ -3,7 +3,8 @@
 **Status**: Accepted — 44-A implemented; post-44-A read semantics (0.3.0)
 implemented; 44-B … 44-J pending
 **Date**: 2026-10-11
-**Commit hash**: 44-A `c5e4f79`; 0.3.0 read semantics (D75–D77) `5de5ab6`
+**Commit hash**: 44-A `c5e4f79`; 0.3.0 read semantics (D75–D77) `5de5ab6`;
+0.3.1 IsTriggered mask default (D78) `pending`
 **Deciders**: Project owner, Architecture Team
 **Phase**: 44 ([development-roadmap.md](../../development-roadmap.md) §44)
 **Supersedes (in part)**: ADR-020 §7, §8 and the Validation Responses table
@@ -25,7 +26,7 @@ The resource contract had drifted apart in three places:
 The design is recorded in
 [resource-management-developer-guide.md](../../resource-management-developer-guide.md)
 and [resource-management-recommendations.md](../../resource-management-recommendations.md)
-(decisions D1–D77). This ADR is the single place where accepted decisions
+(decisions D1–D78). This ADR is the single place where accepted decisions
 become the server contract. Each Phase 44 sub-phase amends it.
 
 ## Decision
@@ -169,6 +170,14 @@ exactly as the FrontPanel API
   and the read atomically under the device lock.
 - The standalone update routes / RPCs stay.
 - Every read names one endpoint (422 if `endpoint` is missing).
+- **IsTriggered mask defaults to 0 (D78, 0.3.1)**, on REST (`mask` query
+  parameter) and gRPC (`IsTriggeredRequest.mask`, plain `uint32`, so
+  "not set" is already 0). With no mask, `triggered` is always `false`; the
+  client must name exactly the bits it cares about. An all-ones default
+  would make a careless client look correct while also reporting triggers
+  on unrelated bits. `vector` / `GetTriggerOutVector` always return the
+  full 32-bit vector. *Discrepancy resolved:* before 0.3.1 REST and OpenAPI
+  defaulted to `0xFFFFFFFF` while proto defaulted to 0.
 - **Known limitation (Q-G)**: a client cannot tell whether other clients
   ran an Update since its own last read, or how many. A trigger can be
   consumed by another client's `UpdateTriggerOuts`. Only the future
@@ -218,6 +227,15 @@ opt-in holder mode (D62) instead of a resource type.
   `docs/resource-management-recommendations.md`,
   `docs/development-roadmap.md`.
 
+## Files changed (0.3.1, D78)
+
+- Spec: `api/openapi.yaml` (`mask` default 0, `triggered` description),
+  `proto/okfpga/v1/okfpga.proto` (`IsTriggeredRequest.mask` comment).
+- Server: `crates/ok-fpga-server/src/rest/classic.rs` (`TriggerOutQuery`
+  mask default 0, tests).
+- Version: `Cargo.toml`, `Cargo.lock` (0.3.1).
+- Docs: this ADR, the developer guide, the recommendations, the roadmap.
+
 ## Open items
 
 - **44-B**: R1 overlap rules, Rule A, interface/dataport check, `private`
@@ -235,11 +253,9 @@ opt-in holder mode (D62) instead of a resource type.
 - **Later**: TriggerOut event log (D67 reopened, roadmap 🔵 Later).
 - REST `?update=abc` is rejected by axum's query extractor with a plain-text
   400, not a 422 ProblemDetail (minor).
-- Pre-existing, found by the 0.3.0 Strata review (not changed here):
-  - **Spec discrepancy:** proto `IsTriggeredRequest.mask` (`uint32`,
-    proto default 0 = "check no bits") vs OpenAPI `mask` default
-    `0xFFFFFFFF`. Fixing it needs a proto change (`optional uint32 mask`);
-    owner decision needed.
+- Pre-existing, found by the 0.3.0 Strata review (not changed in 0.3.0):
+  - ~~Spec discrepancy: proto `IsTriggeredRequest.mask` default 0 vs
+    OpenAPI `0xFFFFFFFF`.~~ **Resolved in 0.3.1 (D78): default 0 on both.**
   - `ActivateTriggerIn` computes `1u32 << bit` before validating `bit`
     (`rest/classic.rs`, `grpc/classic_service.rs`); `bit` outside 0–31
     panics in debug builds. Validate (422 / `INVALID_ARGUMENT`) in 44-E.
