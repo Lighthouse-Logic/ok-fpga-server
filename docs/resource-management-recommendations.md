@@ -115,6 +115,13 @@
 | **D71** | N31 | Proto `CreateResourceRequest`: field 4 = `optional ResourceAccessMode access_mode`, field 5 = `repeated string interfaces`; the other new fields take 6+. |
 | **D72** | N32 | **422** for every error visible from the request alone (rule A, a resource without `endpoints` declared `shared`, missing fields, type / address mismatch, entry without `access`, non-string metadata, `axi_*` on a legacy device). **409** only for clashes with existing state (overlap with another resource, duplicate name, lock denied, different-mode acquire). |
 
+### 1.6 Phase 44 planning (D73–D74)
+
+| # | Item | Decision |
+|---|------|----------|
+| **D73** | Q44-13 | Error body: RFC 7807 `ProblemDetail` plus an optional `conflict` object `{code, resource_id, resource_name, item_type, item}`; `code` ∈ `overlap`, `locked`, `blocked`, `mode_mismatch`, `validation`; `item_type` ∈ `endpoint`, `address_range`. gRPC: 409 → `FAILED_PRECONDITION`, 422 → `INVALID_ARGUMENT`, 404 → `NOT_FOUND`; the same fields in a `ResourceConflictDetail` message in the status details. |
+| **D74** | Q44-14 | The OpenAPI 409 "resources in use" responses on configure / clear are removed (forced cleanup, D26); done in 44-F. |
+
 ---
 
 ## 2. Status of earlier items
@@ -350,8 +357,8 @@ falls away for it. Details are decided when the phase comes due.
 
 No resource-model questions remain. Q44-3 (pipes → octet-stream) and Q44-5
 (all REST and gRPC changes together) were answered on 2026-10-10. The
-remaining implementation questions (Q44-13 error body shape, Q44-14
-configure/clear 409 removal) are in roadmap 44.7.
+remaining implementation questions were answered the same day: Q44-13
+(D73), Q44-14 (D74); go given for 44-A.
 
 ---
 

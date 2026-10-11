@@ -63,7 +63,7 @@
 > 2026-10-10. Open items in 44.7 must be answered before the sub-phase
 > that needs them starts (Q44-13 blocks 44-A).
 > **Model source:** [resource-management-recommendations.md](resource-management-recommendations.md)
-> (decisions D1–D72, rules R1/B1–B4/L1/A1/E1/T1, spec items S1–S8 in §3.1,
+> (decisions D1–D74, rules R1/B1–B4/L1/A1/E1/T1, spec items S1–S8 in §3.1,
 > proto items P1–P16 in §3.2) and
 > [resource-management-developer-guide.md](resource-management-developer-guide.md).
 > D-numbers below are for traceability; each bullet states the rule itself.
@@ -540,18 +540,18 @@ CreateResourceRequest:
 #### 44.7 Open questions
 
 - **Q44-1** Spec edits: content approved (D36–D38, D57–D59, D61–D72);
-  confirm each 🔒 sub-phase (44-A, 44-F, 44-H) at its start.
-- **Q44-13 (blocks 44-A)** Structured error body. Proposal: keep RFC 7807
-  `ProblemDetail` ([openapi.yaml:1717](../api/openapi.yaml)) and add an
-  optional `conflict` object `{code, resource_id, resource_name, item_type,
-  item}` where `code` ∈ `overlap`, `locked`, `blocked`, `mode_mismatch`,
-  `validation`, and `item_type` ∈ `endpoint`, `address_range`. gRPC: 409 →
+  confirm each 🔒 sub-phase (44-A, 44-F, 44-H) at its start. **44-A: go
+  given 2026-10-10.**
+- **Q44-13 — decided 2026-10-10 (D73):** keep RFC 7807 `ProblemDetail`
+  ([openapi.yaml:1717](../api/openapi.yaml)) and add an optional `conflict`
+  object `{code, resource_id, resource_name, item_type, item}` where `code`
+  ∈ `overlap`, `locked`, `blocked`, `mode_mismatch`, `validation`, and
+  `item_type` ∈ `endpoint`, `address_range`. gRPC: 409 →
   `FAILED_PRECONDITION`, 422 → `INVALID_ARGUMENT`, 404 → `NOT_FOUND`, with
   the same fields in a `ResourceConflictDetail` proto message carried in
   the status details.
-- **Q44-14** 44-F removes the OpenAPI 409 "resources in use" on configure /
-  clear (forced cleanup, D26) — confirm this is part of the approved spec
-  content.
+- **Q44-14 — decided 2026-10-10 (D74):** 44-F removes the OpenAPI 409
+  "resources in use" responses on configure / clear (forced cleanup, D26).
 
 Resolved: Q44-2 (D28, D43, D62), Q44-3 (octet-stream, 2026-10-10), Q44-4
 (D27), Q44-5 (REST and gRPC together, 2026-10-10), Q44-8 (D61), Q44-10
