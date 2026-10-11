@@ -1,7 +1,7 @@
-# ok-fpga-server Resource Management — Developer Guide (DRAFT rev 7)
+# ok-fpga-server Resource Management — Developer Guide (DRAFT rev 8)
 
 > **Source of truth for this guide:** ADR-003, 004, 005, 006, 015, 016, 017,
-> 018, 020, 021, 023, 024, 025, 026, 029, **plus the owner decisions D1–D60
+> 018, 020, 021, 023, 024, 025, 026, 029, **plus the owner decisions D1–D69
 > of 2026-10-10** (no source code, no other guides except the DualPort
 > `axibridge-access-guide-v2.md` for §6). Where `api/openapi.yaml` or
 > `proto/okfpga/v1/okfpga.proto` disagree, this is flagged (recommendations
@@ -42,9 +42,10 @@ FPGA (serial ABC123, bitfile dsp_v2.bit)
 | Topic | Original | Now governed by |
 |---|---|---|
 | Who creates resources | ADR-006 | ADR-020 §1 (client registers) |
-| `access_mode` | ADR-006 (acquire) | ADR-020 §3: chosen at registration, **required** (🟢 D33; missing-value handling ❓N27) |
+| `access_mode` | ADR-006 (acquire) | ADR-020 §3: chosen at registration, **required** (🟢 D33, D62), except a resource without `endpoints`, which is exclusive (🟢 D68). Acquire `mode` optional (🟢 D62) |
 | Overlap between resources | ADR-020 §7–§8 | 🟢 D6, D8, D22, D48 (shared items in shared resources **may overlap**; any other overlap → first registration wins) |
-| Resource with no `endpoints` field | ADR-020 §7 / ADR-024 §3 ("legacy resource") | 🟢 D15a, D23, D53: "**unspecified-classic** resource"; all classic EPs exclusive. Explicit empty `endpoints` = no EPs (🟢 D55) |
+| Resource with no `endpoints` field | ADR-020 §7 / ADR-024 §3 ("legacy resource") | 🟢 D15a, D23, D68: simply an **exclusive resource** claiming every classic EP; no special name. Explicit empty `endpoints` = no EPs (🟢 D55) |
+| `default_access` | ADR-020 §7, ADR-024 §2–§3 (covers unlisted EPs) | 🟢 D61: only the default `access` for listed entries |
 | The word "legacy" | ADR-024 §3 (resource) | 🟢 D49: **only** the dataport `OK_DATAPORT_LEGACY` (ADR-003) |
 | Meaning of an exclusive item | ADR-020 §7–§8, ADR-025 §3 (locker only) | 🟢 D44: writable by **holders** of the declaring resource; no lock required |
 | When a lock is needed | ADR-020 §3, ADR-025 §3 | 🟢 D20, D46: never required by the server; client obligation for multi-step operations |
@@ -77,11 +78,11 @@ state `Available` (ADR-020 §1, §10–§11).
 | `name` | ✅ | Unique per device | ADR-020 §2 |
 | `description` | — | Free text | ADR-020 §2 |
 | `device_serial` | ✅ | Device connected **and programmed** | ADR-020 §2, §10 |
-| `access_mode` | ✅ | `shared` or `exclusive`. Missing → 422 that says so (🟢 D33, D38). No "unspecified" value exists in either spec (🟢 D59); whether a missing value is instead defaulted: ❓N27 | ADR-020 §3 |
+| `access_mode` | ✅ (— if `endpoints` omitted) | `shared` or `exclusive`. Missing → 422 that says so (🟢 D33, D38, D62). Exception: without `endpoints` it may be omitted and becomes `exclusive`; `shared` there → 422 (🟢 D68). No "unspecified" value exists in either spec (🟢 D59) | ADR-020 §3 |
 | `interfaces` | ✅ | `classic`, `axi_lite`, `axi_full`, `axi_stream`; may combine classic and AXI (🟢 D54) | ADR-020 §6 |
-| `endpoints` | if classic | Classic EP declarations (§2.1). Omitted = unspecified-classic (§2.4); `{"entries": []}` = no EPs (🟢 D55) | ADR-020 §7 |
+| `endpoints` | — | Classic EP declarations (§2.1). Omitted = exclusive resource claiming every classic EP (§2.4, 🟢 D68); `{"entries": []}` = no EPs (🟢 D55) | ADR-020 §7 |
 | `address_ranges` | — | Memory-mapped ranges (§2.2) | ADR-020 §8 |
-| `metadata` | — | `map<string,string>` (any-JSON is open, recommendations §7 Q8) | ADR-020 §9 |
+| `metadata` | — | `map<string,string>`: **text values only**. Put a list into one string, e.g. `"associated_cores": "Core_0,Trigger_0,Gearbox_0,axi_iic_0"`. Stored as-is, never interpreted, shown on the web dashboard (🟢 D69) | ADR-020 §9 |
 | `private` | — | L1: forbids ReadOnly acquisition. Does **not** hide the resource from listings (🟢 D57) | ADR-026 §2 |
 
 **Words (🟢 D49, D50).**
@@ -117,12 +118,12 @@ classic-only**. okRegisterBridge ranges need only `classic`.
 - `type` must match the address block (WireIn 0x00–0x1F, WireOut 0x20–0x3F,
   TriggerIn 0x40–0x5F, TriggerOut 0x60–0x7F, PipeIn/BTPipeIn 0x80–0x9F,
   PipeOut/BTPipeOut 0xA0–0xBF).
-- `default_access`: **meaning open (❓N26).** ADR-020 §7 says it applies
-  to EPs not listed in `entries`, which would make a resource claim every
-  unlisted EP. The proposed alternative: it is only the default `access`
-  for listed entries that omit `access`, and a resource covers only its
-  listed entries. Until decided, list every EP you use and give each an
-  explicit `access`.
+- **A resource covers only the EPs listed in `entries`** (🟢 D61).
+- `default_access` is only the `access` value used by listed entries that
+  leave `access` out. It never claims unlisted EPs, and with an empty
+  `entries` list it has no effect. An entry with neither `access` nor a
+  `default_access` → 422. (ADR-020 §7 and ADR-024 §2–§3 said otherwise;
+  superseded.)
 - Per-EP `private` (L2) will be exposed in the API (🟢 D11).
 - **`access: shared`** = other shared resources may also declare this EP.
 - **`access: exclusive`** = **only this resource** may declare it, so only
@@ -155,7 +156,8 @@ resources).
 
 **Rule A: exclusive resources contain only exclusive items.** A resource
 with `access_mode: exclusive` that declares any shared EP, any shared range,
-or `default_access: shared` is rejected (409).
+or `default_access: shared` is rejected (409; 422 proposed, recommendations
+N32).
 
 **Rule B: first registration wins.** The first resource that declares an EP
 or range defines it. A later registration is accepted only if every overlap
@@ -177,24 +179,33 @@ with an error that names the existing resource and the conflicting item
 | 9 | shared, range X `shared` | any resource, overlapping range `exclusive` | ❌ 409 |
 | 10 | any, range X `exclusive` | any overlapping range | ❌ 409 |
 | 11 | shared, EP 0x20 `shared`, `private: false` | shared, EP 0x20 `shared`, `private: true` | ❌ 409: "private flag differs from A" (🟢 D22) |
-| 12 | **unspecified-classic** resource (no `endpoints` → all classic EPs exclusive) | any classic resource | ❌ 409: A claims every EP (🟢 D23) |
+| 12 | exclusive resource **without `endpoints`** (claims all classic EPs) | any resource that declares a classic EP | ❌ 409: A claims every EP (🟢 D23, D68) |
 | 13 | any | resource on the same device with the same `name` | ❌ 409 |
-| 14 | — | any resource **without `access_mode`** | ❌ 422: "access_mode is required (shared \| exclusive)" (🟢 D33, D38) |
+| 14 | — | resource **with `endpoints` but without `access_mode`** | ❌ 422: "access_mode is required (shared \| exclusive)" (🟢 D33, D38, D62) |
+| 14a | — | resource **without `endpoints`** and without `access_mode` | ✅ 201 as an exclusive resource claiming every classic EP (🟢 D68) |
+| 14b | — | resource **without `endpoints`** and `access_mode: shared` | ❌ 422: "a resource without endpoints is exclusive" (🟢 D68) |
+| 14c | — | EP entry with no `access` and no `default_access` | ❌ 422 (🟢 D61) |
 | 15 | — | resource on an `OK_DATAPORT_LEGACY` device (every device today) listing an `axi_*` interface, with or without `classic` | ❌ 422 (ADR-020 §10, 🟢 D54) |
-| 16 | unspecified-classic resource A | resource with `"endpoints": {"entries": []}` and only register ranges that do not overlap A's ranges | ✅ 201: B claims no EPs (🟢 D55); A claims only its declared ranges (🟢 D52) |
+| 16 | exclusive resource A without `endpoints` | resource with `"endpoints": {"entries": []}` and only register ranges that do not overlap A's ranges | ✅ 201: B claims no EPs (🟢 D55); A claims only its declared ranges (🟢 D52) |
 
 Order matters. Swapping rows 2 and 3 changes which registration fails, never
 whether both can coexist.
 
-### 2.4 Unspecified-classic resources and empty `endpoints` (🟢 D15a, D23, D52, D53, D55)
+### 2.4 Omitted vs empty `endpoints` (🟢 D15a, D23, D52, D55, D61, D68)
 
 The `endpoints` field has three shapes:
 
 | Shape | Meaning |
 |---|---|
-| `endpoints` **omitted** (classic resource) | **Unspecified-classic:** claims **every classic EP** of the device as **exclusive**. Once one exists, no other resource that declares classic EPs can be registered on that device (row 12). Use it only for a single-resource bitfile. |
+| `endpoints` **omitted** | A quick-and-dirty resource: it is simply an **exclusive resource** that claims **every classic EP** of the device. `access_mode` may be left out (it becomes `exclusive`); `exclusive` is accepted; `shared` → 422 (🟢 D68). Once one exists, no other resource that declares classic EPs can be registered on that device (row 12). ReadOnly may join unless `private` (D25). Use it for a single-resource bitfile. |
 | `"endpoints": {"entries": []}` | **No EPs.** Use this for a resource that only declares okRegisterBridge address ranges (row 16). |
-| `"endpoints": {"entries": [ … ]}` | Exactly the listed EPs (`default_access`: ❓N26). |
+| `"endpoints": {"entries": [ … ]}` | Exactly the listed EPs; `default_access` only fills in a missing `access` (🟢 D61). |
+
+Quick-and-dirty example (every classic EP, exclusive):
+
+```json
+{ "name": "whole_design", "device_serial": "ABC123", "interfaces": ["classic"] }
+```
 
 In every shape a resource claims **only the address ranges it declares**
 (🟢 D52). Example of a register-only resource:
@@ -213,7 +224,8 @@ In every shape a resource claims **only the address ranges it declares**
 ```
 
 (ADR-024 §3 calls the no-`endpoints` case a "legacy resource". "Legacy" is
-reserved for `OK_DATAPORT_LEGACY` (🟢 D49), so ADR-034 renames it.)
+reserved for `OK_DATAPORT_LEGACY` (🟢 D49); it is just an exclusive
+resource (🟢 D68).)
 
 ### 2.5 Deleting a resource
 
@@ -227,7 +239,7 @@ Reprogramming deletes held resources anyway (§4.8). **Anyone** may delete
 
 | Concept | Values | Set when | Source |
 |---|---|---|---|
-| Resource `access_mode` | `shared`, `exclusive` | Registration (required) | ADR-020 §3, D33 |
+| Resource `access_mode` | `shared`, `exclusive` | Registration (required; `exclusive` when `endpoints` omitted) | ADR-020 §3, D33, D68 |
 | Holder mode | `Shared`, `Exclusive`, `ReadOnly` | Acquisition | ADR-026 §1, §3 |
 | Item access | `shared`, `exclusive`, + `private` | Registration | ADR-020 §7–§8, ADR-026 §2, 🟢 D11, D44 |
 
@@ -301,9 +313,14 @@ own state does not change when an overlapping resource is locked.
 
 `POST /resources/{id}/acquire` / `AcquireResource`.
 
+The request `mode` is **optional** (🟢 D62). Omitted = the resource's
+declared `access_mode`. `read_only` must be asked for. A `shared` or
+`exclusive` request that differs from the declared mode → 409.
+
 | Resource state | Request | Result | Source |
 |---|---|---|---|
-| Available | per `access_mode` | ✅ | ADR-006, ADR-020 §3 |
+| Available | `mode` omitted, or equal to `access_mode` | ✅ | ADR-006, ADR-020 §3, 🟢 D62 |
+| any | `shared` on an exclusive resource, or `exclusive` on a shared resource | ❌ 409: "resource is declared `exclusive`" | 🟢 D62 |
 | Available | read_only | ✅ unless private → `InUseShared` | ADR-026 §4, 🟢 D25 |
 | InUseShared (shared resource) | shared | ✅ add holder | ADR-006 |
 | InUseShared / InUseLocked | read_only | ✅ unless private | ADR-026 §4, 🟢 D15f |
@@ -405,7 +422,7 @@ released (and their locks end).
 | Device disconnected | All its resources deleted; holders notified | ADR-020 §4 |
 | **Reprogrammed or cleared** by any user (REST or gRPC) | A forced override, atomic under the device lock: 1. all locks unlocked, 2. all holders released, 3. all resources deleted, 4. bitfile written (or configuration cleared). **Every holder of every resource on the device is informed, whatever its state** (locker, other holder, blocked, ReadOnly). Applies at every enforcement level; bypasses the "409 if held" delete rule. The programming client then registers new resources. | ADR-023 Fix-F, ADR-024 §10, 🟢 D15b, D26 |
 | Who may program | Any connected user, until RBAC restricts it to authorised, authenticated users | ADR-024 §10, D26, D31 |
-| `ResetFPGA` / `POST …/classic/reset` | **Not** a reprogram: resources stay. No special rule (🟢 D56); allowed under the normal data-port rules (exact gate: recommendations §7 Q5). Future RBAC may restrict it | 🟢 D56 |
+| `ResetFPGA` / `POST …/classic/reset` | **Not** a reprogram: resources stay. No special rule: the tier-3 data-port gate only (caller identified and holding any resource on the device, 🟢 D56, D66). Future RBAC may restrict it | 🟢 D56, D66 |
 
 Approved events (🟢 D58), not yet in the specs: `ResourceLocked` and
 `ResourceUnlocked` (`resource_id`, `user_id`), and a reason (`reprogram` /
@@ -491,6 +508,12 @@ PipeOut 0xA3. A second holder reading 0xA3 would steal samples. Declare
 `capture` as an exclusive resource with 0xA3 `private: true`. A shared
 `monitor` resource can still expose the status WireOuts to everyone.
 
+**Triggers (🟢 D67).** `UpdateTriggerOuts` latches the TriggerOuts for the
+whole device, so one holder's read can consume a trigger another holder was
+waiting for. The server keeps **no** per-holder trigger copy and never will:
+clients decide how and when triggers are read (e.g. under the lock, or in
+an exclusive resource).
+
 Counter-example (DualPort, §6): the bridge's PipeOut 0xA0 must be shared by
 both ports. Here protection comes from **client discipline**: a compliant
 client only reads 0xA0 inside its own locked bridge transaction.
@@ -515,7 +538,7 @@ client only reads 0xA0 inside its own locked bridge transaction.
                                      otherwise → deny               (D9)
 6. WRITE via okRegisterBridge / direct AXI address: a in one of R's
    ranges → allow, otherwise deny
-7. ResetFPGA: no item; steps 1–2 (🟢 D56; recommendations §7 Q5)
+7. ResetFPGA: no item; steps 1–2 only (🟢 D56, D66)
 ```
 
 - R's ranges means the ranges of **the same** usable resource that passed

@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-10-10 (Phase 44 rewritten to the agreed resource model — draft, not approved)
+> **Last Updated:** 2026-10-10 (Phase 44 updated to decisions D61–D69 — draft, not approved)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -65,12 +65,12 @@
 
 ### Phase 44 (DRAFT) — Resource Model Consolidation & Enforcement Alignment
 
-> **Status:** 📝 Draft rev 2 (2026-10-10). **Not approved.** Rewritten from
+> **Status:** 📝 Draft rev 3 (2026-10-10). **Not approved.** Rewritten from
 > the 2026-10-08 issue list to the owner-agreed resource model. Promotion to
 > Now needs explicit approval of this plan and answers to the open questions
 > in 44.7.
 > **Model source:** [resource-management-recommendations.md](resource-management-recommendations.md)
-> (decisions D1–D60, rules R1/B1–B4/L1/A1/E1/T1) and
+> (decisions D1–D69, rules R1/B1–B4/L1/A1/E1/T1) and
 > [resource-management-developer-guide.md](resource-management-developer-guide.md).
 > **Origin:** `python-DualPort-Transceiver-client` design review, 2026-10-08 (dual-port
 > SFP+ DualPort design on the XEM8320).
@@ -80,7 +80,7 @@
 
 > **Spec rule (ai-collaboration §2, §4):** sub-phases marked 🔒 change
 > `api/openapi.yaml` and/or `proto/okfpga/v1/okfpga.proto`. The owner has
-> approved the *content* listed (D36–D38, D57–D59); each spec file edit
+> approved the *content* listed (D36–D38, D57–D59, D61–D69; dataport permission D63); each spec file edit
 > still gets an explicit go-ahead when the sub-phase starts. Items marked
 > ❓ wait for an answer in 44.7. Until a spec is changed, it is treated as
 > correct and the implementation is what gets fixed.
@@ -138,16 +138,16 @@ numbers when the sub-phase starts.
 
 | ID | Issue (evidence) | Resolution | Sub-phase |
 |----|------------------|------------|-----------|
-| S-01 🔒 | `CreateResourceRequest` spec has `resource_type` / `capabilities` only ([openapi.yaml:2042](../api/openapi.yaml)); the implementation needs `access_mode`, `interfaces`, `endpoints`, `address_ranges`, `metadata`, `private` (`rest/resources.rs`) | Spec to the declaration schema (D36, sketch 44.6); `resource_type` / `capabilities` **removed**; missing `access_mode` per ❓N27 | 44-A |
+| S-01 🔒 | `CreateResourceRequest` spec has `resource_type` / `capabilities` only ([openapi.yaml:2042](../api/openapi.yaml)); the implementation needs `access_mode`, `interfaces`, `endpoints`, `address_ranges`, `metadata`, `private` (`rest/resources.rs`) | Spec to the declaration schema (D36, sketch 44.6); `resource_type` / `capabilities` **removed**; missing `access_mode` → 422, except a resource without `endpoints` (exclusive, D62, D68); metadata text-only (D69) | 44-A |
 | S-02 🔒 | `Resource` response lacks `locked_by`, `metadata`, declarations; `holders` is `string[]`; `access_mode` includes `read_only` | `access_mode` = declared mode, `holders[] = {user_id, mode}`, `locked_by`, declarations (D37), in spec **and** `ResourceView` | 44-A |
-| S-03 🔒 | REST ignores the acquire `mode` when the resource has a registered `access_mode` (`rest/resources.rs` `acquire_resource`); gRPC honours it (`grpc/device_service.rs`) | A1: same mode → 200, different mode → 409 "release, then acquire" (D7, D28, D43). Acquire `mode` optional, default = declared mode, `read_only` opt-in (❓N27 option 3). REST and gRPC identical | 44-C |
+| S-03 🔒 | REST ignores the acquire `mode` when the resource has a registered `access_mode` (`rest/resources.rs` `acquire_resource`); gRPC honours it (`grpc/device_service.rs`) | A1: same mode → 200, different mode → 409 "release, then acquire" (D7, D28, D43). Acquire `mode` optional, default = declared mode, `read_only` opt-in (D62). REST and gRPC identical | 44-C |
 | S-04 🔒 | gRPC `RegisterResource` maps `resource_type` → `access_mode`; no declarations | Proto parity with S-01 (P1) | 44-A, 44-B |
 | S-05 | Pipe and block-pipe routes are POST JSON/base64 (`rest/classic.rs:653–830`); spec is octet-stream | Fix to spec (Q44-3); update the Rust/Python example clients and LabVIEW client in the same phase | 44-G |
 | S-06 | Register bulk routes take a single `{address, value}`; spec uses `addresses[]` / `entries[]` with `data` | Fix impl to spec | 44-G |
 | S-07 | `WireInRequest.auto_update` missing (`rest/classic.rs:90`); `UpdateWireIns` always called | Implement `auto_update` | 44-G |
 | S-08 🔒 | Undocumented routes: `wires/in/update`, `wires/out/update`, `triggers/out/update`, whole-bank `GET wires/out` / `triggers/out` | Document them; the two output updates are **reads** (D42), `wires/in/update` is a write | 44-A (spec), 44-G |
 | S-09 | State / mode strings serialised as Display/Debug text (`"In Use (Shared)"`, `"InUseShared"`, `"Shared"`) | Serialise the spec enum strings everywhere (REST, SSE) | 44-G |
-| S-10 🔒 | `dataport` enum: `[unknown, classic, axi]` ([openapi.yaml:1780](../api/openapi.yaml)) vs `[unknown, legacy, axi]` ([openapi.yaml:593](../api/openapi.yaml)) vs proto `UNKNOWN/LEGACY/AXI` | `legacy` / `axi` only; proto without UNKNOWN (❓N28) | 44-H |
+| S-10 🔒 | `dataport` enum: `[unknown, classic, axi]` ([openapi.yaml:1780](../api/openapi.yaml)) vs `[unknown, legacy, axi]` ([openapi.yaml:593](../api/openapi.yaml)) vs proto `UNKNOWN/LEGACY/AXI` | `legacy` / `axi` only; proto `DATAPORT_LEGACY = 0, DATAPORT_AXI = 1`; FrontPanel UNKNOWN → error (D63; listing ❓N30) | 44-H |
 
 **Resource model and enforcement**
 
@@ -155,15 +155,15 @@ numbers when the sub-phase starts.
 |----|------------------|------------|-----------|
 | S-19 | Registration only rejects exclusive-vs-exclusive overlaps (`rest/resources.rs:388–428`) | Implement **R1**: shared-in-shared overlaps **allowed**; shared-vs-exclusive, exclusive-vs-anything, shared item in an exclusive resource, type or `private` mismatch → 409 naming the existing resource and item (D6, D8, D22, D38). Same code path for gRPC | 44-B |
 | S-11 | A lock does not affect other resources that share an EP (F-2) | Implement **blocking B1–B4** (D5, D18, D19): a lock on R blocks every resource that shares an item with R, for all users except the locker | 44-D |
-| S-13 | `endpoint_covered` is true whenever `endpoints` is present, so holding any resource grants every EP; a held resource locked by someone else falls through to the next held resource (`ok-fpga-core/src/resource.rs:1520–1600`) | Coverage = listed entries (and `default_access` per ❓N26) or unspecified-classic. The "try every held resource" loop is **correct** under B2, but each candidate must pass the ReadOnly, foreign-lock **and blocking** checks; blocking closes the bypass | 44-E |
+| S-13 | `endpoint_covered` is true whenever `endpoints` is present, so holding any resource grants every EP; a held resource locked by someone else falls through to the next held resource (`ok-fpga-core/src/resource.rs:1520–1600`) | Coverage = listed entries only (D61), or every classic EP for a resource without `endpoints` (D68). The "try every held resource" loop is **correct** under B2, but each candidate must pass the ReadOnly, foreign-lock **and blocking** checks; blocking closes the bypass | 44-E |
 | S-14 | AXI `check_address_access` and the Classic ADR-025 path disagree on exclusive ranges (`resource.rs:1768+`) | One rule on both paths: no lock required (D44, D46); coverage, ReadOnly, foreign lock, blocking, and the same-resource range check | 44-E |
 | S-12 | Enforcement off by default (`config.rs:463`, repo `config.toml:72`) | Default `enforce` (D27); `off` / `warn` are debugging aids | 44-E |
-| S-15 | Block pipes, `classic/reset`, `*/update`, batch reads skip enforcement (`rest/classic.rs`) | Enforce all data-port routes. Updates of outputs = reads (D42); reset = no special rule, data-port gate (D56, ❓Q5) | 44-E |
+| S-15 | Block pipes, `classic/reset`, `*/update`, batch reads skip enforcement (`rest/classic.rs`) | Enforce all data-port routes. Updates of outputs = reads (D42); reset = no special rule, tier-3 data-port gate only (D56, D66) | 44-E |
 | S-18 | `resolve_user_id` falls back to `"Unknown"` (`rest/mod.rs`) | Under `warn` / `enforce`, a missing identity is rejected (D27) | 44-E |
 | S-20 | ADR-025 `MapsToAddress` returns Ok when the covering resource has no ranges (`resource.rs`, ADR-025 branch) | Address must be in the ranges of the **same** usable covering resource; empty ranges → deny (D9, B2) | 44-E |
 | S-22 | Exclusive acquire sets `InUseLocked` without `locked_by`; range checks then deny the sole holder | Writes no longer check `locked_by` (D44, D46). Show the implicit lock (`locked_by` = holder) for display only. Verify with a test | 44-C |
 | S-23 | `private` cannot be set over REST; `create_resource` hard-codes `private: false` (`rest/resources.rs:30–95, :355, :384`) | Add and store `private` on resource, EP entries and ranges (D11) | 44-B |
-| S-24 | `metadata` is `HashMap<String,String>` (non-string values fail the request); range `name` / `description` dropped; omitted `access` defaults to exclusive (`rest/resources.rs:40, :87–95`) | Store range `name` / `description`; metadata type per ❓Q8; omitted `access` per ❓N26 | 44-B |
+| S-24 | `metadata` is `HashMap<String,String>` (non-string values fail the request); range `name` / `description` dropped; omitted `access` defaults to exclusive (`rest/resources.rs:40, :87–95`) | Store range `name` / `description`; metadata stays text-only `map<string,string>` (D69), so a non-string value is a 422 with a clear message; entry without `access` and without `default_access` → 422 (D61) | 44-B |
 | S-17 | `configure` neither checks nor invalidates resources (`rest/devices.rs` `configure_fpga`) | Forced cleanup per D26 for configure **and** clear, REST and gRPC: unlock → release → delete (reason) → program; notify every holder | 44-F |
 
 > **Why the Rust GUI demos appear to obey locks:** both `rust-rest-gui-iced`
@@ -182,7 +182,7 @@ numbers when the sub-phase starts.
 | SD-05 | `dataport` meaning | `legacy` = `OK_DATAPORT_LEGACY` transport only; dataport does not decide whether classic EPs exist | 44-H |
 | SD-06 | [guides/python-rest-client-guide.md](guides/python-rest-client-guide.md) §5 | Align configure flow with ADR-028 | 44-J |
 | SD-07 | [ADR-020](architecture/adr/ADR-020-client-side-resource-registration.md) §7–§8, Errors table | Marked superseded by ADR-034 §3–§4 (shared overlap **kept**; validation rules per R1; stale "no runtime enforcement (v1)") | 44-A |
-| SD-08 | `docs/client/hdl-resource-mapping-guide.md` §4, §6 rule 3 | Already teaches shared overlap; align with R1, unspecified-classic, empty `endpoints`, `default_access` (❓N26), blocking. Owned by LabVIEW C-17 | 44-J |
+| SD-08 | `docs/client/hdl-resource-mapping-guide.md` §4, §6 rule 3 | Already teaches shared overlap; align with R1, omitted `endpoints` = exclusive resource (D68), empty `endpoints` (D55), `default_access` (D61), blocking; fix the "16-bit wire data" remark (wire width is device-dependent). Owned by LabVIEW C-17 | 44-J |
 | SD-09 | `rest/resources.rs` `create_resource` doc comment | Interface validation: `classic` always; `axi_*` only on `OK_DATAPORT_AXI` devices; mixing allowed (D54) | 44-B |
 
 #### 44.3 Sub-phases
@@ -198,8 +198,9 @@ Tier 1 = `okREALM_TEST` (CI), Tier 3 = FFI-trait mocks, Tier 2 = hardware
 - ADR-034 (first version) + overview.md entry; SD-01, SD-02, SD-07.
 - OpenAPI: S1 (S-01), S2 (S-02), S3 structured 409/422 bodies, S5 lock
   events + delete reason (D58), S6 private wording (D57), S-08 routes.
-- Proto: P1 (field numbers 4–5 per ❓Q4), P2, P3 (`optional`, **no
-  UNSPECIFIED**, D59), P4, P6, P8, P13.
+- Proto: P1 (fields 4–5 **reused**, D65; proposed `access_mode = 4`,
+  `interfaces = 5`, ❓N31), P2, P3 (`optional`, **no UNSPECIFIED**, D59,
+  D62), P4, P6, P8, P13.
 - Core domain types: declarations, holder `{user_id, mode}`, declared vs
   holder mode, structured conflict errors.
 - Tests (Tier 3): `test_create_resource_request_full_schema_roundtrips`,
@@ -209,26 +210,32 @@ Tier 1 = `okREALM_TEST` (CI), Tier 3 = FFI-trait mocks, Tier 2 = hardware
 
 **44-B Registration (R1)**
 - Overlap rules (S-19), rule A (exclusive → only exclusive items), first
-  wins, `private` / type mismatch (D22), unspecified-classic (D15a, D23),
+  wins, `private` / type mismatch (D22), resource without `endpoints` = exclusive, all classic EPs (D15a, D23, D68),
   explicit empty `endpoints` = no EPs (D55), ranges claim only what is
   declared (D52), interfaces (SD-09, D54: `axi_*` → 422 on
-  `OK_DATAPORT_LEGACY`), `default_access` (❓N26), missing `access_mode`
-  (❓N27), `private` fields (S-23), range name/description and metadata
-  (S-24). gRPC `RegisterResource` uses the same validator (S-04).
+  `OK_DATAPORT_LEGACY`), `default_access` = default `access` only (D61), missing `access_mode` → 422
+  except without `endpoints` (D62, D68), 409 vs 422 (❓N32), `private`
+  fields (S-23), range name/description and text-only metadata (S-24, D69). gRPC `RegisterResource` uses the same validator (S-04).
+  The web dashboard resource view shows each resource's metadata
+  key/value pairs (D69; verify what it shows today).
 - Tests (Tier 3): `test_create_resource_shared_overlap_allowed`,
   `test_create_resource_shared_vs_exclusive_overlap_denied`,
   `test_create_resource_exclusive_with_shared_item_denied`,
   `test_create_resource_private_mismatch_denied`,
-  `test_create_resource_unspecified_classic_blocks_later_classic`,
+  `test_create_resource_no_endpoints_blocks_later_classic`,
+  `test_create_resource_no_endpoints_no_access_mode_exclusive`,
+  `test_create_resource_no_endpoints_shared_rejected`,
+  `test_create_resource_default_access_does_not_claim_unlisted`,
+  `test_create_resource_entry_without_access_rejected`,
+  `test_create_resource_metadata_non_string_rejected`,
   `test_create_resource_empty_endpoints_claims_none`,
   `test_create_resource_axi_on_legacy_dataport_rejected`,
-  `test_create_resource_missing_access_mode_rejected` (or `_defaulted`,
-  per N27). Tier 1: registration conflicts on an `okREALM_TEST` device.
+  `test_create_resource_missing_access_mode_rejected`. Tier 1: registration conflicts on an `okREALM_TEST` device.
 - Commit: `feat: enforce resource registration overlap rules (R1)`.
 
 **44-C Acquisition (A1)**
 - Holder entries with mode; same mode → 200; different mode → 409 (S-03);
-  optional acquire mode (❓N27); ReadOnly rules incl. exclusive resources
+  optional acquire mode, omitted = declared mode (D62); ReadOnly rules incl. exclusive resources
   (D25); implicit lock display for exclusive resources (S-22).
 - Tests (Tier 3): `test_acquire_same_mode_idempotent`,
   `test_acquire_different_mode_conflict`,
@@ -259,7 +266,7 @@ Tier 1 = `okREALM_TEST` (CI), Tier 3 = FFI-trait mocks, Tier 2 = hardware
   (D44, D46, S-14), same-resource address check with empty ranges → deny
   (S-20), `AllowAlways` skips only the address check (D51), ReadOnly denied
   ADR-025 mapped access (D29), private reads, ResetFPGA via the data-port
-  gate (D56, ❓Q5), AXI addresses above 32 bits denied (P14).
+  gate only (D56, D66), AXI addresses above 32 bits denied (P14).
 - Tests (Tier 3): `test_enforce_write_usable_holder_allowed`,
   `test_enforce_write_foreign_lock_denied`,
   `test_enforce_write_blocked_denied`,
@@ -290,11 +297,13 @@ Tier 1 = `okREALM_TEST` (CI), Tier 3 = FFI-trait mocks, Tier 2 = hardware
   round-trips; Tier 2 (approval) pipe throughput.
 - Commits: one per item (`fix: align classic pipe routes with OpenAPI`, …).
 
-**44-H Dataport normalisation 🔒 (❓N28)**
-- S-10, SD-05, P16: public `legacy` / `axi`; `okEDataport` mapping;
-  UNKNOWN handling per N28; client models.
+**44-H Dataport normalisation 🔒 (D63; permission granted)**
+- S-10, SD-05, S7, P16: public `legacy` / `axi`; `okEDataport` mapping;
+  `OK_DATAPORT_UNKNOWN` → error: single-device REST calls 500
+  problem+json, gRPC `ErrorCluster` error, `axi_*` registration 422;
+  device listing per ❓N30; client models.
 - Tests (Tier 3): `test_dataport_legacy_maps_to_legacy`,
-  `test_dataport_axi_maps_to_axi`, `test_dataport_unknown_handled`.
+  `test_dataport_axi_maps_to_axi`, `test_dataport_unknown_returns_error`.
 - Commit: `fix: normalise dataport enum to legacy and axi`.
 
 **44-I Remaining proto alignment 🔒**
@@ -315,12 +324,16 @@ Tier 1 = `okREALM_TEST` (CI), Tier 3 = FFI-trait mocks, Tier 2 = hardware
 1. Shared items in shared resources may overlap; every other overlap → 409
    naming the existing resource and item.
 2. Exclusive resources with shared items are rejected.
-3. `default_access` has the single meaning decided in N26.
-4. Omitted `endpoints` = unspecified-classic; `{"entries": []}` = no EPs.
+3. `default_access` only fills in a missing `access` on listed entries; it
+   never claims unlisted EPs.
+4. Omitted `endpoints` = exclusive resource claiming every classic EP
+   (`access_mode` optional there, `shared` → 422); `{"entries": []}` = no
+   EPs.
 5. Resources claim only the ranges they declare.
 6. `axi_*` interfaces are rejected on `OK_DATAPORT_LEGACY` devices; classic
    and AXI may be combined on `OK_DATAPORT_AXI` devices.
-7. Missing `access_mode` handled per N27; no `UNSPECIFIED` value in either
+7. Missing `access_mode` → 422 (except item 4); acquire `mode` optional;
+   no `UNSPECIFIED` value in either
    spec.
 8. Acquire: same mode 200, different mode 409.
 9. A lock blocks every overlapping resource for everyone but the locker;
@@ -342,8 +355,6 @@ Tier 1 = `okREALM_TEST` (CI), Tier 3 = FFI-trait mocks, Tier 2 = hardware
 
 #### 44.5 Moved to Later (see 🔵 Later)
 
-- **S-16 per-holder TriggerOut cache** (❓Q7): per-holder state conflicts
-  with D21; use an exclusive resource or the lock instead.
 - **S-21 declarative address carriers** (old Q44-9): the compiled ADR-025
   DualPort stub stays (D4).
 - **Classic sequence endpoint** (old 44.3 proposal): replaced by
@@ -351,14 +362,15 @@ Tier 1 = `okREALM_TEST` (CI), Tier 3 = FFI-trait mocks, Tier 2 = hardware
 - **WireIn shadow read-back** (old Q44-6).
 - **Atomic multi-resource acquire** (old Q44-12).
 
-Dropped: the 2026-10-08 ADR proposals for this phase and old Q44-7
-(superseded by D48 and D53). ADR-034 now means the consolidated ADR (44.1).
+Dropped: the 2026-10-08 ADR proposals for this phase, old Q44-7
+(superseded by D48, D68) and old S-16, the per-holder TriggerOut cache
+(**rejected permanently**, D67: clients manage trigger access). ADR-034 now means the consolidated ADR (44.1).
 
 #### 44.6 F-1 spec sketch (for S-01/S-02 — not applied)
 
 ```yaml
 CreateResourceRequest:
-  required: [name, device_serial, access_mode, interfaces]   # access_mode: N27
+  required: [name, device_serial, interfaces]   # access_mode required when endpoints present (D62, D68)
   properties:
     name: {type: string}
     description: {type: string}
@@ -368,15 +380,15 @@ CreateResourceRequest:
     interfaces:
       type: array
       items: {type: string, enum: [classic, axi_lite, axi_full, axi_stream]}
-    endpoints:                     # omitted = unspecified-classic; {entries: []} = no EPs
+    endpoints:                     # omitted = exclusive, all classic EPs (D68); {entries: []} = no EPs
       type: object
       properties:
-        default_access: {type: string, enum: [shared, exclusive]}   # meaning: N26
+        default_access: {type: string, enum: [shared, exclusive]}   # default for entries without access (D61)
         entries:
           type: array
           items:
             type: object
-            required: [address, type]    # access required unless N26 (b) default applies
+            required: [address, type]    # access required unless default_access is set (D61)
             properties:
               address: {type: string, pattern: '^0x[0-9A-Fa-f]{2}$'}
               type: {type: string, enum: [wire_in, wire_out, trigger_in, trigger_out,
@@ -396,7 +408,7 @@ CreateResourceRequest:
           access: {type: string, enum: [shared, exclusive]}
           private: {type: boolean}
           description: {type: string}
-    metadata: {type: object}       # string values or any JSON: Q8
+    metadata: {type: object, additionalProperties: {type: string}}   # text only (D69)
 # Resource (response): access_mode (declared), holders[{user_id, mode}],
 #   locked_by, interfaces, endpoints, address_ranges, metadata, private
 # 409 = invalid overlap (R1), lock denied, different-mode acquire
@@ -406,27 +418,22 @@ CreateResourceRequest:
 #### 44.7 Open questions
 
 Kept from the 2026-10-08 list:
-- **Q44-1** Spec edits: content approved (D36–D38, D57–D59); confirm each
+- **Q44-1** Spec edits: content approved (D36–D38, D57–D59, D61–D69); confirm each
   🔒 sub-phase at its start.
 - **Q44-3** Pipes (S-05): fix the implementation to the spec's octet-stream
   form (recommended) or change the spec to JSON/base64?
 - **Q44-5** REST and gRPC in the same sub-phases (recommended)?
 
 New (recommendations §7):
-- **N26** `default_access`: claim every unlisted EP, or only the default
-  `access` for listed entries (recommended)?
-- **N27** Missing `access_mode`: strict 422, default `shared`, or strict
-  registration + optional acquire mode (recommended)?
-- **N28** Dataport enum `legacy` / `axi`, proto renumbered; UNKNOWN →
-  `legacy` + warning, or error?
-- **Q4** P1 fields 4–5: `reserved` (recommended) or reused?
-- **Q5** ResetFPGA gate: holds any resource on the device (recommended), or
-  a usable non-ReadOnly resource?
-- **Q7** Move S-16 to Later?
-- **Q8** Metadata: string map or any JSON?
+- **N30** `OK_DATAPORT_UNKNOWN` in the device list: show the device without
+  a `dataport` value (recommended), leave it out, or add an error field?
+- **N31** Reuse field 4 for `access_mode` and 5 for `interfaces`?
+- **N32** 422 for every error visible from the request alone, 409 only for
+  clashes with existing state?
 
-Resolved: Q44-2 (D28, D43, N27), Q44-4 (D27), Q44-8 (N26), Q44-10 (Q8),
-Q44-11 (D50, D54). Dropped: Q44-7. Moved to Later: Q44-6, Q44-9, Q44-12.
+Resolved: Q44-2 (D28, D43, D62), Q44-4 (D27), Q44-8 (D61), Q44-10 (D69),
+Q44-11 (D50, D54); round 6: N26 (D61), N27 (D62, D68), N28 (D63),
+Q4 (D65), Q5 (D66), Q7 (D67, rejected), Q8 (D69). Dropped: Q44-7. Moved to Later: Q44-6, Q44-9, Q44-12.
 
 ---
 
@@ -510,8 +517,7 @@ Features in this section represent uncommitted research or long-term capabilitie
 
 * **Resource-model follow-ups (moved from Phase 44 draft)** — server-side
   sequences / transactions (embedded engine explored first, D40; replaces
-  the old `classic/sequence` endpoint proposal); per-holder TriggerOut cache
-  (old S-16, if ever needed); declarative address carriers for bridge
+  the old `classic/sequence` endpoint proposal); declarative address carriers for bridge
   designs (old S-21); WireIn shadow read-back (old Q44-6); atomic
   multi-resource acquire (old Q44-12). See
   [resource-management-recommendations.md](resource-management-recommendations.md) §5.
