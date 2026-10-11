@@ -92,6 +92,15 @@
 > (D78). It gets a patch bump in every later sub-phase.
 > Python packages are bumped in the commit that changes them.
 
+> **API Specification (2026-10-11):** the developer-facing spec
+> [docs/API-Specification/](API-Specification/) (Typst; PDF
+> `ok-fpga-server-api-specification.pdf`) specifies the Resource Model and
+> Access Enforcement in full. Every sub-phase updates the affected chapters
+> and **Appendix A (implementation status)** in the same commit, and
+> rebuilds the PDF (`typst compile main.typ ok-fpga-server-api-specification.pdf`).
+> Visible text never cites ADRs / D-numbers / phases; those go in `// ref:`
+> comments in the `.typ` sources.
+
 #### 44.0 The model being implemented (summary)
 
 - **Overlap (R1, D1, D8, D48):** several resources on one device **may**
@@ -575,6 +584,22 @@ Q-H (one 0.3.0 commit, enforcement in 44-E, spec permission granted), Q-I
 
 Features in this section represent uncommitted research or long-term capabilities:
 
+* **API Specification — expand the overview chapters.** Section 2 of
+  [docs/API-Specification/](API-Specification/) is an overview only. Expand
+  each part into a full specification (every operation, parameter, error,
+  rationale, Opal Kelly citation), as already done for the Resource Model
+  (§3) and Access Enforcement (§4): server/management, identity and auth,
+  devices (sensors, settings, SYZYGY, PLL, flash), FPGA configuration,
+  Classic data port (wires, triggers, pipes, block pipes, register bridge),
+  AXI data port, events (SSE / gRPC / MQTT), dashboard, mDNS. Existing
+  section numbers must not change (append sub-sections only).
+* **OpenAPI / proto cite API Specification section numbers.** After the
+  spec chapters exist, change `api/openapi.yaml` and
+  `proto/okfpga/v1/okfpga.proto` descriptions to refer to the required
+  behaviour by spec section number (e.g. "see API Specification §4.4.4")
+  instead of ADR / D-numbers, keeping inline notes short. 🔒 Needs owner
+  permission for the spec change.
+
 * **TriggerOut event log (non-standard Opal Kelly extension)** — D67
   reopened 2026-10-11 (Q-F). Needs a design round and owner approval
   before any work; nothing below is decided except where marked.
@@ -596,8 +621,9 @@ Features in this section represent uncommitted research or long-term capabilitie
     takes **only the handle**, no endpoint.
   - `UpdateTriggerOuts`: "query the XEM to determine if any TriggerOuts
     have been activated since the last call."
-  - `IsTriggered`: "true if any bits in mask have triggered since the last
-    call to UpdateTriggerOuts()."
+  - `IsTriggered`: "find out if a particular bit (or bits) on a particular
+    TriggerOut endpoint has triggered since the last call to
+    UpdateTriggerOuts()" (quote corrected 2026-10-11 against the live page).
   - `GetTriggerOutVector`: "retrieve the full vector of values for a
     particular TriggerOut endpoint" (from the last update).
   - HDL endpoint ports (FrontPanel HDL library): `okWireOut` has only
