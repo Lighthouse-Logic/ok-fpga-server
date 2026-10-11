@@ -1,4 +1,4 @@
-# Resource Management — Findings & Recommendations (DRAFT rev 8)
+# Resource Management — Findings & Recommendations (DRAFT rev 9)
 
 > **Basis:** ADR-003, 004, 005, 006, 015, 016, 017, 018, 020, 021, 023, 024,
 > 025, 026, 029; the owner decisions of 2026-10-10 (§1); the DualPort-Transceiver
@@ -6,7 +6,7 @@
 > `proto/okfpga/v1/okfpga.proto` (definitions only); local Strata second
 > opinion (§8). No code was reviewed.
 > Companion: [resource-management-developer-guide.md](resource-management-developer-guide.md).
-> **Status:** Draft rev 8, 2026-10-10. No ADR, spec or code has been changed.
+> **Status:** Draft rev 9, 2026-10-10. No ADR, spec or code has been changed.
 > The server roadmap Phase 44 follows this model (§6).
 
 > [!IMPORTANT]
@@ -98,7 +98,7 @@
 | **D59** | Q4, P1–P3 | **No `UNSPECIFIED` enum value** in OpenAPI or proto, anywhere. P1, P2, P3 agreed. "Unspecified" is only a transient condition when the resource JSON omits `access_mode`; the established rules then set the mode. It is never a spec state. (How the rules set it: D62, D68. Field numbers: D65.) |
 | **D60** | D41 | Rename done now: folder, branch, package `dualport_client`, distribution `okfpga-DualPort-Transceiver-client`. |
 
-### 1.5 Round 6 (D61–D69)
+### 1.5 Round 6 (D61–D72)
 
 | ID | From | Decision |
 |---|---|---|
@@ -111,6 +111,9 @@
 | **D67** | Q7 | **Never** a per-holder TriggerOut cache (old S-16), now or later. The server stays agnostic; clients manage how and when triggers are read. Removed from every plan. |
 | **D68** | Q6 | A resource JSON **without an `endpoints` field** is simply an **exclusive resource** that claims every classic EP (ADR-020 §7): a quick-and-dirty resource. No special name. `access_mode` may be omitted and is then set to `exclusive`; `access_mode: exclusive` is accepted; `access_mode: shared` → 422. It claims only the ranges it declares (D52), blocks later classic resources (D23), and ReadOnly may join unless private (D25). |
 | **D69** | Q8 | `metadata` stays **`map<string,string>`** (text values only; proto unchanged). Lists go into one string (DualPort `associated_cores` → comma-separated). The server's web dashboard shows each resource's metadata. |
+| **D70** | N30 | `OK_DATAPORT_UNKNOWN` is **not supported**. A device that reports it is **left out** of device listings and treated as not present: single-device calls return 404 / gRPC `NOT_FOUND`, and nothing can be registered on it. The dataport enums have no "unknown" value. |
+| **D71** | N31 | Proto `CreateResourceRequest`: field 4 = `optional ResourceAccessMode access_mode`, field 5 = `repeated string interfaces`; the other new fields take 6+. |
+| **D72** | N32 | **422** for every error visible from the request alone (rule A, a resource without `endpoints` declared `shared`, missing fields, type / address mismatch, entry without `access`, non-string metadata, `axi_*` on a legacy device). **409** only for clashes with existing state (overlap with another resource, duplicate name, lock denied, different-mode acquire). |
 
 ---
 
@@ -135,7 +138,8 @@ All C- and G-items are resolved. G18 closed by D51. Full history: rev 5
 | N25 | **Resolved:** D57 |
 | N26 | **Resolved:** D61 |
 | N27 | **Resolved:** D62, D68 |
-| N28 | **Resolved:** D63 (listing: N30) |
+| N28 | **Resolved:** D63, D70 |
+| N30–N32 | **Resolved:** D70, D71, D72 |
 | N29 | **Resolved:** D64 |
 
 ---
@@ -181,13 +185,9 @@ All C- and G-items are resolved. G18 closed by D51. Full history: rev 5
   "Classic" = FrontPanel classic EPs (+ okRegisterBridge). "Direct AXI" =
   FPGADataPortAXI, which needs an `OK_DATAPORT_AXI` device.
 
-### 3.2 Open gaps (round 6, with Strata)
+### 3.2 Open gaps
 
-| ID | Issue | Proposal |
-|---|---|---|
-| **N30** | **`OK_DATAPORT_UNKNOWN` in device listings (D63).** `GET /devices/{serial}` and `GET …/dataport` can return an error, but the device list is one response for many devices, and `DeviceInfo` has no per-device error field (Strata). | (a) List the device **without** a `dataport` value (field made optional in the spec) and log an error. **Recommended:** the device stays visible, and nothing invents a value. (b) Leave the device out of the list. (c) Add a per-device `error` field. Single-device calls return 500 problem+json / gRPC `ErrorCluster` with a non-zero code. Registration of `axi_*` interfaces on such a device → 422 "dataport unknown". |
-| **N31** | **Which new proto fields reuse numbers 4 and 5 (D65).** | `access_mode = 4` (`optional ResourceAccessMode`), `interfaces = 5` (`repeated string`); `endpoints`, `address_ranges`, `metadata`, `private` take 6+ (Strata). |
-| **N32** | **409 or 422 for invalid single requests.** Guide §2.3 rows 6–7 give 409 for an exclusive resource with a shared item (rule A). D38 says 422 is for validation. D68 gives 422 for `shared` + no `endpoints`. | **422** for any error visible from the request alone (rule A, D68, missing fields, type/address mismatch, `axi_*` on a legacy device). **409** only for clashes with existing state (overlap with another resource, duplicate name, lock denied, different-mode acquire). |
+None. N30–N32 were resolved by D70–D72.
 
 Also noted, no question needed:
 - **Self-interleaving.** A user holding both ports can corrupt her own bridge
@@ -217,11 +217,11 @@ permission for the dataport change.
 |---|---|---|---|
 | **S1** | `CreateResourceRequest` (~L2042) | Only `name`, `device_serial`, `description`, `resource_type`, `capabilities`. | **Approved** (D36, D61, D62, D68, D69): remove `resource_type` / `capabilities`; add `access_mode` (required unless `endpoints` is omitted), `interfaces`, `endpoints` (`default_access`, `entries[]`: `address`, `type`, `access`, `private`, `description`), `address_ranges[]` (`name`, `start`, `end`, `access`, `private`, `description`), `metadata` (string values only), `private` |
 | **S2** | `Resource` (~L2065) | `access_mode` enum incl. `read_only`; `holders` is `string[]`; no `locked_by` or declaration fields. | **Approved** (D37) |
-| **S3** | `createResource`, acquire, lock | Only 400/404/409 documented; no structured conflict body. | **Approved** (D38; 409/422 split per N32) |
+| **S3** | `createResource`, acquire, lock | Only 400/404/409 documented; no structured conflict body. | **Approved** (D38; 409/422 split per D72) |
 | **S4** | port-A/B JSON (not a spec) | Descriptions vs v2 guide; metadata array (D69). | **Approved for C-SFPP-1** (D39, D69) |
 | **S5** | `/events`, `DeviceEvent` | No lock events; no delete reason. | **Approved** (D58) |
 | **S6** | `Resource.private` description | Visibility wording. | **Approved** (D57) |
-| **S7** | `DeviceInfo.dataport` (~L1778), `GET …/dataport` (~L591) | `unknown`, `classic`; two different enums. | **Approved** (D63): `legacy` / `axi` only; UNKNOWN → error (listing: N30) |
+| **S7** | `DeviceInfo.dataport` (~L1778), `GET …/dataport` (~L591) | `unknown`, `classic`; two different enums. | **Approved** (D63, D70): `legacy` / `axi` only; an UNKNOWN device is not listed (404) |
 | **S8** | Acquire request `mode` (~L1263) | Required. | **Approved** (D62): optional; omitted = declared mode |
 
 ### 3.4 Proto discrepancies (⚠P) — `proto/okfpga/v1/okfpga.proto`, definition only
@@ -231,7 +231,7 @@ Presence is detected with proto3 `optional` fields.
 
 | ID | Location | Discrepancy | Fix / status |
 |---|---|---|---|
-| **P1** | `CreateResourceRequest` (L902) | Same gaps as S1; comment cites ADR-016, not ADR-020. | **Approved** (D59, D65): fields 4–5 **reused** (N31), declaration messages `EndpointDeclaration`, `EndpointEntry`, `AddressRange`, `map<string,string> metadata` (D69), `private` |
+| **P1** | `CreateResourceRequest` (L902) | Same gaps as S1; comment cites ADR-016, not ADR-020. | **Approved** (D59, D65): fields 4–5 **reused** (D71: 4 = `access_mode`, 5 = `interfaces`), declaration messages `EndpointDeclaration`, `EndpointEntry`, `AddressRange`, `map<string,string> metadata` (D69), `private` |
 | **P2** | `Resource` (L229) | No `access_mode`; `holders` is `repeated string`; no declarations. | **Approved** (D59): `ResourceAccessMode access_mode`, `repeated Holder holders` under a new field number, declarations |
 | **P3** | `AccessMode` enum (L114) | `ACCESS_MODE_SHARED = 0` is the default, so an omitted mode silently means "shared". | **Approved** (D59, D62): `ResourceAccessMode { RESOURCE_ACCESS_MODE_SHARED = 0; RESOURCE_ACCESS_MODE_EXCLUSIVE = 1; }` on an `optional` registration field (absent → D68 or 422); acquire `mode` `optional` (absent → declared mode) |
 | **P4** | `AccessMode` comment (L117–120) | Contradicts D42. | "cannot write input EPs or call ActivateTriggerIn; may call UpdateWireOuts / UpdateTriggerOuts (reads)" |
@@ -246,7 +246,7 @@ Presence is detected with proto3 `optional` fields.
 | **P13** | `Resource.private` comment (L240) | Visibility claim. | **Approved** (D57) |
 | **P14** | Address width | `uint32` vs `uint64`; ranges 32-bit. | AXI addresses above 32 bits cannot be covered and are denied under `enforce` |
 | **P15** | Non-resource (noted only) | `GetServerStatus` duplicated. | Out of scope |
-| **P16** | `DataportType` (L85) | `DATAPORT_UNKNOWN = 0`. | **Approved** (D63): `DATAPORT_LEGACY = 0; DATAPORT_AXI = 1;` UNKNOWN → `ErrorCluster` error |
+| **P16** | `DataportType` (L85) | `DATAPORT_UNKNOWN = 0`. | **Approved** (D63): `DATAPORT_LEGACY = 0; DATAPORT_AXI = 1;` an UNKNOWN device is not present (D70) |
 
 ### 3.5 ADR text superseded (for ADR-034)
 
@@ -290,7 +290,7 @@ documents (roadmap 44-A).
 | 1 | Status, scope, authority (specs remain authoritative; S/P changes per D36–D38, D57–D59, D63) | — |
 | 2 | Terminology (T1): resource, item, holder, holder mode, lock, blocked, overlap, private, exclusive item (E1), single-/multi-step, legacy = dataport only (D49), Classic vs direct AXI (D50), ADR-025 mapped vs register / direct address | ADR-003 wording (D64) |
 | 3 | Resource model and registration schema, metadata (D69) | ADR-006 Resource Model; ADR-020 §1, §2, §6, §9; ADR-026 §2 |
-| 4 | Declaration rules R1, omitted / empty `endpoints` (D55, D68), `default_access` (D61), ranges (D52), interfaces (D54), 409 vs 422 (N32) | ADR-020 §7, §8, §10; ADR-024 §3 |
+| 4 | Declaration rules R1, omitted / empty `endpoints` (D55, D68), `default_access` (D61), ranges (D52), interfaces (D54), 409 vs 422 (D72) | ADR-020 §7, §8, §10; ADR-024 §3 |
 | 5 | Acquisition A1, optional acquire mode (D62), ReadOnly states (D25) | ADR-006 Acquisition; ADR-020 §3 (part); ADR-026 §3, §4, §7 |
 | 6 | Locking B1–B4, client obligation L1, events (D58) | ADR-020 §3, §11; ADR-024 §6 |
 | 7 | Lifecycle: release, disconnect, heartbeat, device disconnect, reprogram / clear (D26, §3.6), delete (D15c), ResetFPGA (D56, D66) | ADR-006 Lifecycle; ADR-020 §4, §5, §10; ADR-023 Fix-F; ADR-024 §10 |
@@ -298,7 +298,7 @@ documents (roadmap 44-A).
 | 9 | Enforcement levels (D27), route tiers, pipeline (B2), errors and gRPC status mapping (D38, P7), identity metadata (P8) | ADR-024 §1, §2, §4, §5, §7, §9; ADR-026 §8 |
 | 10 | Address enforcement: ADR-025 hook (compiled), register / direct AXI, ReadOnly (D12, D29), `AllowAlways` (D51) | ADR-025 §2, §3, §5, Future Work |
 | 11 | Identity | ADR-029 (mark Accepted/Implemented) |
-| 12 | Dataport mapping (D63, N30) | ADR-003 (dataport enum only) |
+| 12 | Dataport mapping (D63, D70) | ADR-003 (dataport enum only) |
 | 13 | Consequences, test requirements | — |
 | 14 | Open items: RBAC (D47), server-side sequences (D40), address carriers | — |
 
@@ -325,10 +325,10 @@ falls away for it. Details are decided when the phase comes due.
 ## 6. Impact on the drafted plans
 
 - **Server Phase 44** ([development-roadmap.md](development-roadmap.md)):
-  updated to D61–D69. The ❓ markers for N26–N28, Q4, Q5, Q7, Q8 are gone;
+  updated to D61–D72. The ❓ markers for N26–N32, Q4, Q5, Q7, Q8 are gone;
   the per-holder trigger cache is removed everywhere, including Later
   (D67); a dashboard metadata item is added (D69). Still **Draft** until
-  you approve it. Remaining questions: N30–N32.
+  you approve it. Remaining questions: §7.
 - **Client docs, next round** (agreed): LabVIEW C-17 draft
   (`docs/client/client-development-roadmap.md`, uncommitted),
   `client/python-DualPort-Transceiver-client/docs/client-sfpp-development-roadmap.md`,
@@ -347,14 +347,17 @@ falls away for it. Details are decided when the phase comes due.
 
 ## 7. Clarifying questions
 
-1. **N30:** if FrontPanel reports `OK_DATAPORT_UNKNOWN`, should the device
-   list show the device without a `dataport` value (recommended), leave it
-   out, or carry a per-device error field?
-2. **N31:** reuse field 4 for `access_mode` and field 5 for `interfaces`?
-3. **N32:** use 422 for every error visible from the request alone (incl.
-   rule A, e.g. an exclusive resource with a shared EP) and 409 only for
-   clashes with existing state? This changes guide §2.3 rows 6–7 from 409
-   to 422.
+No resource-model questions remain. Two Phase 44 planning questions carried
+over from 2026-10-08 (roadmap 44.7):
+
+1. **Q44-3 Pipes (S-05):** fix the server to the spec's binary
+   octet-stream form (recommended: cheaper, and the LabVIEW client already
+   uses it; the Rust/Python examples are updated in 44-G), or change the
+   spec to JSON/base64?
+2. **Q44-5:** make each REST change and its gRPC twin in the same
+   sub-phase (recommended), or REST first?
+
+Then: approve Phase 44 as a plan (it stays Draft until you do).
 
 ---
 
@@ -372,8 +375,9 @@ adoption. Output complete, no degeneration.
   (§3.5).
 - `default_access` with empty `entries` is inert; entry without `access`
   and no default → 422 (D61).
-- Where the UNKNOWN error surfaces, and the listing hole → N30.
-- Field-number mapping → N31.
+- Where the UNKNOWN error surfaces, and the listing hole → N30 (resolved by
+  D70: such a device is not listed).
+- Field-number mapping → N31 (D71).
 - Bridge-EP-only port resources cannot reach their ranges; gRPC
   registration must wait for P1 → §3.2 notes.
 - Passage lists for the client docs, the HDL mapping guide and Phase 44

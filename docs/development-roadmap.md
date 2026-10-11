@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-10-10 (Phase 44 updated to decisions D61–D69 — draft, not approved)
+> **Last Updated:** 2026-10-10 (Phase 44 updated to decisions D61–D72 — draft, not approved)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -70,7 +70,7 @@
 > Now needs explicit approval of this plan and answers to the open questions
 > in 44.7.
 > **Model source:** [resource-management-recommendations.md](resource-management-recommendations.md)
-> (decisions D1–D69, rules R1/B1–B4/L1/A1/E1/T1) and
+> (decisions D1–D72, rules R1/B1–B4/L1/A1/E1/T1) and
 > [resource-management-developer-guide.md](resource-management-developer-guide.md).
 > **Origin:** `python-DualPort-Transceiver-client` design review, 2026-10-08 (dual-port
 > SFP+ DualPort design on the XEM8320).
@@ -80,7 +80,7 @@
 
 > **Spec rule (ai-collaboration §2, §4):** sub-phases marked 🔒 change
 > `api/openapi.yaml` and/or `proto/okfpga/v1/okfpga.proto`. The owner has
-> approved the *content* listed (D36–D38, D57–D59, D61–D69; dataport permission D63); each spec file edit
+> approved the *content* listed (D36–D38, D57–D59, D61–D72; dataport permission D63); each spec file edit
 > still gets an explicit go-ahead when the sub-phase starts. Items marked
 > ❓ wait for an answer in 44.7. Until a spec is changed, it is treated as
 > correct and the implementation is what gets fixed.
@@ -147,7 +147,7 @@ numbers when the sub-phase starts.
 | S-07 | `WireInRequest.auto_update` missing (`rest/classic.rs:90`); `UpdateWireIns` always called | Implement `auto_update` | 44-G |
 | S-08 🔒 | Undocumented routes: `wires/in/update`, `wires/out/update`, `triggers/out/update`, whole-bank `GET wires/out` / `triggers/out` | Document them; the two output updates are **reads** (D42), `wires/in/update` is a write | 44-A (spec), 44-G |
 | S-09 | State / mode strings serialised as Display/Debug text (`"In Use (Shared)"`, `"InUseShared"`, `"Shared"`) | Serialise the spec enum strings everywhere (REST, SSE) | 44-G |
-| S-10 🔒 | `dataport` enum: `[unknown, classic, axi]` ([openapi.yaml:1780](../api/openapi.yaml)) vs `[unknown, legacy, axi]` ([openapi.yaml:593](../api/openapi.yaml)) vs proto `UNKNOWN/LEGACY/AXI` | `legacy` / `axi` only; proto `DATAPORT_LEGACY = 0, DATAPORT_AXI = 1`; FrontPanel UNKNOWN → error (D63; listing ❓N30) | 44-H |
+| S-10 🔒 | `dataport` enum: `[unknown, classic, axi]` ([openapi.yaml:1780](../api/openapi.yaml)) vs `[unknown, legacy, axi]` ([openapi.yaml:593](../api/openapi.yaml)) vs proto `UNKNOWN/LEGACY/AXI` | `legacy` / `axi` only; proto `DATAPORT_LEGACY = 0, DATAPORT_AXI = 1`; a device reporting UNKNOWN is unsupported and not listed (D63, D70) | 44-H |
 
 **Resource model and enforcement**
 
@@ -198,8 +198,8 @@ Tier 1 = `okREALM_TEST` (CI), Tier 3 = FFI-trait mocks, Tier 2 = hardware
 - ADR-034 (first version) + overview.md entry; SD-01, SD-02, SD-07.
 - OpenAPI: S1 (S-01), S2 (S-02), S3 structured 409/422 bodies, S5 lock
   events + delete reason (D58), S6 private wording (D57), S-08 routes.
-- Proto: P1 (fields 4–5 **reused**, D65; proposed `access_mode = 4`,
-  `interfaces = 5`, ❓N31), P2, P3 (`optional`, **no UNSPECIFIED**, D59,
+- Proto: P1 (fields 4–5 **reused**, D65; `access_mode = 4`,
+  `interfaces = 5`, D71), P2, P3 (`optional`, **no UNSPECIFIED**, D59,
   D62), P4, P6, P8, P13.
 - Core domain types: declarations, holder `{user_id, mode}`, declared vs
   holder mode, structured conflict errors.
@@ -214,7 +214,7 @@ Tier 1 = `okREALM_TEST` (CI), Tier 3 = FFI-trait mocks, Tier 2 = hardware
   explicit empty `endpoints` = no EPs (D55), ranges claim only what is
   declared (D52), interfaces (SD-09, D54: `axi_*` → 422 on
   `OK_DATAPORT_LEGACY`), `default_access` = default `access` only (D61), missing `access_mode` → 422
-  except without `endpoints` (D62, D68), 409 vs 422 (❓N32), `private`
+  except without `endpoints` (D62, D68), 422 for request errors, 409 for clashes (D72), `private`
   fields (S-23), range name/description and text-only metadata (S-24, D69). gRPC `RegisterResource` uses the same validator (S-04).
   The web dashboard resource view shows each resource's metadata
   key/value pairs (D69; verify what it shows today).
@@ -299,11 +299,10 @@ Tier 1 = `okREALM_TEST` (CI), Tier 3 = FFI-trait mocks, Tier 2 = hardware
 
 **44-H Dataport normalisation 🔒 (D63; permission granted)**
 - S-10, SD-05, S7, P16: public `legacy` / `axi`; `okEDataport` mapping;
-  `OK_DATAPORT_UNKNOWN` → error: single-device REST calls 500
-  problem+json, gRPC `ErrorCluster` error, `axi_*` registration 422;
-  device listing per ❓N30; client models.
+  a device reporting `OK_DATAPORT_UNKNOWN` is unsupported: left out of
+  listings, single-device calls 404 / `NOT_FOUND` (D70); client models.
 - Tests (Tier 3): `test_dataport_legacy_maps_to_legacy`,
-  `test_dataport_axi_maps_to_axi`, `test_dataport_unknown_returns_error`.
+  `test_dataport_axi_maps_to_axi`, `test_list_devices_unknown_dataport_omitted`.
 - Commit: `fix: normalise dataport enum to legacy and axi`.
 
 **44-I Remaining proto alignment 🔒**
@@ -418,22 +417,16 @@ CreateResourceRequest:
 #### 44.7 Open questions
 
 Kept from the 2026-10-08 list:
-- **Q44-1** Spec edits: content approved (D36–D38, D57–D59, D61–D69); confirm each
+- **Q44-1** Spec edits: content approved (D36–D38, D57–D59, D61–D72); confirm each
   🔒 sub-phase at its start.
 - **Q44-3** Pipes (S-05): fix the implementation to the spec's octet-stream
   form (recommended) or change the spec to JSON/base64?
 - **Q44-5** REST and gRPC in the same sub-phases (recommended)?
 
-New (recommendations §7):
-- **N30** `OK_DATAPORT_UNKNOWN` in the device list: show the device without
-  a `dataport` value (recommended), leave it out, or add an error field?
-- **N31** Reuse field 4 for `access_mode` and 5 for `interfaces`?
-- **N32** 422 for every error visible from the request alone, 409 only for
-  clashes with existing state?
-
 Resolved: Q44-2 (D28, D43, D62), Q44-4 (D27), Q44-8 (D61), Q44-10 (D69),
 Q44-11 (D50, D54); round 6: N26 (D61), N27 (D62, D68), N28 (D63),
-Q4 (D65), Q5 (D66), Q7 (D67, rejected), Q8 (D69). Dropped: Q44-7. Moved to Later: Q44-6, Q44-9, Q44-12.
+Q4 (D65), Q5 (D66), Q7 (D67, rejected), Q8 (D69), N30 (D70), N31 (D71),
+N32 (D72). Dropped: Q44-7. Moved to Later: Q44-6, Q44-9, Q44-12.
 
 ---
 

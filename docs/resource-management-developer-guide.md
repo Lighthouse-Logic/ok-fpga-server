@@ -1,7 +1,7 @@
-# ok-fpga-server Resource Management — Developer Guide (DRAFT rev 8)
+# ok-fpga-server Resource Management — Developer Guide (DRAFT rev 9)
 
 > **Source of truth for this guide:** ADR-003, 004, 005, 006, 015, 016, 017,
-> 018, 020, 021, 023, 024, 025, 026, 029, **plus the owner decisions D1–D69
+> 018, 020, 021, 023, 024, 025, 026, 029, **plus the owner decisions D1–D72
 > of 2026-10-10** (no source code, no other guides except the DualPort
 > `axibridge-access-guide-v2.md` for §6). Where `api/openapi.yaml` or
 > `proto/okfpga/v1/okfpga.proto` disagree, this is flagged (recommendations
@@ -89,6 +89,8 @@ state `Available` (ADR-020 §1, §10–§11).
 - **Legacy** means only the FrontPanel dataport `OK_DATAPORT_LEGACY`
   (FP Gen1/Gen2 USB transport, ADR-003). **Every supported device reports
   it today.** A resource is never called "legacy".
+- `OK_DATAPORT_UNKNOWN` is **not supported**: such a device is left out of
+  device listings and treated as not present (404) (🟢 D70).
 - **Classic** = FrontPanel classic EPs (WireIn/Out, TriggerIn/Out,
   Pipes). A Classic resource may also use **okRegisterBridge**
   (`ReadRegister` / `WriteRegister`) addresses, but **cannot** use direct
@@ -156,8 +158,8 @@ resources).
 
 **Rule A: exclusive resources contain only exclusive items.** A resource
 with `access_mode: exclusive` that declares any shared EP, any shared range,
-or `default_access: shared` is rejected (409; 422 proposed, recommendations
-N32).
+or `default_access: shared` is rejected with **422** (🟢 D72): the request
+is invalid on its own, whatever else exists.
 
 **Rule B: first registration wins.** The first resource that declares an EP
 or range defines it. A later registration is accepted only if every overlap
@@ -173,8 +175,8 @@ with an error that names the existing resource and the conflicting item
 | 3 | shared resource, EP 0x00 `exclusive` | shared resource, EP 0x00 `shared` | ❌ 409: "EP 0x00 already declared exclusive by A" |
 | 4 | shared resource, EP 0x00 `exclusive` | shared resource, EP 0x00 `exclusive` | ❌ 409 |
 | 5 | exclusive resource (EP 0x00, necessarily exclusive) | any resource declaring EP 0x00 | ❌ 409: "EP 0x00 belongs to exclusive resource A" |
-| 6 | shared resource, EP 0x00 `shared` | **exclusive** resource declaring EP 0x00 | ❌ 409 (rule A and rule B) |
-| 7 | — | exclusive resource with any shared item | ❌ 409 (rule A), whatever exists |
+| 6 | shared resource, EP 0x00 `shared` | **exclusive** resource declaring EP 0x00 | ❌ 422 (rule A, 🟢 D72) |
+| 7 | — | exclusive resource with any shared item | ❌ 422 (rule A, 🟢 D72), whatever exists |
 | 8 | shared, range 0x8000_0000–0x8FFF_FFFF `shared` | shared, range 0x8800_0000–0x9FFF_FFFF `shared` | ✅ 201: partial overlap of shared ranges allowed |
 | 9 | shared, range X `shared` | any resource, overlapping range `exclusive` | ❌ 409 |
 | 10 | any, range X `exclusive` | any overlapping range | ❌ 409 |
@@ -439,7 +441,8 @@ Default **`enforce`**. **All clients must comply with `enforce`.** `off` and
 `warn` exist only as **debugging aids**, to find a client that does not
 follow the current rules. A user id is required in `warn`/`enforce`.
 Denials: `403` problem+json / `PERMISSION_DENIED`; lock, acquire-mode and
-registration conflicts: `409`; validation: `422` (🟢 D38).
+registration conflicts with existing resources: `409`; anything wrong with
+the request on its own: `422` (🟢 D38, D72).
 
 ### 5.2 Route tiers (ADR-024 §4)
 
