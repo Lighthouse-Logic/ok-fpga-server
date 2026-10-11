@@ -491,8 +491,8 @@ denied (403).
 
 == Heartbeat, disconnect and identity <res-heartbeat>
 // ref: ADR-020 §5; ADR-029 (identity); config user_timeout_secs = 60,
-// user_sweep_interval_secs = 10. Discrepancy noted 2026-10-11: OpenAPI
-// /heartbeat text recommends 30 s; ADR-020 §5 says ≤ 24 s (spec unchanged).
+// user_sweep_interval_secs = 10. OpenAPI /heartbeat and proto Ping aligned
+// to ≤ 24 s on 2026-10-11 (owner permission; previously "30 s").
 
 #table(
   columns: (auto, 1fr, 1fr),

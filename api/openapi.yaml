@@ -1676,8 +1676,10 @@ paths:
       tags: [Users]
       summary: User liveness heartbeat
       description: |
-        Clients should call this periodically (recommended: every 30 seconds)
-        to keep their session alive. The server updates the user's
+        Clients should call this periodically (at least every 24 seconds
+        while idle; ADR-020 §5) to keep their session alive. With the
+        default 60-second timeout (`user_timeout_secs`) one lost heartbeat
+        never expires the session. The server updates the user's
         `last_seen_at` timestamp.
 
         If a user's heartbeat expires (no activity for the configured timeout),

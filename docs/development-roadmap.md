@@ -86,10 +86,12 @@
 > runs `cargo test --features full` as well as `cargo test`.
 
 > **Versioning:** the workspace version (root `Cargo.toml`, currently
-> `0.3.1`) went to `0.2.0` in 44-A (breaking API contract), to `0.3.0`
+> `0.3.2`) went to `0.2.0` in 44-A (breaking API contract), to `0.3.0`
 > with the post-44-A read-semantics change (breaking: whole-bank reads
 > removed, snapshot reads) and to `0.3.1` for the IsTriggered mask default
-> (D78). It gets a patch bump in every later sub-phase.
+> (D78), and to `0.3.2` for the 24 s heartbeat text and the shipped
+> `config.toml` setting `endpoint_enforcement = "enforce"` (code default
+> stays `off` until 44-E). It gets a patch bump in every later sub-phase.
 > Python packages are bumped in the commit that changes them.
 
 > **API Specification (2026-10-11):** the developer-facing spec

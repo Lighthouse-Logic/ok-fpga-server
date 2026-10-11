@@ -236,6 +236,20 @@ opt-in holder mode (D62) instead of a resource type.
 - Version: `Cargo.toml`, `Cargo.lock` (0.3.1).
 - Docs: this ADR, the developer guide, the recommendations, the roadmap.
 
+## Files changed (0.3.2, heartbeat text and shipped enforcement)
+
+Owner permission 2026-10-11 (API Specification review):
+
+- Spec: `api/openapi.yaml` `/heartbeat` now says "at least every 24
+  seconds while idle" (was "recommended: every 30 seconds"), matching
+  ADR-020 §5; `proto/okfpga/v1/okfpga.proto` `Ping` comment says the same.
+- Config: repo `config.toml` ships `endpoint_enforcement = "enforce"`. The
+  built-in default in `config.rs` stays `"off"` until 44-E, which also
+  extends enforcement to every data-port route.
+- Version: `Cargo.toml`, `Cargo.lock` (0.3.2).
+- Docs: this ADR, `docs/API-Specification/` (Appendix A, ref comments),
+  `docs/development-roadmap.md`.
+
 ## Open items
 
 - **44-B**: R1 overlap rules, Rule A, interface/dataport check, `private`

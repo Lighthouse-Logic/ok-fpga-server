@@ -69,7 +69,9 @@ organizational_units = ["Users"]
 uid_attribute = "uid"
 
 [access_control]
-endpoint_enforcement = "off"
+# "off" | "warn" | "enforce". All clients must comply with "enforce";
+# "off" and "warn" are debugging aids (API Specification §4.1).
+endpoint_enforcement = "enforce"
 
 [catalog]
 syzygy_boards = []

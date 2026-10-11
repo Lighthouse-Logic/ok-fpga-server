@@ -16,8 +16,8 @@ whether the caller may perform it. It builds on the resource model
 
 == Enforcement levels <enf-levels>
 // ref: ADR-024 §1, §9 (hot reload); D15e, D27
-// Implementation status: repo config.toml and the code default are still
-// "off"; default "enforce" lands in 44-E.
+// Implementation status: repo config.toml ships "enforce" (owner,
+// 2026-10-11); the built-in code default stays "off" until 44-E.
 
 ```toml
 [access_control]

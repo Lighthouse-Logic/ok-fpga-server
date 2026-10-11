@@ -10,15 +10,15 @@
 // Update this appendix with every sub-phase commit.
 #import "../lib.typ": *
 
-= Implementation Status (server 0.3.1) <appendix-status>
+= Implementation Status (server 0.3.2) <appendix-status>
 
-This document specifies the target behaviour. Server version 0.3.1
+This document specifies the target behaviour. Server version 0.3.2
 implements part of it. Clients SHOULD be written against the specification;
 the items below show where today's server still differs.
 
 #table(
   columns: (1fr, auto),
-  [Behaviour], [Status in 0.3.1],
+  [Behaviour], [Status in 0.3.2],
   [Declaration schema, holder objects, state strings, structured conflicts (@res-declare, @res-errors)], [implemented],
   [Opal Kelly snapshot reads, `update` flag, one endpoint per read, mask default 0 (@enf-opalkelly)], [implemented],
   [`ResourceLocked` / `ResourceUnlocked` events; `holdings` in user listings], [implemented],
@@ -28,7 +28,7 @@ the items below show where today's server still differs.
   [Blocking of overlapping resources (@res-blocking)], [planned],
   [gRPC event stream fan-out (`WatchDeviceEvents`)], [planned],
   [Coverage of omitted `endpoints` limited to `0x00`–`0x7F` (@res-endpoint-shapes)], [planned; today `0x00`–`0xBF`],
-  [Enforcement on every data-port operation, `enforce` as default (@enf-levels)], [planned; default today is `off`],
+  [Enforcement on every data-port operation, `enforce` as default (@enf-levels)], [planned; the shipped `config.toml` sets `enforce`, but today only part of the checks run and the built-in default is `off`],
   [ReadOnly denial of resets and the private-TriggerOut rule (@enf-readonly)], [planned],
   [`warn_readonly_side_effects` setting (@enf-readonly-warning)], [planned],
   [Validation of `ActivateTriggerIn` bit numbers (0–31)], [planned],

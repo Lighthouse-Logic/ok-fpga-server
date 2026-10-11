@@ -1347,7 +1347,8 @@ service DeviceService {
   // --- Heartbeat ---
 
   // Heartbeat / liveness ping (ADR-020 §5).
-  // Clients should call this periodically to keep their session alive.
+  // Clients should call this at least every 24 seconds while idle to keep
+  // their session alive (default timeout 60 s, `user_timeout_secs`).
   rpc Ping(PingRequest) returns (PingResponse);
 
   // User-initiated disconnect (Phase 25-Fix-H, F10).

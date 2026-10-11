@@ -10,7 +10,7 @@
 
 #import "lib.typ": *
 
-#let spec-version = "0.3.1"
+#let spec-version = "0.3.2"
 #let spec-date = "2026-10-11"
 
 #set document(
