@@ -651,8 +651,11 @@ paths:
       tags: [Classic Data Port]
       summary: Refresh WireOut values (UpdateWireOuts)
       description: |
-        Calls UpdateWireOuts, refreshing the server-side copy of every WireOut.
-        This is a **read** (ADR-034, D42): ReadOnly holders may call it.
+        Calls UpdateWireOuts, copying the current value of every WireOut on the
+        device into the device's snapshot (one snapshot per device, shared by
+        all clients). This is a **read** (ADR-034, D42): ReadOnly holders may
+        call it. It only samples the WireOut inputs; the FPGA's user logic
+        cannot detect it (D75).
       operationId: updateWireOuts
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -667,31 +670,47 @@ paths:
   /devices/{serial}/classic/wires/out:
     get:
       tags: [Classic Data Port]
-      summary: Read WireOut values
+      summary: Read one WireOut value
       description: |
-        Calls UpdateWireOuts. With `endpoint`, returns that endpoint's value
-        (`WireOutResponse`). Without `endpoint`, returns the whole bank as an
-        object keyed by address (`"0x20"` … `"0x3f"`) with integer values.
+        Opal Kelly `GetWireOutValue` semantics (ADR-034 §9, D76): returns the
+        value of **one** WireOut from the device snapshot taken by the last
+        UpdateWireOuts call by **any** client. With `update=true` the server
+        calls UpdateWireOuts immediately before the read, under the same
+        device lock, so no other client's update can come in between.
+
+        There is no whole-bank read: `endpoint` is required (422 if missing).
+        ReadOnly holders may call this unless the endpoint is private (D75).
       operationId: getWireOutValue
       parameters:
         - $ref: '#/components/parameters/serial'
         - name: endpoint
           in: query
-          required: false
+          required: true
           schema:
             type: integer
-          description: WireOut endpoint address (0x20-0x3F). Omit to read the whole bank.
+          description: WireOut endpoint address (0x20-0x3F).
+        - name: update
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: |
+            Refresh the snapshot (UpdateWireOuts) immediately before reading.
+            Default `false` = read the current snapshot only.
       responses:
         '200':
-          description: WireOut value, or the whole bank when `endpoint` is omitted
+          description: WireOut value
           content:
             application/json:
               schema:
-                oneOf:
-                  - $ref: '#/components/schemas/WireOutResponse'
-                  - type: object
-                    additionalProperties:
-                      type: integer
+                $ref: '#/components/schemas/WireOutResponse'
+        '422':
+          description: Missing `endpoint` (whole-bank reads are not supported)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
 
   /devices/{serial}/classic/triggers/in:
     post:
@@ -720,8 +739,18 @@ paths:
       tags: [Classic Data Port]
       summary: Refresh TriggerOut state (UpdateTriggerOuts)
       description: |
-        Calls UpdateTriggerOuts, refreshing the server-side TriggerOut state.
-        This is a **read** (ADR-034, D42): ReadOnly holders may call it.
+        Calls UpdateTriggerOuts. Opal Kelly: "query the XEM to determine if
+        any TriggerOuts have been activated since the last call". The result
+        goes into the device snapshot (shared by all clients) and the latches
+        of **every** TriggerOut on the device are cleared, so a trigger that
+        another client has not read yet is lost to that client. Coordinate
+        trigger reads between clients (lock, exclusive resource) or mark the
+        TriggerOuts private (guide §5.4). A future server-side TriggerOut
+        event log may improve this (roadmap, Later).
+
+        This is a **read** (ADR-034, D42). ReadOnly holders may call it,
+        except when any resource on the device declares a private TriggerOut
+        (D75): the call would clear that private latch too.
       operationId: updateTriggerOuts
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -736,21 +765,37 @@ paths:
   /devices/{serial}/classic/triggers/out:
     get:
       tags: [Classic Data Port]
-      summary: Read TriggerOut values
+      summary: Read one TriggerOut
       description: |
-        Calls UpdateTriggerOuts. With `endpoint`, checks that endpoint
-        (`TriggerOutResponse`). Without `endpoint`, returns the whole bank as
-        an object keyed by address (`"0x60"` … `"0x7f"`) whose values are the
-        trigger vectors.
+        Opal Kelly `IsTriggered` + `GetTriggerOutVector` semantics (ADR-034
+        §9, D76): reports, for **one** TriggerOut, the triggers seen by the
+        last UpdateTriggerOuts call by **any** client (one snapshot per
+        device). This read never touches the FPGA and clears nothing.
+
+        With `update=true` the server calls UpdateTriggerOuts immediately
+        before the read, under the same device lock, so no other client's
+        update can come in between. That update clears the latches of
+        **every** TriggerOut on the device for every client (see
+        `POST …/triggers/out/update`).
+
+        **Limitation:** a client cannot tell how many updates (by other
+        clients) happened since its own previous read, so a trigger can be
+        missed when several clients update. Clients that need every trigger
+        must coordinate (lock, exclusive resource) until the planned
+        TriggerOut event log exists (roadmap, Later).
+
+        There is no whole-bank read: `endpoint` is required (422 if missing).
+        ReadOnly holders may call this unless the endpoint is private; with
+        `update=true` the UpdateTriggerOuts rule above also applies (D75).
       operationId: getTriggerOutValue
       parameters:
         - $ref: '#/components/parameters/serial'
         - name: endpoint
           in: query
-          required: false
+          required: true
           schema:
             type: integer
-          description: TriggerOut endpoint address (0x60-0x7F). Omit to read the whole bank.
+          description: TriggerOut endpoint address (0x60-0x7F).
         - name: mask
           in: query
           required: false
@@ -758,17 +803,28 @@ paths:
             type: integer
             default: 4294967295
           description: Bitmask to check (default 0xFFFFFFFF)
+        - name: update
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: |
+            Refresh the snapshot (UpdateTriggerOuts) immediately before
+            reading. Default `false` = read the current snapshot only.
       responses:
         '200':
-          description: TriggerOut result, or the whole bank when `endpoint` is omitted
+          description: TriggerOut result
           content:
             application/json:
               schema:
-                oneOf:
-                  - $ref: '#/components/schemas/TriggerOutResponse'
-                  - type: object
-                    additionalProperties:
-                      type: integer
+                $ref: '#/components/schemas/TriggerOutResponse'
+        '422':
+          description: Missing `endpoint` (whole-bank reads are not supported)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
 
   /devices/{serial}/classic/pipes/in:
     post:
@@ -963,7 +1019,10 @@ paths:
     post:
       tags: [Classic Data Port]
       summary: Reset FPGA
-      description: Issues a FrontPanel reset to the FPGA.
+      description: |
+        Issues a FrontPanel reset to the FPGA. This changes user-logic state,
+        so it counts as a write: the caller must hold a resource on the
+        device in a mode other than ReadOnly (D66, D75).
       operationId: resetFPGAClassic
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -1247,8 +1306,12 @@ paths:
         after programming a bitfile, since the client knows what the bitfile
         exposes. See ADR-016 and ADR-034.
 
-        - Omitting `endpoints` claims every classic endpoint exclusively
-          (`access_mode` may then be omitted or `exclusive`; `shared` is a 422).
+        - Omitting `endpoints` claims every Wire and Trigger endpoint
+          (0x00-0x7F) exclusively (D77); `access_mode` may then be omitted or
+          `exclusive` (`shared` is a 422). Pipe/BTPipe endpoints (0x80-0xBF)
+          are never claimed implicitly — the server cannot tell a Pipe from a
+          BTPipe at the same address — so declare them explicitly. D23 still
+          applies.
         - With `endpoints`, `access_mode` is required, and each entry needs
           `access` unless `endpoints.default_access` is set.
         - Errors carry a `conflict` object (`ProblemDetail.conflict`) when a
@@ -1354,11 +1417,23 @@ paths:
         Acquires a resource in shared, exclusive, or read-only mode. Shared mode allows
         multiple users to hold the resource simultaneously. Exclusive mode
         grants sole access — other users' acquire requests will be denied.
-        Read-only mode (ADR-026, ADR-034) allows observing output endpoints and
-        address ranges without write access — ReadOnly holders cannot write
-        input endpoints or call ActivateTriggerIn; they may call
-        UpdateWireOuts / UpdateTriggerOuts (reads). ReadOnly holders can join
-        even an exclusive resource, unless the resource is marked `private`.
+        Read-only mode (ADR-026, ADR-034, D75) allows reading every covered
+        item that is not `private`: WireOuts and UpdateWireOuts, TriggerOuts
+        (IsTriggered, GetTriggerOutVector, UpdateTriggerOuts), PipeOut /
+        BTPipeOut, register reads and AXI reads. ReadOnly holders can never
+        write: no WireIn / UpdateWireIns, ActivateTriggerIn, PipeIn /
+        BTPipeIn, register or AXI writes, and no ResetFPGA or AXI resets.
+        UpdateTriggerOuts (and
+        `update=true` on trigger reads) is denied to ReadOnly when any
+        resource on the device declares a private TriggerOut.
+        ReadOnly holders can join even an exclusive resource, unless the
+        resource is marked `private`.
+
+        Design rule (recommended, not enforced): a ReadOnly action should not
+        change user-logic state or consume data other holders rely on.
+        UpdateTriggerOuts clears the TriggerOut latches, reading a Pipe/BTPipe drains
+        its FIFO, and some registers clear on read — mark any such item
+        `private` if a ReadOnly read would be an unwanted side-effect.
 
         `mode` is optional; when omitted the resource's declared
         `access_mode` is used.
@@ -2182,7 +2257,7 @@ components:
       description: |
         Request body for creating a new resource (ADR-016, ADR-034).
         `access_mode` is required when `endpoints` is present; without
-        `endpoints` it may be omitted (= `exclusive`) or `exclusive` (D62, D68).
+        `endpoints` it may be omitted (= `exclusive`) or `exclusive` (D62, D77).
       required: [name, device_serial, interfaces]
       properties:
         name:
@@ -2201,7 +2276,11 @@ components:
         private:
           type: boolean
           default: false
-          description: Access rule, not visibility (D57) — when true, ReadOnly acquisition is denied.
+          description: |
+            Access rule, not visibility (D57) — when true, ReadOnly
+            acquisition of the whole resource is denied. Recommended when any
+            ReadOnly read of the resource could cause an unwanted side-effect
+            (D75).
         interfaces:
           type: array
           minItems: 1
@@ -2223,8 +2302,9 @@ components:
     EndpointDeclaration:
       type: object
       description: |
-        Classic endpoint declaration. Omitted = every classic endpoint,
-        exclusive (D68). `{"entries": []}` = no classic endpoints.
+        Classic endpoint declaration. Omitted = every Wire and Trigger
+        endpoint (0x00-0x7F), exclusive; Pipe/BTPipe endpoints must always be
+        declared explicitly (D77). `{"entries": []}` = no classic endpoints.
       properties:
         default_access:
           type: string
@@ -2254,6 +2334,13 @@ components:
         private:
           type: boolean
           default: false
+          description: |
+            When true, ReadOnly holders may not access this endpoint (D75).
+            RECOMMENDED for TriggerOut (UpdateTriggerOuts clears the latch), PipeOut /
+            BTPipeOut (a read drains the FIFO) and any endpoint whose read
+            has a side-effect other holders rely on. A private TriggerOut
+            also denies UpdateTriggerOuts to every ReadOnly holder on the
+            device.
         description:
           type: string
 
@@ -2276,6 +2363,10 @@ components:
         private:
           type: boolean
           default: false
+          description: |
+            When true, ReadOnly holders may not read this range (D75).
+            RECOMMENDED for ranges containing clear-on-read registers, FIFOs
+            or any address whose read has a side-effect.
         description:
           type: string
 
@@ -2330,7 +2421,8 @@ components:
           description: |
             Access rule, not visibility (ADR-034, D57): when true, ReadOnly
             acquisition is denied. Every user can still list and read the
-            resource.
+            resource description. Recommended when any ReadOnly read of the
+            resource could cause an unwanted side-effect (D75).
 
     Holder:
       type: object

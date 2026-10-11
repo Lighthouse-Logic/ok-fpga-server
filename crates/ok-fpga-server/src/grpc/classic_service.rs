@@ -309,6 +309,9 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::WireValueResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        // `GetWireValueRequest` is shared with GetWireOutValue. Its `update`
+        // field is ignored here on purpose: WireIns live in the host-side
+        // buffer, so there is no FPGA snapshot to refresh (D76).
         self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::WireIn, None)?;
         let pool = self.pool()?;
         let device_arc = pool
@@ -383,12 +386,15 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
             .ok_or_else(|| Status::failed_precondition("Classic port not available"))?;
         let dll = device.dll();
 
-        let value = unsafe {
-            // Update wire-outs first, then read the value.
-            let rc = (dll.classic_update_wire_outs)(classic);
-            FfiError::from_code(rc).map_err(|e| Self::ffi_to_status(&e))?;
-            (dll.classic_get_wire_out_value)(classic, req.endpoint) as u32
-        };
+        // Opal Kelly semantics (ADR-034 §9, D76): read the device snapshot;
+        // refresh it first only when the client sets `update`. Both steps
+        // run under the device lock held by `device`.
+        let value = crate::snapshot::read_snapshot(
+            req.update.unwrap_or(false),
+            || FfiError::from_code(unsafe { (dll.classic_update_wire_outs)(classic) })
+                .map_err(|e| Self::ffi_to_status(&e)),
+            || unsafe { (dll.classic_get_wire_out_value)(classic, req.endpoint) as u32 },
+        )?;
 
         Ok(Response::new(proto::WireValueResponse {
             value,
@@ -499,12 +505,17 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
             .ok_or_else(|| Status::failed_precondition("Classic port not available"))?;
         let dll = device.dll();
 
-        let triggered = unsafe {
-            let rc = (dll.classic_update_trigger_outs)(classic);
-            FfiError::from_code(rc).map_err(|e| Self::ffi_to_status(&e))?;
-            (dll.classic_is_triggered)(classic, req.endpoint, req.mask as std::os::raw::c_ulong)
-                != 0
-        };
+        // Snapshot read (D76). With `update`, UpdateTriggerOuts clears every
+        // TriggerOut latch on the device for all clients.
+        let triggered = crate::snapshot::read_snapshot(
+            req.update.unwrap_or(false),
+            || FfiError::from_code(unsafe { (dll.classic_update_trigger_outs)(classic) })
+                .map_err(|e| Self::ffi_to_status(&e)),
+            || unsafe {
+                (dll.classic_is_triggered)(classic, req.endpoint, req.mask as std::os::raw::c_ulong)
+                    != 0
+            },
+        )?;
 
         Ok(Response::new(proto::IsTriggeredResponse {
             triggered,
@@ -535,11 +546,13 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
             .ok_or_else(|| Status::failed_precondition("Classic port not available"))?;
         let dll = device.dll();
 
-        let vector = unsafe {
-            let rc = (dll.classic_update_trigger_outs)(classic);
-            FfiError::from_code(rc).map_err(|e| Self::ffi_to_status(&e))?;
-            (dll.classic_get_trigger_out_vector)(classic, req.endpoint)
-        };
+        // Snapshot read (D76), same rules as `is_triggered`.
+        let vector = crate::snapshot::read_snapshot(
+            req.update.unwrap_or(false),
+            || FfiError::from_code(unsafe { (dll.classic_update_trigger_outs)(classic) })
+                .map_err(|e| Self::ffi_to_status(&e)),
+            || unsafe { (dll.classic_get_trigger_out_vector)(classic, req.endpoint) },
+        )?;
 
         Ok(Response::new(proto::TriggerOutVectorResponse {
             vector: vector as u32,

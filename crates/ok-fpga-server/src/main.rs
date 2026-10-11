@@ -114,6 +114,9 @@ mod mdns;
 /// Background user session sweep task (ADR-020 §5).
 mod sweep;
 
+/// Opal Kelly snapshot-read ordering for output endpoints (ADR-034 §9, D76).
+mod snapshot;
+
 use std::sync::Arc;
 
 use ok_fpga_core::manager::DeviceManager;

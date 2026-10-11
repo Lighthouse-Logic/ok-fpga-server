@@ -1,8 +1,9 @@
 # ADR-034: Resource Model Consolidation
 
-**Status**: Accepted — 44-A implemented; 44-B … 44-J pending
+**Status**: Accepted — 44-A implemented; post-44-A read semantics (0.3.0)
+implemented; 44-B … 44-J pending
 **Date**: 2026-10-11
-**Commit hash**: 44-A `c5e4f79`
+**Commit hash**: 44-A `c5e4f79`; 0.3.0 read semantics (D75–D77) `pending`
 **Deciders**: Project owner, Architecture Team
 **Phase**: 44 ([development-roadmap.md](../../development-roadmap.md) §44)
 **Supersedes (in part)**: ADR-020 §7, §8 and the Validation Responses table
@@ -24,7 +25,7 @@ The resource contract had drifted apart in three places:
 The design is recorded in
 [resource-management-developer-guide.md](../../resource-management-developer-guide.md)
 and [resource-management-recommendations.md](../../resource-management-recommendations.md)
-(decisions D1–D74). This ADR is the single place where accepted decisions
+(decisions D1–D77). This ADR is the single place where accepted decisions
 become the server contract. Each Phase 44 sub-phase amends it.
 
 ## Decision
@@ -61,9 +62,13 @@ in `data:` (no `{"VariantName": {...}}` wrapper).
 `metadata` (string values only, D69) and `private`. `resource_type` and
 `capabilities` are removed. Presence rules handled in 44-A (D61, D62, D68):
 
-- **No `endpoints` field** → the resource is exclusive and claims every
-  classic endpoint. `access_mode` may be omitted (it becomes `exclusive`);
-  `shared` is rejected (422).
+- **No `endpoints` field** → the resource is exclusive. `access_mode` may
+  be omitted (it becomes `exclusive`); `shared` is rejected (422). Coverage
+  (D77, revises D68): every **Wire and Trigger** endpoint (0x00–0x7F) only.
+  Pipe / BTPipe endpoints (0x80–0xBF) must be declared explicitly, because
+  the server cannot tell a Pipe from a BTPipe at the same address. D23
+  still applies (it blocks later classic resources). *Today the server
+  still claims all 0x00–0xBF; the D77 coverage change lands in 44-E.*
 - **`endpoints` present** → `access_mode` is required (422 if missing).
 - **Each entry** needs its own `access` or an `endpoints.default_access`;
   `default_access` only fills a missing `access`. Neither → 422.
@@ -106,8 +111,76 @@ structured conflict.
 ### §7 Undocumented routes (S-08)
 
 `wires/in/update` (write), `wires/out/update` and `triggers/out/update`
-(reads, D42), and the whole-bank `GET wires/out` / `triggers/out` (no
-`endpoint` query) are now documented. Enforcement for them comes in 44-E.
+(reads, D42) are now documented. Enforcement for them comes in 44-E.
+
+*Amended in 0.3.0 (D76):* the whole-bank `GET wires/out` /
+`triggers/out` (no `endpoint` query), documented in 44-A, were never an
+approved feature and are **removed**. `endpoint` is now required.
+
+### §8 ReadOnly holders (D75, 0.3.0)
+
+- A ReadOnly holder may **read** every covered item that is not
+  `private`: WireOuts and `UpdateWireOuts`; TriggerOuts (`IsTriggered`,
+  `GetTriggerOutVector`, `UpdateTriggerOuts`); PipeOut / BTPipeOut;
+  `ReadRegister(s)`; AXI reads.
+- It may **never write**: WireIn / `UpdateWireIns`, `ActivateTriggerIn`,
+  PipeIn / BTPipeIn, register and AXI writes.
+- **F1**: ReadOnly is denied `ResetFPGA`. AXI Lite / Full / Stream resets
+  are treated as writes as well.
+- **F2**: `UpdateTriggerOuts` (and `update=true` on a trigger read) is
+  denied to ReadOnly when **any** resource on the device declares a
+  `private` TriggerOut, because `UpdateTriggerOuts` reads and clears the
+  latches of the whole device. Snapshot reads (`update=false`) are checked
+  per endpoint (`private` → deny).
+- **Design rule (documented, not enforced)**: a ReadOnly action should not
+  change user-logic state or consume endpoint data other holders rely on.
+  In Opal Kelly HDL `okWireOut` has no read strobe, but `okTriggerOut`
+  latches are cleared by `UpdateTriggerOuts`, `okPipeOut` /
+  `okBTPipeOut` drive `ep_read` (FIFO drain), and `okRegisterBridge` drives
+  `ep_read` (possible clear-on-read). Any item where a ReadOnly read could
+  cause an unwanted side-effect **should be marked `private`**. The HDL
+  architect decides; this is stated in the OpenAPI and proto `private`
+  descriptions.
+- **F4**: `warn_readonly_side_effects` (bool, default `true`, in
+  `config.toml`, env override) makes the server log `warn!` at
+  registration when ReadOnly holders could join a resource with a
+  non-private PipeOut / BTPipeOut / TriggerOut or a non-private range.
+- Shared and exclusive holders are unrestricted by this section; D42 still
+  applies to them.
+- 0.3.0 changes the spec text only. Enforcement of F1 and F2 and the F4
+  setting land in 44-E.
+
+### §9 Opal Kelly read semantics (D76, 0.3.0)
+
+The server opens one FrontPanel handle per device. Its reads now behave
+exactly as the FrontPanel API
+([FPGADataPortClassic](https://library.opalkelly.com/library/FrontPanelAPI/classOpalKelly_1_1FPGADataPortClassic.html),
+`okFrontPanel.h`):
+
+- `GetWireOutValue`, `IsTriggered` and `GetTriggerOutVector` read only the
+  device **snapshot**, which all clients share.
+- Only `UpdateWireOuts` / `UpdateTriggerOuts` touch the FPGA.
+  `UpdateTriggerOuts` takes only the handle, so it reads and clears every
+  TriggerOut latch of the device.
+- Optional `update` flag (default `false`): REST `?update=true`, proto
+  `optional bool update` on `GetWireValueRequest` (field 3, ignored by
+  `GetWireInValue`), `IsTriggeredRequest` (field 4) and
+  `TriggerOutVectorRequest` (field 3). The server then runs the Update call
+  and the read atomically under the device lock.
+- The standalone update routes / RPCs stay.
+- Every read names one endpoint (422 if `endpoint` is missing).
+- **Known limitation (Q-G)**: a client cannot tell whether other clients
+  ran an Update since its own last read, or how many. A trigger can be
+  consumed by another client's `UpdateTriggerOuts`. Only the future
+  TriggerOut event log (roadmap 🔵 Later, D67 reopened) can fix this.
+
+**Discrepancy fixed**: the proto already described `GetWireOutValue` as
+"from the last UpdateWireOuts", but the server always called
+`UpdateWireOuts` / `UpdateTriggerOuts` before every read. The
+implementation now follows the spec.
+
+The logic lives in one helper, `snapshot::read_snapshot(update, refresh,
+read)`, which REST and gRPC both call, so the two APIs cannot drift apart.
 
 ### Rationale
 
@@ -133,6 +206,18 @@ opt-in holder mode (D62) instead of a resource type.
 - Docs: this ADR, `docs/architecture/overview.md`, ADR-020 superseded
   markers, `docs/development-roadmap.md`.
 
+## Files changed (0.3.0, D75–D77)
+
+- Spec: `api/openapi.yaml` (single-endpoint reads, `update` parameter,
+  422s, ReadOnly and `private` text, D77), `proto/okfpga/v1/okfpga.proto`
+  (`update` fields, RPC and `private` comments, D77).
+- Server: `crates/ok-fpga-server/src/snapshot.rs` (new),
+  `rest/classic.rs`, `grpc/classic_service.rs`, `main.rs`.
+- Version: `Cargo.toml`, `Cargo.lock` (0.3.0).
+- Docs: this ADR, `docs/resource-management-developer-guide.md`,
+  `docs/resource-management-recommendations.md`,
+  `docs/development-roadmap.md`.
+
 ## Open items
 
 - **44-B**: R1 overlap rules, Rule A, interface/dataport check, `private`
@@ -142,8 +227,22 @@ opt-in holder mode (D62) instead of a resource type.
 - **44-C**: REST acquire still lets the declared `access_mode` override the
   requested `mode` (S-03); A1 rules for REST and gRPC.
 - **44-D**: lock blocking B1–B4; gRPC `WatchDeviceEvents` fan-out.
-- **44-E**: endpoint coverage per D61/D68, enforcement on all data-port
-  routes, enforcement on by default.
+- **44-E**: endpoint coverage per D61 and D77 (omitted `endpoints` =
+  0x00–0x7F only), enforcement on all data-port routes, enforcement on by
+  default; ReadOnly F1 (`ResetFPGA`, AXI resets) and F2 (private
+  TriggerOut blocks `UpdateTriggerOuts` / `update=true`) enforcement;
+  `warn_readonly_side_effects` setting and warning (F4).
+- **Later**: TriggerOut event log (D67 reopened, roadmap 🔵 Later).
+- REST `?update=abc` is rejected by axum's query extractor with a plain-text
+  400, not a 422 ProblemDetail (minor).
+- Pre-existing, found by the 0.3.0 Strata review (not changed here):
+  - **Spec discrepancy:** proto `IsTriggeredRequest.mask` (`uint32`,
+    proto default 0 = "check no bits") vs OpenAPI `mask` default
+    `0xFFFFFFFF`. Fixing it needs a proto change (`optional uint32 mask`);
+    owner decision needed.
+  - `ActivateTriggerIn` computes `1u32 << bit` before validating `bit`
+    (`rest/classic.rs`, `grpc/classic_service.rs`); `bit` outside 0–31
+    panics in debug builds. Validate (422 / `INVALID_ARGUMENT`) in 44-E.
 - **44-F**: forced cleanup on configure / clear; `reprogram` / `clear`
   delete reasons.
 - **44-G**: example clients and `client/python-labview-client` are out of

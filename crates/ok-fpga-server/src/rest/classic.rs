@@ -32,9 +32,8 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/devices/{serial}/classic/wires/out/update",
             post(update_wire_outs),
         )
-        // Wire-out: single handler dispatches on ?endpoint query param.
-        // - With ?endpoint=N → returns {"endpoint": N, "value": V}
-        // - Without query param → returns batch map of all wire-outs
+        // Wire-out: one endpoint per request (`?endpoint=N` is required;
+        // whole-bank reads were removed, ADR-034 §9 / D76).
         .route(
             "/devices/{serial}/classic/wires/out",
             get(get_wire_out),
@@ -48,9 +47,8 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/devices/{serial}/classic/triggers/out/update",
             post(update_trigger_outs),
         )
-        // Trigger-out: single handler dispatches on ?endpoint query param.
-        // - With ?endpoint=N → returns per-endpoint response
-        // - Without query param → returns batch map of all trigger-outs
+        // Trigger-out: one endpoint per request (`?endpoint=N` is required;
+        // whole-bank reads were removed, ADR-034 §9 / D76).
         .route(
             "/devices/{serial}/classic/triggers/out",
             get(get_trigger_out),
@@ -106,23 +104,44 @@ struct TriggerInRequest {
 
 /// Query parameters for `GET /devices/{serial}/classic/wires/out`.
 ///
-/// Per OpenAPI spec, `endpoint` is a query parameter. When present,
-/// returns a single wire-out value; when absent, returns all wire-outs.
+/// `endpoint` is required by the spec. It is an `Option` here only so a
+/// missing value becomes our own 422 ProblemDetail instead of Axum's plain
+/// 400 text rejection.
 #[derive(Deserialize)]
 struct WireOutQuery {
     endpoint: Option<i32>,
+    /// Run `UpdateWireOuts` immediately before the read (D76). Default
+    /// `false`: read the current snapshot only, exactly like Opal Kelly's
+    /// `GetWireOutValue`.
+    #[serde(default)]
+    update: bool,
 }
 
 /// Query parameters for `GET /devices/{serial}/classic/triggers/out`.
 ///
-/// Per OpenAPI spec, `endpoint` and `mask` are query parameters.
-/// When `endpoint` is present, returns a single trigger-out result;
-/// when absent, returns all trigger-outs.
+/// `endpoint` is required (see [`WireOutQuery`] for why it is an `Option`).
 #[derive(Deserialize)]
 struct TriggerOutQuery {
     endpoint: Option<i32>,
     #[serde(default = "default_mask")]
     mask: u32,
+    /// Run `UpdateTriggerOuts` immediately before the read (D76). Default
+    /// `false`: read the current snapshot only. Note that `UpdateTriggerOuts`
+    /// clears the latches of **every** TriggerOut on the device, for every
+    /// client.
+    #[serde(default)]
+    update: bool,
+}
+
+/// 422 for a single-endpoint read called without `endpoint` (D76: there
+/// are no whole-bank reads).
+fn missing_endpoint(kind: &str, range: &str) -> ProblemDetail {
+    ProblemDetail::from_resource_error(ok_fpga_core::resource::ResourceError::validation(
+        format!(
+            "query parameter 'endpoint' is required ({} address {}); whole-bank reads are not supported",
+            kind, range
+        ),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -491,23 +510,25 @@ async fn update_wire_outs(
     }))
 }
 
-/// `GET /devices/{serial}/classic/wires/out?endpoint=N` — Read wire-out value(s).
+/// `GET /devices/{serial}/classic/wires/out?endpoint=N[&update=true]` — Read one WireOut.
 ///
-/// Per OpenAPI spec, `endpoint` is a **query parameter** (not a path segment).
+/// Opal Kelly semantics (ADR-034 §9, D76): returns `GetWireOutValue(N)` from
+/// the device's current snapshot, which is shared by all clients. With
+/// `update=true` the server first calls `UpdateWireOuts` under the same
+/// device lock, so the value is fresh. `UpdateWireOuts` only samples the
+/// WireOut inputs; the FPGA's user logic cannot see it.
 ///
-/// - When `?endpoint=N` is present: calls `UpdateWireOuts` then returns
-///   `{"endpoint": N, "value": V}` for that specific endpoint.
-/// - When no query param: returns a batch map of all standard wire-outs
-///   (0x20–0x3F) as `{"0x20": V, "0x21": V, ...}`.
+/// `endpoint` is required: a missing value is a 422 (no whole-bank reads).
 async fn get_wire_out(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
     headers: axum::http::HeaderMap,
     Query(query): Query<WireOutQuery>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    if let Some(endpoint) = query.endpoint {
-        enforce_endpoint(&state, &headers, &serial, endpoint, &ok_fpga_core::resource::EndpointType::WireOut, None)?;
-    }
+) -> Result<Json<WireOutResponse>, ProblemDetail> {
+    let endpoint = query
+        .endpoint
+        .ok_or_else(|| missing_endpoint("WireOut", "0x20-0x3F"))?;
+    enforce_endpoint(&state, &headers, &serial, endpoint, &ok_fpga_core::resource::EndpointType::WireOut, None)?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -516,28 +537,15 @@ async fn get_wire_out(
         .ok_or_else(|| ProblemDetail::conflict("FPGA not programmed or Classic port not available"))?;
     let dll = device.dll();
 
-    if let Some(endpoint) = query.endpoint {
-        // Single endpoint query — return typed WireOutResponse.
-        let value = unsafe {
-            let rc = (dll.classic_update_wire_outs)(classic);
-            FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
-            (dll.classic_get_wire_out_value)(classic, endpoint) as u32
-        };
-        Ok(Json(serde_json::to_value(WireOutResponse { endpoint, value }).unwrap()))
-    } else {
-        // Batch query — return all standard wire-outs (0x20–0x3F).
-        let wires = unsafe {
-            let rc = (dll.classic_update_wire_outs)(classic);
-            FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
-            let mut map = serde_json::Map::new();
-            for ep in 0x20..=0x3F_i32 {
-                let val = (dll.classic_get_wire_out_value)(classic, ep) as u32;
-                map.insert(format!("0x{:02x}", ep), serde_json::json!(val));
-            }
-            map
-        };
-        Ok(Json(serde_json::Value::Object(wires)))
-    }
+    // SAFETY: `classic` comes from the locked device and stays valid while
+    // `device` (the mutex guard) is alive, which covers both closures.
+    let value = crate::snapshot::read_snapshot(
+        query.update,
+        || FfiError::from_code(unsafe { (dll.classic_update_wire_outs)(classic) })
+            .map_err(|e| ffi_error_to_problem(&e)),
+        || unsafe { (dll.classic_get_wire_out_value)(classic, endpoint) as u32 },
+    )?;
+    Ok(Json(WireOutResponse { endpoint, value }))
 }
 
 /// `POST /devices/{serial}/classic/triggers/in` — Activate a trigger-in bit.
@@ -591,24 +599,27 @@ async fn update_trigger_outs(
     }))
 }
 
-/// `GET /devices/{serial}/classic/triggers/out?endpoint=N&mask=M` — Read trigger-out.
+/// `GET /devices/{serial}/classic/triggers/out?endpoint=N[&mask=M][&update=true]` — Read one TriggerOut.
 ///
-/// Per OpenAPI spec, `endpoint` and `mask` are **query parameters**.
+/// Opal Kelly semantics (ADR-034 §9, D76): returns `IsTriggered(N, M)` and
+/// `GetTriggerOutVector(N)` from the device's current snapshot, i.e. the
+/// triggers seen by the **last** `UpdateTriggerOuts` call by **any** client.
+/// With `update=true` the server first calls `UpdateTriggerOuts` under the
+/// same device lock. That call reads and clears the latches of **every**
+/// TriggerOut on the device, so other clients lose triggers they have not
+/// read yet (guide §5.4).
 ///
-/// - When `?endpoint=N` is present: calls `UpdateTriggerOuts`, reads the
-///   trigger vector, checks against `mask` (default 0xFFFFFFFF), and returns
-///   `{"endpoint": N, "triggered": bool, "vector": V}`.
-/// - When no query param: returns a batch map of all standard trigger-outs
-///   (0x60–0x7F) as `{"0x60": V, "0x61": V, ...}`.
+/// `endpoint` is required: a missing value is a 422 (no whole-bank reads).
 async fn get_trigger_out(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
     headers: axum::http::HeaderMap,
     Query(query): Query<TriggerOutQuery>,
-) -> Result<Json<serde_json::Value>, ProblemDetail> {
-    if let Some(endpoint) = query.endpoint {
-        enforce_endpoint(&state, &headers, &serial, endpoint, &ok_fpga_core::resource::EndpointType::TriggerOut, None)?;
-    }
+) -> Result<Json<TriggerOutResponse>, ProblemDetail> {
+    let endpoint = query
+        .endpoint
+        .ok_or_else(|| missing_endpoint("TriggerOut", "0x60-0x7F"))?;
+    enforce_endpoint(&state, &headers, &serial, endpoint, &ok_fpga_core::resource::EndpointType::TriggerOut, None)?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -617,36 +628,20 @@ async fn get_trigger_out(
         .ok_or_else(|| ProblemDetail::conflict("FPGA not programmed or Classic port not available"))?;
     let dll = device.dll();
 
-    if let Some(endpoint) = query.endpoint {
-        // Single endpoint query.
-        let (triggered, vector) = unsafe {
-            let rc = (dll.classic_update_trigger_outs)(classic);
-            FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
-            let is_triggered = (dll.classic_is_triggered)(
+    // SAFETY: as in `get_wire_out`, the guard keeps `classic` valid.
+    let (triggered, vector) = crate::snapshot::read_snapshot(
+        query.update,
+        || FfiError::from_code(unsafe { (dll.classic_update_trigger_outs)(classic) })
+            .map_err(|e| ffi_error_to_problem(&e)),
+        || unsafe {
+            let triggered = (dll.classic_is_triggered)(
                 classic, endpoint, query.mask as std::os::raw::c_ulong,
             ) != 0;
-            let vec_val = (dll.classic_get_trigger_out_vector)(classic, endpoint) as u32;
-            (is_triggered, vec_val)
-        };
-        Ok(Json(serde_json::to_value(TriggerOutResponse {
-            endpoint,
-            triggered,
-            vector,
-        }).unwrap()))
-    } else {
-        // Batch query — return all standard trigger-outs (0x60–0x7F).
-        let triggers = unsafe {
-            let rc = (dll.classic_update_trigger_outs)(classic);
-            FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
-            let mut map = serde_json::Map::new();
-            for ep in 0x60..=0x7F_i32 {
-                let val = (dll.classic_get_trigger_out_vector)(classic, ep);
-                map.insert(format!("0x{:02x}", ep), serde_json::json!(val));
-            }
-            map
-        };
-        Ok(Json(serde_json::Value::Object(triggers)))
-    }
+            let vector = (dll.classic_get_trigger_out_vector)(classic, endpoint) as u32;
+            (triggered, vector)
+        },
+    )?;
+    Ok(Json(TriggerOutResponse { endpoint, triggered, vector }))
 }
 
 /// `POST /devices/{serial}/classic/pipes/in` — Write data to a pipe-in endpoint.
@@ -915,4 +910,91 @@ fn base64_decode(data: &str) -> Result<Vec<u8>, ProblemDetail> {
     base64::engine::general_purpose::STANDARD
         .decode(data)
         .map_err(|e| ProblemDetail::bad_request(format!("invalid base64 data: {}", e)))
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tier 3 tests for the read routes. No FrontPanel DLL is loaded
+    //! (`handle_pool` is `None`), so a request that passes validation stops
+    //! with 501 "FrontPanel DLL not loaded". That is enough to prove the
+    //! query was accepted; the snapshot ordering itself is tested in
+    //! `crate::snapshot`.
+    use super::*;
+    use axum::http::{Request, StatusCode};
+    use ok_fpga_core::manager::DeviceManager;
+    use ok_fpga_core::resource::ResourceRegistry;
+    use ok_fpga_core::service_manager::ServiceManager;
+    use ok_fpga_core::user::UserSessionRegistry;
+    use tower::ServiceExt;
+
+    fn test_state() -> Arc<AppState> {
+        let auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider> =
+            Arc::from(ok_fpga_core::auth::create_provider("none", vec![], None));
+        Arc::new(AppState::new(
+            Arc::new(DeviceManager::new()),
+            Arc::new(ResourceRegistry::new()),
+            Arc::new(ServiceManager::new()),
+            None,
+            auth_provider,
+            Arc::new(ok_fpga_core::auth::SessionManager::new(3600)),
+            Arc::new(UserSessionRegistry::new()),
+            crate::state::EndpointEnforcement::Off,
+            crate::config::ServerConfig::default(),
+            None,
+        ))
+    }
+
+    async fn get(uri: &str) -> (StatusCode, serde_json::Value) {
+        let app = routes().with_state(test_state());
+        let request = Request::builder()
+            .method("GET")
+            .uri(uri)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+        (status, json)
+    }
+
+    #[tokio::test]
+    async fn test_get_wire_out_missing_endpoint_returns_422() {
+        let (status, json) = get("/devices/SN1/classic/wires/out").await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(json["conflict"]["code"], "validation");
+    }
+
+    #[tokio::test]
+    async fn test_get_trigger_out_missing_endpoint_returns_422() {
+        let (status, _) = get("/devices/SN1/classic/triggers/out?mask=1").await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn test_get_wire_out_endpoint_with_update_passes_validation() {
+        let (status, _) = get("/devices/SN1/classic/wires/out?endpoint=32&update=true").await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+    }
+
+    #[tokio::test]
+    async fn test_get_trigger_out_endpoint_without_update_passes_validation() {
+        let (status, _) = get("/devices/SN1/classic/triggers/out?endpoint=96").await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+    }
+
+    #[tokio::test]
+    async fn test_get_wire_out_endpoint_without_update_passes_validation() {
+        let (status, _) = get("/devices/SN1/classic/wires/out?endpoint=32").await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+    }
+
+    #[tokio::test]
+    async fn test_get_trigger_out_endpoint_with_update_passes_validation() {
+        let (status, _) =
+            get("/devices/SN1/classic/triggers/out?endpoint=96&update=true").await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+    }
 }

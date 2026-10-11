@@ -63,7 +63,7 @@
 > 2026-10-10. Open items in 44.7 must be answered before the sub-phase
 > that needs them starts (Q44-13 blocks 44-A).
 > **Model source:** [resource-management-recommendations.md](resource-management-recommendations.md)
-> (decisions D1–D74, rules R1/B1–B4/L1/A1/E1/T1, spec items S1–S8 in §3.1,
+> (decisions D1–D77, rules R1/B1–B4/L1/A1/E1/T1, spec items S1–S8 in §3.1,
 > proto items P1–P16 in §3.2) and
 > [resource-management-developer-guide.md](resource-management-developer-guide.md).
 > D-numbers below are for traceability; each bullet states the rule itself.
@@ -86,9 +86,10 @@
 > runs `cargo test --features full` as well as `cargo test`.
 
 > **Versioning:** the workspace version (root `Cargo.toml`, currently
-> `0.1.1`) goes to `0.2.0` in 44-A (breaking API contract) and gets a patch
-> bump in every later sub-phase. Python packages are bumped in the commit
-> that changes them.
+> `0.3.0`) went to `0.2.0` in 44-A (breaking API contract) and to `0.3.0`
+> with the post-44-A read-semantics change (breaking: whole-bank reads
+> removed, snapshot reads). It gets a patch bump in every later sub-phase.
+> Python packages are bumped in the commit that changes them.
 
 #### 44.0 The model being implemented (summary)
 
@@ -110,11 +111,18 @@
   (L1).
 - **Reads** of non-private items are allowed to every holder, also during
   a foreign lock. `UpdateWireOuts` / `UpdateTriggerOuts` are reads (D16,
-  D21, D42).
+  D21, D42). They behave exactly as Opal Kelly FrontPanel: Get/Is calls
+  read the shared device snapshot, only Update calls touch the FPGA, an
+  optional `update` flag combines both, and every read names one EP (D76).
+- **ReadOnly** holders read every non-private item, never write, are
+  denied `ResetFPGA`, and are denied `UpdateTriggerOuts` when any resource
+  on the device declares a private TriggerOut. Items whose read has a
+  side-effect should be marked `private` (D75).
 - **Registration fields:** `access_mode` is required (422 if missing),
   except for a resource with no `endpoints` field, which is an exclusive
-  resource claiming every classic EP (`access_mode` may be omitted;
-  `shared` → 422) (D62, D68). `{"entries": []}` claims no EPs (D55).
+  resource claiming every Wire and Trigger EP, 0x00–0x7F (`access_mode` may
+  be omitted; `shared` → 422) (D62, D68, D77). `{"entries": []}` claims no
+  EPs (D55).
   `default_access` only fills in a missing `access` on listed entries
   (D61). Metadata is text only (D69).
 - **Errors:** 422 for anything wrong in the request itself; 409 only for a
@@ -168,7 +176,7 @@ the behaviour (not the line number) before changing it.
 | S-05 | Pipe and block-pipe routes take POST JSON/base64 (`rest/classic.rs:653`, `:693`, `:739`, `:778`; `PipeRequest` at `:136`); spec is `application/octet-stream` ([openapi.yaml:703–826](../api/openapi.yaml)) | **Decided (Q44-3):** server to the spec's octet-stream request and response bodies; update the Rust/Python example clients and the LabVIEW client in the same commit. gRPC already uses `bytes` (no change; parity test only) | 44-G |
 | S-06 | Register routes take a single `{address, value}` (`RegisterRequest`, `rest/classic.rs:129`); spec uses `addresses[]` / `entries[]` with `data` ([openapi.yaml:827–890](../api/openapi.yaml)) | Fix impl to spec. gRPC already has `ReadRegisters` / `WriteRegisters` (no change; parity test only) | 44-G |
 | S-07 | `WireInRequest.auto_update` missing (`rest/classic.rs:90`); `UpdateWireIns` always called (`:436`) | Implement `auto_update` as in the spec ([openapi.yaml:1897](../api/openapi.yaml)) and as gRPC already does (`grpc/classic_service.rs:296`) | 44-G |
-| S-08 🔒 | Undocumented routes: `wires/in/update`, `wires/out/update`, `triggers/out/update` (`rest/classic.rs:28–49`), whole-bank `GET wires/out` / `triggers/out` (no `endpoint` query) | Document them in OpenAPI; the two output updates are **reads** (D42), `wires/in/update` is a write | 44-A (spec), 44-E (enforcement) |
+| S-08 🔒 | Undocumented routes: `wires/in/update`, `wires/out/update`, `triggers/out/update` (`rest/classic.rs:28–49`), whole-bank `GET wires/out` / `triggers/out` (no `endpoint` query) | Document the three update routes in OpenAPI; the two output updates are **reads** (D42), `wires/in/update` is a write. **Whole-bank reads: removed in 0.3.0** (never approved; D76) — `endpoint` is required | 44-A (spec), 0.3.0 (removal), 44-E (enforcement) |
 | S-09 | State / mode strings serialised as Display/Debug text (`"In Use (Shared)"`, `"InUseShared"`, `"Shared"`) in `ResourceView` and SSE payloads (`rest/resources.rs`) | Serialise the spec enum strings everywhere (REST, SSE, dashboard): states `unavailable` / `initializing` / `available` / `in_use_shared` / `in_use_locked`, declared modes `shared` / `exclusive`, holder modes `shared` / `exclusive` / `read_only`, exactly as listed in `api/openapi.yaml` | 44-A |
 | S-10 🔒 | `dataport` enum: `[unknown, classic, axi]` ([openapi.yaml:1780](../api/openapi.yaml)) vs `[unknown, legacy, axi]` ([openapi.yaml:593](../api/openapi.yaml)) vs proto `UNKNOWN/LEGACY/AXI` | `legacy` / `axi` only (recs S7); proto `DATAPORT_LEGACY = 0, DATAPORT_AXI = 1` (P16); a device reporting UNKNOWN is filtered out internally and never reaches the public enums (D63, D70) | 44-H |
 
@@ -178,10 +186,10 @@ the behaviour (not the line number) before changing it.
 |----|------------------|------------|-----------|
 | S-19 | Registration only rejects exclusive-vs-exclusive overlaps (`rest/resources.rs:388–428`) | Implement **R1**: shared-in-shared overlaps **allowed**; shared-vs-exclusive, exclusive-vs-anything, shared item in an exclusive resource, type or `private` mismatch → 409 naming the existing resource and item (D6, D8, D22, D38). Same code path for gRPC | 44-B |
 | S-11 | A lock on one resource does not block another resource that shares an EP or range with it | Implement **blocking B1–B4** (D5, D18, D19): a lock on R blocks every resource that shares an item with R, for all users except the locker | 44-D |
-| S-13 | `endpoint_covered` is true whenever `endpoints` is present, so holding any resource grants every EP; a held resource locked by someone else falls through to the next held resource (`ok-fpga-core/src/resource.rs`, `endpoint_covered` and its caller) | Coverage = listed entries only (D61), or every classic EP for a resource without `endpoints` (D68). The "try every held resource" loop is **correct** under B2, but each candidate must pass the ReadOnly, foreign-lock **and blocking** checks | 44-E |
+| S-13 | `endpoint_covered` is true whenever `endpoints` is present, so holding any resource grants every EP; a held resource locked by someone else falls through to the next held resource (`ok-fpga-core/src/resource.rs`, `endpoint_covered` and its caller) | Coverage = listed entries only (D61), or every Wire and Trigger EP (0x00–0x7F) for a resource without `endpoints` (D77). The "try every held resource" loop is **correct** under B2, but each candidate must pass the ReadOnly, foreign-lock **and blocking** checks | 44-E |
 | S-14 | AXI `check_address_access` and the Classic ADR-025 path disagree on exclusive ranges (`ok-fpga-core/src/resource.rs`) | One rule on both paths: no lock required (D44, D46); coverage, ReadOnly, foreign lock, blocking, and the same-resource range check | 44-E |
 | S-12 | Enforcement off by default (`config.rs:463`, repo `config.toml:72`) | Default `enforce` in both places (D27); `off` / `warn` stay as debugging aids | 44-E |
-| S-15 | Block pipes, `classic/reset` (`rest/classic.rs:878`), `*/update`, whole-bank reads skip enforcement (`rest/classic.rs`) | Enforce every data-port route, REST (`rest/classic.rs`, `rest/axi.rs`) and gRPC (`grpc/classic_service.rs`, `grpc/axi_service.rs`). Output updates = reads (D42); reset = tier-3 data-port gate only (D56, D66) | 44-E |
+| S-15 | Block pipes, `classic/reset` (`rest/classic.rs:878`), `*/update` skip enforcement (`rest/classic.rs`) | Enforce every data-port route, REST (`rest/classic.rs`, `rest/axi.rs`) and gRPC (`grpc/classic_service.rs`, `grpc/axi_service.rs`). Output updates = reads (D42); reset = tier-3 data-port gate plus a non-ReadOnly hold (D56, D66, D75 F1). (Whole-bank reads were removed in 0.3.0.) | 44-E |
 | S-18 | `resolve_user_id` falls back to `"Unknown"` (`rest/mod.rs:92`, test at `:191–194`) | Under `warn` / `enforce`, a missing identity is rejected (D27), REST and gRPC (`x-user-id` metadata, P8) | 44-E |
 | S-20 | ADR-025 `MapsToAddress` returns Ok when the covering resource has no ranges (`ok-fpga-core/src/resource.rs`, ADR-025 branch) | Address must be in the ranges of the **same** usable covering resource; empty ranges → deny (D9, B2) | 44-E |
 | S-22 | Exclusive acquire sets `InUseLocked` without `locked_by`; range checks then deny the sole holder (`ok-fpga-core/src/resource.rs`) | Writes no longer check `locked_by` (D44, D46). Report the implicit lock (`locked_by` = holder) for display only | 44-C |
@@ -273,6 +281,35 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
   `test_grpc_user_session_holdings_include_mode`. Manual check: dashboard
   resources and users pages with one shared and one exclusive resource.
 - Commit: `feat: ADR-034 resource contract and declaration types` (0.2.0).
+  **Done:** `c5e4f79`.
+
+**Post-44-A: Opal Kelly read semantics and ReadOnly rule (D75–D77) 🔒 — 0.3.0**
+- Owner decisions 2026-10-11 (F1–F4, Q-B, Q-C, Q-E, Q-G, Q-H, Q-I); spec
+  change permission granted.
+- Files: `api/openapi.yaml`, `proto/okfpga/v1/okfpga.proto`,
+  `crates/ok-fpga-server/src/snapshot.rs` (new), `rest/classic.rs`,
+  `grpc/classic_service.rs`, `main.rs`, ADR-034, the developer guide, the
+  recommendations, this roadmap, `Cargo.toml` / `Cargo.lock`.
+- Reads follow FrontPanel exactly (D76): `GetWireOutValue`, `IsTriggered`,
+  `GetTriggerOutVector` read the shared snapshot; only Update calls touch
+  the FPGA; optional `update` flag (REST `?update=true`, proto
+  `optional bool update`) runs Update + read under the device lock.
+  Whole-bank reads removed; `endpoint` required (422).
+- Spec text: ReadOnly rule (D75), `private` side-effect guidance, D77
+  coverage of omitted `endpoints`, ResetFPGA denied to ReadOnly.
+- Tests (Tier 3): `test_read_snapshot_without_update_skips_refresh`,
+  `test_read_snapshot_with_update_refreshes_before_read`,
+  `test_read_snapshot_refresh_error_skips_read`,
+  `test_get_wire_out_missing_endpoint_returns_422`,
+  `test_get_trigger_out_missing_endpoint_returns_422`,
+  `test_get_wire_out_endpoint_with_update_passes_validation`,
+  `test_get_wire_out_endpoint_without_update_passes_validation`,
+  `test_get_trigger_out_endpoint_with_update_passes_validation`,
+  `test_get_trigger_out_endpoint_without_update_passes_validation`.
+- Enforcement of F1 / F2, the D77 coverage change and the F4 warning come
+  in 44-E.
+- Commit: `feat: Opal Kelly snapshot reads, no whole-bank reads, ReadOnly
+  rule D75-D77` (0.3.0).
 
 **44-B Registration (R1)**
 - Files: `ok-fpga-core/src/resource.rs` (one validator), `rest/resources.rs`,
@@ -280,8 +317,8 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
 - Rules, REST and gRPC through the same validator:
   - Overlap per R1 (S-19), first wins, type / `private` mismatch → 409 (D22).
   - Rule A: an exclusive resource may contain only exclusive items → 422.
-  - No `endpoints` field = exclusive resource claiming every classic EP;
-    `access_mode` may be omitted, `shared` → 422 (D15a, D23, D68).
+  - No `endpoints` field = exclusive resource (coverage per D77 lands in
+    44-E); `access_mode` may be omitted, `shared` → 422 (D15a, D23, D68).
   - `{"entries": []}` = no EPs (D55); ranges claim only what is declared (D52).
   - `default_access` only fills a missing `access` on listed entries; an
     entry with neither → 422 (D61, S-24).
@@ -354,14 +391,28 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
   `rest/classic.rs`, `rest/axi.rs`, `grpc/classic_service.rs`,
   `grpc/axi_service.rs`, `grpc/mod.rs` (identity), `ok-fpga-core/src/resource.rs`.
 - Default `enforce` (S-12); identity required under `warn` / `enforce`
-  (S-18); every data-port route enforced incl. block pipes, `*/update` and
-  whole-bank reads (S-15); read/write classes (D42); candidate filtering
+  (S-18); every data-port route enforced incl. block pipes and `*/update`
+  (S-15); read/write classes (D42); candidate filtering
   (ReadOnly, foreign lock, blocked; S-13); no lock requirement (D44, D46,
   S-14); same-resource address check, empty ranges → deny (S-20);
   `AllowAlways` skips only the address check (D51); ReadOnly denied ADR-025
   mapped access (D29); private items readable only by holders (D16, D57);
-  ResetFPGA via the tier-3 data-port gate only (D56, D66); AXI addresses
+  ResetFPGA via the tier-3 data-port gate (D56, D66); AXI addresses
   above 32 bits denied under `enforce` and noted in the proto (P14).
+- ReadOnly rule (D75): **F1** ReadOnly-only callers denied `ResetFPGA` and
+  AXI Lite / Full / Stream resets; **F2** `UpdateTriggerOuts` and trigger
+  reads with `update=true` denied to ReadOnly-only callers when any
+  resource on the device declares a private TriggerOut; snapshot reads
+  checked per EP. **F4** new setting `warn_readonly_side_effects`
+  (`[access_control]` in `config.toml`, default `true`, env override
+  `OKFPGA_WARN_READONLY_SIDE_EFFECTS`): `warn!` at registration when
+  ReadOnly holders could join a resource with a non-private PipeOut /
+  BTPipeOut / TriggerOut or a non-private range.
+- Coverage (D77): a resource without `endpoints` covers 0x00–0x7F only;
+  update `declaration.rs` docs and the overlap check accordingly.
+- Validate `ActivateTriggerIn` `bit` (0–31) before computing the mask:
+  422 / `INVALID_ARGUMENT` (today `1u32 << bit` panics in debug builds;
+  Strata 0.3.0 review). Test `test_activate_trigger_in_bit_out_of_range_returns_422`.
 - Tests (Tier 3): `test_enforce_write_usable_holder_allowed`,
   `test_enforce_write_foreign_lock_denied`,
   `test_enforce_write_blocked_denied`,
@@ -369,14 +420,19 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
   `test_enforce_private_read_non_holder_denied`,
   `test_enforce_update_wire_outs_readonly_allowed`,
   `test_enforce_update_trigger_outs_readonly_allowed`,
-  `test_enforce_whole_bank_wire_out_read_enforced`,
+  `test_enforce_update_trigger_outs_readonly_private_trigger_denied`,
+  `test_enforce_trigger_read_update_readonly_private_trigger_denied`,
   `test_enforce_block_pipe_write_enforced`,
   `test_enforce_mapped_address_other_resource_range_denied`,
   `test_enforce_mapped_address_empty_ranges_denied`,
   `test_enforce_mapped_address_readonly_denied`,
   `test_enforce_allow_always_still_checks_blocking`,
   `test_enforce_axi_address_above_32_bits_denied`,
-  `test_reset_fpga_data_port_gate_only`,
+  `test_reset_fpga_readonly_only_denied`,
+  `test_reset_fpga_non_readonly_holder_allowed`,
+  `test_coverage_no_endpoints_excludes_pipes`,
+  `test_warn_readonly_side_effects_logs_on_registration`,
+  `test_warn_readonly_side_effects_disabled_no_log`,
   `test_access_control_config_default_is_enforce`,
   `test_resolve_user_id_missing_identity_rejected` (replaces the
   `"Unknown"` assertion at `rest/mod.rs:191–194`),
@@ -496,11 +552,12 @@ P14 → 44-E; P9 → 44-H.)
   the server-side sequences future work, embedded engine first (D40).
 - **WireIn shadow read-back** (old Q44-6).
 - **Atomic multi-resource acquire** (old Q44-12).
+- **TriggerOut event log** (D67 reopened 2026-10-11, Q-F).
 
 Dropped: the 2026-10-08 ADR proposals for this phase, old Q44-7
-(superseded by D48, D68) and old S-16, the per-holder TriggerOut cache
-(**rejected permanently**, D67: clients manage trigger access). ADR-034
-now means the consolidated ADR (44.1).
+(superseded by D48, D68) and old S-16, the **per-holder** TriggerOut cache
+(still rejected: no per-holder state, D67; the device-wide event log above
+is a different design). ADR-034 now means the consolidated ADR (44.1).
 
 #### 44.6 F-1 spec sketch (for S-01/S-02 — applied in 44-A)
 
@@ -516,7 +573,7 @@ CreateResourceRequest:
     interfaces:
       type: array
       items: {type: string, enum: [classic, axi_lite, axi_full, axi_stream]}
-    endpoints:                     # omitted = exclusive, all classic EPs (D68); {entries: []} = no EPs
+    endpoints:                     # omitted = exclusive, all Wire/Trigger EPs 0x00-0x7F (D77); {entries: []} = no EPs
       type: object
       properties:
         default_access: {type: string, enum: [shared, exclusive]}   # default for entries without access (D61)
@@ -572,8 +629,11 @@ CreateResourceRequest:
 Resolved: Q44-2 (D28, D43, D62), Q44-3 (octet-stream, 2026-10-10), Q44-4
 (D27), Q44-5 (REST and gRPC together, 2026-10-10), Q44-8 (D61), Q44-10
 (D69), Q44-11 (D50, D54); round 6: N26 (D61), N27 (D62, D68), N28 (D63),
-Q4 (D65), Q5 (D66), Q7 (D67, rejected), Q8 (D69), N30 (D70), N31 (D71),
-N32 (D72). Dropped: Q44-7. Moved to Later: Q44-6, Q44-9, Q44-12.
+Q4 (D65), Q5 (D66), Q7 (D67, rejected; reopened as the Later event log),
+Q8 (D69), N30 (D70), N31 (D71), N32 (D72); post-44-A (2026-10-11): F1, F2,
+F4 (D75), F3, Q-B, Q-E, Q-G (D76), Q-C (D77), Q-F (D67 reopened → Later),
+Q-H (one 0.3.0 commit, enforcement in 44-E, spec permission granted), Q-I
+(accepted). Dropped: Q44-7. Moved to Later: Q44-6, Q44-9, Q44-12.
 
 ---
 
@@ -586,6 +646,102 @@ N32 (D72). Dropped: Q44-7. Moved to Later: Q44-6, Q44-9, Q44-12.
 ## 🔵 Later: Future Horizons
 
 Features in this section represent uncommitted research or long-term capabilities:
+
+* **TriggerOut event log (non-standard Opal Kelly extension)** — D67
+  reopened 2026-10-11 (Q-F). Needs a design round and owner approval
+  before any work; nothing below is decided except where marked.
+
+  **Why.** With one FrontPanel handle per device (ADR-017/018), every client
+  shares one TriggerOut snapshot (D76). `UpdateTriggerOuts` reads **and
+  clears** the latches of the whole device, so one client's update can
+  consume a trigger another client was waiting for, and no client can tell
+  whether, or how many, updates happened since its own last read (the
+  known limitation documented for Q-G in the guide §5.4 and ADR-034 §9).
+
+  **Opal Kelly references (what the server must keep matching, D76).**
+  - FrontPanel API, `FPGADataPortClassic`:
+    https://library.opalkelly.com/library/FrontPanelAPI/classOpalKelly_1_1FPGADataPortClassic.html
+  - C header `FrontPanel-6.1.0/.../okFrontPanel.h:1095–1103`
+    (`okFrontPanel_UpdateTriggerOuts(okFrontPanel_HANDLE)`,
+    `okFrontPanel_IsTriggered(handle, ep, mask)`,
+    `okFrontPanel_GetTriggerOutVector(handle, ep)`): `UpdateTriggerOuts`
+    takes **only the handle**, no endpoint.
+  - `UpdateTriggerOuts`: "query the XEM to determine if any TriggerOuts
+    have been activated since the last call."
+  - `IsTriggered`: "true if any bits in mask have triggered since the last
+    call to UpdateTriggerOuts()."
+  - `GetTriggerOutVector`: "retrieve the full vector of values for a
+    particular TriggerOut endpoint" (from the last update).
+  - HDL endpoint ports (FrontPanel HDL library): `okWireOut` has only
+    `okHE` / `okEH` / `ep_addr` / `ep_datain` — **no read strobe**, so a
+    WireOut read is invisible to user logic. `okTriggerOut` has inputs
+    `ep_clk` / `ep_trigger`; the latch lives inside the Opal Kelly endpoint
+    and is cleared by `UpdateTriggerOuts`. `okPipeOut` / `okBTPipeOut`
+    drive an `ep_read` output (FIFO drain). `okRegisterBridge` drives
+    `ep_read` (designs may clear on read).
+
+  **Scenario (owner, 2026-10-11).** One FPGA with two network ports. Alice
+  holds `port-a` and watches TriggerOut A; Bob holds `port-b` and watches
+  TriggerOut B. When Alice calls `UpdateTriggerOuts` she also clears B's
+  latch, so Bob may never see his trigger. If Bob could ask "were there
+  any B events **newer than my last read**?" before issuing his own
+  update, he would know that a trigger happened even though Alice's update
+  consumed it.
+
+  **Proposal (best current outline).**
+  - Every `UpdateTriggerOuts` the server runs (from any client, the
+    `update=true` flag, or a poller) gets a device-wide **sequence number**
+    and a **timestamp**.
+  - The server appends each **non-zero** TriggerOut EP vector from that
+    update to a **bounded, device-wide log**: `{seq, timestamp, ep,
+    vector}`.
+  - Clients query "events for EP x since seq N" and get the matching
+    entries plus the latest seq. Each client **keeps its own N**.
+  - **No per-holder server state** (decided; the old per-holder cache S-16
+    stays rejected). The server never tracks who has seen what.
+  - Clearly labelled **non-standard Opal Kelly**: separate routes / RPCs
+    (e.g. `GET …/classic/triggers/out/events?endpoint=0x61&since=N` and a
+    `GetTriggerOutEvents` RPC). The standard routes keep exact FrontPanel
+    semantics (D76).
+  - The log is cleared on reprogram / clear / disconnect, with the
+    sequence restarting (or an epoch id) so stale N values are detected.
+
+  **Open points (need owner decisions).**
+  - **Log size**: fixed entry count vs time window; per device vs per EP;
+    configurable in `config.toml`.
+  - **Overflow reporting**: when entries older than N were dropped, the
+    reply must say so (e.g. `overflow: true`, `oldest_seq`), so a client
+    knows it may have missed events.
+  - **`private` / ReadOnly**: a ReadOnly holder must not see events of a
+    private TriggerOut EP; whether a ReadOnly holder may read the log at
+    all when a private TriggerOut exists (F2 analogy), and whether
+    non-holders of the covering resource may read events for that EP.
+  - Whether `UpdateWireOuts` gets a matching "last update seq/timestamp"
+    so clients can at least detect that someone else refreshed WireOuts.
+
+  **Server-side poller (option).** A per-device, opt-in background task
+  calls `UpdateTriggerOuts` every *T* ms and feeds the log, so no event is
+  lost between client polls. Trade-offs: latency (≤ *T*) vs USB/PCIe bus
+  load and FFI-mutex contention with client traffic; it must take the
+  device lock like any other call; it changes what clients see from the
+  standard routes (the snapshot is refreshed by the poller), so it must be
+  explicitly enabled per device (config or API) and documented. Interaction
+  with `update=true` and F2 (a private TriggerOut) must be defined.
+
+  **gRPC streaming (option).** A server-streaming RPC (e.g.
+  `WatchTriggerOutEvents(serial, endpoints[], since_seq)`) that replays
+  log entries after `since_seq` and then pushes new ones as the poller or
+  any update produces them. It maps onto the `WatchDeviceEvents` fan-out
+  pattern (44-D, broadcast channel per device); REST could offer the same
+  via SSE on `/events`. Slow consumers get the overflow marker instead of
+  unbounded buffering.
+
+  **Related design-specific hooks.** This is one of several server-side
+  extensions that particular bitfiles need beyond plain FrontPanel calls,
+  e.g. the DualPort-Transceiver FrontPanel_to_AXI bridge and custom AXI address
+  handling (ADR-025 `ResourceAccessPolicy`), and server-side sequences
+  (44.5, D12, D40). A common extension mechanism should be considered
+  together with this item.
 
 * **Configurable MQTT test broker host** (follow-up, 2026-10-11) —
   `crates/ok-fpga-server/tests/mqtt_integration.rs` hardcodes

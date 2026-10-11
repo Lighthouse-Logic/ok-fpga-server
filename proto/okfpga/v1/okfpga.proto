@@ -114,11 +114,23 @@ enum SensorType {
 enum AccessMode {
   ACCESS_MODE_SHARED = 0;
   ACCESS_MODE_EXCLUSIVE = 1;
-  // Read-only mode (ADR-026, ADR-034 P4): observe outputs without write
-  // access. ReadOnly holders cannot write input endpoints or call
-  // ActivateTriggerIn; they may call UpdateWireOuts / UpdateTriggerOuts
-  // (these are reads). They can join even exclusive resources unless the
-  // resource is marked private.
+  // Read-only mode (ADR-026, ADR-034 §8, D75): observe without writing.
+  // ReadOnly holders may READ every item their resources cover unless the
+  // item (or the resource) is private: WireOuts (incl. UpdateWireOuts),
+  // TriggerOuts (IsTriggered, GetTriggerOutVector, UpdateTriggerOuts),
+  // PipeOut / BTPipeOut, ReadRegister(s) and AXI reads. They may NEVER
+  // write (SetWireInValue, UpdateWireIns, ActivateTriggerIn, PipeIn /
+  // BTPipeIn, WriteRegister(s), AXI writes) and may not call ResetFPGA or
+  // AXI resets.
+  // UpdateTriggerOuts clears every TriggerOut latch on the device, so it is
+  // denied to ReadOnly holders when any resource on the device declares a
+  // private TriggerOut.
+  // Design rule (recommended, not enforced): a ReadOnly action SHOULD NOT
+  // change user-logic state or consume data other holders rely on
+  // (TriggerOut latches, Pipe/BTPipe FIFOs, clear-on-read registers). Mark
+  // any item whose read could have such a side-effect `private`.
+  // ReadOnly holders can join even exclusive resources unless the resource
+  // is private.
   ACCESS_MODE_READ_ONLY = 2;
 }
 
@@ -261,7 +273,7 @@ message Resource {
   // Current resource state.
   ResourceState state = 5;
   // Access rule, not visibility (ADR-034 P13, D57): when true, ReadOnly
-  // acquisition is denied. Every user can still list and read the resource.
+  // acquisition is denied. Every user can still list the resource.
   bool private = 7;
   // Phase 34-A: User ID of the lock holder (empty string if not locked).
   // Populated when state == RESOURCE_STATE_IN_USE_LOCKED.
@@ -307,7 +319,10 @@ message EndpointEntry {
   string type = 2;
   // Declared mode; falls back to EndpointDeclaration.default_access.
   optional ResourceAccessMode access = 3;
-  // Item-level private flag (access rule, not visibility).
+  // Item-level private flag (access rule, not visibility): ReadOnly holders
+  // cannot read this item. Set it on any item whose read could change
+  // user-logic state or consume data other holders rely on (TriggerOut,
+  // PipeOut / BTPipeOut, clear-on-read registers) (D75).
   bool private = 4;
   // Optional description.
   string description = 5;
@@ -323,7 +338,10 @@ message AddressRange {
   uint32 end = 3;
   // Declared mode (required).
   optional ResourceAccessMode access = 4;
-  // Item-level private flag (access rule, not visibility).
+  // Item-level private flag (access rule, not visibility): ReadOnly holders
+  // cannot read this item. Set it on any item whose read could change
+  // user-logic state or consume data other holders rely on (TriggerOut,
+  // PipeOut / BTPipeOut, clear-on-read registers) (D75).
   bool private = 5;
   // Optional description.
   string description = 6;
@@ -705,6 +723,11 @@ message GetWireValueRequest {
   // Device serial number.
   string serial = 1;
   int32 endpoint = 2;        // Endpoint address
+  // GetWireOutValue only (ignored by GetWireInValue): when true, the server
+  // calls UpdateWireOuts immediately before the read, under the same device
+  // lock. Not set / false = read the current snapshot, exactly like Opal
+  // Kelly's GetWireOutValue (ADR-034 §9, D76).
+  optional bool update = 3;
 }
 
 message WireValueResponse {
@@ -726,6 +749,12 @@ message IsTriggeredRequest {
   string serial = 1;
   int32 endpoint = 2;        // Endpoint address (0x60-0x7F)
   uint32 mask = 3;            // Bitmask of trigger bits to check
+  // When true, the server calls UpdateTriggerOuts immediately before the
+  // read, under the same device lock (ADR-034 §9, D76). Not set / false =
+  // read the current snapshot, exactly like Opal Kelly's IsTriggered.
+  // UpdateTriggerOuts clears the latches of EVERY TriggerOut on the device
+  // for every client; see the UpdateTriggerOuts RPC comment.
+  optional bool update = 4;
 }
 
 message IsTriggeredResponse {
@@ -740,6 +769,8 @@ message TriggerOutVectorRequest {
   string serial = 1;
   // FrontPanel endpoint address.
   int32 endpoint = 2;
+  // Same meaning as IsTriggeredRequest.update (ADR-034 §9, D76).
+  optional bool update = 3;
 }
 
 message TriggerOutVectorResponse {
@@ -1086,14 +1117,19 @@ message CreateResourceRequest {
   // Interfaces used: "classic", "axi_lite", "axi_full", "axi_stream"; at
   // least one (D65, D71). Replaces the old `capabilities` list.
   repeated string interfaces = 5;
-  // Classic endpoint declaration. Not set = every classic endpoint,
-  // exclusive (D68). Set but empty = no classic endpoints.
+  // Classic endpoint declaration. Not set = an exclusive resource that
+  // claims every Wire and Trigger endpoint (0x00-0x7F) (D68, revised by
+  // D77). It claims NO Pipe / BTPipe endpoints: the server cannot tell a
+  // Pipe from a BTPipe at the same address, so those must be declared
+  // explicitly. While such a resource exists no other classic resource can
+  // register on the device (D23). Set but empty = no classic endpoints.
   EndpointDeclaration endpoints = 6;
   // Declared 32-bit address ranges.
   repeated AddressRange address_ranges = 7;
   // Text-only metadata (D69).
   map<string, string> metadata = 8;
-  // Resource-level private flag (access rule, not visibility).
+  // Resource-level private flag (access rule, not visibility): when true,
+  // ReadOnly acquisition is denied (D57, D75).
   bool private = 9;
 }
 
@@ -1322,7 +1358,9 @@ service DeviceService {
 // endpoint modules on the okHost bus. The server does NOT gate access based
 // on okTDeviceInfo.dataport (which describes the physical USB transport).
 service ClassicDataPortService {
-  // Reset the FPGA (equivalent to pressing the reset button).
+  // Reset the FPGA (equivalent to pressing the reset button). Changes
+  // user-logic state, so it counts as a write: the caller must hold a
+  // resource on the device in a mode other than ReadOnly (D66, D75).
   rpc ResetFPGA(DeviceRequest) returns (StatusResponse);
 
   // --- Wires ---
@@ -1336,10 +1374,15 @@ service ClassicDataPortService {
   // Transfer all pending WireIn values to the FPGA.
   rpc UpdateWireIns(DeviceRequest) returns (StatusResponse);
 
-  // Get the current value of a WireOut endpoint (from last UpdateWireOuts).
+  // Get the value of a WireOut endpoint from the snapshot taken by the last
+  // UpdateWireOuts (by any client; one snapshot per device). Set
+  // `update = true` to refresh the snapshot first under the same device
+  // lock (ADR-034 §9, D76).
   rpc GetWireOutValue(GetWireValueRequest) returns (WireValueResponse);
 
-  // Read all WireOut values from the FPGA into the local cache.
+  // Read all WireOut values from the FPGA into the device snapshot.
+  // Allowed for ReadOnly holders: it only samples the WireOut inputs and is
+  // invisible to user logic (D75).
   rpc UpdateWireOuts(DeviceRequest) returns (StatusResponse);
 
   // --- Triggers ---
@@ -1347,13 +1390,24 @@ service ClassicDataPortService {
   // Fire a single trigger bit on a TriggerIn endpoint.
   rpc ActivateTriggerIn(ActivateTriggerInRequest) returns (StatusResponse);
 
-  // Read all TriggerOut values from the FPGA.
+  // Read every TriggerOut latch from the FPGA into the device snapshot
+  // (Opal Kelly: "determine if any TriggerOuts have been activated since the
+  // last call"). This clears the latches of EVERY TriggerOut on the device,
+  // so a trigger another client has not read yet is lost to it. Coordinate
+  // trigger reads between clients (lock, exclusive resource) or mark
+  // TriggerOuts private. Denied to ReadOnly holders when any resource on
+  // the device declares a private TriggerOut (D75). A future server-side
+  // TriggerOut event log may improve this (roadmap, Later).
   rpc UpdateTriggerOuts(DeviceRequest) returns (StatusResponse);
 
-  // Check if specific trigger bits have fired on a TriggerOut endpoint.
+  // Check trigger bits on one TriggerOut endpoint in the snapshot taken by
+  // the last UpdateTriggerOuts (by any client). Set `update = true` to
+  // refresh first (ADR-034 §9, D76). A client cannot tell from this call
+  // how many updates happened since its own previous read.
   rpc IsTriggered(IsTriggeredRequest) returns (IsTriggeredResponse);
 
-  // Get the full trigger vector for a TriggerOut endpoint.
+  // Get the full trigger vector of one TriggerOut endpoint from the
+  // snapshot (same snapshot rules as IsTriggered).
   rpc GetTriggerOutVector(TriggerOutVectorRequest) returns (TriggerOutVectorResponse);
 
   // --- Pipes ---

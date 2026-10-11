@@ -1,8 +1,8 @@
-# ok-fpga-server Resource Management — Developer Guide (DRAFT rev 9)
+# ok-fpga-server Resource Management — Developer Guide (DRAFT rev 10)
 
 > **Source of truth for this guide:** ADR-003, 004, 005, 006, 015, 016, 017,
-> 018, 020, 021, 023, 024, 025, 026, 029, **plus the owner decisions D1–D72
-> of 2026-10-10** (no source code, no other guides except the DualPort
+> 018, 020, 021, 023, 024, 025, 026, 029, **plus the owner decisions D1–D77
+> of 2026-10-10/11** (no source code, no other guides except the DualPort
 > `axibridge-access-guide-v2.md` for §6). Where `api/openapi.yaml` or
 > `proto/okfpga/v1/okfpga.proto` disagree, this is flagged (recommendations
 > §3.3 S-items, §3.4 P-items).
@@ -42,9 +42,9 @@ FPGA (serial ABC123, bitfile dsp_v2.bit)
 | Topic | Original | Now governed by |
 |---|---|---|
 | Who creates resources | ADR-006 | ADR-020 §1 (client registers) |
-| `access_mode` | ADR-006 (acquire) | ADR-020 §3: chosen at registration, **required** (🟢 D33, D62), except a resource without `endpoints`, which is exclusive (🟢 D68). Acquire `mode` optional (🟢 D62) |
+| `access_mode` | ADR-006 (acquire) | ADR-020 §3: chosen at registration, **required** (🟢 D33, D62), except a resource without `endpoints`, which is exclusive (🟢 D68, D77). Acquire `mode` optional (🟢 D62) |
 | Overlap between resources | ADR-020 §7–§8 | 🟢 D6, D8, D22, D48 (shared items in shared resources **may overlap**; any other overlap → first registration wins) |
-| Resource with no `endpoints` field | ADR-020 §7 / ADR-024 §3 ("legacy resource") | 🟢 D15a, D23, D68: simply an **exclusive resource** claiming every classic EP; no special name. Explicit empty `endpoints` = no EPs (🟢 D55) |
+| Resource with no `endpoints` field | ADR-020 §7 / ADR-024 §3 ("legacy resource") | 🟢 D15a, D23, D68, D77: simply an **exclusive resource** claiming every **Wire and Trigger** EP (0x00–0x7F); Pipe/BTPipe EPs must be declared; no special name. Explicit empty `endpoints` = no EPs (🟢 D55) |
 | `default_access` | ADR-020 §7, ADR-024 §2–§3 (covers unlisted EPs) | 🟢 D61: only the default `access` for listed entries |
 | The word "legacy" | ADR-024 §3 (resource) | 🟢 D49: **only** the dataport `OK_DATAPORT_LEGACY` (ADR-003) |
 | Meaning of an exclusive item | ADR-020 §7–§8, ADR-025 §3 (locker only) | 🟢 D44: writable by **holders** of the declaring resource; no lock required |
@@ -53,8 +53,9 @@ FPGA (serial ABC123, bitfile dsp_v2.bit)
 | Reprogramming | ADR-006 | ADR-023 Fix-F, ADR-024 §10, 🟢 D15b, D26 |
 | Runtime enforcement | ADR-020 §7.4/§8 | ADR-024; default `enforce`, all clients comply (🟢 D15e, D27) |
 | Lock effect | ADR-020 §3 | ADR-024 §6; whole-resource blocking of **writes** (🟢 D1, D5, D18, D19) |
-| What counts as a read | ADR-024 §6, ADR-026 §1 | 🟢 D21, D42: no state-change classification; `UpdateWireOuts` / `UpdateTriggerOuts` are reads |
-| ReadOnly / Private | — | ADR-026; ADR-020 addendum 🟢 D15f, D25; `private` on EPs/ranges 🟢 D11 |
+| What counts as a read | ADR-024 §6, ADR-026 §1 | 🟢 D21, D42, D75: no state-change classification; `UpdateWireOuts` / `UpdateTriggerOuts` are reads |
+| How reads work | — | 🟢 D76: exactly as Opal Kelly FrontPanel: Get/Is calls read the shared device snapshot; only Update calls touch the FPGA; optional `update` flag; one EP per read (no whole-bank reads) |
+| ReadOnly / Private | — | ADR-026; ADR-020 addendum 🟢 D15f, D25; `private` on EPs/ranges 🟢 D11; ReadOnly rule 🟢 D75 |
 | Endpoint → address mapping | — | ADR-025 (DualPort-Transceiver stub, 🟢 D4); §3 lock rule superseded by D44 |
 | Identity | ADR-020 §5, ADR-024 §1 | ADR-029 (implemented, 🟢 D15d) |
 
@@ -78,12 +79,12 @@ state `Available` (ADR-020 §1, §10–§11).
 | `name` | ✅ | Unique per device | ADR-020 §2 |
 | `description` | — | Free text | ADR-020 §2 |
 | `device_serial` | ✅ | Device connected **and programmed** | ADR-020 §2, §10 |
-| `access_mode` | ✅ (— if `endpoints` omitted) | `shared` or `exclusive`. Missing → 422 that says so (🟢 D33, D38, D62). Exception: without `endpoints` it may be omitted and becomes `exclusive`; `shared` there → 422 (🟢 D68). No "unspecified" value exists in either spec (🟢 D59) | ADR-020 §3 |
+| `access_mode` | ✅ (— if `endpoints` omitted) | `shared` or `exclusive`. Missing → 422 that says so (🟢 D33, D38, D62). Exception: without `endpoints` it may be omitted and becomes `exclusive`; `shared` there → 422 (🟢 D68, D77). No "unspecified" value exists in either spec (🟢 D59) | ADR-020 §3 |
 | `interfaces` | ✅ | `classic`, `axi_lite`, `axi_full`, `axi_stream`; may combine classic and AXI (🟢 D54) | ADR-020 §6 |
-| `endpoints` | — | Classic EP declarations (§2.1). Omitted = exclusive resource claiming every classic EP (§2.4, 🟢 D68); `{"entries": []}` = no EPs (🟢 D55) | ADR-020 §7 |
+| `endpoints` | — | Classic EP declarations (§2.1). Omitted = exclusive resource claiming every Wire and Trigger EP, 0x00–0x7F (§2.4, 🟢 D77); `{"entries": []}` = no EPs (🟢 D55) | ADR-020 §7 |
 | `address_ranges` | — | Memory-mapped ranges (§2.2) | ADR-020 §8 |
 | `metadata` | — | `map<string,string>`: **text values only**. Put a list into one string, e.g. `"associated_cores": "Core_0,Trigger_0,Gearbox_0,axi_iic_0"`. Stored as-is, never interpreted, shown on the web dashboard (🟢 D69) | ADR-020 §9 |
-| `private` | — | L1: forbids ReadOnly acquisition. Does **not** hide the resource from listings (🟢 D57) | ADR-026 §2 |
+| `private` | — | L1: forbids ReadOnly acquisition. Does **not** hide the resource from listings (🟢 D57). Recommended whenever a ReadOnly read could cause an unwanted side-effect (🟢 D75) | ADR-026 §2 |
 
 **Words (🟢 D49, D50).**
 - **Legacy** means only the FrontPanel dataport `OK_DATAPORT_LEGACY`
@@ -181,10 +182,10 @@ with an error that names the existing resource and the conflicting item
 | 9 | shared, range X `shared` | any resource, overlapping range `exclusive` | ❌ 409 |
 | 10 | any, range X `exclusive` | any overlapping range | ❌ 409 |
 | 11 | shared, EP 0x20 `shared`, `private: false` | shared, EP 0x20 `shared`, `private: true` | ❌ 409: "private flag differs from A" (🟢 D22) |
-| 12 | exclusive resource **without `endpoints`** (claims all classic EPs) | any resource that declares a classic EP | ❌ 409: A claims every EP (🟢 D23, D68) |
+| 12 | exclusive resource **without `endpoints`** (claims all Wire/Trigger EPs) | any resource that declares a classic EP | ❌ 409: A blocks later classic resources (🟢 D23, D68, D77) |
 | 13 | any | resource on the same device with the same `name` | ❌ 409 |
 | 14 | — | resource **with `endpoints` but without `access_mode`** | ❌ 422: "access_mode is required (shared \| exclusive)" (🟢 D33, D38, D62) |
-| 14a | — | resource **without `endpoints`** and without `access_mode` | ✅ 201 as an exclusive resource claiming every classic EP (🟢 D68) |
+| 14a | — | resource **without `endpoints`** and without `access_mode` | ✅ 201 as an exclusive resource claiming every Wire and Trigger EP (🟢 D68, D77) |
 | 14b | — | resource **without `endpoints`** and `access_mode: shared` | ❌ 422: "a resource without endpoints is exclusive" (🟢 D68) |
 | 14c | — | EP entry with no `access` and no `default_access` | ❌ 422 (🟢 D61) |
 | 15 | — | resource on an `OK_DATAPORT_LEGACY` device (every device today) listing an `axi_*` interface, with or without `classic` | ❌ 422 (ADR-020 §10, 🟢 D54) |
@@ -193,17 +194,18 @@ with an error that names the existing resource and the conflicting item
 Order matters. Swapping rows 2 and 3 changes which registration fails, never
 whether both can coexist.
 
-### 2.4 Omitted vs empty `endpoints` (🟢 D15a, D23, D52, D55, D61, D68)
+### 2.4 Omitted vs empty `endpoints` (🟢 D15a, D23, D52, D55, D61, D68, D77)
 
 The `endpoints` field has three shapes:
 
 | Shape | Meaning |
 |---|---|
-| `endpoints` **omitted** | A quick-and-dirty resource: it is simply an **exclusive resource** that claims **every classic EP** of the device. `access_mode` may be left out (it becomes `exclusive`); `exclusive` is accepted; `shared` → 422 (🟢 D68). Once one exists, no other resource that declares classic EPs can be registered on that device (row 12). ReadOnly may join unless `private` (D25). Use it for a single-resource bitfile. |
+| `endpoints` **omitted** | A quick-and-dirty resource: it is simply an **exclusive resource** that claims **every Wire and Trigger EP** (0x00–0x7F) of the device (🟢 D77). Pipe / BTPipe EPs (0x80–0xBF) are **not** claimed: the server cannot tell a Pipe from a BTPipe at the same address, so pipes must always be declared explicitly. `access_mode` may be left out (it becomes `exclusive`); `exclusive` is accepted; `shared` → 422 (🟢 D68). Once one exists, no other resource that declares classic EPs can be registered on that device (row 12, D23). ReadOnly may join unless `private` (D25). Use it for a single-resource bitfile. |
 | `"endpoints": {"entries": []}` | **No EPs.** Use this for a resource that only declares okRegisterBridge address ranges (row 16). |
 | `"endpoints": {"entries": [ … ]}` | Exactly the listed EPs; `default_access` only fills in a missing `access` (🟢 D61). |
 
-Quick-and-dirty example (every classic EP, exclusive):
+Quick-and-dirty example (every Wire and Trigger EP, exclusive; the
+coverage change of D77 is implemented in 44-E):
 
 ```json
 { "name": "whole_design", "device_serial": "ABC123", "interfaces": ["classic"] }
@@ -241,7 +243,7 @@ Reprogramming deletes held resources anyway (§4.8). **Anyone** may delete
 
 | Concept | Values | Set when | Source |
 |---|---|---|---|
-| Resource `access_mode` | `shared`, `exclusive` | Registration (required; `exclusive` when `endpoints` omitted) | ADR-020 §3, D33, D68 |
+| Resource `access_mode` | `shared`, `exclusive` | Registration (required; `exclusive` when `endpoints` omitted) | ADR-020 §3, D33, D68, D77 |
 | Holder mode | `Shared`, `Exclusive`, `ReadOnly` | Acquisition | ADR-026 §1, §3 |
 | Item access | `shared`, `exclusive`, + `private` | Registration | ADR-020 §7–§8, ADR-026 §2, 🟢 D11, D44 |
 
@@ -253,13 +255,31 @@ Reprogramming deletes held resources anyway (§4.8). **Anyone** may delete
 - **Shared resource:** many holders (🟢 D3). Every non-ReadOnly holder may
   write all of its items, shared or exclusive, without a lock (🟢 D44). Any
   non-ReadOnly holder may lock it to keep others out for a while.
-- **ReadOnly holder** (`mode: read_only`, ADR-026):
-  - May **read** any non-private item the resource covers: output EPs
-    (WireOut, TriggerOut, PipeOut, BTPipeOut, incl. `UpdateWireOuts` /
-    `UpdateTriggerOuts`, 🟢 D42) and direct AXI / okRegisterBridge
-    addresses (🟢 D16, D21).
-  - May not: write any input EP or address (incl. `ActivateTriggerIn`),
-    lock, or read private items.
+- **ReadOnly holder** (`mode: read_only`, ADR-026, 🟢 D75):
+  - May **read** any non-private item the resource covers: WireOuts and
+    `UpdateWireOuts`; TriggerOuts (`IsTriggered`, `GetTriggerOutVector`,
+    `UpdateTriggerOuts`); PipeOut / BTPipeOut; `ReadRegister(s)`; direct
+    AXI reads (🟢 D16, D21, D42, D75).
+  - May **never write**: no WireIn / `UpdateWireIns`, `ActivateTriggerIn`,
+    PipeIn / BTPipeIn, register or AXI writes; no `ResetFPGA` (🟢 D75 F1;
+    AXI resets count as writes); no lock; no reading of private items.
+  - `UpdateTriggerOuts` (and `update=true` on a trigger read) is denied to
+    ReadOnly when **any** resource on the device declares a `private`
+    TriggerOut, because the call clears every TriggerOut latch of the
+    device, including the private one (🟢 D75 F2).
+  - **Design rule (recommended, not enforced, 🟢 D75):** a ReadOnly action
+    should not change user-logic state or consume data that other holders
+    rely on. In Opal Kelly HDL, `okWireOut` has no read strobe (a WireOut
+    read is invisible to user logic), but `UpdateTriggerOuts` clears the
+    TriggerOut latches, a PipeOut / BTPipeOut read drains a FIFO (`ep_read`),
+    and an okRegisterBridge read pulses `ep_read`, which some designs use
+    for clear-on-read registers. **Mark any such item `private`** if a
+    ReadOnly read would be an unwanted side-effect. The HDL architect
+    decides; the server does not guess (D21).
+  - Optional server warning: with `warn_readonly_side_effects = true` in
+    `config.toml`, the server logs a warning at registration when ReadOnly
+    holders could reach a non-private PipeOut / BTPipeOut / TriggerOut or a
+    non-private range (🟢 D75 F4, implemented in 44-E).
   - **ReadOnly is denied ADR-025 developer-defined classic address ranges**
     (🟢 D12, D29). Reaching them needs input-EP writes (e.g. the DualPort
     bridge). A raw PipeOut/WireOut read is not ADR-025 mapped access, so it
@@ -424,7 +444,7 @@ released (and their locks end).
 | Device disconnected | All its resources deleted; holders notified | ADR-020 §4 |
 | **Reprogrammed or cleared** by any user (REST or gRPC) | A forced override, atomic under the device lock: 1. all locks unlocked, 2. all holders released, 3. all resources deleted, 4. bitfile written (or configuration cleared). **Every holder of every resource on the device is informed, whatever its state** (locker, other holder, blocked, ReadOnly). Applies at every enforcement level; bypasses the "409 if held" delete rule. The programming client then registers new resources. | ADR-023 Fix-F, ADR-024 §10, 🟢 D15b, D26 |
 | Who may program | Any connected user, until RBAC restricts it to authorised, authenticated users | ADR-024 §10, D26, D31 |
-| `ResetFPGA` / `POST …/classic/reset` | **Not** a reprogram: resources stay. No special rule: the tier-3 data-port gate only (caller identified and holding any resource on the device, 🟢 D56, D66). Future RBAC may restrict it | 🟢 D56, D66 |
+| `ResetFPGA` / `POST …/classic/reset` | **Not** a reprogram: resources stay. The tier-3 data-port gate (caller identified and holding any resource on the device, 🟢 D56, D66), and the caller must hold at least one resource on the device **not** as ReadOnly (🟢 D75 F1, enforced from 44-E). Future RBAC may restrict it | 🟢 D56, D66, D75 |
 
 Approved events (🟢 D58), not yet in the specs: `ResourceLocked` and
 `ResourceUnlocked` (`resource_id`, `user_id`), and a reason (`reprogram` /
@@ -452,15 +472,30 @@ the request on its own: `422` (🟢 D38, D72).
 | 2 Device | `/devices/{serial}`, `/configure`, `/settings/*`, `/sensors`, `/syzygy` | user id |
 | 3 Data port | `/devices/{serial}/classic/**`, `/axi/**` | user id + holds a resource on the device + permission matrix |
 
-### 5.3 Reads and writes, and the permission matrix (🟢 D16, D21, D42, D44)
+### 5.3 Reads and writes, and the permission matrix (🟢 D16, D21, D42, D44, D75, D76)
 
 There are only two classes. The server does **not** track whether an
 operation changes hardware state.
 
 | Class | Operations |
 |---|---|
-| **Read** | `UpdateWireOuts`, `GetWireOutValue`, `UpdateTriggerOuts`, `IsTriggered`, `GetTriggerOutVector`, PipeOut, BTPipeOut; okRegisterBridge / direct AXI reads (🟢 D42: the Update calls latch outputs so they can be read, and must precede the read) |
-| **Write** | WireIn (`SetWireInValue`, `UpdateWireIns`), `ActivateTriggerIn`, PipeIn, BTPipeIn; okRegisterBridge / direct AXI writes. An ADR-025 hook may map a classic write to an address, which is then checked |
+| **Read** | `UpdateWireOuts`, `GetWireOutValue`, `UpdateTriggerOuts`, `IsTriggered`, `GetTriggerOutVector`, PipeOut, BTPipeOut; `ReadRegister(s)` / direct AXI reads (🟢 D42, D75) |
+| **Write** | WireIn (`SetWireInValue`, `UpdateWireIns`), `ActivateTriggerIn`, PipeIn, BTPipeIn; `WriteRegister(s)` / direct AXI writes; `ResetFPGA` and AXI resets (🟢 D75 F1). An ADR-025 hook may map a classic write to an address, which is then checked |
+
+**How reads behave (🟢 D76, exactly as Opal Kelly FrontPanel).** The server
+opens **one** FrontPanel handle per device, so every client shares the same
+WireOut and TriggerOut **snapshot**:
+
+- `UpdateWireOuts` / `UpdateTriggerOuts` are the only calls that talk to the
+  FPGA. They copy the current WireOut values / TriggerOut latches into the
+  snapshot. `UpdateTriggerOuts` also clears the latches on the FPGA.
+- `GetWireOutValue`, `IsTriggered` and `GetTriggerOutVector` only read the
+  snapshot left by the most recent Update call, **whoever made it**.
+- The optional `update` flag (`?update=true` / proto `update = true`,
+  default `false`) runs the Update call and the read together under the
+  device lock, so no other client's Update can come in between.
+- Every read names **one** endpoint. There are no whole-bank reads (a
+  missing `endpoint` is a 422).
 
 U = requesting user; R = a resource U holds that covers the item. A write is
 allowed if **at least one** such R allows it. "Usable" = not locked by
@@ -492,7 +527,7 @@ another user and not blocked (§4.3).
 |---|---|---|---|
 | none | ❌ | ❌ | ❌ |
 | Shared / Exclusive holder, any lock state, incl. locked by another or blocked | ✅ | ✅ | follows the **write** table |
-| ReadOnly holder | ✅ | ❌ | ❌ (D12, D29) |
+| ReadOnly holder | ✅ (🟢 D75; `UpdateTriggerOuts` / trigger `update=true` ❌ if any resource on the device declares a private TriggerOut) | ❌ | ❌ (D12, D29) |
 
 ### 5.4 When other users' reads could hurt you (🟢 D21)
 
@@ -511,11 +546,37 @@ PipeOut 0xA3. A second holder reading 0xA3 would steal samples. Declare
 `capture` as an exclusive resource with 0xA3 `private: true`. A shared
 `monitor` resource can still expose the status WireOuts to everyone.
 
-**Triggers (🟢 D67).** `UpdateTriggerOuts` latches the TriggerOuts for the
-whole device, so one holder's read can consume a trigger another holder was
-waiting for. The server keeps **no** per-holder trigger copy and never will:
-clients decide how and when triggers are read (e.g. under the lock, or in
-an exclusive resource).
+**Triggers (🟢 D67 reopened, D75, D76).** `UpdateTriggerOuts` takes only the
+device handle: it reads and clears the TriggerOut latches of the **whole
+device**, and the result lands in the one shared snapshot. So one holder's
+`UpdateTriggerOuts` can consume a trigger another holder was waiting for.
+
+Example: an FPGA has two network ports. Alice uses `port-a` (TriggerOut
+0x60), Bob uses `port-b` (TriggerOut 0x61). Bob's packet-arrived trigger
+fires on 0x61. Before Bob polls, Alice calls `UpdateTriggerOuts` to check
+0x60. The FPGA latch for 0x61 is now cleared, and the snapshot holds Bob's
+trigger only until the next Update by anyone. If Bob then calls
+`IsTriggered(0x61, update=true)`, he sees `false`: his trigger is lost.
+Without `update`, Bob sees `true` only if nobody else ran an Update since
+Alice did, and he has no way to know whether that is the case.
+
+**Known limitation (🟢 D76, Q-G).** A client cannot tell whether other
+clients ran `UpdateTriggerOuts` (or `UpdateWireOuts`) since its own last
+read: it may see a snapshot made by someone else, and several updates may
+have happened between two of its reads. This is standard FrontPanel
+behaviour with one shared handle. Until the future TriggerOut event log
+exists (roadmap 🔵 Later, D67 reopened), designs that cannot accept this
+should:
+
+- put the TriggerOuts in an **exclusive** resource and mark them
+  **`private`** (once 44-E enforces D75 F2, this also stops ReadOnly
+  holders from calling `UpdateTriggerOuts` on that device), or
+- have clients read triggers only under the lock (§4.4), with all
+  trigger users agreeing to that discipline, or
+- signal events through WireOuts (status bits the user logic clears on a
+  WireIn write) instead of TriggerOuts.
+
+The server keeps **no** per-holder trigger copy.
 
 Counter-example (DualPort, §6): the bridge's PipeOut 0xA0 must be shared by
 both ports. Here protection comes from **client discipline**: a compliant
@@ -530,6 +591,9 @@ client only reads 0xA0 inside its own locked bridge transaction.
      none → deny                                         (ADR-024 §2.3)
 4. READ:  allow, unless the only candidates are ReadOnly holds and the
           item is private                                 (ADR-026, D16, D42)
+          UpdateTriggerOuts / trigger update=true by a ReadOnly-only
+          caller: deny if any resource on the device declares a private
+          TriggerOut                                      (D75 F2, 44-E)
    WRITE: drop candidates that are ReadOnly, locked by another user,
           or blocked                                      (D5, D19)
           none left → deny 403
@@ -541,7 +605,8 @@ client only reads 0xA0 inside its own locked bridge transaction.
                                      otherwise → deny               (D9)
 6. WRITE via okRegisterBridge / direct AXI address: a in one of R's
    ranges → allow, otherwise deny
-7. ResetFPGA: no item; steps 1–2 only (🟢 D56, D66)
+7. ResetFPGA: no item; steps 1–2, and the caller must hold at least one
+   resource on the device not as ReadOnly        (🟢 D56, D66, D75 F1, 44-E)
 ```
 
 - R's ranges means the ranges of **the same** usable resource that passed
@@ -616,7 +681,7 @@ pointer (Core).
 | 8 | Alice (holds only `port-a`) sets WI 0x00 = a Core 1 address | ❌ 403: the address is not in any of `port-a`'s ranges (D9), locked or not |
 | 9 | Bob writes WI 0x00 while Alice holds `port-a`'s lock | ❌ 403: `port-b` is blocked (D5, D19) |
 | 10 | Bob reads WO 0x21 or PipeOut 0xA0 while Alice holds the lock | ✅ allowed by the server (D21). A **compliant** client never does this outside its own locked transaction: reading 0xA0 would steal Alice's burst-read data. This is the architect's accepted design (§5.4) |
-| 11 | Carol acquires `port-a` as **ReadOnly** | ✅ unless private. She can read output EPs (incl. UpdateWireOuts, D42), but cannot use the bridge: ADR-025 ranges are denied to ReadOnly (D29). So she cannot read Status Register 2 |
+| 11 | Carol acquires `port-a` as **ReadOnly** | ✅ unless private. She can read the non-private output EPs (WireOuts incl. UpdateWireOuts; TriggerOuts and PipeOuts unless private, D75), but cannot use the bridge: ADR-025 ranges are denied to ReadOnly (D29), and she may not write the bridge's WireIns / TriggerIns. So she cannot read Status Register 2. The architect should mark PipeOut 0xA0 `private`, since a ReadOnly read would steal bridge data (D75) |
 | 12 | Bob writes WI 0x07 (FIFO reset) while nobody holds a lock | ✅. No server restriction (D17). Not disturbing other users is the clients' job |
 | 13 | Dave also acquires `port-a` (shared). Alice and Dave both write Core 0 without locks | ✅ by the server (D44): both are holders. Their clients must coordinate with the lock, since the bridge is multi-step anyway |
 | 14 | Someone reprograms the FPGA | Everything is cleared (§4.8). Everyone is informed and must start again at 6.1 |
