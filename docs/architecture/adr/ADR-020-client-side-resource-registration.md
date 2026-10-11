@@ -1,6 +1,6 @@
 # ADR-020: Client-Side Resource Registration
 
-**Status**: Implemented  
+**Status**: Implemented — §7, §8 and the Validation Responses table superseded by [ADR-034](ADR-034-resource-model-consolidation.md) (2026-10-11)  
 **Date**: 2026-08-17  
 **Deciders**: Architecture Team  
 **Amends**: [ADR-006](ADR-006-resource-management.md) (adds client-side resource creation,
@@ -306,6 +306,12 @@ capabilities:
 
 ### 7. Classic Endpoint Declarations
 
+> **Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §3** (2026-10-11).
+> Shared items in shared resources may still overlap. Validation follows
+> rule R1 (44-B). An entry needs its own `access` or a `default_access`
+> (no silent `exclusive` default). The "no runtime enforcement (v1)" note
+> below no longer applies: enforcement is defined in ADR-034 (44-E).
+
 When `interfaces.classic == true`, the resource SHOULD declare which Classic
 endpoints it uses. If no endpoints are declared, the resource is assumed to use
 **all** endpoints in `exclusive` mode.
@@ -393,6 +399,12 @@ to shared.
 ---
 
 ### 8. Address Range Declarations
+
+> **Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §3** (2026-10-11).
+> Shared ranges in shared resources may still overlap; all other overlaps
+> follow rule R1 (44-B). Ranges also carry `name`, `description` and
+> `private`. "No per-call address filtering in v1" no longer applies:
+> range enforcement is defined in ADR-034 (44-E).
 
 Address ranges represent FPGA design elements (memory-mapped regions) used by the
 resource. They are 32-bit ranges that may be non-contiguous.
@@ -491,6 +503,10 @@ All clients registering resources must document:
 | `POST` | `/api/v1/resources/{resource_id}/acquire` | No longer accepts `mode` parameter for exclusive resources. Mode is determined by the resource's `access_mode`. |
 
 #### Validation Responses
+
+> **Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §4** (2026-10-11).
+> 409 / 422 bodies are `ProblemDetail` with a structured `conflict` object;
+> malformed bodies are 422. The messages below are historical.
 
 | Condition | HTTP Status | Error |
 |-----------|-------------|-------|

@@ -257,6 +257,14 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
   `web/app.js:410–417`); users page shows holdings with mode.
 - Docs: ADR-034 first version; overview.md (SD-02); ADR-020 superseded
   markers (SD-07).
+- Scope notes (2026-10-10): the presence rules D61 (`access` or
+  `default_access`), D62 (`access_mode` required with `endpoints`) and D68
+  (no `endpoints` = exclusive, all classic EPs) move here from 44-B, because
+  the new optional types need them; their 44-B tests move with them. The
+  example clients (`client-examples/`) and `client/python-labview-client/`
+  are **not** updated here and stay out of step with the new resource
+  contract until 44-G. gRPC gets only the new `DeviceEvent` messages here;
+  the `WatchDeviceEvents` stream is implemented in 44-D.
 - Tests (Tier 3): `test_create_resource_request_full_schema_roundtrips`,
   `test_resource_view_holders_include_mode`,
   `test_resource_view_state_uses_spec_enum_strings`,
@@ -331,6 +339,9 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
   lock never blocks self (D35). Emit `resource_locked` /
   `resource_unlocked` (SSE and gRPC `DeviceEvent`) to holders of the
   resource **and** of the resources it blocks.
+- Implement gRPC `WatchDeviceEvents` (currently `UNIMPLEMENTED`) so gRPC
+  clients receive the same events as SSE (scope note in 44-A).
+  Test: `test_grpc_watch_device_events_streams_resource_events`.
 - Tests (Tier 3): `test_lock_blocked_resource_conflict`,
   `test_blocking_shared_item_blocks_other_resource`,
   `test_blocking_non_transitive`, `test_blocking_own_lock_not_blocked`,
@@ -396,6 +407,11 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
 - S-05 pipes and block pipes to `application/octet-stream` (Q44-3); S-06
   register `addresses[]` / `entries[]`; S-07 `auto_update`. gRPC already
   matches (bytes, bulk register RPCs, `auto_update`): parity tests only.
+- Client update for the 44-A resource contract (scope note in 44-A):
+  `client-examples/` and `client/python-labview-client/` move to the new
+  `CreateResourceRequest` / `Resource` shapes, holder objects, spec
+  state strings and the optional acquire `mode`. Own commit:
+  `fix: update example clients to the ADR-034 resource contract`.
 - Tests: Tier 3 `test_pipe_in_octet_stream_body_accepted`,
   `test_pipe_out_returns_octet_stream`,
   `test_registers_read_bulk_addresses`, `test_registers_write_bulk_entries`,

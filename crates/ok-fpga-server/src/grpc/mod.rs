@@ -22,6 +22,7 @@ pub mod axi_service;
 pub mod classic_service;
 pub mod device_service;
 pub mod managed;
+pub mod resource_mapping;
 pub mod server_service;
 
 use std::sync::Arc;

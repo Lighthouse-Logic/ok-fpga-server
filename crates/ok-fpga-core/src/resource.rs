@@ -86,7 +86,18 @@ impl fmt::Display for HolderEntry {
 ///      └──────────────────────────────┴──────────────┘
 ///                    (release / disconnect / reprogram)
 /// ```
+///
+/// ## Wire format
+///
+/// On the wire (JSON, SSE) a state is written in `snake_case`, exactly as the
+/// OpenAPI `Resource.state` enum lists it: `unavailable`, `initializing`,
+/// `available`, `in_use_shared`, `in_use_locked` (ADR-034, roadmap S-09).
+/// The `serde(rename_all)` attribute below makes serde produce those strings,
+/// and [`ResourceState::as_str`] returns the same text for code that builds
+/// payloads by hand. `Display` stays human-readable ("In Use (Shared)") for
+/// log and error messages only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ResourceState {
     /// Default state. FPGA not programmed, or resource explicitly marked
     /// unavailable.
@@ -105,6 +116,22 @@ pub enum ResourceState {
     /// Exactly one user has exclusive access. No other users may acquire it
     /// until released.
     InUseLocked,
+}
+
+impl ResourceState {
+    /// The spec (OpenAPI) string for this state, e.g. `"in_use_shared"`.
+    ///
+    /// Use this, not `Display` or `Debug`, whenever a state goes into an API
+    /// response or event payload.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ResourceState::Unavailable => "unavailable",
+            ResourceState::Initializing => "initializing",
+            ResourceState::Available => "available",
+            ResourceState::InUseShared => "in_use_shared",
+            ResourceState::InUseLocked => "in_use_locked",
+        }
+    }
 }
 
 impl fmt::Display for ResourceState {
@@ -129,7 +156,17 @@ impl fmt::Display for ResourceState {
 /// not at acquisition time. If the resource's hardware design allows concurrent
 /// access from multiple users, use `Shared`. If concurrent access would cause
 /// interference, use `Exclusive`.
+///
+/// The same enum is used for two different things (ADR-034):
+/// - the **declared** mode of a resource or item (`Shared` or `Exclusive`
+///   only; `ReadOnly` is never a declared mode), and
+/// - the **holder** mode a user acquired with (`Shared`, `Exclusive` or
+///   `ReadOnly`).
+///
+/// On the wire the values are `shared`, `exclusive` and `read_only`
+/// (`serde(rename_all = "snake_case")`, [`AccessMode::as_str`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AccessMode {
     /// Multiple users can hold the resource simultaneously.
     /// Holders may temporarily `lock` the resource for uninterrupted access.
@@ -146,6 +183,42 @@ pub enum AccessMode {
     /// ReadOnly holders cannot lock a resource. They CAN coexist with Shared
     /// or Exclusive holders. See ADR-026.
     ReadOnly,
+}
+
+impl AccessMode {
+    /// The spec string for this mode: `"shared"`, `"exclusive"` or `"read_only"`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AccessMode::Shared => "shared",
+            AccessMode::Exclusive => "exclusive",
+            AccessMode::ReadOnly => "read_only",
+        }
+    }
+
+    /// Parse a **holder** mode string (`shared`, `exclusive`, `read_only`).
+    ///
+    /// Returns `None` for anything else, so the caller can answer with a
+    /// validation error (422 / `INVALID_ARGUMENT`).
+    pub fn parse_holder(s: &str) -> Option<AccessMode> {
+        match s {
+            "shared" => Some(AccessMode::Shared),
+            "exclusive" => Some(AccessMode::Exclusive),
+            "read_only" => Some(AccessMode::ReadOnly),
+            _ => None,
+        }
+    }
+
+    /// Parse a **declared** mode string (`shared` or `exclusive` only).
+    ///
+    /// `read_only` is a way to *acquire* a resource, not a way to *declare*
+    /// one, so it is rejected here (ADR-034, D59).
+    pub fn parse_declared(s: &str) -> Option<AccessMode> {
+        match s {
+            "shared" => Some(AccessMode::Shared),
+            "exclusive" => Some(AccessMode::Exclusive),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for AccessMode {
@@ -212,6 +285,7 @@ impl InterfaceDeclaration {
 /// Pipes share the same address ranges (0x80–0x9F for input, 0xA0–0xBF for
 /// output). See `docs/notes-on-Pipes-and-Block-Throttled-Pipes.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum EndpointType {
     /// WireIn endpoints: addresses 0x00–0x1F.
     WireIn,
@@ -278,6 +352,24 @@ impl EndpointType {
             _ => None,
         }
     }
+
+    /// Parse the spec name of an endpoint type (`wire_in`, `bt_pipe_out`, ...).
+    ///
+    /// These are the same strings `Display` prints and the OpenAPI
+    /// `EndpointEntry.type` enum lists. Returns `None` for unknown names.
+    pub fn parse(s: &str) -> Option<EndpointType> {
+        match s {
+            "wire_in" => Some(EndpointType::WireIn),
+            "wire_out" => Some(EndpointType::WireOut),
+            "trigger_in" => Some(EndpointType::TriggerIn),
+            "trigger_out" => Some(EndpointType::TriggerOut),
+            "pipe_in" => Some(EndpointType::PipeIn),
+            "pipe_out" => Some(EndpointType::PipeOut),
+            "bt_pipe_in" => Some(EndpointType::BtPipeIn),
+            "bt_pipe_out" => Some(EndpointType::BtPipeOut),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for EndpointType {
@@ -317,13 +409,23 @@ pub struct EndpointEntry {
     pub private: bool,
 }
 
-/// Declaration of all Classic endpoints used by a resource (ADR-020 §7).
+/// Declaration of all Classic endpoints used by a resource (ADR-034 §3).
 ///
-/// The `default_access` applies to any endpoint NOT explicitly listed.
+/// Three cases are kept apart on purpose (D55, D68):
+/// - `Resource.endpoints == None` — the client sent no `endpoints` field: an
+///   exclusive resource that claims every classic EP. The EPs are **not**
+///   expanded into `entries`; coverage code treats `None` as "all".
+/// - `Some` with empty `entries` — the resource claims no classic EP.
+/// - `Some` with entries — the resource claims exactly the listed EPs.
+///
+/// `default_access` only fills in a missing `access` on a listed entry when
+/// the declaration is built (D61); it never claims an unlisted EP.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EndpointDeclaration {
-    /// Default access mode for endpoints not listed in `entries`.
-    pub default_access: AccessMode,
+    /// Mode used for listed entries that did not give their own `access`.
+    /// `None` when the client did not send `default_access`.
+    #[serde(default)]
+    pub default_access: Option<AccessMode>,
     /// Explicitly declared endpoints with per-EP access modes.
     pub entries: Vec<EndpointEntry>,
 }
@@ -338,6 +440,13 @@ pub struct EndpointDeclaration {
 /// be contiguous; a resource may declare multiple ranges.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AddressRange {
+    /// Optional short name for the range (e.g. "csr"), shown in conflicts
+    /// and on the dashboard.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Optional human-readable description.
+    #[serde(default)]
+    pub description: Option<String>,
     /// Start of the range (inclusive), e.g. 0x44A6_0000.
     pub start: u32,
     /// End of the range (inclusive), e.g. 0x44A8_FFFF.
@@ -524,6 +633,183 @@ impl fmt::Display for Resource {
 }
 
 // ============================================================================
+// Structured Conflict / Validation Error (ADR-034, D73)
+// ============================================================================
+
+/// What kind of problem a [`ResourceConflict`] describes (D73).
+///
+/// `Validation` means the request itself is wrong (REST 422,
+/// gRPC `INVALID_ARGUMENT`). Every other code is a clash with existing
+/// server state (REST 409, gRPC `FAILED_PRECONDITION`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictCode {
+    /// The new resource overlaps an item of an existing resource.
+    Overlap,
+    /// The resource is locked (explicitly or implicitly) by someone else.
+    Locked,
+    /// The resource is blocked by a lock on an overlapping resource (44-D).
+    Blocked,
+    /// The caller already holds the resource in a different mode (44-C).
+    ModeMismatch,
+    /// The request is invalid (missing field, bad type/address, ...).
+    Validation,
+}
+
+impl ConflictCode {
+    /// The spec string for this code, e.g. `"mode_mismatch"`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ConflictCode::Overlap => "overlap",
+            ConflictCode::Locked => "locked",
+            ConflictCode::Blocked => "blocked",
+            ConflictCode::ModeMismatch => "mode_mismatch",
+            ConflictCode::Validation => "validation",
+        }
+    }
+}
+
+/// The kind of item a [`ResourceConflict`] points at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictItemType {
+    /// A Classic endpoint; `item` is its address, e.g. `"0x05"`.
+    Endpoint,
+    /// An address range; `item` is `"0xSTART-0xEND"`.
+    AddressRange,
+}
+
+impl ConflictItemType {
+    /// The spec string for this item type.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ConflictItemType::Endpoint => "endpoint",
+            ConflictItemType::AddressRange => "address_range",
+        }
+    }
+}
+
+/// Machine-readable detail attached to a 409 / 422 response (D73).
+///
+/// REST puts it in `ProblemDetail.conflict`; gRPC sends the same fields as a
+/// `ResourceConflictDetail` message in the status details. Every field
+/// except `code` is optional because not every error names a resource or an
+/// item.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceConflict {
+    /// What went wrong.
+    pub code: ConflictCode,
+    /// The existing resource involved, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_id: Option<ResourceId>,
+    /// Name of that resource, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_name: Option<String>,
+    /// The kind of item involved, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_type: Option<ConflictItemType>,
+    /// The item itself (EP address or range), if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item: Option<String>,
+}
+
+impl ResourceConflict {
+    /// A conflict with only a code; add details with the builder methods.
+    ///
+    /// This is the *builder* pattern: each `with_*` method takes `self` by
+    /// value and returns it, so calls can be chained.
+    pub fn new(code: ConflictCode) -> Self {
+        ResourceConflict {
+            code,
+            resource_id: None,
+            resource_name: None,
+            item_type: None,
+            item: None,
+        }
+    }
+
+    /// Name the existing resource involved.
+    pub fn with_resource(mut self, id: &str, name: &str) -> Self {
+        self.resource_id = Some(id.to_string());
+        self.resource_name = Some(name.to_string());
+        self
+    }
+
+    /// Name a Classic endpoint (formatted as `0xNN`).
+    pub fn with_endpoint(mut self, address: u8) -> Self {
+        self.item_type = Some(ConflictItemType::Endpoint);
+        self.item = Some(format_ep_address(address));
+        self
+    }
+
+    /// Name an address range (formatted as `0xSTART-0xEND`).
+    pub fn with_range(mut self, start: u32, end: u32) -> Self {
+        self.item_type = Some(ConflictItemType::AddressRange);
+        self.item = Some(format!("{}-{}", format_u32_address(start), format_u32_address(end)));
+        self
+    }
+}
+
+/// A resource operation failed: human text plus the structured detail.
+///
+/// The transport layer turns this into a REST `ProblemDetail` or a gRPC
+/// `Status`. `conflict.code` decides the status: `Validation` → 422 /
+/// `INVALID_ARGUMENT`, anything else → 409 / `FAILED_PRECONDITION`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResourceError {
+    /// Human-readable explanation (goes into `ProblemDetail.detail`).
+    pub detail: String,
+    /// Machine-readable detail.
+    pub conflict: ResourceConflict,
+}
+
+impl ResourceError {
+    /// A validation (request) error with no item.
+    pub fn validation(detail: impl Into<String>) -> Self {
+        ResourceError {
+            detail: detail.into(),
+            conflict: ResourceConflict::new(ConflictCode::Validation),
+        }
+    }
+
+    /// Returns `true` if this is a request error (422 / `INVALID_ARGUMENT`).
+    pub fn is_validation(&self) -> bool {
+        self.conflict.code == ConflictCode::Validation
+    }
+}
+
+impl fmt::Display for ResourceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.detail)
+    }
+}
+
+/// Format a Classic endpoint address the way the API writes it: `0x05`.
+pub fn format_ep_address(address: u8) -> String {
+    format!("0x{:02X}", address)
+}
+
+/// Format a 32-bit address the way the API writes it: `0x44A60000`.
+pub fn format_u32_address(address: u32) -> String {
+    format!("0x{:08X}", address)
+}
+
+// ============================================================================
+// Holdings (per-user view, ADR-034 P5)
+// ============================================================================
+
+/// One resource held by a user, as shown in `UserSession.holdings`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Holding {
+    /// The held resource.
+    pub resource_id: ResourceId,
+    /// The mode the user acquired with.
+    pub mode: AccessMode,
+    /// `true` if this user holds the resource's lock.
+    pub locked: bool,
+}
+
+// ============================================================================
 // Acquisition Denied Error
 // ============================================================================
 
@@ -574,6 +860,34 @@ impl fmt::Display for AcquisitionDenied {
             }
         }
     }
+}
+
+impl AcquisitionDenied {
+    /// The structured D73 detail for this denial, when one of the D73 codes
+    /// fits; `None` otherwise (the response then carries only text).
+    ///
+    /// - `ExclusivelyHeld` → `locked` (someone else holds the resource).
+    /// - `AlreadyShared` → `mode_mismatch` (exclusive requested on a shared
+    ///   resource; the full A1 rule arrives in 44-C).
+    pub fn to_conflict(&self, resource: &Resource) -> Option<ResourceConflict> {
+        let code = match self {
+            AcquisitionDenied::ExclusivelyHeld { .. } => ConflictCode::Locked,
+            AcquisitionDenied::AlreadyShared { .. } => ConflictCode::ModeMismatch,
+            _ => return None,
+        };
+        Some(ResourceConflict::new(code).with_resource(&resource.id, &resource.name))
+    }
+}
+
+/// Why [`ResourceRegistry::try_register`] refused a resource.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegisterError {
+    /// A resource with the same ID (`{serial}:{name}`) already exists.
+    /// REST 409 / gRPC `FAILED_PRECONDITION`, without a `conflict` object
+    /// (no D73 code describes a duplicate name).
+    Duplicate,
+    /// The registration check failed (overlap or validation).
+    Rejected(ResourceError),
 }
 
 // ============================================================================
@@ -1176,6 +1490,58 @@ impl ResourceRegistry {
             map.insert(resource.id.clone(), resource);
             true
         }
+    }
+
+    /// Register a resource after running `check` against the resources that
+    /// already exist on the same device (ADR-034 registration).
+    ///
+    /// The check and the insert happen while holding the registry's write
+    /// lock, so two clients registering at the same moment cannot both pass
+    /// the overlap check (no "time-of-check to time-of-use" gap).
+    ///
+    /// `check` is a closure: the caller passes the rule to apply (today
+    /// [`crate::declaration::check_overlap`]). It receives the existing
+    /// resources of the device and the new resource.
+    ///
+    /// # Errors
+    /// - [`RegisterError::Duplicate`] if a resource with the same ID exists.
+    /// - [`RegisterError::Rejected`] if `check` returned an error.
+    pub fn try_register<F>(&self, resource: Resource, check: F) -> Result<(), RegisterError>
+    where
+        F: FnOnce(&[Resource], &Resource) -> Result<(), ResourceError>,
+    {
+        let mut map = self.resources.write().unwrap();
+        if map.contains_key(&resource.id) {
+            return Err(RegisterError::Duplicate);
+        }
+        let existing: Vec<Resource> = map
+            .values()
+            .filter(|r| r.device_serial == resource.device_serial)
+            .cloned()
+            .collect();
+        check(&existing, &resource).map_err(RegisterError::Rejected)?;
+        map.insert(resource.id.clone(), resource);
+        Ok(())
+    }
+
+    /// Every resource `user_id` holds, with the mode and whether the user
+    /// holds its lock (ADR-034 P5, `UserSession.holdings`).
+    ///
+    /// The list is sorted by resource ID so responses are stable.
+    pub fn holdings_for(&self, user_id: &str) -> Vec<Holding> {
+        let map = self.resources.read().unwrap();
+        let mut holdings: Vec<Holding> = map
+            .values()
+            .filter_map(|r| {
+                r.holder_entry(user_id).map(|h| Holding {
+                    resource_id: r.id.clone(),
+                    mode: h.mode,
+                    locked: r.locked_by.as_deref() == Some(user_id),
+                })
+            })
+            .collect();
+        holdings.sort_by(|a, b| a.resource_id.cmp(&b.resource_id));
+        holdings
     }
 
     /// Remove a resource by ID. Returns the removed resource, or `None`.
@@ -2319,7 +2685,7 @@ mod tests {
         let mut resource = test_resource_for_device("r1", "DEV_A");
         // Declare that this resource covers WireIn at 0x00 and PipeOut at 0xA0.
         resource.endpoints = Some(EndpointDeclaration {
-            default_access: AccessMode::Shared,
+            default_access: Some(AccessMode::Shared),
             entries: vec![
                 EndpointEntry {
                     address: 0x00,
@@ -2431,6 +2797,8 @@ mod tests {
         let registry = ResourceRegistry::new();
         let mut resource = test_resource_for_device("r1", "DEV_A");
         resource.address_ranges.push(AddressRange {
+            name: None,
+            description: None,
             start: 0x44A6_0000,
             end: 0x44A8_FFFF,
             access: AccessMode::Shared,
@@ -2459,6 +2827,8 @@ mod tests {
         let registry = ResourceRegistry::new();
         let mut resource = test_resource_for_device("r1", "DEV_A");
         resource.address_ranges.push(AddressRange {
+            name: None,
+            description: None,
             start: 0x44A6_0000,
             end: 0x44A8_FFFF,
             access: AccessMode::Shared,
@@ -2495,6 +2865,8 @@ mod tests {
         let registry = ResourceRegistry::new();
         let mut resource = test_resource_for_device("r1", "DEV_A");
         resource.address_ranges.push(AddressRange {
+            name: None,
+            description: None,
             start: 0x44A6_0000,
             end: 0x44A8_FFFF,
             access: AccessMode::Shared,
@@ -2575,7 +2947,7 @@ mod tests {
             AccessMode::Shared,
         );
         resource.endpoints = Some(EndpointDeclaration {
-            default_access: AccessMode::Shared,
+            default_access: Some(AccessMode::Shared),
             entries: vec![
                 EndpointEntry {
                     address: 0x01,
@@ -2595,12 +2967,16 @@ mod tests {
         });
         resource.address_ranges = vec![
             AddressRange {
+                name: None,
+                description: None,
                 start: 0x0000,
                 end: 0x00FF,
                 access: AccessMode::Exclusive, // DAC control — requires lock
                 private: false,
             },
             AddressRange {
+                name: None,
+                description: None,
                 start: 0x0100,
                 end: 0x01FF,
                 access: AccessMode::Shared, // Status — any holder
@@ -2907,7 +3283,7 @@ mod tests {
         let registry = ResourceRegistry::new();
         let mut resource = test_resource_for_device("r1", "DEV_A");
         resource.endpoints = Some(EndpointDeclaration {
-            default_access: AccessMode::Shared,
+            default_access: Some(AccessMode::Shared),
             entries: vec![
                 EndpointEntry {
                     address: 0x00,
@@ -2946,7 +3322,7 @@ mod tests {
         let registry = ResourceRegistry::new();
         let mut resource = test_resource_for_device("r1", "DEV_A");
         resource.endpoints = Some(EndpointDeclaration {
-            default_access: AccessMode::Shared,
+            default_access: Some(AccessMode::Shared),
             entries: vec![
                 EndpointEntry {
                     address: 0x20,
@@ -2986,12 +3362,16 @@ mod tests {
         let mut resource = test_resource_for_device("r1", "DEV_A");
         resource.address_ranges = vec![
             AddressRange {
+                name: None,
+                description: None,
                 start: 0x0000,
                 end: 0x00FF,
                 access: AccessMode::Shared,
                 private: true, // Private range
             },
             AddressRange {
+                name: None,
+                description: None,
                 start: 0x0100,
                 end: 0x01FF,
                 access: AccessMode::Shared,
@@ -3066,7 +3446,7 @@ mod tests {
         let registry = ResourceRegistry::new();
         let mut resource = test_resource_for_device("r1", "DEV_A");
         resource.endpoints = Some(EndpointDeclaration {
-            default_access: AccessMode::Shared,
+            default_access: Some(AccessMode::Shared),
             entries: vec![
                 EndpointEntry {
                     address: 0x20,
@@ -3173,7 +3553,7 @@ mod tests {
         let registry = ResourceRegistry::new();
         let mut resource = test_resource_for_device("r1", "DEV_A");
         resource.endpoints = Some(EndpointDeclaration {
-            default_access: AccessMode::Shared,
+            default_access: Some(AccessMode::Shared),
             entries: vec![EndpointEntry {
                 address: 0x20,
                 ep_type: EndpointType::WireOut,
@@ -3204,6 +3584,8 @@ mod tests {
         let registry = ResourceRegistry::new();
         let mut resource = test_resource_for_device("r1", "DEV_A");
         resource.address_ranges.push(AddressRange {
+            name: None,
+            description: None,
             start: 0x44A6_0000,
             end: 0x44A8_FFFF,
             access: AccessMode::Shared,
@@ -3254,6 +3636,129 @@ mod tests {
             .check_endpoint_access("bob", "DEV_A", 0x00, &EndpointType::WireIn, None)
             .unwrap_err();
         assert!(matches!(err, AccessDenied::ReadOnlyWriteAttempt { .. }));
+    }
+
+    // ── ADR-034 / 44-A wire formats ─────────────────────────────
+
+    #[test]
+    fn test_resource_state_as_str_uses_spec_strings() {
+        let cases = [
+            (ResourceState::Unavailable, "unavailable"),
+            (ResourceState::Initializing, "initializing"),
+            (ResourceState::Available, "available"),
+            (ResourceState::InUseShared, "in_use_shared"),
+            (ResourceState::InUseLocked, "in_use_locked"),
+        ];
+        for (state, text) in cases {
+            assert_eq!(state.as_str(), text);
+            // serde must agree with as_str().
+            assert_eq!(serde_json::to_string(&state).unwrap(), format!("\"{}\"", text));
+        }
+    }
+
+    #[test]
+    fn test_access_mode_as_str_uses_spec_strings() {
+        for (mode, text) in [
+            (AccessMode::Shared, "shared"),
+            (AccessMode::Exclusive, "exclusive"),
+            (AccessMode::ReadOnly, "read_only"),
+        ] {
+            assert_eq!(mode.as_str(), text);
+            assert_eq!(serde_json::to_string(&mode).unwrap(), format!("\"{}\"", text));
+            assert_eq!(AccessMode::parse_holder(text), Some(mode));
+        }
+        assert_eq!(AccessMode::parse_declared("read_only"), None);
+    }
+
+    #[test]
+    fn test_endpoint_type_parse_matches_display() {
+        for t in [
+            EndpointType::WireIn,
+            EndpointType::WireOut,
+            EndpointType::TriggerIn,
+            EndpointType::TriggerOut,
+            EndpointType::PipeIn,
+            EndpointType::PipeOut,
+            EndpointType::BtPipeIn,
+            EndpointType::BtPipeOut,
+        ] {
+            assert_eq!(EndpointType::parse(&t.to_string()), Some(t));
+        }
+        assert_eq!(EndpointType::parse("wire"), None);
+    }
+
+    #[test]
+    fn test_resource_conflict_serializes_snake_case() {
+        let c = ResourceConflict::new(ConflictCode::ModeMismatch)
+            .with_resource("SN:a", "a")
+            .with_range(0x10, 0x1F);
+        let v = serde_json::to_value(&c).unwrap();
+        assert_eq!(v["code"], "mode_mismatch");
+        assert_eq!(v["resource_id"], "SN:a");
+        assert_eq!(v["resource_name"], "a");
+        assert_eq!(v["item_type"], "address_range");
+        assert_eq!(v["item"], "0x00000010-0x0000001F");
+    }
+
+    #[test]
+    fn test_resource_conflict_omits_optional_fields() {
+        let v = serde_json::to_value(ResourceConflict::new(ConflictCode::Validation)).unwrap();
+        assert_eq!(v, serde_json::json!({"code": "validation"}));
+    }
+
+    #[test]
+    fn test_acquisition_denied_to_conflict_codes() {
+        let r = test_resource("r1");
+        let held = AcquisitionDenied::ExclusivelyHeld { held_by: "bob".into() };
+        assert_eq!(held.to_conflict(&r).unwrap().code, ConflictCode::Locked);
+        let shared = AcquisitionDenied::AlreadyShared { holder_count: 2 };
+        assert_eq!(shared.to_conflict(&r).unwrap().code, ConflictCode::ModeMismatch);
+        let custom = AcquisitionDenied::Custom { reason: "x".into() };
+        assert!(custom.to_conflict(&r).is_none());
+    }
+
+    #[test]
+    fn test_holdings_for_include_mode_and_locked() {
+        let registry = ResourceRegistry::new();
+        let mut shared = test_resource("b_shared");
+        shared.access_mode = Some(AccessMode::Shared);
+        registry.register(shared);
+        registry.register(test_resource("a_other"));
+        registry
+            .acquire("b_shared", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry.lock("b_shared", &"alice".to_string()).unwrap();
+        registry
+            .acquire("a_other", &"alice".to_string(), AccessMode::ReadOnly)
+            .unwrap();
+
+        let h = registry.holdings_for("alice");
+        assert_eq!(h.len(), 2);
+        assert_eq!(h[0].resource_id, "a_other");
+        assert_eq!(h[0].mode, AccessMode::ReadOnly);
+        assert!(!h[0].locked);
+        assert_eq!(h[1].resource_id, "b_shared");
+        assert_eq!(h[1].mode, AccessMode::Shared);
+        assert!(h[1].locked);
+        assert!(registry.holdings_for("nobody").is_empty());
+    }
+
+    #[test]
+    fn test_try_register_duplicate_and_rejected() {
+        let registry = ResourceRegistry::new();
+        assert!(registry.try_register(test_resource("r1"), |_, _| Ok(())).is_ok());
+        assert_eq!(
+            registry.try_register(test_resource("r1"), |_, _| Ok(())),
+            Err(RegisterError::Duplicate)
+        );
+        let err = registry
+            .try_register(test_resource("r2"), |existing, _| {
+                assert_eq!(existing.len(), 1);
+                Err(ResourceError::validation("nope"))
+            })
+            .unwrap_err();
+        assert!(matches!(err, RegisterError::Rejected(ref e) if e.is_validation()));
+        assert!(registry.get("r2").is_none());
     }
 }
 

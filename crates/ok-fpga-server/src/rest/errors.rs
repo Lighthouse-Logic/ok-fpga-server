@@ -9,6 +9,8 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;
 
+use ok_fpga_core::resource::{ResourceConflict, ResourceError};
+
 /// An RFC 7807 Problem Details response body.
 ///
 /// Every REST API error response uses this format. The `type` field is a
@@ -25,6 +27,14 @@ use serde::Serialize;
 ///   "detail": "Device 'ABC1234567' not found"
 /// }
 /// ```
+///
+/// ## Resource errors (ADR-034, D73)
+///
+/// Resource 409 / 422 responses may add a `conflict` object that names what
+/// clashed, for example
+/// `"conflict": {"code": "overlap", "resource_id": "SN:dac",
+/// "resource_name": "dac", "item_type": "endpoint", "item": "0x05"}`.
+/// It is left out of the JSON when there is nothing to report.
 #[derive(Debug, Serialize)]
 pub struct ProblemDetail {
     /// A URI reference that identifies the problem type.
@@ -40,6 +50,10 @@ pub struct ProblemDetail {
 
     /// A human-readable explanation specific to this occurrence.
     pub detail: String,
+
+    /// Machine-readable resource conflict / validation detail (D73).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conflict: Option<ResourceConflict>,
 }
 
 impl ProblemDetail {
@@ -53,7 +67,25 @@ impl ProblemDetail {
             title: status.canonical_reason().unwrap_or("Error").to_string(),
             status: status.as_u16(),
             detail: detail.into(),
+            conflict: None,
         }
+    }
+
+    /// Attach a D73 `conflict` object (builder style: returns `self`).
+    pub fn with_conflict(mut self, conflict: ResourceConflict) -> Self {
+        self.conflict = Some(conflict);
+        self
+    }
+
+    /// Convert a core [`ResourceError`]: `validation` → 422, every other
+    /// code → 409. The `conflict` object is always attached.
+    pub fn from_resource_error(err: ResourceError) -> Self {
+        let status = if err.is_validation() {
+            StatusCode::UNPROCESSABLE_ENTITY
+        } else {
+            StatusCode::CONFLICT
+        };
+        Self::new(status, err.detail).with_conflict(err.conflict)
     }
 
     /// Create a 404 Not Found problem.
@@ -110,5 +142,34 @@ impl IntoResponse for ProblemDetail {
                 .expect("valid content type"),
         );
         response
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ok_fpga_core::resource::ConflictCode;
+
+    #[test]
+    fn test_problem_detail_conflict_skipped_when_none() {
+        let v = serde_json::to_value(ProblemDetail::not_found("x")).unwrap();
+        assert!(v.get("conflict").is_none());
+    }
+
+    #[test]
+    fn test_problem_detail_from_resource_error_maps_status() {
+        let v = ProblemDetail::from_resource_error(ResourceError::validation("bad"));
+        assert_eq!(v.status, 422);
+        let overlap = ResourceError {
+            detail: "clash".into(),
+            conflict: ResourceConflict::new(ConflictCode::Overlap)
+                .with_resource("SN:a", "a")
+                .with_endpoint(5),
+        };
+        let p = ProblemDetail::from_resource_error(overlap);
+        assert_eq!(p.status, 409);
+        let v = serde_json::to_value(&p).unwrap();
+        assert_eq!(v["conflict"]["code"], "overlap");
+        assert_eq!(v["conflict"]["item"], "0x05");
     }
 }

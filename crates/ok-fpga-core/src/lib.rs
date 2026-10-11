@@ -55,6 +55,11 @@ pub mod dataport;
 /// Implements ADR-006 (resource model, access policies, registry).
 pub mod resource;
 
+/// Resource declarations: build a [`resource::Resource`] from a client's
+/// declaration and check it against existing resources (ADR-034). Shared by
+/// the REST and gRPC APIs.
+pub mod declaration;
+
 /// Device manager, registry, and hot-plug event system.
 /// Implements ADR-002 (device lifecycle, FrontPanelManager integration).
 pub mod manager;

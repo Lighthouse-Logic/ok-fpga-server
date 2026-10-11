@@ -78,14 +78,16 @@ The **ok-FPGA-Server** is a Rust-based service that wraps the Opal Kelly FrontPa
   - `FpgaDevice` — represents a connected FPGA with its `okTDeviceInfo`, settings, sensors
   - `DataPort` — trait abstraction over `FPGADataPortClassic` and `FPGADataPortAXI`
   - `Resource` — a named, user-defined capability from a programmed FPGA
-  - `ResourceState` — `Unavailable | Initializing | Available | InUseShared | InUseLocked`
+  - `ResourceState` — `unavailable | initializing | available | in_use_shared | in_use_locked` (spec strings, ADR-034 §2)
   - `BitfileRecord` — tracks filename, description, programming timestamp, user
 
-### Layer 3: API Layer
+### Layer 3: API Layer (`ok-fpga-server`)
 
-- **REST** (`ok-fpga-rest`): Axum-based, OpenAPI 3.0 spec-first, JSON responses, SSE for events
-- **gRPC** (`ok-fpga-grpc`): Tonic-based, proto3 spec-first, server streaming for events
-- **Web Dashboard** (`ok-fpga-web`): Axum static file serving + WebSocket/SSE for real-time updates
+All three front ends live in the `ok-fpga-server` crate:
+
+- **REST** (`src/rest/`): Axum-based, OpenAPI 3.0 spec-first, JSON responses, SSE for events
+- **gRPC** (`src/grpc/`): Tonic-based, proto3 spec-first, server streaming for events
+- **Web Dashboard** (`web/`, served by `src/management.rs`): Axum static file serving + SSE for real-time updates
 
 ### Layer 4: Configuration & Infrastructure
 
@@ -135,7 +137,7 @@ All decisions are recorded as ADRs in `docs/architecture/adr/`:
 | [ADR-017](adr/ADR-017-ffi-endpoint-wiring.md) | FFI Endpoint Wiring Strategy | Implemented |
 | [ADR-018](adr/ADR-018-device-handle-pool.md) | Device Handle Pool — Persistent Per-Device FFI Access | Implemented |
 | [ADR-019](adr/ADR-019-axi-interface-architecture.md) | AXI Interface Architecture — Lite, Full, and Stream | Implemented |
-| [ADR-020](adr/ADR-020-client-side-resource-registration.md) | Client-Side Resource Registration | Implemented |
+| [ADR-020](adr/ADR-020-client-side-resource-registration.md) | Client-Side Resource Registration | Implemented (§7–§8, Validation table superseded by ADR-034) |
 | [ADR-021](adr/ADR-021-settings-ffi-wiring.md) | Device Settings FFI Wiring | Implemented |
 | [ADR-022](adr/ADR-022-dashboard-logging.md) | Dashboard Log Streaming & Level Filtering | Implemented |
 | [ADR-023](adr/ADR-023-gui-example-clients.md) | GUI Example Clients — Interactive Counters.bit Demo | Implemented |
@@ -143,11 +145,14 @@ All decisions are recorded as ADRs in `docs/architecture/adr/`:
 | [ADR-025](adr/ADR-025-classic-address-mapping.md) | Developer-Defined Classic Address Mapping | Implemented |
 | [ADR-026](adr/ADR-026-readonly-acquisition.md) | Read-Only Acquisition & Private Data | Implemented |
 | [ADR-027](adr/ADR-027-native-mdns-registration.md) | OS-Native mDNS Registration | Accepted (Phase 31) |
-| [ADR-028](adr/ADR-028-configure-fpga-api-alignment.md) | Configure FPGA API Alignment | Proposed (Phase 36) |
+| [ADR-028](adr/ADR-028-configure-fpga-api-alignment.md) | Configure FPGA API Alignment | Implemented |
 | [ADR-029](adr/ADR-029-user-identification-consistency.md) | User Identification Consistency | Proposed (Phase 38) |
 | [ADR-030](adr/ADR-030-sse-event-expansion.md) | SSE Event Expansion | Proposed (Phase 39) |
-| [ADR-031](adr/ADR-031-mqtt-discovery.md) | MQTT Cross-Subnet Server Discovery | Implemented ✅ |
-| [ADR-032](adr/ADR-032-mqtt-report-by-exception.md) | MQTT Report-by-Exception Publishing | Implemented ✅ |
+| [ADR-031](adr/ADR-031-mqtt-discovery.md) | MQTT Cross-Subnet Server Discovery | Implemented |
+| [ADR-032](adr/ADR-032-mqtt-report-by-exception.md) | MQTT Report-by-Exception Publishing | Implemented |
+| [ADR-033](adr/ADR-033-singleton-guard.md) | Singleton Instance Guard & Startup Safety | Implemented |
+| [ADR-034](adr/ADR-034-resource-model-consolidation.md) | Resource Model Consolidation | Accepted (Phase 44; 44-A implemented) |
+
 ## 6. Technology Stack
 
 | Concern | Technology | Crate |
@@ -180,41 +185,8 @@ Cross-platform packaging:
 
 ## 8. Architecture Decision Records
 
-| ADR | Title | Status |
-|-----|-------|--------|
-| [ADR-001](adr/ADR-001-ffi-strategy.md) | FFI Strategy | Implemented ✅ |
-| [ADR-002](adr/ADR-002-device-lifecycle.md) | Device Lifecycle | Implemented ✅ |
-| [ADR-003](adr/ADR-003-data-port-abstraction.md) | Data Port Abstraction | Implemented ✅ |
-| [ADR-004](adr/ADR-004-rest-api-design.md) | REST API Design | Implemented ✅ |
-| [ADR-005](adr/ADR-005-grpc-api-design.md) | gRPC API Design | Implemented ✅ |
-| [ADR-006](adr/ADR-006-resource-management.md) | Resource Management | Implemented ✅ |
-| [ADR-007](adr/ADR-007-web-dashboard.md) | Web Dashboard | Implemented ✅ |
-| [ADR-008](adr/ADR-008-authentication.md) | Authentication | Implemented ✅ |
-| [ADR-009](adr/ADR-009-board-syzygy.md) | Board & SYZYGY Discovery | Implemented ✅ |
-| [ADR-010](adr/ADR-010-service-manager.md) | Service Manager | Implemented ✅ |
-| [ADR-011](adr/ADR-011-mqtt-publishing.md) | MQTT Publishing | Implemented ✅ |
-| [ADR-012](adr/ADR-012-mdns-discovery.md) | mDNS Discovery | Implemented ✅ |
-| [ADR-013](adr/ADR-013-device-scanner.md) | Device Scanner | Implemented ✅ |
-| [ADR-014](adr/ADR-014-example-clients.md) | Example Clients | Implemented ✅ |
-| [ADR-015](adr/ADR-015-http-method-semantics.md) | HTTP Method Semantics | Implemented ✅ |
-| [ADR-016](adr/ADR-016-hardware-integration-testing.md) | Hardware Integration Testing | Implemented ✅ |
-| [ADR-017](adr/ADR-017-ffi-endpoint-wiring.md) | FFI Endpoint Wiring | Implemented ✅ |
-| [ADR-018](adr/ADR-018-device-handle-pool.md) | Device Handle Pool | Implemented ✅ |
-| [ADR-019](adr/ADR-019-axi-interface-architecture.md) | AXI Interface Architecture | Implemented ✅ |
-| [ADR-020](adr/ADR-020-client-side-resource-registration.md) | Client-Side Resource Registration | Implemented ✅ |
-| [ADR-021](adr/ADR-021-settings-ffi-wiring.md) | Settings FFI Wiring | Implemented ✅ |
-| [ADR-022](adr/ADR-022-dashboard-logging.md) | Dashboard Logging | Implemented ✅ |
-| [ADR-023](adr/ADR-023-gui-example-clients.md) | GUI Example Clients | Implemented ✅ |
-| [ADR-024](adr/ADR-024-endpoint-access-enforcement.md) | Endpoint Access Enforcement | Implemented ✅ |
-| [ADR-025](adr/ADR-025-classic-address-mapping.md) | Developer-Defined Classic Address Mapping | Implemented ✅ |
-| [ADR-026](adr/ADR-026-readonly-acquisition.md) | Read-Only Acquisition & Private Data | Implemented ✅ |
-| [ADR-027](adr/ADR-027-native-mdns-registration.md) | OS-Native mDNS Registration | Accepted (Phase 31) |
-| [ADR-028](adr/ADR-028-configure-fpga-api-alignment.md) | Configure FPGA API Alignment | Proposed (Phase 36) |
-| [ADR-029](adr/ADR-029-user-identification-consistency.md) | User Identification Consistency | Proposed (Phase 38) |
-| [ADR-030](adr/ADR-030-sse-event-expansion.md) | SSE Event Expansion | Proposed (Phase 39) |
-| [ADR-031](adr/ADR-031-mqtt-discovery.md) | MQTT Cross-Subnet Server Discovery | Implemented ✅ |
-| [ADR-032](adr/ADR-032-mqtt-report-by-exception.md) | MQTT Report-by-Exception Publishing | Implemented ✅ |
-| [ADR-033](adr/ADR-033-singleton-guard.md) | Singleton Instance Guard & Startup Safety | Implemented ✅ |
+See the table in [§5](#5-key-architectural-decisions) (single source; the
+duplicate table that used to be here was removed in ADR-034 / SD-02).
 
 ## 9. References
 

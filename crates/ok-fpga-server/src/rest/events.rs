@@ -57,34 +57,9 @@ async fn subscribe_events(
     let stream = BroadcastStream::new(rx).filter_map(|result| {
         match result {
             Ok(event) => {
-                // Serialize the event to JSON.
-                let json = serde_json::to_string(&event).unwrap_or_default();
-
-                // Determine the SSE event type from the enum variant name.
-                let event_type = match &event {
-                    ok_fpga_core::manager::DeviceEvent::DeviceAdded { .. } => "DeviceAdded",
-                    ok_fpga_core::manager::DeviceEvent::DeviceRemoved { .. } => "DeviceRemoved",
-                    ok_fpga_core::manager::DeviceEvent::DeviceProgrammed { .. } => {
-                        "DeviceProgrammed"
-                    }
-                    ok_fpga_core::manager::DeviceEvent::ResourceChanged { .. } => {
-                        "ResourceChanged"
-                    }
-                    // Phase 39 (ADR-030): New event types
-                    ok_fpga_core::manager::DeviceEvent::UserConnected { .. } => "UserConnected",
-                    ok_fpga_core::manager::DeviceEvent::UserDisconnected { .. } => {
-                        "UserDisconnected"
-                    }
-                    ok_fpga_core::manager::DeviceEvent::ResourceCreated { .. } => {
-                        "ResourceCreated"
-                    }
-                    ok_fpga_core::manager::DeviceEvent::ResourceDeleted { .. } => {
-                        "ResourceDeleted"
-                    }
-                    ok_fpga_core::manager::DeviceEvent::ServerShutdown { .. } => "ServerShutdown",
-                };
-
-                let sse_event = Event::default().event(event_type).data(json);
+                let sse_event = Event::default()
+                    .event(event.name())
+                    .data(event_data_json(&event));
                 Some(Ok(sse_event))
             }
             Err(_) => {
@@ -100,4 +75,52 @@ async fn subscribe_events(
             .interval(std::time::Duration::from_secs(15))
             .text("ping"),
     )
+}
+
+/// The JSON for an SSE `data:` line: the variant's own fields.
+///
+/// `DeviceEvent` uses serde's default *externally tagged* enum layout, so
+/// `serde_json` writes `{"ResourceChanged":{"resource_id":...}}`. The
+/// OpenAPI spec says `data` is the inner object (the event name already
+/// travels in the SSE `event:` line), so we unwrap the single-key wrapper.
+fn event_data_json(event: &ok_fpga_core::manager::DeviceEvent) -> String {
+    let value = serde_json::to_value(event).unwrap_or(serde_json::Value::Null);
+    let inner = match value {
+        serde_json::Value::Object(map) if map.len() == 1 => {
+            map.into_iter().next().map(|(_, v)| v).unwrap_or_default()
+        }
+        other => other,
+    };
+    inner.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ok_fpga_core::manager::{DeleteReason, DeviceEvent};
+
+    #[test]
+    fn test_event_data_json_resource_changed_is_unwrapped() {
+        let event = DeviceEvent::ResourceChanged {
+            resource_id: "S:r".to_string(),
+            new_state: "in_use_locked".to_string(),
+            timestamp: chrono::Utc::now(),
+        };
+        let json: serde_json::Value = serde_json::from_str(&event_data_json(&event)).unwrap();
+        assert_eq!(json["resource_id"], "S:r");
+        assert_eq!(json["new_state"], "in_use_locked");
+        assert!(json.get("ResourceChanged").is_none());
+        assert_eq!(event.name(), "ResourceChanged");
+    }
+
+    #[test]
+    fn test_event_data_json_resource_deleted_includes_reason() {
+        let event = DeviceEvent::ResourceDeleted {
+            resource_id: "S:r".to_string(),
+            reason: DeleteReason::Client,
+            timestamp: chrono::Utc::now(),
+        };
+        let json: serde_json::Value = serde_json::from_str(&event_data_json(&event)).unwrap();
+        assert_eq!(json["reason"], "client");
+    }
 }

@@ -218,35 +218,13 @@ struct DeviceBitfileInfo {
     programmed_by: String,
 }
 
-/// Resource information response for the `/mgmt/resources` endpoint.
+/// Resource information for the `/mgmt/resources` endpoint.
 ///
-/// Provides a JSON-friendly summary of each registered resource.
-/// Used by the dashboard's Resources page (Phase 25-Fix-G, F6).
-/// Phase 28D: enriched with description, access_mode, and metadata.
-#[derive(Serialize)]
-struct ResourceInfoResponse {
-    /// Unique resource identifier.
-    id: String,
-    /// Human-readable resource name.
-    name: String,
-    /// Serial number of the device that hosts this resource.
-    device_serial: String,
-    /// Current state (e.g., "Available", "InUseShared", "InUseLocked").
-    state: String,
-    /// Users currently holding this resource.
-    holders: Vec<String>,
-    /// Who locked the resource (if any).
-    locked_by: Option<String>,
-    /// Optional resource description (Phase 28D).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    /// Design-level access mode: "shared" or "exclusive" (Phase 28D).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    access_mode: Option<String>,
-    /// Extensible key-value metadata (Phase 28D).
-    #[serde(skip_serializing_if = "std::collections::HashMap::is_empty")]
-    metadata: std::collections::HashMap<String, String>,
-}
+/// Since ADR-034 (44-A) this is the same JSON shape as the public REST
+/// `Resource` (see [`crate::views::ResourceView`]): spec state strings,
+/// holders with their mode, declarations and metadata. Used by the
+/// dashboard's Resources page.
+type ResourceInfoResponse = crate::views::ResourceView;
 
 /// User session response for the `/mgmt/users` endpoint.
 ///
@@ -258,6 +236,8 @@ struct UserSessionResponse {
     user_id: String,
     /// Resource IDs currently held by this user.
     held_resources: Vec<String>,
+    /// Held resources with acquire mode and lock flag (ADR-034 P5).
+    holdings: Vec<crate::views::HoldingView>,
     /// ISO 8601 timestamp of last activity.
     last_seen_at: String,
 }
@@ -380,17 +360,7 @@ async fn mgmt_list_resources(State(state): State<Arc<MgmtState>>) -> Json<Vec<Re
         .resource_registry
         .list()
         .iter()
-        .map(|r| ResourceInfoResponse {
-            id: r.id.clone(),
-            name: r.name.clone(),
-            device_serial: r.device_serial.clone(),
-            state: format!("{:?}", r.state),
-            holders: r.holders.iter().map(|h| h.user_id.clone()).collect(),
-            locked_by: r.locked_by.clone(),
-            description: r.description.clone(),
-            access_mode: r.access_mode.as_ref().map(|m| format!("{:?}", m).to_lowercase()),
-            metadata: r.metadata.clone(),
-        })
+        .map(ResourceInfoResponse::from)
         .collect();
     Json(resources)
 }
@@ -408,6 +378,13 @@ async fn mgmt_list_users(State(state): State<Arc<MgmtState>>) -> Json<Vec<UserSe
         .map(|u| UserSessionResponse {
             user_id: u.user_id.clone(),
             held_resources: u.held_resource_ids.clone(),
+            holdings: state
+                .app
+                .resource_registry
+                .holdings_for(&u.user_id)
+                .iter()
+                .map(crate::views::HoldingView::from)
+                .collect(),
             last_seen_at: u.last_seen_at.to_rfc3339(),
         })
         .collect();
@@ -1387,7 +1364,7 @@ mod tests {
         assert_eq!(resources[0]["id"], "res-001");
         assert_eq!(resources[0]["name"], "Counter Resource");
         assert_eq!(resources[0]["device_serial"], "SN001");
-        assert_eq!(resources[0]["state"], "Available");
+        assert_eq!(resources[0]["state"], "available");
     }
 
     // ------------------------------------------------------------------

@@ -399,13 +399,45 @@ async function fetchResources() {
     table.style.display = 'table';
     tbody.innerHTML = '';
 
+    const none = '<span class="text-muted">none</span>';
     data.forEach((res, i) => {
-        const holdersStr = res.holders.length
-            ? res.holders.join(', ')
+        // ADR-034: holders are objects ({user_id, mode}) and state uses the
+        // spec's lowercase strings ('available', 'acquired', 'locked', ...).
+        const holders = res.holders || [];
+        const holdersStr = holders.length
+            ? holders.map(h => `${escapeHtml(h.user_id)} <span class="text-muted">(${escapeHtml(h.mode)})</span>`).join(', ')
             : '<span style="color: var(--text-muted)">none</span>';
-        const stateBadge = res.state === 'Available'
-            ? '<span class="badge badge-true">Available</span>'
+        const stateBadge = res.state === 'available'
+            ? '<span class="badge badge-true">available</span>'
             : `<span class="badge badge-warning">${escapeHtml(res.state)}</span>`;
+
+        const interfacesStr = (res.interfaces && res.interfaces.length)
+            ? res.interfaces.map(escapeHtml).join(', ')
+            : none;
+
+        let endpointsHtml = none;
+        if (res.endpoints && res.endpoints.entries && res.endpoints.entries.length > 0) {
+            endpointsHtml = `<div class="text-muted">default access: ${escapeHtml(res.endpoints.default_access || '—')}</div>` +
+                '<table class="detail-mini-table"><tbody>' +
+                res.endpoints.entries.map(e =>
+                    `<tr><td class="label"><code>${escapeHtml(e.address)}</code></td>` +
+                    `<td>${escapeHtml(e.type)}</td><td>${escapeHtml(e.access)}${e.private ? ' · private' : ''}</td>` +
+                    `<td>${escapeHtml(e.description || '')}</td></tr>`
+                ).join('') + '</tbody></table>';
+        } else if (res.endpoints) {
+            endpointsHtml = `<span class="text-muted">default access: ${escapeHtml(res.endpoints.default_access || '—')}</span>`;
+        }
+
+        let rangesHtml = none;
+        if (res.address_ranges && res.address_ranges.length > 0) {
+            rangesHtml = '<table class="detail-mini-table"><tbody>' +
+                res.address_ranges.map(r =>
+                    `<tr><td class="label">${escapeHtml(r.name || '—')}</td>` +
+                    `<td><code>${escapeHtml(r.start)}–${escapeHtml(r.end)}</code></td>` +
+                    `<td>${escapeHtml(r.access)}${r.private ? ' · private' : ''}</td>` +
+                    `<td>${escapeHtml(r.description || '')}</td></tr>`
+                ).join('') + '</tbody></table>';
+        }
 
         // Build metadata rows for detail panel.
         let metadataHtml = '<span class="text-muted">none</span>';
@@ -432,7 +464,13 @@ async function fetchResources() {
                             <tr><td class="label">Description</td><td>${escapeHtml(res.description || '—')}</td></tr>
                             <tr><td class="label">Access Mode</td><td>${escapeHtml(res.access_mode || '—')}</td></tr>
                             <tr><td class="label">Locked By</td><td>${escapeHtml(res.locked_by || '—')}</td></tr>
+                            <tr><td class="label">Private</td><td>${res.private ? 'yes' : 'no'}</td></tr>
+                            <tr><td class="label">Interfaces</td><td>${interfacesStr}</td></tr>
                         </table>
+                        <h4 style="margin-top:12px;">Endpoints</h4>
+                        ${endpointsHtml}
+                        <h4 style="margin-top:12px;">Address Ranges</h4>
+                        ${rangesHtml}
                         <h4 style="margin-top:12px;">Metadata</h4>
                         ${metadataHtml}
                     </div>
@@ -474,12 +512,17 @@ async function fetchUsers() {
 
     data.forEach(user => {
         const tr = document.createElement('tr');
-        const resourcesStr = user.held_resources.length
-            ? user.held_resources.map(r => `<code>${r.substring(0, 8)}…</code>`).join(', ')
+        // ADR-034: `holdings` gives the mode and lock flag per resource.
+        const holdings = user.holdings || [];
+        const resourcesStr = holdings.length
+            ? holdings.map(h =>
+                `<code>${escapeHtml(h.resource_id.substring(0, 8))}…</code> ` +
+                `<span class="text-muted">(${escapeHtml(h.mode)}${h.locked ? ', locked' : ''})</span>`
+              ).join(', ')
             : '<span style="color: var(--text-muted)">none</span>';
         const lastSeen = new Date(user.last_seen_at).toLocaleString();
         tr.innerHTML = `
-            <td><strong>${user.user_id}</strong></td>
+            <td><strong>${escapeHtml(user.user_id)}</strong></td>
             <td>${resourcesStr}</td>
             <td>${lastSeen}</td>`;
         tbody.appendChild(tr);

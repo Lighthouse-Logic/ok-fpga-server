@@ -6,10 +6,20 @@
 
 use std::sync::Arc;
 
-use tonic::{Request, Response, Status};
+use tonic::{Code, Request, Response, Status};
 use tracing::{info, warn};
 
+use ok_fpga_core::declaration::{build_resource, check_overlap};
+use ok_fpga_core::manager::{DeleteReason, DeviceEvent};
+use ok_fpga_core::resource::{
+    AccessMode, ConflictCode, RegisterError, ResourceConflict,
+};
+
 use crate::grpc::proto;
+use crate::grpc::resource_mapping::{
+    conflict_status, create_request_to_spec, holder_mode_from_proto, resource_error_status,
+    user_session_to_proto,
+};
 use crate::state::AppState;
 
 /// gRPC implementation of the `DeviceService`.
@@ -45,26 +55,49 @@ impl DeviceServiceImpl {
         }
     }
 
-    /// Convert a core Resource into a proto Resource message.
+    /// Convert a core Resource into a proto Resource message (ADR-034).
     fn resource_to_proto(r: &ok_fpga_core::resource::Resource) -> proto::Resource {
-        use ok_fpga_core::resource::ResourceState;
-        let state = match r.state {
-            ResourceState::Unavailable => proto::ResourceState::Unavailable as i32,
-            ResourceState::Initializing => proto::ResourceState::Initializing as i32,
-            ResourceState::Available => proto::ResourceState::Available as i32,
-            ResourceState::InUseShared => proto::ResourceState::InUseShared as i32,
-            ResourceState::InUseLocked => proto::ResourceState::InUseLocked as i32,
-        };
-        proto::Resource {
-            id: r.id.clone(),
-            name: r.name.clone(),
-            description: r.description.clone().unwrap_or_default(),
-            device_serial: r.device_serial.clone(),
-            state,
-            holders: r.holder_ids().iter().map(|s| s.to_string()).collect(),
-            private: r.private,
-            // Phase 34-A: Populate locked_by from the core Resource field.
-            locked_by: r.locked_by.clone().unwrap_or_default(),
+        crate::grpc::resource_mapping::resource_to_proto(r)
+    }
+
+    /// A successful `ErrorCluster` (no error).
+    fn ok_cluster() -> Option<proto::ErrorCluster> {
+        Some(proto::ErrorCluster {
+            status: false,
+            code: 0,
+            source: String::new(),
+        })
+    }
+
+    /// Broadcast `ResourceChanged` with the resource's spec state string,
+    /// exactly as the REST handlers do (one event stream for both APIs).
+    fn emit_resource_changed(&self, id: &str) {
+        if let Some(resource) = self.state.resource_registry.get(id) {
+            let _ = self.state.device_manager.broadcast(DeviceEvent::ResourceChanged {
+                resource_id: id.to_string(),
+                new_state: resource.state.as_str().to_string(),
+                timestamp: chrono::Utc::now(),
+            });
+        }
+    }
+
+    /// Turn a failed lock/unlock into a `Status`: `NOT_FOUND` for an
+    /// unknown resource, otherwise `FAILED_PRECONDITION`, with a `locked`
+    /// conflict detail when another user holds the lock (same rule as REST).
+    fn lock_failure(&self, id: &str, user_id: &str, message: String) -> Status {
+        match self.state.resource_registry.get(id) {
+            None => Status::not_found(format!("Resource '{}' not found", id)),
+            Some(resource) => match resource.locked_by.as_deref() {
+                Some(locker) if locker != user_id => conflict_status(
+                    Code::FailedPrecondition,
+                    message,
+                    Some(
+                        &ResourceConflict::new(ConflictCode::Locked)
+                            .with_resource(&resource.id, &resource.name),
+                    ),
+                ),
+                _ => Status::failed_precondition(message),
+            },
         }
     }
 }
@@ -965,25 +998,37 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             return Err(Status::invalid_argument("user_id is required"));
         }
 
-        let mode = if req.mode == proto::AccessMode::Exclusive as i32 {
-            ok_fpga_core::resource::AccessMode::Exclusive
-        } else if req.mode == 2 {
-            // ACCESS_MODE_READ_ONLY = 2 (ADR-026)
-            ok_fpga_core::resource::AccessMode::ReadOnly
-        } else {
-            ok_fpga_core::resource::AccessMode::Shared
+        // ADR-034 P3: `mode` is optional. When omitted, use the resource's
+        // declared mode (falling back to Shared for legacy resources).
+        let resource = self
+            .state
+            .resource_registry
+            .get(&req.resource_id)
+            .ok_or_else(|| Status::not_found(format!("Resource '{}' not found", req.resource_id)))?;
+        let mode = match req.mode {
+            Some(value) => holder_mode_from_proto(value).map_err(|e| resource_error_status(&e))?,
+            None => resource.access_mode.unwrap_or(AccessMode::Shared),
         };
 
-        self.state
+        if let Err(denied) = self
+            .state
             .resource_registry
             .acquire(&req.resource_id, &req.user_id, mode)
-            .map_err(|e| Status::failed_precondition(e.to_string()))?;
+        {
+            return Err(conflict_status(
+                Code::FailedPrecondition,
+                denied.to_string(),
+                denied.to_conflict(&resource).as_ref(),
+            ));
+        }
 
         let resource = self
             .state
             .resource_registry
             .get(&req.resource_id)
             .ok_or_else(|| Status::internal("Resource vanished after acquire"))?;
+
+        self.emit_resource_changed(&req.resource_id);
 
         // Broadcast event for dashboard auto-refresh (Phase 28D).
         self.state.broadcast_event(&format!(
@@ -993,11 +1038,7 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
 
         Ok(Response::new(proto::ResourceResponse {
             resource: Some(Self::resource_to_proto(&resource)),
-            error: Some(proto::ErrorCluster {
-                status: false,
-                code: 0,
-                source: String::new(),
-            }),
+            error: Self::ok_cluster(),
         }))
     }
 
@@ -1025,6 +1066,8 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             )));
         }
 
+        self.emit_resource_changed(&req.resource_id);
+
         // Broadcast event for dashboard auto-refresh (Phase 28D).
         self.state.broadcast_event(&format!(
             r#"{{"type":"resource_released","resource_id":"{}","user_id":"{}"}}"#,
@@ -1040,75 +1083,72 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         }))
     }
 
+    /// `CreateResource` — register a resource (ADR-034).
+    ///
+    /// Same steps and rules as REST `POST /resources`: build and validate
+    /// the declaration (`INVALID_ARGUMENT`), check the device (`NOT_FOUND` /
+    /// `FAILED_PRECONDITION`), then run the overlap check and insert
+    /// atomically. A duplicate name is `FAILED_PRECONDITION` (REST 409).
     async fn create_resource(
         &self,
         request: Request<proto::CreateResourceRequest>,
     ) -> Result<Response<proto::ResourceResponse>, Status> {
         let req = request.into_inner();
 
-        // Validate required fields.
-        if req.name.is_empty() {
-            return Err(Status::invalid_argument("name is required"));
-        }
-        if req.device_serial.is_empty() {
-            return Err(Status::invalid_argument("device_serial is required"));
-        }
+        let spec = create_request_to_spec(req).map_err(|e| resource_error_status(&e))?;
+        let resource = build_resource(spec).map_err(|e| resource_error_status(&e))?;
 
         // Validate the device exists and is programmed.
-        let registry = self.state.device_manager.registry();
-        match registry.get(&req.device_serial) {
-            Some(dev) => {
-                if !dev.is_programmed() {
-                    return Err(Status::failed_precondition(
-                        "FPGA is not programmed — configure it first",
-                    ));
-                }
+        match self.state.device_manager.registry().get(&resource.device_serial) {
+            Some(dev) if dev.is_programmed() => {}
+            Some(_) => {
+                return Err(Status::failed_precondition(
+                    "FPGA is not programmed — configure it first",
+                ));
             }
             None => {
                 return Err(Status::not_found(format!(
                     "Device '{}' not found",
-                    req.device_serial
+                    resource.device_serial
                 )));
             }
         }
 
-        // Parse access mode (default to Shared for backward compatibility).
-        let access_mode = match req.resource_type.as_str() {
-            "exclusive" => ok_fpga_core::resource::AccessMode::Exclusive,
-            _ => ok_fpga_core::resource::AccessMode::Shared,
-        };
-
-        // Generate resource ID: {serial}:{name}
-        let resource_id = format!("{}:{}", req.device_serial, req.name);
-
-        let resource = ok_fpga_core::resource::Resource::new(
-            resource_id.clone(),
-            req.name,
-            if req.description.is_empty() {
-                None
-            } else {
-                Some(req.description)
-            },
-            req.device_serial,
-            access_mode,
-        );
-
-        if self.state.resource_registry.register(resource) {
-            let created = self.state.resource_registry.get(&resource_id).unwrap();
-            Ok(Response::new(proto::ResourceResponse {
-                resource: Some(Self::resource_to_proto(&created)),
-                error: Some(proto::ErrorCluster {
-                    status: false,
-                    code: 0,
-                    source: String::new(),
-                }),
-            }))
-        } else {
-            Err(Status::already_exists(format!(
-                "Resource '{}' already exists",
-                resource_id
-            )))
+        let resource_id = resource.id.clone();
+        let device_serial = resource.device_serial.clone();
+        let name = resource.name.clone();
+        match self.state.resource_registry.try_register(resource, check_overlap) {
+            Ok(()) => {}
+            Err(RegisterError::Duplicate) => {
+                return Err(Status::failed_precondition(format!(
+                    "Resource '{}' already exists",
+                    resource_id
+                )));
+            }
+            Err(RegisterError::Rejected(err)) => return Err(resource_error_status(&err)),
         }
+
+        let created = self
+            .state
+            .resource_registry
+            .get(&resource_id)
+            .ok_or_else(|| Status::internal("Resource vanished after registration"))?;
+
+        let _ = self.state.device_manager.broadcast(DeviceEvent::ResourceCreated {
+            resource_id: resource_id.clone(),
+            device_serial: device_serial.clone(),
+            name,
+            timestamp: chrono::Utc::now(),
+        });
+        self.state.broadcast_event(&format!(
+            r#"{{"type":"resource_registered","resource_id":"{}","device_serial":"{}"}}"#,
+            resource_id, device_serial
+        ));
+
+        Ok(Response::new(proto::ResourceResponse {
+            resource: Some(Self::resource_to_proto(&created)),
+            error: Self::ok_cluster(),
+        }))
     }
 
     async fn delete_resource(
@@ -1138,12 +1178,18 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
 
         self.state.resource_registry.remove(&req.resource_id);
 
+        let _ = self.state.device_manager.broadcast(DeviceEvent::ResourceDeleted {
+            resource_id: req.resource_id.clone(),
+            reason: DeleteReason::Client,
+            timestamp: chrono::Utc::now(),
+        });
+        self.state.broadcast_event(&format!(
+            r#"{{"type":"resource_deleted","resource_id":"{}"}}"#,
+            req.resource_id
+        ));
+
         Ok(Response::new(proto::StatusResponse {
-            error: Some(proto::ErrorCluster {
-                status: false,
-                code: 0,
-                source: String::new(),
-            }),
+            error: Self::ok_cluster(),
         }))
     }
 
@@ -1151,17 +1197,23 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
     // Users
     // ========================================================================
 
+    /// `ListUsers` — every active session with its holdings (ADR-034 P5).
     async fn list_users(
         &self,
         _request: Request<proto::ListUsersRequest>,
     ) -> Result<Response<proto::ListUsersResponse>, Status> {
+        let mut sessions = self.state.user_sessions.list();
+        sessions.sort_by(|a, b| a.user_id.cmp(&b.user_id));
+        let users = sessions
+            .iter()
+            .map(|s| {
+                let holdings = self.state.resource_registry.holdings_for(&s.user_id);
+                user_session_to_proto(s, &holdings)
+            })
+            .collect();
         Ok(Response::new(proto::ListUsersResponse {
-            users: vec![],
-            error: Some(proto::ErrorCluster {
-                status: false,
-                code: 0,
-                source: String::new(),
-            }),
+            users,
+            error: Self::ok_cluster(),
         }))
     }
 
@@ -1194,13 +1246,20 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         self.state
             .resource_registry
             .lock(&req.resource_id, &req.user_id)
-            .map_err(|e| Status::failed_precondition(e))?;
+            .map_err(|e| self.lock_failure(&req.resource_id, &req.user_id, e))?;
 
         let resource = self
             .state
             .resource_registry
             .get(&req.resource_id)
             .ok_or_else(|| Status::internal("Resource disappeared after lock"))?;
+
+        self.emit_resource_changed(&req.resource_id);
+        let _ = self.state.device_manager.broadcast(DeviceEvent::ResourceLocked {
+            resource_id: req.resource_id.clone(),
+            user_id: req.user_id.clone(),
+            timestamp: chrono::Utc::now(),
+        });
 
         // Broadcast event for dashboard auto-refresh (Phase 28D).
         self.state.broadcast_event(&format!(
@@ -1234,13 +1293,20 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         self.state
             .resource_registry
             .unlock(&req.resource_id, &req.user_id)
-            .map_err(|e| Status::failed_precondition(e))?;
+            .map_err(|e| self.lock_failure(&req.resource_id, &req.user_id, e))?;
 
         let resource = self
             .state
             .resource_registry
             .get(&req.resource_id)
             .ok_or_else(|| Status::internal("Resource disappeared after unlock"))?;
+
+        self.emit_resource_changed(&req.resource_id);
+        let _ = self.state.device_manager.broadcast(DeviceEvent::ResourceUnlocked {
+            resource_id: req.resource_id.clone(),
+            user_id: req.user_id.clone(),
+            timestamp: chrono::Utc::now(),
+        });
 
         // Broadcast event for dashboard auto-refresh (Phase 28D).
         self.state.broadcast_event(&format!(
@@ -1346,4 +1412,170 @@ fn cstr_from_char_array(buf: &[::std::os::raw::c_char]) -> String {
         .map(|&c| c as u8)
         .collect();
     String::from_utf8_lossy(&bytes).to_string()
+}
+
+// ============================================================================
+// Tests (Tier 3: call the service directly, no network)
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::grpc::proto::device_service_server::DeviceService;
+    use crate::grpc::resource_mapping::decode_conflict_detail;
+    use ok_fpga_core::device::*;
+    use ok_fpga_core::manager::DeviceManager;
+    use ok_fpga_core::resource::ResourceRegistry;
+    use ok_fpga_core::service_manager::ServiceManager;
+    use ok_fpga_core::user::UserSessionRegistry;
+
+    const SERIAL: &str = "GRPC0001";
+
+    /// A service whose state holds one programmed (emulated) device.
+    fn service() -> DeviceServiceImpl {
+        let device_manager = Arc::new(DeviceManager::new());
+        device_manager.registry().add(FpgaDevice {
+            info: DeviceInfo {
+                serial: SERIAL.to_string(),
+                product_name: "XEM8320-AU25P".to_string(),
+                product_id: 56,
+                device_interface: DeviceInterface::Usb3,
+                usb_speed: UsbSpeed::Super,
+                device_major_version: 1,
+                device_minor_version: 0,
+                wire_width: 32,
+                trigger_width: 32,
+                pipe_width: 32,
+                register_address_width: 32,
+                register_data_width: 32,
+                fpga_vendor: FpgaVendor::Xilinx,
+                dataport: DataportType::Legacy,
+                device_id: String::new(),
+            },
+            state: DeviceState::Programmed {
+                bitfile: BitfileRecord {
+                    filename: "test.bit".to_string(),
+                    description: None,
+                    programmed_at: chrono::Utc::now(),
+                    programmed_by: "tester".to_string(),
+                    file_path: None,
+                    md5_hash: None,
+                },
+            },
+        });
+        let auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider> =
+            Arc::from(ok_fpga_core::auth::create_provider("none", vec![], None));
+        DeviceServiceImpl::new(Arc::new(AppState::new(
+            device_manager,
+            Arc::new(ResourceRegistry::new()),
+            Arc::new(ServiceManager::new()),
+            None,
+            auth_provider,
+            Arc::new(ok_fpga_core::auth::SessionManager::new(3600)),
+            Arc::new(UserSessionRegistry::new()),
+            crate::state::EndpointEnforcement::Off,
+            crate::config::ServerConfig::default(),
+            None,
+        )))
+    }
+
+    /// An exclusive resource declaring wire-in 0x05.
+    fn create_request(name: &str) -> proto::CreateResourceRequest {
+        proto::CreateResourceRequest {
+            name: name.to_string(),
+            device_serial: SERIAL.to_string(),
+            access_mode: Some(proto::ResourceAccessMode::Exclusive as i32),
+            interfaces: vec!["classic".to_string()],
+            endpoints: Some(proto::EndpointDeclaration {
+                default_access: None,
+                entries: vec![proto::EndpointEntry {
+                    address: 0x05,
+                    r#type: "wire_in".to_string(),
+                    access: Some(proto::ResourceAccessMode::Exclusive as i32),
+                    private: false,
+                    description: String::new(),
+                }],
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_grpc_create_resource_duplicate_returns_failed_precondition() {
+        let svc = service();
+        svc.create_resource(Request::new(create_request("dup"))).await.unwrap();
+        let status = svc
+            .create_resource(Request::new(create_request("dup")))
+            .await
+            .unwrap_err();
+        assert_eq!(status.code(), Code::FailedPrecondition);
+        assert!(decode_conflict_detail(&status).is_none());
+    }
+
+    #[tokio::test]
+    async fn test_grpc_create_resource_overlap_returns_conflict_detail() {
+        let svc = service();
+        svc.create_resource(Request::new(create_request("a"))).await.unwrap();
+        let status = svc
+            .create_resource(Request::new(create_request("b")))
+            .await
+            .unwrap_err();
+        assert_eq!(status.code(), Code::FailedPrecondition);
+        let detail = decode_conflict_detail(&status).expect("conflict detail");
+        assert_eq!(detail.code, "overlap");
+        assert_eq!(detail.resource_id, format!("{SERIAL}:a"));
+        assert_eq!(detail.item, "0x05");
+    }
+
+    #[tokio::test]
+    async fn test_grpc_create_resource_shared_without_endpoints_returns_invalid_argument() {
+        let svc = service();
+        let mut req = create_request("bad");
+        req.endpoints = None;
+        req.access_mode = Some(proto::ResourceAccessMode::Shared as i32);
+        let status = svc.create_resource(Request::new(req)).await.unwrap_err();
+        assert_eq!(status.code(), Code::InvalidArgument);
+        assert_eq!(decode_conflict_detail(&status).unwrap().code, "validation");
+    }
+
+    #[tokio::test]
+    async fn test_grpc_acquire_resource_mode_omitted_uses_declared_mode() {
+        let svc = service();
+        svc.create_resource(Request::new(create_request("x"))).await.unwrap();
+        let resp = svc
+            .acquire_resource(Request::new(proto::AcquireResourceRequest {
+                resource_id: format!("{SERIAL}:x"),
+                user_id: "alice".to_string(),
+                mode: None,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        let resource = resp.resource.unwrap();
+        assert_eq!(resource.holders[0].mode, proto::AccessMode::Exclusive as i32);
+        assert_eq!(resource.state, proto::ResourceState::InUseLocked as i32);
+    }
+
+    #[tokio::test]
+    async fn test_grpc_list_users_includes_holdings() {
+        let svc = service();
+        svc.create_resource(Request::new(create_request("u"))).await.unwrap();
+        svc.state.user_sessions.touch("alice");
+        svc.acquire_resource(Request::new(proto::AcquireResourceRequest {
+            resource_id: format!("{SERIAL}:u"),
+            user_id: "alice".to_string(),
+            mode: None,
+        }))
+        .await
+        .unwrap();
+        let users = svc
+            .list_users(Request::new(proto::ListUsersRequest {}))
+            .await
+            .unwrap()
+            .into_inner()
+            .users;
+        assert_eq!(users.len(), 1);
+        assert_eq!(users[0].holdings[0].resource_id, format!("{SERIAL}:u"));
+        assert_eq!(users[0].holdings[0].mode, proto::AccessMode::Exclusive as i32);
+    }
 }

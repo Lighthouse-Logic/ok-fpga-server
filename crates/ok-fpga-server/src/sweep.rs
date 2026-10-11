@@ -99,13 +99,12 @@ pub fn spawn_sweep_task(
                             released_count += 1;
 
                             // Broadcast a ResourceChanged event (Option B — handlers broadcast).
-                            let new_state = if resource.holders.len() <= 1 {
-                                // This was the last holder — resource becomes Available.
-                                "Available"
-                            } else {
-                                // Other holders remain — resource stays in use.
-                                "In Use (Shared)"
-                            };
+                            // Read the state back after the release and send its spec
+                            // string (`available`, `in_use_shared`, ...; roadmap S-09).
+                            let new_state = resource_registry
+                                .get(&resource.id)
+                                .map(|r| r.state.as_str())
+                                .unwrap_or("available");
 
                             let _ = device_manager.broadcast(DeviceEvent::ResourceChanged {
                                 resource_id: resource.id.clone(),

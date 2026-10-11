@@ -72,6 +72,9 @@ mod state;
 /// Management server (always-on, serves dashboard + mgmt API on port 9090).
 mod management;
 
+/// JSON views of resources shared by the REST and management APIs (ADR-034).
+mod views;
+
 /// Device scanner — loads FrontPanel DLL and enumerates connected FPGAs.
 /// Used for both initial scan and periodic polling (ADR-013).
 mod scanner;

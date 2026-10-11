@@ -110,15 +110,35 @@ enum SensorType {
   SENSOR_TYPE_POWER = 8;
 }
 
-// Resource access mode when acquiring a resource.
+// Holder access mode: the mode a user acquires a resource with.
 enum AccessMode {
   ACCESS_MODE_SHARED = 0;
   ACCESS_MODE_EXCLUSIVE = 1;
-  // Read-only mode (ADR-026): observe outputs without write access.
-  // ReadOnly holders cannot call UpdateWireOuts, fire triggers, or write
-  // to input endpoints. They can join even exclusive resources unless the
+  // Read-only mode (ADR-026, ADR-034 P4): observe outputs without write
+  // access. ReadOnly holders cannot write input endpoints or call
+  // ActivateTriggerIn; they may call UpdateWireOuts / UpdateTriggerOuts
+  // (these are reads). They can join even exclusive resources unless the
   // resource is marked private.
   ACCESS_MODE_READ_ONLY = 2;
+}
+
+// Declared access mode of a resource or of one declared item (ADR-034).
+// Only shared and exclusive can be declared; read_only is a holder mode.
+// Always used as an `optional` field, so "not set" is distinguishable from
+// SHARED (there is deliberately no UNSPECIFIED value, D59).
+enum ResourceAccessMode {
+  RESOURCE_ACCESS_MODE_SHARED = 0;
+  RESOURCE_ACCESS_MODE_EXCLUSIVE = 1;
+}
+
+// Why a resource was deleted (ADR-034, D58).
+enum DeleteReason {
+  // A client called DeleteResource (or REST DELETE /resources/{id}).
+  DELETE_REASON_CLIENT = 0;
+  // The FPGA was reprogrammed (forced cleanup).
+  DELETE_REASON_REPROGRAM = 1;
+  // The FPGA configuration was cleared (forced cleanup).
+  DELETE_REASON_CLEAR = 2;
 }
 
 // ============================================================================
@@ -225,9 +245,13 @@ message SyzygyPort {
 // Resource Management Messages
 // ============================================================================
 
-// A user-defined resource exposed by a programmed FPGA.
+// A user-defined resource exposed by a programmed FPGA (ADR-034).
 message Resource {
-  // Unique resource identifier.
+  // Old `repeated string holders`; replaced by `holders = 9` (with mode).
+  // Only the number is reserved: the name lives on in field 9.
+  reserved 6;
+
+  // Unique resource identifier: "{device_serial}:{name}".
   string id = 1;
   // Human-readable name.
   string name = 2;
@@ -236,13 +260,83 @@ message Resource {
   string device_serial = 4;      // Serial of the FPGA providing this resource
   // Current resource state.
   ResourceState state = 5;
-  repeated string holders = 6;   // User IDs currently holding this resource
-  // When true, ReadOnly acquisition is denied entirely (ADR-026).
-  // Private resources are only visible to holders with Shared or Exclusive access.
+  // Access rule, not visibility (ADR-034 P13, D57): when true, ReadOnly
+  // acquisition is denied. Every user can still list and read the resource.
   bool private = 7;
   // Phase 34-A: User ID of the lock holder (empty string if not locked).
   // Populated when state == RESOURCE_STATE_IN_USE_LOCKED.
   string locked_by = 8;
+  // Current holders and the mode each acquired with (D37).
+  repeated Holder holders = 9;
+  // Declared mode of the resource.
+  optional ResourceAccessMode access_mode = 10;
+  // Data-port interfaces: "classic", "axi_lite", "axi_full", "axi_stream".
+  repeated string interfaces = 11;
+  // Classic endpoint declaration. Not set = the resource claims every
+  // classic endpoint exclusively (D68).
+  EndpointDeclaration endpoints = 12;
+  // Declared 32-bit address ranges.
+  repeated AddressRange address_ranges = 13;
+  // Text-only metadata (D69).
+  map<string, string> metadata = 14;
+}
+
+// One holder of a resource.
+message Holder {
+  // The holder's user ID.
+  string user_id = 1;
+  // The mode the user acquired with.
+  AccessMode mode = 2;
+}
+
+// Classic endpoint declaration of a resource.
+message EndpointDeclaration {
+  // Mode for entries without their own `access` (D61). Used only at
+  // registration; it never claims endpoints that are not listed.
+  optional ResourceAccessMode default_access = 1;
+  // Declared endpoints.
+  repeated EndpointEntry entries = 2;
+}
+
+// One declared Classic endpoint.
+message EndpointEntry {
+  // Endpoint address, 0x00-0xBF.
+  uint32 address = 1;
+  // "wire_in", "wire_out", "trigger_in", "trigger_out", "pipe_in",
+  // "pipe_out", "bt_pipe_in" or "bt_pipe_out"; must match the address.
+  string type = 2;
+  // Declared mode; falls back to EndpointDeclaration.default_access.
+  optional ResourceAccessMode access = 3;
+  // Item-level private flag (access rule, not visibility).
+  bool private = 4;
+  // Optional description.
+  string description = 5;
+}
+
+// One declared 32-bit address range (inclusive).
+message AddressRange {
+  // Optional range name.
+  string name = 1;
+  // First address.
+  uint32 start = 2;
+  // Last address (inclusive); must be >= start.
+  uint32 end = 3;
+  // Declared mode (required).
+  optional ResourceAccessMode access = 4;
+  // Item-level private flag (access rule, not visibility).
+  bool private = 5;
+  // Optional description.
+  string description = 6;
+}
+
+// One resource held by a user (ADR-034 P5).
+message Holding {
+  // The held resource.
+  string resource_id = 1;
+  // The mode the user acquired with.
+  AccessMode mode = 2;
+  // True if this user holds the resource's lock.
+  bool locked = 3;
 }
 
 // A connected user and their held resources.
@@ -252,6 +346,27 @@ message UserSession {
   string connected_at = 2;       // ISO 8601 timestamp
   // IDs of resources held by this user.
   repeated string held_resource_ids = 3;
+  // Held resources with mode and lock flag (ADR-034 P5).
+  repeated Holding holdings = 4;
+}
+
+// Machine-readable detail of a failed resource operation (ADR-034, D73).
+//
+// Sent in the standard `google.rpc.Status` error details (trailer
+// `grpc-status-details-bin`), packed as
+// `type.googleapis.com/okFPGAService.v1.ResourceConflictDetail`.
+// Same fields as the REST `ProblemDetail.conflict` object.
+message ResourceConflictDetail {
+  // "overlap", "locked", "blocked", "mode_mismatch" or "validation".
+  string code = 1;
+  // Existing resource involved (empty if none).
+  string resource_id = 2;
+  // Name of that resource (empty if none).
+  string resource_name = 3;
+  // "endpoint" or "address_range" (empty if none).
+  string item_type = 4;
+  // The item: "0x05" or "0x44A60000-0x44A6FFFF" (empty if none).
+  string item = 5;
 }
 
 // ============================================================================
@@ -284,7 +399,62 @@ message DeviceEvent {
     DeviceRemoved device_removed = 3;                       // Device disconnected.
     BitfileProgrammed bitfile_programmed = 4;               // FPGA programmed.
     ResourceStateChanged resource_state_changed = 5;        // Resource state changed.
+    // ADR-034 (P6): parity with the REST SSE events.
+    ResourceCreatedEvent resource_created = 6;              // Resource registered.
+    ResourceDeletedEvent resource_deleted = 7;              // Resource deleted.
+    ResourceLockedEvent resource_locked = 8;                // Shared resource locked.
+    ResourceUnlockedEvent resource_unlocked = 9;            // Shared resource unlocked.
+    UserConnectedEvent user_connected = 10;                 // User session created.
+    UserDisconnectedEvent user_disconnected = 11;           // User session ended.
+    ServerShutdownEvent server_shutdown = 12;               // Server shutting down.
   }
+}
+
+message ResourceCreatedEvent {
+  // New resource ID.
+  string resource_id = 1;
+  // Device providing the resource.
+  string device_serial = 2;
+  // Resource name.
+  string name = 3;
+}
+
+message ResourceDeletedEvent {
+  // Deleted resource ID.
+  string resource_id = 1;
+  // Why it was deleted (D58).
+  DeleteReason reason = 2;
+}
+
+message ResourceLockedEvent {
+  // Locked resource ID.
+  string resource_id = 1;
+  // User who took the lock.
+  string user_id = 2;
+}
+
+message ResourceUnlockedEvent {
+  // Unlocked resource ID.
+  string resource_id = 1;
+  // User who released the lock.
+  string user_id = 2;
+}
+
+message UserConnectedEvent {
+  // User who connected.
+  string user_id = 1;
+}
+
+message UserDisconnectedEvent {
+  // User who disconnected.
+  string user_id = 1;
+  // "explicit" or "timeout".
+  string reason = 2;
+}
+
+message ServerShutdownEvent {
+  // Why the server is stopping (e.g. "signal").
+  string reason = 1;
 }
 
 message DeviceAdded {
@@ -885,8 +1055,10 @@ message AcquireResourceRequest {
   string resource_id = 1;
   // User identifier.
   string user_id = 2;
-  // Access mode (shared, exclusive, or read_only — ADR-026).
-  AccessMode mode = 3;
+  // Requested holder mode (shared, exclusive, or read_only — ADR-026).
+  // Optional (ADR-034 P3): when not set, the resource's declared mode is
+  // used.
+  optional AccessMode mode = 3;
 }
 
 message ReleaseResourceRequest {
@@ -898,7 +1070,8 @@ message ReleaseResourceRequest {
 
 // Request to create a new resource for a programmed FPGA.
 // The client creates resources after programming a bitfile, since the client
-// knows what capabilities the bitfile exposes. See ADR-016.
+// knows what capabilities the bitfile exposes. See ADR-016 and ADR-034.
+// Same fields and rules as the REST `CreateResourceRequest`.
 message CreateResourceRequest {
   // Human-readable resource name (e.g., "xem7320-classic-counters").
   string name = 1;
@@ -906,10 +1079,22 @@ message CreateResourceRequest {
   string description = 2;
   // Serial of the FPGA that provides this resource.
   string device_serial = 3;
-  // Resource type identifier (e.g., "classic", "axi", "dsp").
-  string resource_type = 4;
-  // List of capabilities this resource provides.
-  repeated string capabilities = 5;
+  // Declared mode. Required when `endpoints` is set (D62). When
+  // `endpoints` is not set it may be omitted (= exclusive) or exclusive;
+  // shared is rejected (D68). Replaces the old `string resource_type`.
+  optional ResourceAccessMode access_mode = 4;
+  // Interfaces used: "classic", "axi_lite", "axi_full", "axi_stream"; at
+  // least one (D65, D71). Replaces the old `capabilities` list.
+  repeated string interfaces = 5;
+  // Classic endpoint declaration. Not set = every classic endpoint,
+  // exclusive (D68). Set but empty = no classic endpoints.
+  EndpointDeclaration endpoints = 6;
+  // Declared 32-bit address ranges.
+  repeated AddressRange address_ranges = 7;
+  // Text-only metadata (D69).
+  map<string, string> metadata = 8;
+  // Resource-level private flag (access rule, not visibility).
+  bool private = 9;
 }
 
 // ============================================================================
@@ -981,6 +1166,19 @@ message LockResourceRequest {
 
 // DeviceService handles device discovery, configuration, and monitoring.
 // It corresponds to the FrontPanel device-level operations (not data port ops).
+//
+// Caller identity (ADR-029, ADR-034 P8): every resource RPC requires the
+// `x-user-id` metadata header (or the request's `user_id` field where one
+// exists).
+//
+// Status mapping for resource RPCs (ADR-034 P7), matching REST:
+//   REST 404 -> NOT_FOUND            (unknown resource / device)
+//   REST 409 -> FAILED_PRECONDITION  (overlap, locked, blocked,
+//                                     mode_mismatch, duplicate name,
+//                                     device not programmed, held on delete)
+//   REST 422 -> INVALID_ARGUMENT     (invalid declaration or mode)
+// When a D73 code applies, the error details carry a
+// ResourceConflictDetail (see that message).
 service DeviceService {
   // --- Enumeration ---
 
@@ -1090,9 +1288,11 @@ service DeviceService {
   rpc ReleaseResource(ReleaseResourceRequest) returns (StatusResponse);
 
   // Lock a shared resource for exclusive use by a holder (ADR-020 §3).
+  // Returns the updated resource (ADR-034 P10).
   rpc LockResource(LockResourceRequest) returns (ResourceResponse);
 
   // Unlock a previously locked shared resource (ADR-020 §3).
+  // Returns the updated resource (ADR-034 P10).
   rpc UnlockResource(LockResourceRequest) returns (ResourceResponse);
 
   // --- Users ---

@@ -20,7 +20,7 @@ info:
     name: Lighthouse Logic
 
 servers:
-  - url: http://localhost:8080/api/v1
+  - url: http://localhost:8088/api/v1
     description: Local development server
 
 # Root-level security: empty array means no auth required by default.
@@ -627,27 +627,71 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
 
+  /devices/{serial}/classic/wires/in/update:
+    post:
+      tags: [Classic Data Port]
+      summary: Push buffered WireIn values (UpdateWireIns)
+      description: |
+        Calls UpdateWireIns, sending every buffered WireIn value to the FPGA.
+        This is a **write** (ADR-034, D42): it needs write access to the
+        WireIns.
+      operationId: updateWireIns
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      responses:
+        '200':
+          description: WireIns updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+
+  /devices/{serial}/classic/wires/out/update:
+    post:
+      tags: [Classic Data Port]
+      summary: Refresh WireOut values (UpdateWireOuts)
+      description: |
+        Calls UpdateWireOuts, refreshing the server-side copy of every WireOut.
+        This is a **read** (ADR-034, D42): ReadOnly holders may call it.
+      operationId: updateWireOuts
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      responses:
+        '200':
+          description: WireOuts refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+
   /devices/{serial}/classic/wires/out:
     get:
       tags: [Classic Data Port]
       summary: Read WireOut values
-      description: Calls UpdateWireOuts and returns the value for the specified endpoint.
+      description: |
+        Calls UpdateWireOuts. With `endpoint`, returns that endpoint's value
+        (`WireOutResponse`). Without `endpoint`, returns the whole bank as an
+        object keyed by address (`"0x20"` … `"0x3f"`) with integer values.
       operationId: getWireOutValue
       parameters:
         - $ref: '#/components/parameters/serial'
         - name: endpoint
           in: query
-          required: true
+          required: false
           schema:
             type: integer
-          description: WireOut endpoint address (0x20-0x3F)
+          description: WireOut endpoint address (0x20-0x3F). Omit to read the whole bank.
       responses:
         '200':
-          description: WireOut value
+          description: WireOut value, or the whole bank when `endpoint` is omitted
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WireOutResponse'
+                oneOf:
+                  - $ref: '#/components/schemas/WireOutResponse'
+                  - type: object
+                    additionalProperties:
+                      type: integer
 
   /devices/{serial}/classic/triggers/in:
     post:
@@ -671,20 +715,42 @@ paths:
               schema:
                 $ref: '#/components/schemas/StatusResponse'
 
+  /devices/{serial}/classic/triggers/out/update:
+    post:
+      tags: [Classic Data Port]
+      summary: Refresh TriggerOut state (UpdateTriggerOuts)
+      description: |
+        Calls UpdateTriggerOuts, refreshing the server-side TriggerOut state.
+        This is a **read** (ADR-034, D42): ReadOnly holders may call it.
+      operationId: updateTriggerOuts
+      parameters:
+        - $ref: '#/components/parameters/serial'
+      responses:
+        '200':
+          description: TriggerOuts refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+
   /devices/{serial}/classic/triggers/out:
     get:
       tags: [Classic Data Port]
       summary: Read TriggerOut values
-      description: Calls UpdateTriggerOuts and checks the specified endpoint.
+      description: |
+        Calls UpdateTriggerOuts. With `endpoint`, checks that endpoint
+        (`TriggerOutResponse`). Without `endpoint`, returns the whole bank as
+        an object keyed by address (`"0x60"` … `"0x7f"`) whose values are the
+        trigger vectors.
       operationId: getTriggerOutValue
       parameters:
         - $ref: '#/components/parameters/serial'
         - name: endpoint
           in: query
-          required: true
+          required: false
           schema:
             type: integer
-          description: TriggerOut endpoint address (0x60-0x7F)
+          description: TriggerOut endpoint address (0x60-0x7F). Omit to read the whole bank.
         - name: mask
           in: query
           required: false
@@ -694,11 +760,15 @@ paths:
           description: Bitmask to check (default 0xFFFFFFFF)
       responses:
         '200':
-          description: TriggerOut result
+          description: TriggerOut result, or the whole bank when `endpoint` is omitted
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TriggerOutResponse'
+                oneOf:
+                  - $ref: '#/components/schemas/TriggerOutResponse'
+                  - type: object
+                    additionalProperties:
+                      type: integer
 
   /devices/{serial}/classic/pipes/in:
     post:
@@ -1174,9 +1244,15 @@ paths:
       summary: Create a resource
       description: |
         Creates a new resource for a programmed FPGA. The client creates resources
-        after programming a bitfile, since the client knows what capabilities the
-        bitfile exposes. The server validates that the referenced device exists
-        and is programmed. See ADR-016.
+        after programming a bitfile, since the client knows what the bitfile
+        exposes. See ADR-016 and ADR-034.
+
+        - Omitting `endpoints` claims every classic endpoint exclusively
+          (`access_mode` may then be omitted or `exclusive`; `shared` is a 422).
+        - With `endpoints`, `access_mode` is required, and each entry needs
+          `access` unless `endpoints.default_access` is set.
+        - Errors carry a `conflict` object (`ProblemDetail.conflict`) when a
+          machine-readable code applies.
       operationId: createResource
       requestBody:
         required: true
@@ -1189,19 +1265,13 @@ paths:
           description: Resource created
           headers:
             Location:
-              description: URI of the created resource
+              description: URI of the created resource (`/api/v1/resources/{resource_id}`)
               schema:
                 type: string
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Resource'
-        '400':
-          description: Invalid request body
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetail'
         '404':
           description: Referenced device not found
           content:
@@ -1209,7 +1279,22 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
         '409':
-          description: Resource already exists or FPGA is not programmed
+          description: |
+            Clash with existing server state: the FPGA is not programmed, a
+            resource with this name already exists on the device, or the
+            declaration overlaps an existing resource (`conflict.code` =
+            `overlap`, naming the existing resource and item).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '422':
+          description: |
+            Invalid request (`conflict.code` = `validation`): malformed JSON,
+            missing field, unknown interface or endpoint type, endpoint type
+            not matching its address, range start after end, missing
+            `access`, `shared` without `endpoints`, or a non-string metadata
+            value.
           content:
             application/json:
               schema:
@@ -1240,7 +1325,8 @@ paths:
       summary: Delete a resource
       description: |
         Deletes a resource definition. Returns 409 if the resource is currently
-        held by any user. See ADR-016.
+        held by any user. Emits `ResourceDeleted` with `reason` = `client`.
+        See ADR-016 and ADR-034.
       operationId: deleteResource
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -1268,10 +1354,14 @@ paths:
         Acquires a resource in shared, exclusive, or read-only mode. Shared mode allows
         multiple users to hold the resource simultaneously. Exclusive mode
         grants sole access — other users' acquire requests will be denied.
-        Read-only mode (ADR-026) allows observing output endpoints and address
-        ranges without write access — ReadOnly holders cannot call UpdateWireOuts,
-        fire triggers, or write to input endpoints. ReadOnly holders can join
+        Read-only mode (ADR-026, ADR-034) allows observing output endpoints and
+        address ranges without write access — ReadOnly holders cannot write
+        input endpoints or call ActivateTriggerIn; they may call
+        UpdateWireOuts / UpdateTriggerOuts (reads). ReadOnly holders can join
         even an exclusive resource, unless the resource is marked `private`.
+
+        `mode` is optional; when omitted the resource's declared
+        `access_mode` is used.
       operationId: acquireResource
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -1281,7 +1371,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [user_id, mode]
+              required: [user_id]
               properties:
                 user_id:
                   type: string
@@ -1293,6 +1383,7 @@ paths:
                 mode:
                   type: string
                   enum: [shared, exclusive, read_only]
+                  description: Requested holder mode. Defaults to the declared `access_mode`.
       responses:
         '200':
           description: Resource acquired
@@ -1307,7 +1398,16 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
         '409':
-          description: Resource is locked by another user or unavailable
+          description: |
+            Resource is held or locked by another user (`conflict.code` =
+            `locked`), or the requested mode clashes with the current holders
+            (`mode_mismatch`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '422':
+          description: Invalid request body or unknown `mode` (`conflict.code` = `validation`).
           content:
             application/json:
               schema:
@@ -1357,8 +1457,8 @@ paths:
       description: |
         A holder of a shared resource can temporarily lock it for exclusive use.
         Other holders remain in the holders list but cannot operate on the
-        resource until it is unlocked. Only works on resources in `InUseShared`
-        state.
+        resource until it is unlocked. Only works on resources in `in_use_shared`
+        state. Emits `ResourceChanged` and `ResourceLocked`.
       operationId: lockResource
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -1394,7 +1494,8 @@ paths:
         '409':
           description: |
             Conflict — resource is not in a lockable state (e.g., not shared,
-            already locked by another user, or user is not a holder).
+            already locked by another user, or user is not a holder). When
+            another user holds the lock, `conflict.code` = `locked`.
           content:
             application/json:
               schema:
@@ -1406,8 +1507,8 @@ paths:
       summary: Unlock a previously locked resource
       description: |
         Unlocks a resource that was previously locked via `/lock`. Only the user
-        who holds the lock can unlock it. The resource returns to `InUseShared`
-        state.
+        who holds the lock can unlock it. The resource returns to `in_use_shared`
+        state. Emits `ResourceChanged` and `ResourceUnlocked`.
       operationId: unlockResource
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -1606,12 +1707,18 @@ paths:
         - `DeviceAdded` — A new FPGA was connected
         - `DeviceRemoved` — An FPGA was disconnected
         - `DeviceProgrammed` — An FPGA was programmed with a bitfile
-        - `ResourceChanged` — A resource's state changed (acquired, released, invalidated)
+        - `ResourceChanged` — A resource's state changed (acquired, released, locked, unlocked, invalidated)
         - `UserConnected` — A new user session was created *(Phase 39)*
         - `UserDisconnected` — A user session ended *(Phase 39)*
         - `ResourceCreated` — A resource definition was registered *(Phase 39)*
-        - `ResourceDeleted` — A resource definition was deleted *(Phase 39)*
+        - `ResourceDeleted` — A resource definition was deleted, with a `reason` *(Phase 39, ADR-034)*
+        - `ResourceLocked` — A holder locked a shared resource *(ADR-034)*
+        - `ResourceUnlocked` — The lock holder unlocked a shared resource *(ADR-034)*
         - `ServerShutdown` — The server is shutting down gracefully *(Phase 39)*
+
+        The SSE `data:` field is the event object itself (e.g.
+        `{"resource_id": "…", "new_state": "in_use_shared", "timestamp": "…"}`),
+        not wrapped in the event name.
 
         **Keep-alive:** The server sends a `:ping` comment every 15 seconds
         to prevent proxy/load-balancer timeouts.
@@ -1733,6 +1840,37 @@ components:
         instance:
           type: string
           description: A URI reference that identifies the specific occurrence
+        conflict:
+          $ref: '#/components/schemas/ResourceConflict'
+
+    ResourceConflict:
+      type: object
+      description: |
+        Machine-readable detail of a failed resource operation (ADR-034, D73).
+        Present on resource 409 / 422 responses when one of the codes applies.
+        gRPC sends the same fields as `ResourceConflictDetail` in the status
+        details.
+      required: [code]
+      properties:
+        code:
+          type: string
+          enum: [overlap, locked, blocked, mode_mismatch, validation]
+          description: |
+            `validation` = request error (422); every other code = clash with
+            existing state (409).
+        resource_id:
+          type: string
+          description: The existing resource involved, if any.
+        resource_name:
+          type: string
+          description: Name of that resource, if any.
+        item_type:
+          type: string
+          enum: [endpoint, address_range]
+          description: The kind of item involved, if any.
+        item:
+          type: string
+          description: The item, e.g. `0x05` or `0x44A60000-0x44A6FFFF`.
 
     # ---- Device ----
 
@@ -2041,8 +2179,11 @@ components:
 
     CreateResourceRequest:
       type: object
-      description: Request body for creating a new resource (ADR-016).
-      required: [name, device_serial]
+      description: |
+        Request body for creating a new resource (ADR-016, ADR-034).
+        `access_mode` is required when `endpoints` is present; without
+        `endpoints` it may be omitted (= `exclusive`) or `exclusive` (D62, D68).
+      required: [name, device_serial, interfaces]
       properties:
         name:
           type: string
@@ -2053,23 +2194,99 @@ components:
         device_serial:
           type: string
           description: Serial of the FPGA that provides this resource
-        resource_type:
+        access_mode:
           type: string
-          description: Resource type identifier (e.g., "classic", "axi", "dsp")
-        capabilities:
+          enum: [shared, exclusive]
+          description: Declared mode of the resource.
+        private:
+          type: boolean
+          default: false
+          description: Access rule, not visibility (D57) — when true, ReadOnly acquisition is denied.
+        interfaces:
           type: array
+          minItems: 1
           items:
             type: string
-          description: List of capabilities this resource provides
+            enum: [classic, axi_lite, axi_full, axi_stream]
+        endpoints:
+          $ref: '#/components/schemas/EndpointDeclaration'
+        address_ranges:
+          type: array
+          items:
+            $ref: '#/components/schemas/AddressRange'
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: Text-only key/value metadata (D69).
+
+    EndpointDeclaration:
+      type: object
+      description: |
+        Classic endpoint declaration. Omitted = every classic endpoint,
+        exclusive (D68). `{"entries": []}` = no classic endpoints.
+      properties:
+        default_access:
+          type: string
+          enum: [shared, exclusive]
+          description: Mode for entries without `access` (D61). Never claims unlisted endpoints.
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/EndpointEntry'
+
+    EndpointEntry:
+      type: object
+      description: One declared Classic endpoint. `access` is required unless `default_access` is set (D61).
+      required: [address, type]
+      properties:
+        address:
+          type: string
+          pattern: '^0x[0-9A-Fa-f]{2}$'
+          description: Endpoint address, e.g. `0x05` (0x00-0xBF).
+        type:
+          type: string
+          enum: [wire_in, wire_out, trigger_in, trigger_out, pipe_in, pipe_out, bt_pipe_in, bt_pipe_out]
+          description: Must match the address range of the endpoint type.
+        access:
+          type: string
+          enum: [shared, exclusive]
+        private:
+          type: boolean
+          default: false
+        description:
+          type: string
+
+    AddressRange:
+      type: object
+      description: One declared 32-bit address range (inclusive).
+      required: [start, end, access]
+      properties:
+        name:
+          type: string
+        start:
+          type: string
+          description: First address, e.g. `0x44A60000`.
+        end:
+          type: string
+          description: Last address (inclusive); must be >= `start`.
+        access:
+          type: string
+          enum: [shared, exclusive]
+        private:
+          type: boolean
+          default: false
+        description:
+          type: string
 
     Resource:
       type: object
       description: |
-        A user-defined resource exposed by a programmed FPGA.
-        Resources may be marked `private` (ADR-026) to deny ReadOnly acquisition.
+        A user-defined resource exposed by a programmed FPGA (ADR-034).
       properties:
         id:
           type: string
+          description: '`{device_serial}:{name}`'
         name:
           type: string
         description:
@@ -2082,20 +2299,49 @@ components:
           enum: [unavailable, initializing, available, in_use_shared, in_use_locked]
         access_mode:
           type: string
-          enum: [shared, exclusive, read_only]
-          description: Current access mode of the resource (if acquired)
+          enum: [shared, exclusive]
+          description: Declared mode of the resource.
         holders:
           type: array
           items:
+            $ref: '#/components/schemas/Holder'
+          description: Current holders and the mode each acquired with (D37).
+        locked_by:
+          type: string
+          description: User holding the lock (absent when not locked).
+        interfaces:
+          type: array
+          items:
             type: string
-          description: User IDs currently holding this resource
+            enum: [classic, axi_lite, axi_full, axi_stream]
+        endpoints:
+          $ref: '#/components/schemas/EndpointDeclaration'
+        address_ranges:
+          type: array
+          items:
+            $ref: '#/components/schemas/AddressRange'
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
         private:
           type: boolean
           default: false
           description: |
-            When true, ReadOnly acquisition is denied entirely (ADR-026).
-            Private resources are only visible to holders with Shared or
-            Exclusive access.
+            Access rule, not visibility (ADR-034, D57): when true, ReadOnly
+            acquisition is denied. Every user can still list and read the
+            resource.
+
+    Holder:
+      type: object
+      description: One holder of a resource.
+      required: [user_id, mode]
+      properties:
+        user_id:
+          type: string
+        mode:
+          type: string
+          enum: [shared, exclusive, read_only]
 
     # ---- Users ----
 
@@ -2112,6 +2358,25 @@ components:
           type: array
           items:
             type: string
+        holdings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Holding'
+          description: Held resources with mode and lock flag (ADR-034).
+
+    Holding:
+      type: object
+      description: One resource held by a user.
+      required: [resource_id, mode, locked]
+      properties:
+        resource_id:
+          type: string
+        mode:
+          type: string
+          enum: [shared, exclusive, read_only]
+        locked:
+          type: boolean
+          description: True if this user holds the resource's lock.
 
     # ---- Server ----
 
@@ -2180,9 +2445,10 @@ components:
         A real-time event sent via SSE.  The SSE `event:` field carries the
         variant name (`DeviceAdded`, `DeviceRemoved`, `DeviceProgrammed`,
         `ResourceChanged`, `UserConnected`, `UserDisconnected`,
-        `ResourceCreated`, `ResourceDeleted`, `ServerShutdown`).
-        The SSE `data:` field carries a JSON object whose shape depends on
-        the variant (see `oneOf` variants below).
+        `ResourceCreated`, `ResourceDeleted`, `ResourceLocked`,
+        `ResourceUnlocked`, `ServerShutdown`).
+        The SSE `data:` field carries the variant's JSON object directly (see
+        `oneOf` variants below).
       oneOf:
         - $ref: '#/components/schemas/DeviceAddedEvent'
         - $ref: '#/components/schemas/DeviceRemovedEvent'
@@ -2192,6 +2458,8 @@ components:
         - $ref: '#/components/schemas/UserDisconnectedEvent'
         - $ref: '#/components/schemas/ResourceCreatedEvent'
         - $ref: '#/components/schemas/ResourceDeletedEvent'
+        - $ref: '#/components/schemas/ResourceLockedEvent'
+        - $ref: '#/components/schemas/ResourceUnlockedEvent'
         - $ref: '#/components/schemas/ServerShutdownEvent'
 
     DeviceAddedEvent:
@@ -2307,10 +2575,47 @@ components:
     ResourceDeletedEvent:
       type: object
       description: Fired when a resource definition is deleted.
-      required: [resource_id, timestamp]
+      required: [resource_id, reason, timestamp]
       properties:
         resource_id:
           type: string
+        reason:
+          type: string
+          enum: [client, reprogram, clear]
+          description: |
+            Why it was deleted (D58): `client` = a client deleted it;
+            `reprogram` / `clear` = forced cleanup when the FPGA was
+            reprogrammed or cleared.
+        timestamp:
+          type: string
+          format: date-time
+
+    # ── ADR-034 event types ──
+
+    ResourceLockedEvent:
+      type: object
+      description: Fired when a holder locks a shared resource.
+      required: [resource_id, user_id, timestamp]
+      properties:
+        resource_id:
+          type: string
+        user_id:
+          type: string
+          description: The user who took the lock.
+        timestamp:
+          type: string
+          format: date-time
+
+    ResourceUnlockedEvent:
+      type: object
+      description: Fired when the lock holder unlocks a shared resource.
+      required: [resource_id, user_id, timestamp]
+      properties:
+        resource_id:
+          type: string
+        user_id:
+          type: string
+          description: The user who released the lock.
         timestamp:
           type: string
           format: date-time

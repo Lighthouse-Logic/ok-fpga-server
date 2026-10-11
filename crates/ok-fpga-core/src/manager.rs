@@ -131,11 +131,37 @@ pub enum DeviceEvent {
         timestamp: DateTime<Utc>,
     },
 
-    /// A resource definition was deleted (DELETE /resources/{id}).
+    /// A resource definition was deleted.
     ResourceDeleted {
         /// The deleted resource ID.
         resource_id: String,
+        /// Why it was deleted (D58): `client` (DELETE /resources/{id} or the
+        /// gRPC `DeleteResource` RPC), `reprogram` or `clear` (forced
+        /// cleanup, sub-phase 44-F).
+        reason: DeleteReason,
         /// When the resource was deleted.
+        timestamp: DateTime<Utc>,
+    },
+
+    // ── ADR-034 (Phase 44-A) ──
+
+    /// A holder locked a shared resource.
+    ResourceLocked {
+        /// The locked resource.
+        resource_id: String,
+        /// The user who took the lock.
+        user_id: String,
+        /// When the lock was taken.
+        timestamp: DateTime<Utc>,
+    },
+
+    /// The lock holder unlocked a shared resource.
+    ResourceUnlocked {
+        /// The unlocked resource.
+        resource_id: String,
+        /// The user who released the lock.
+        user_id: String,
+        /// When the lock was released.
         timestamp: DateTime<Utc>,
     },
 
@@ -146,6 +172,52 @@ pub enum DeviceEvent {
         /// When the shutdown was initiated.
         timestamp: DateTime<Utc>,
     },
+}
+
+/// Why a resource was deleted (ADR-034, D58).
+///
+/// Serialised as `client`, `reprogram` or `clear`, the values of the OpenAPI
+/// `ResourceDeletedEvent.reason` enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeleteReason {
+    /// A client deleted the resource.
+    Client,
+    /// The FPGA was reprogrammed (forced cleanup, 44-F).
+    Reprogram,
+    /// The FPGA configuration was cleared (forced cleanup, 44-F).
+    Clear,
+}
+
+impl DeleteReason {
+    /// The spec string: `"client"`, `"reprogram"` or `"clear"`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DeleteReason::Client => "client",
+            DeleteReason::Reprogram => "reprogram",
+            DeleteReason::Clear => "clear",
+        }
+    }
+}
+
+impl DeviceEvent {
+    /// The SSE `event:` name for this variant (the variant name, e.g.
+    /// `ResourceLocked`), as listed in the OpenAPI `DeviceEvent` description.
+    pub fn name(&self) -> &'static str {
+        match self {
+            DeviceEvent::DeviceAdded { .. } => "DeviceAdded",
+            DeviceEvent::DeviceRemoved { .. } => "DeviceRemoved",
+            DeviceEvent::DeviceProgrammed { .. } => "DeviceProgrammed",
+            DeviceEvent::ResourceChanged { .. } => "ResourceChanged",
+            DeviceEvent::UserConnected { .. } => "UserConnected",
+            DeviceEvent::UserDisconnected { .. } => "UserDisconnected",
+            DeviceEvent::ResourceCreated { .. } => "ResourceCreated",
+            DeviceEvent::ResourceDeleted { .. } => "ResourceDeleted",
+            DeviceEvent::ResourceLocked { .. } => "ResourceLocked",
+            DeviceEvent::ResourceUnlocked { .. } => "ResourceUnlocked",
+            DeviceEvent::ServerShutdown { .. } => "ServerShutdown",
+        }
+    }
 }
 
 // ============================================================================
@@ -542,6 +614,7 @@ mod tests {
     fn resource_deleted_event_serializes_correctly() {
         let event = DeviceEvent::ResourceDeleted {
             resource_id: "XEM7320:counters".to_string(),
+            reason: DeleteReason::Client,
             timestamp: Utc::now(),
         };
         let json = serde_json::to_string(&event).unwrap();
@@ -553,6 +626,48 @@ mod tests {
             }
             _ => panic!("Expected ResourceDeleted"),
         }
+    }
+
+    #[test]
+    fn test_delete_reason_serializes_snake_case() {
+        for (reason, text) in [
+            (DeleteReason::Client, "client"),
+            (DeleteReason::Reprogram, "reprogram"),
+            (DeleteReason::Clear, "clear"),
+        ] {
+            assert_eq!(serde_json::to_string(&reason).unwrap(), format!("\"{}\"", text));
+            assert_eq!(reason.as_str(), text);
+        }
+    }
+
+    #[test]
+    fn test_resource_deleted_event_reason_serialized() {
+        let event = DeviceEvent::ResourceDeleted {
+            resource_id: "r".to_string(),
+            reason: DeleteReason::Reprogram,
+            timestamp: Utc::now(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"reason\":\"reprogram\""));
+    }
+
+    #[test]
+    fn test_resource_lock_events_roundtrip_and_name() {
+        let locked = DeviceEvent::ResourceLocked {
+            resource_id: "r".to_string(),
+            user_id: "alice".to_string(),
+            timestamp: Utc::now(),
+        };
+        let unlocked = DeviceEvent::ResourceUnlocked {
+            resource_id: "r".to_string(),
+            user_id: "alice".to_string(),
+            timestamp: Utc::now(),
+        };
+        assert_eq!(locked.name(), "ResourceLocked");
+        assert_eq!(unlocked.name(), "ResourceUnlocked");
+        let parsed: DeviceEvent =
+            serde_json::from_str(&serde_json::to_string(&locked).unwrap()).unwrap();
+        assert!(matches!(parsed, DeviceEvent::ResourceLocked { ref user_id, .. } if user_id == "alice"));
     }
 
     #[test]

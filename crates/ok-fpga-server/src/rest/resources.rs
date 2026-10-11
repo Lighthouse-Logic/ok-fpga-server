@@ -1,30 +1,56 @@
 //! # Resource Routes
 //!
 //! REST endpoints for multi-user resource management.
-//! Implements the `/resources/*` paths from ADR-004 and ADR-020.
+//! Implements the `/resources/*` paths from ADR-004, ADR-020 and ADR-034.
 //!
-//! ## Client-Side Resource Registration (ADR-020)
+//! ## Client-Side Resource Registration (ADR-020, ADR-034)
 //!
 //! Resources are created by clients via `POST /resources` after programming
 //! a bitfile. The server is agnostic to bitfile capabilities — only the
 //! client knows what resources the bitfile exposes.
+//!
+//! ## How a request flows (ADR-034)
+//!
+//! 1. The JSON body is decoded into a *request* struct whose fields are the
+//!    wire strings (`"0x05"`, `"shared"`, ...).
+//! 2. The request is converted into a transport-neutral
+//!    [`ResourceSpec`](ok_fpga_core::declaration::ResourceSpec) — the same type
+//!    the gRPC service builds — and
+//!    [`build_resource`](ok_fpga_core::declaration::build_resource) applies
+//!    every shape rule. Any problem is a **422** with a `conflict` object
+//!    whose `code` is `validation`.
+//! 3. The device must exist (404) and be programmed (409).
+//! 4. [`ResourceRegistry::try_register`] runs the overlap check and the
+//!    insert under one lock. An overlap is a **409** whose `conflict` names
+//!    the existing resource and the clashing item (D73).
+//!
+//! Responses use the shared [`ResourceView`] so REST, the dashboard API and
+//! the docs all show the same JSON.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use axum::body::Bytes;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use ok_fpga_core::declaration::{
+    build_resource, check_overlap, parse_declared_mode, parse_hex_u32, AddressRangeSpec,
+    EndpointEntrySpec, EndpointSpec, ResourceSpec,
+};
+use ok_fpga_core::manager::{DeleteReason, DeviceEvent};
 use ok_fpga_core::resource::{
-    AccessMode, AddressRange, EndpointDeclaration, EndpointEntry, EndpointType,
-    InterfaceDeclaration, Resource,
+    AccessMode, ConflictCode, RegisterError, ResourceConflict, ResourceError,
 };
 
 use crate::rest::errors::ProblemDetail;
 use crate::state::AppState;
+use crate::views::ResourceView;
 
 /// Build the `/resources/*` route group.
 pub fn routes() -> Router<Arc<AppState>> {
@@ -44,55 +70,53 @@ pub fn routes() -> Router<Arc<AppState>> {
 // Request/Response Types
 // ============================================================================
 
-/// Request body for creating a new resource (POST /resources, ADR-020 §2).
+/// Request body for creating a new resource (OpenAPI `CreateResourceRequest`).
+///
+/// Fields hold the raw wire values; [`CreateResourceRequest::into_spec`]
+/// parses them. Unknown fields are ignored (serde's default), so a client
+/// that still sends the retired `resource_type` / `capabilities` fields is
+/// not rejected for that alone.
 #[derive(Deserialize)]
 struct CreateResourceRequest {
     /// Human-readable resource name (e.g., "xem7320-classic-counters").
     name: String,
     /// Optional description of the resource.
+    #[serde(default)]
     description: Option<String>,
     /// Serial of the FPGA that provides this resource.
     device_serial: String,
-    /// Access mode constraint: "shared" or "exclusive" (ADR-020 §3).
-    access_mode: String,
-    /// Which data port interfaces this resource uses (ADR-020 §6).
+    /// Declared mode: "shared" or "exclusive". May be omitted only when
+    /// `endpoints` is omitted too (D62/D68: it then defaults to exclusive).
     #[serde(default)]
-    interfaces: Option<InterfacesBody>,
-    /// Classic endpoint declarations (ADR-020 §7).
+    access_mode: Option<String>,
+    /// Resource-level `private` flag (an access rule, not visibility).
+    #[serde(default)]
+    private: bool,
+    /// Data-port interfaces this resource uses, e.g. `["classic"]`.
+    #[serde(default)]
+    interfaces: Vec<String>,
+    /// Classic endpoint declaration. Absent = the resource claims every
+    /// classic endpoint (D68).
     #[serde(default)]
     endpoints: Option<EndpointsBody>,
     /// 32-bit address ranges (ADR-020 §8).
     #[serde(default)]
     address_ranges: Vec<AddressRangeBody>,
-    /// Extensible key-value metadata (ADR-020 §9).
+    /// Text metadata (D69). Typed as JSON values so a non-string value can
+    /// be reported as a clear 422 instead of a generic decode error.
     #[serde(default)]
-    metadata: HashMap<String, String>,
+    metadata: HashMap<String, serde_json::Value>,
 }
 
-/// Interfaces sub-object in CreateResourceRequest.
-#[derive(Deserialize)]
-struct InterfacesBody {
-    #[serde(default)]
-    classic: bool,
-    #[serde(default)]
-    axi_lite: bool,
-    #[serde(default)]
-    axi_full: bool,
-    #[serde(default)]
-    axi_stream: bool,
-}
-
-/// Endpoints sub-object in CreateResourceRequest.
+/// The `endpoints` object of a create request.
 #[derive(Deserialize)]
 struct EndpointsBody {
-    #[serde(default = "default_exclusive")]
-    default_access: String,
+    /// Mode used for entries that have no `access` of their own (D61).
+    #[serde(default)]
+    default_access: Option<String>,
+    /// Declared entries.
     #[serde(default)]
     entries: Vec<EndpointEntryBody>,
-}
-
-fn default_exclusive() -> String {
-    "exclusive".to_string()
 }
 
 /// A single endpoint entry in the request body.
@@ -104,23 +128,126 @@ struct EndpointEntryBody {
     /// "pipe_in", "pipe_out", "bt_pipe_in", "bt_pipe_out".
     #[serde(rename = "type")]
     ep_type: String,
-    /// Access mode: "shared" or "exclusive".
-    #[serde(default = "default_exclusive")]
-    access: String,
+    /// "shared" or "exclusive"; falls back to `default_access`.
+    #[serde(default)]
+    access: Option<String>,
+    /// Item-level `private` flag.
+    #[serde(default)]
+    private: bool,
     /// Optional description.
+    #[serde(default)]
     description: Option<String>,
 }
 
 /// Address range entry in the request body.
 #[derive(Deserialize)]
 struct AddressRangeBody {
+    /// Optional range name.
+    #[serde(default)]
+    name: Option<String>,
     /// Hex start address, e.g. "0x44A60000".
     start: String,
-    /// Hex end address, e.g. "0x44A8FFFF".
+    /// Hex end address (inclusive), e.g. "0x44A8FFFF".
     end: String,
-    /// Access mode: "shared" or "exclusive".
-    #[serde(default = "default_exclusive")]
-    access: String,
+    /// "shared" or "exclusive" (required; checked in `build_resource`).
+    #[serde(default)]
+    access: Option<String>,
+    /// Item-level `private` flag.
+    #[serde(default)]
+    private: bool,
+    /// Optional description.
+    #[serde(default)]
+    description: Option<String>,
+}
+
+impl CreateResourceRequest {
+    /// Parse the wire strings into a transport-neutral [`ResourceSpec`].
+    ///
+    /// # Errors
+    /// A validation [`ResourceError`] for a bad mode, hex address or
+    /// non-string metadata value.
+    fn into_spec(self) -> Result<ResourceSpec, ResourceError> {
+        // `Option::map(..).transpose()` turns `Option<Result<T>>` into
+        // `Result<Option<T>>` so `?` can bail out on a parse error while
+        // still allowing the field to be absent.
+        let access_mode = self
+            .access_mode
+            .as_deref()
+            .map(|m| parse_declared_mode(m, "access_mode"))
+            .transpose()?;
+
+        let endpoints = match self.endpoints {
+            None => None,
+            Some(body) => {
+                let default_access = body
+                    .default_access
+                    .as_deref()
+                    .map(|m| parse_declared_mode(m, "endpoints.default_access"))
+                    .transpose()?;
+                let mut entries = Vec::with_capacity(body.entries.len());
+                for entry in body.entries {
+                    entries.push(EndpointEntrySpec {
+                        address: parse_hex_u32(&entry.address, "endpoint address")?,
+                        ep_type: entry.ep_type,
+                        access: entry
+                            .access
+                            .as_deref()
+                            .map(|m| parse_declared_mode(m, "endpoint access"))
+                            .transpose()?,
+                        private: entry.private,
+                        description: entry.description,
+                    });
+                }
+                Some(EndpointSpec {
+                    default_access,
+                    entries,
+                })
+            }
+        };
+
+        let mut address_ranges = Vec::with_capacity(self.address_ranges.len());
+        for range in self.address_ranges {
+            address_ranges.push(AddressRangeSpec {
+                name: range.name,
+                start: parse_hex_u32(&range.start, "address range start")?,
+                end: parse_hex_u32(&range.end, "address range end")?,
+                access: range
+                    .access
+                    .as_deref()
+                    .map(|m| parse_declared_mode(m, "address range access"))
+                    .transpose()?,
+                private: range.private,
+                description: range.description,
+            });
+        }
+
+        let mut metadata = HashMap::with_capacity(self.metadata.len());
+        for (key, value) in self.metadata {
+            match value {
+                serde_json::Value::String(text) => {
+                    metadata.insert(key, text);
+                }
+                _ => {
+                    return Err(ResourceError::validation(format!(
+                        "metadata values must be strings (key '{}')",
+                        key
+                    )))
+                }
+            }
+        }
+
+        Ok(ResourceSpec {
+            name: self.name,
+            description: self.description,
+            device_serial: self.device_serial,
+            access_mode,
+            private: self.private,
+            interfaces: self.interfaces,
+            endpoints,
+            address_ranges,
+            metadata,
+        })
+    }
 }
 
 /// Request body for acquiring a resource.
@@ -130,9 +257,11 @@ struct AddressRangeBody {
 #[derive(Deserialize)]
 struct AcquireResourceRequest {
     /// User identifier (optional — falls back to X-User-Id header).
+    #[serde(default)]
     user_id: Option<String>,
-    /// Access mode: "shared" or "exclusive" (optional, defaults to the
-    /// resource's declared access_mode).
+    /// Requested mode: "shared", "exclusive" or "read_only". Optional; the
+    /// resource's declared mode is used when omitted.
+    #[serde(default)]
     mode: Option<String>,
 }
 
@@ -162,93 +291,56 @@ struct ResourceListBody {
     resources: Vec<ResourceView>,
 }
 
-/// Serializable view of a resource for API responses — matches OpenAPI `Resource` schema (Phase 37).
-#[derive(Serialize)]
-struct ResourceView {
-    id: String,
-    name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    device_serial: String,
-    state: String,
-    holders: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    access_mode: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    locked_by: Option<String>,
-    /// If true, ReadOnly acquisition is denied entirely (ADR-026).
-    private: bool,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    metadata: HashMap<String, String>,
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/// Decode a JSON body, reporting any problem as a 422 ProblemDetail.
+///
+/// axum's `Json` extractor answers malformed JSON with a plain-text 400 (or
+/// 422 for type errors). The spec promises a ProblemDetail with
+/// `conflict.code = "validation"` for every invalid create/acquire body, so
+/// these handlers take the raw bytes and decode them here instead.
+fn decode_json<T: DeserializeOwned>(body: &Bytes) -> Result<T, ProblemDetail> {
+    serde_json::from_slice(body).map_err(|e| {
+        ProblemDetail::from_resource_error(ResourceError::validation(format!(
+            "invalid request body: {}",
+            e
+        )))
+    })
 }
 
-impl From<&Resource> for ResourceView {
-    fn from(r: &Resource) -> Self {
-        ResourceView {
-            id: r.id.clone(),
-            name: r.name.clone(),
-            description: r.description.clone(),
-            device_serial: r.device_serial.clone(),
-            state: format!("{}", r.state),
-            holders: r.holder_ids().iter().map(|s| s.to_string()).collect(),
-            access_mode: r.access_mode.map(|m| format!("{}", m)),
-            locked_by: r.locked_by.clone(),
-            private: r.private,
-            metadata: r.metadata.clone(),
+/// Broadcast a `ResourceChanged` event carrying the resource's current
+/// spec state string (e.g. `in_use_locked`).
+fn emit_resource_changed(state: &AppState, id: &str) {
+    if let Some(resource) = state.resource_registry.get(id) {
+        let _ = state.device_manager.broadcast(DeviceEvent::ResourceChanged {
+            resource_id: id.to_string(),
+            new_state: resource.state.as_str().to_string(),
+            timestamp: chrono::Utc::now(),
+        });
+    }
+}
+
+/// Turn a failed lock/unlock into a 409, adding a `locked` conflict when
+/// someone else holds the lock.
+///
+/// The registry reports lock errors as text; rather than match on that
+/// text, we look at the resource *after* the failure: if another user holds
+/// the lock, that is the D73 `locked` case.
+fn lock_failure(state: &AppState, id: &str, user_id: &str, message: String) -> ProblemDetail {
+    match state.resource_registry.get(id) {
+        None => ProblemDetail::not_found(format!("Resource '{}' not found", id)),
+        Some(resource) => {
+            let problem = ProblemDetail::conflict(message);
+            match resource.locked_by.as_deref() {
+                Some(locker) if locker != user_id => problem.with_conflict(
+                    ResourceConflict::new(ConflictCode::Locked)
+                        .with_resource(&resource.id, &resource.name),
+                ),
+                _ => problem,
+            }
         }
-    }
-}
-
-// ============================================================================
-// Parsing Helpers
-// ============================================================================
-
-/// Parse an access mode string into an `AccessMode` enum.
-fn parse_access_mode(s: &str) -> Result<AccessMode, ProblemDetail> {
-    match s {
-        "shared" => Ok(AccessMode::Shared),
-        "exclusive" => Ok(AccessMode::Exclusive),
-        "read_only" => Ok(AccessMode::ReadOnly),
-        _ => Err(ProblemDetail::bad_request(
-            "access_mode must be 'shared', 'exclusive', or 'read_only'",
-        )),
-    }
-}
-
-/// Parse a hex address string (e.g., "0x00" or "0xA0") into a u8.
-fn parse_ep_address(s: &str) -> Result<u8, ProblemDetail> {
-    let stripped = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
-    u8::from_str_radix(stripped, 16).map_err(|_| {
-        ProblemDetail::bad_request(&format!("Invalid endpoint address: '{}' (expected 0x00–0xBF)", s))
-    })
-}
-
-/// Parse a hex address string into a u32 (for address ranges).
-fn parse_u32_hex(s: &str) -> Result<u32, ProblemDetail> {
-    let stripped = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
-    // Remove underscores (allow "0x44A6_0000" formatting).
-    let clean: String = stripped.chars().filter(|c| *c != '_').collect();
-    u32::from_str_radix(&clean, 16).map_err(|_| {
-        ProblemDetail::bad_request(&format!("Invalid hex address: '{}' (expected 32-bit hex)", s))
-    })
-}
-
-/// Parse an endpoint type string into an `EndpointType` enum.
-fn parse_ep_type(s: &str) -> Result<EndpointType, ProblemDetail> {
-    match s {
-        "wire_in" => Ok(EndpointType::WireIn),
-        "wire_out" => Ok(EndpointType::WireOut),
-        "trigger_in" => Ok(EndpointType::TriggerIn),
-        "trigger_out" => Ok(EndpointType::TriggerOut),
-        "pipe_in" => Ok(EndpointType::PipeIn),
-        "pipe_out" => Ok(EndpointType::PipeOut),
-        "bt_pipe_in" => Ok(EndpointType::BtPipeIn),
-        "bt_pipe_out" => Ok(EndpointType::BtPipeOut),
-        _ => Err(ProblemDetail::bad_request(&format!(
-            "Invalid endpoint type: '{}'. Expected one of: wire_in, wire_out, trigger_in, \
-             trigger_out, pipe_in, pipe_out, bt_pipe_in, bt_pipe_out",
-            s
-        ))),
     }
 }
 
@@ -258,7 +350,9 @@ fn parse_ep_type(s: &str) -> Result<EndpointType, ProblemDetail> {
 
 /// `GET /resources` — List all registered resources across all devices.
 async fn list_resources(State(state): State<Arc<AppState>>) -> Json<ResourceListBody> {
-    let resources = state.resource_registry.list();
+    let mut resources = state.resource_registry.list();
+    // Sort for stable output (the registry is a HashMap).
+    resources.sort_by(|a, b| a.id.cmp(&b.id));
     let views = resources.iter().map(ResourceView::from).collect();
     Json(ResourceListBody { resources: views })
 }
@@ -270,210 +364,115 @@ async fn get_resource(
 ) -> Result<Json<ResourceView>, ProblemDetail> {
     match state.resource_registry.get(&id) {
         Some(resource) => Ok(Json(ResourceView::from(&resource))),
-        None => Err(ProblemDetail::not_found(&format!(
+        None => Err(ProblemDetail::not_found(format!(
             "Resource '{}' not found",
             id
         ))),
     }
 }
 
-/// `POST /resources` — Create a new resource (client-side registration, ADR-020).
+/// `POST /resources` — Create a new resource (client-side registration).
 ///
-/// The client creates resources after programming a bitfile, since the client
-/// knows what capabilities the bitfile exposes. The server validates that the
-/// referenced device exists and is programmed, that interfaces are supported,
-/// that EP types match address ranges, and that exclusive EPs/ranges don't
-/// overlap with existing resources.
+/// Status codes (OpenAPI): 201 + `Location` header, 404 unknown device,
+/// 409 device not programmed / duplicate name / overlap (with `conflict`),
+/// 422 invalid declaration (with `conflict.code = "validation"`).
 async fn create_resource(
     State(state): State<Arc<AppState>>,
-    Json(body): Json<CreateResourceRequest>,
-) -> Result<(StatusCode, Json<ResourceView>), ProblemDetail> {
-    // 1. Validate the device exists and is programmed.
-    let registry = state.device_manager.registry();
-    match registry.get(&body.device_serial) {
-        Some(dev) => {
-            if !dev.is_programmed() {
-                return Err(ProblemDetail::conflict(
-                    "FPGA is not programmed -- program it first with POST /configure or /configure_from_server_path",
-                ));
-            }
+    body: Bytes,
+) -> Result<Response, ProblemDetail> {
+    // 1 + 2. Decode and validate the declaration (422 on any problem).
+    let request: CreateResourceRequest = decode_json(&body)?;
+    let spec = request.into_spec().map_err(ProblemDetail::from_resource_error)?;
+    let resource = build_resource(spec).map_err(ProblemDetail::from_resource_error)?;
+
+    // 3. The device must exist and be programmed.
+    match state.device_manager.registry().get(&resource.device_serial) {
+        Some(dev) if dev.is_programmed() => {}
+        Some(_) => {
+            return Err(ProblemDetail::conflict(
+                "FPGA is not programmed -- program it first with POST /configure or /configure_from_server_path",
+            ));
         }
         None => {
-            return Err(ProblemDetail::not_found(&format!(
+            return Err(ProblemDetail::not_found(format!(
                 "Device '{}' not found",
-                body.device_serial
+                resource.device_serial
             )));
         }
     }
 
-    // 2. Parse access mode.
-    let access_mode = parse_access_mode(&body.access_mode)?;
-
-    // 3. Parse interface declarations.
-    let interfaces = match body.interfaces {
-        Some(ifaces) => InterfaceDeclaration {
-            classic: ifaces.classic,
-            axi_lite: ifaces.axi_lite,
-            axi_full: ifaces.axi_full,
-            axi_stream: ifaces.axi_stream,
-        },
-        None => InterfaceDeclaration::default(),
-    };
-
-    if !interfaces.has_any() {
-        return Err(ProblemDetail::bad_request(
-            "At least one interface must be enabled (classic, axi_lite, axi_full, or axi_stream)",
-        ));
-    }
-
-    // 4. Parse endpoint declarations (if classic is enabled).
-    let endpoints = if let Some(ep_body) = body.endpoints {
-        let default_access = parse_access_mode(&ep_body.default_access)?;
-        let mut entries = Vec::new();
-        for entry in ep_body.entries {
-            let address = parse_ep_address(&entry.address)?;
-            let ep_type = parse_ep_type(&entry.ep_type)?;
-            let ep_access = parse_access_mode(&entry.access)?;
-
-            // Validate type matches address range (ADR-020 §7).
-            if !ep_type.is_valid_address(address) {
-                let (lo, hi) = ep_type.address_range();
-                return Err(ProblemDetail::new(
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    format!(
-                        "Endpoint 0x{:02X} is not in the {} range (0x{:02X}–0x{:02X})",
-                        address, ep_type, lo, hi
-                    ),
-                ));
-            }
-
-            entries.push(EndpointEntry {
-                address,
-                ep_type,
-                access: ep_access,
-                description: entry.description,
-                private: false,
-            });
-        }
-        Some(EndpointDeclaration {
-            default_access,
-            entries,
-        })
-    } else {
-        None
-    };
-
-    // 5. Parse address ranges.
-    let mut address_ranges = Vec::new();
-    for ar_body in &body.address_ranges {
-        let start = parse_u32_hex(&ar_body.start)?;
-        let end = parse_u32_hex(&ar_body.end)?;
-        let ar_access = parse_access_mode(&ar_body.access)?;
-
-        if start > end {
-            return Err(ProblemDetail::bad_request(&format!(
-                "Address range start (0x{:08X}) must be <= end (0x{:08X})",
-                start, end
+    // 4. Overlap check + insert, atomically.
+    let resource_id = resource.id.clone();
+    let device_serial = resource.device_serial.clone();
+    let name = resource.name.clone();
+    match state.resource_registry.try_register(resource, check_overlap) {
+        Ok(()) => {}
+        Err(RegisterError::Duplicate) => {
+            return Err(ProblemDetail::conflict(format!(
+                "Resource '{}' already exists for device '{}'",
+                name, device_serial
             )));
         }
-
-        address_ranges.push(AddressRange {
-            start,
-            end,
-            access: ar_access,
-            private: false,
-        });
-    }
-
-    // 6. Check for EP overlap with existing resources on the same device.
-    if let Some(ref ep_decl) = endpoints {
-        let existing_resources = state.resource_registry.list_for_device(&body.device_serial);
-        for new_ep in &ep_decl.entries {
-            if new_ep.access == AccessMode::Exclusive {
-                for existing in &existing_resources {
-                    if let Some(ref existing_eps) = existing.endpoints {
-                        for existing_ep in &existing_eps.entries {
-                            if existing_ep.address == new_ep.address
-                                && existing_ep.access == AccessMode::Exclusive
-                            {
-                                return Err(ProblemDetail::conflict(&format!(
-                                    "Endpoint 0x{:02X} is already declared exclusive by resource '{}'",
-                                    new_ep.address, existing.name
-                                )));
-                            }
-                        }
-                    }
-                }
-            }
+        Err(RegisterError::Rejected(err)) => {
+            return Err(ProblemDetail::from_resource_error(err));
         }
     }
 
-    // 7. Check for address range overlap with existing exclusive ranges.
-    for new_range in &address_ranges {
-        if new_range.access == AccessMode::Exclusive {
-            let existing_resources = state.resource_registry.list_for_device(&body.device_serial);
-            for existing in &existing_resources {
-                for existing_range in &existing.address_ranges {
-                    if existing_range.access == AccessMode::Exclusive
-                        && new_range.overlaps(existing_range)
-                    {
-                        return Err(ProblemDetail::conflict(&format!(
-                            "Address range 0x{:08X}–0x{:08X} overlaps with exclusive range in resource '{}'",
-                            new_range.start, new_range.end, existing.name
-                        )));
-                    }
-                }
+    let created = state
+        .resource_registry
+        .get(&resource_id)
+        .ok_or_else(|| ProblemDetail::internal("resource vanished after registration"))?;
+
+    // Broadcast DeviceEvent for SSE subscribers (Phase 39, ADR-030).
+    let _ = state.device_manager.broadcast(DeviceEvent::ResourceCreated {
+        resource_id: resource_id.clone(),
+        device_serial: device_serial.clone(),
+        name,
+        timestamp: chrono::Utc::now(),
+    });
+
+    // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
+    state.broadcast_event(&format!(
+        r#"{{"type":"resource_registered","resource_id":"{}","device_serial":"{}"}}"#,
+        resource_id, device_serial
+    ));
+
+    // `Location` points at the new resource (the REST API is nested under
+    // `/api/v1`). Resource IDs are `{serial}:{name}` and the name is free
+    // text, so the ID is percent-encoded as one path segment. The result is
+    // plain ASCII, so it is always a valid header value; Axum's `Path`
+    // extractor decodes it again on `GET /resources/{id}`.
+    let mut response = (StatusCode::CREATED, Json(ResourceView::from(&created))).into_response();
+    let location = format!("/api/v1/resources/{}", encode_path_segment(&resource_id));
+    if let Ok(value) = HeaderValue::from_str(&location) {
+        response.headers_mut().insert(header::LOCATION, value);
+    }
+    Ok(response)
+}
+
+/// Percent-encode `text` for use as a single URL path segment.
+///
+/// Keeps the RFC 3986 "unreserved" characters plus `:` (allowed inside a
+/// segment and used in resource IDs); every other byte of the UTF-8
+/// encoding becomes `%XX`. Written by hand to avoid a new dependency.
+fn encode_path_segment(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b':' => {
+                out.push(byte as char)
             }
+            _ => out.push_str(&format!("%{:02X}", byte)),
         }
     }
-
-    // 8. Generate resource ID: {serial}:{name}
-    let resource_id = format!("{}:{}", body.device_serial, body.name);
-
-    let mut resource = Resource::new(
-        resource_id.clone(),
-        body.name.clone(),
-        body.description.clone(),
-        body.device_serial.clone(),
-        access_mode,
-    );
-    resource.interfaces = interfaces;
-    resource.endpoints = endpoints;
-    resource.address_ranges = address_ranges;
-    resource.metadata = body.metadata;
-
-    if state.resource_registry.register(resource) {
-        let created = state.resource_registry.get(&resource_id).unwrap();
-
-        // Broadcast DeviceEvent for SSE subscribers (Phase 39, ADR-030).
-        let _ = state.device_manager.broadcast(
-            ok_fpga_core::manager::DeviceEvent::ResourceCreated {
-                resource_id: resource_id.clone(),
-                device_serial: body.device_serial.clone(),
-                name: body.name.clone(),
-                timestamp: chrono::Utc::now(),
-            },
-        );
-
-        // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
-        state.broadcast_event(&format!(
-            r#"{{"type":"resource_registered","resource_id":"{}","device_serial":"{}"}}"#,
-            resource_id, body.device_serial
-        ));
-
-        Ok((StatusCode::CREATED, Json(ResourceView::from(&created))))
-    } else {
-        Err(ProblemDetail::conflict(&format!(
-            "Resource '{}' already exists for device '{}'",
-            body.name, body.device_serial
-        )))
-    }
+    out
 }
 
 /// `DELETE /resources/{id}` — Delete a resource definition.
 ///
 /// Returns 409 if the resource is currently held by any user.
-/// Returns 204 No Content on success.
+/// Returns 204 No Content on success and emits `ResourceDeleted` with
+/// `reason = client`.
 async fn delete_resource(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
@@ -482,7 +481,7 @@ async fn delete_resource(
     match state.resource_registry.get(&id) {
         Some(resource) => {
             if !resource.holders.is_empty() {
-                return Err(ProblemDetail::conflict(&format!(
+                return Err(ProblemDetail::conflict(format!(
                     "Resource '{}' is currently held by {} user(s) — release it first",
                     id,
                     resource.holders.len()
@@ -490,7 +489,7 @@ async fn delete_resource(
             }
         }
         None => {
-            return Err(ProblemDetail::not_found(&format!(
+            return Err(ProblemDetail::not_found(format!(
                 "Resource '{}' not found",
                 id
             )));
@@ -500,12 +499,11 @@ async fn delete_resource(
     state.resource_registry.remove(&id);
 
     // Broadcast DeviceEvent for SSE subscribers (Phase 39, ADR-030).
-    let _ = state.device_manager.broadcast(
-        ok_fpga_core::manager::DeviceEvent::ResourceDeleted {
-            resource_id: id.clone(),
-            timestamp: chrono::Utc::now(),
-        },
-    );
+    let _ = state.device_manager.broadcast(DeviceEvent::ResourceDeleted {
+        resource_id: id.clone(),
+        reason: DeleteReason::Client,
+        timestamp: chrono::Utc::now(),
+    });
 
     // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
     state.broadcast_event(&format!(
@@ -518,53 +516,54 @@ async fn delete_resource(
 
 /// `POST /resources/{id}/acquire` — Acquire a resource for a user.
 ///
-/// The access mode is determined by the resource's `access_mode` field
-/// (set at registration time, ADR-020 §3), not by the caller.
+/// `mode` is optional. In 44-A the effective mode is still the resource's
+/// declared mode when it has one (the full S-03 rules arrive in 44-C); an
+/// unknown `mode` string is a 422. A denial is a 409 with a `conflict`
+/// object when a D73 code fits (`locked`, `mode_mismatch`).
 async fn acquire_resource(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(body): Json<AcquireResourceRequest>,
+    body: Bytes,
 ) -> Result<Json<ResourceView>, ProblemDetail> {
-    // Resolve user identity: body first, then X-User-Id header (ADR-029).
-    let user_id = super::resolve_user_id(body.user_id.as_deref(), &headers)?;
+    let request: AcquireResourceRequest = decode_json(&body)?;
 
-    // Look up the resource's declared access mode.
+    // Resolve user identity: body first, then X-User-Id header (ADR-029).
+    let user_id = super::resolve_user_id(request.user_id.as_deref(), &headers)?;
+
+    // Look the resource up before validating `mode`, so an unknown resource
+    // is a 404 even with a bad mode — the same order as gRPC.
     let resource = state
         .resource_registry
         .get(&id)
-        .ok_or_else(|| ProblemDetail::not_found(&format!("Resource '{}' not found", id)))?;
+        .ok_or_else(|| ProblemDetail::not_found(format!("Resource '{}' not found", id)))?;
 
-    let mode = resource.access_mode.unwrap_or_else(|| {
-        // Fallback for legacy resources: parse from request body.
-        body.mode
-            .as_deref()
-            .and_then(|m| match m {
-                "shared" => Some(AccessMode::Shared),
-                "exclusive" => Some(AccessMode::Exclusive),
-                _ => None,
-            })
-            .unwrap_or(AccessMode::Shared)
-    });
+    let requested = match request.mode.as_deref() {
+        None => None,
+        Some(text) => Some(AccessMode::parse_holder(text).ok_or_else(|| {
+            ProblemDetail::from_resource_error(ResourceError::validation(format!(
+                "mode must be 'shared', 'exclusive' or 'read_only' (got '{}')",
+                text
+            )))
+        })?),
+    };
 
-    state
-        .resource_registry
-        .acquire(&id, &user_id, mode)
-        .map_err(|e| ProblemDetail::conflict(&format!("{}", e)))?;
+    let mode = resource
+        .access_mode
+        .unwrap_or(requested.unwrap_or(AccessMode::Shared));
+
+    if let Err(denied) = state.resource_registry.acquire(&id, &user_id, mode) {
+        let problem = ProblemDetail::conflict(denied.to_string());
+        return Err(match denied.to_conflict(&resource) {
+            Some(conflict) => problem.with_conflict(conflict),
+            None => problem,
+        });
+    }
 
     // Track the user session (implicit heartbeat on acquire).
     state.user_sessions.touch(&user_id);
 
-    let resource = state.resource_registry.get(&id).unwrap();
-
-    // Broadcast ResourceChanged event (Option B — handlers broadcast).
-    let _ = state.device_manager.broadcast(
-        ok_fpga_core::manager::DeviceEvent::ResourceChanged {
-            resource_id: id.clone(),
-            new_state: format!("{:?}", resource.state),
-            timestamp: chrono::Utc::now(),
-        },
-    );
+    emit_resource_changed(&state, &id);
 
     // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
     state.broadcast_event(&format!(
@@ -572,6 +571,10 @@ async fn acquire_resource(
         id, user_id
     ));
 
+    let resource = state
+        .resource_registry
+        .get(&id)
+        .ok_or_else(|| ProblemDetail::not_found(format!("Resource '{}' not found", id)))?;
     Ok(Json(ResourceView::from(&resource)))
 }
 
@@ -589,21 +592,7 @@ async fn release_resource(
         // Track the user session (implicit heartbeat on release).
         state.user_sessions.touch(&user_id);
 
-        // Determine new state after release.
-        let new_state = state
-            .resource_registry
-            .get(&id)
-            .map(|r| format!("{:?}", r.state))
-            .unwrap_or_else(|| "Available".to_string());
-
-        // Broadcast ResourceChanged event (Option B).
-        let _ = state.device_manager.broadcast(
-            ok_fpga_core::manager::DeviceEvent::ResourceChanged {
-                resource_id: id.clone(),
-                new_state,
-                timestamp: chrono::Utc::now(),
-            },
-        );
+        emit_resource_changed(&state, &id);
 
         // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
         state.broadcast_event(&format!(
@@ -616,7 +605,7 @@ async fn release_resource(
             "message": format!("Resource '{}' released by '{}'", id, user_id),
         })))
     } else {
-        Err(ProblemDetail::not_found(&format!(
+        Err(ProblemDetail::not_found(format!(
             "Resource '{}' not found or user '{}' was not holding it",
             id, user_id
         )))
@@ -627,6 +616,7 @@ async fn release_resource(
 ///
 /// A holder of a shared resource can temporarily lock it for exclusive use.
 /// Other holders remain in the holders list but cannot operate until unlock.
+/// Emits `ResourceChanged` and `ResourceLocked`.
 async fn lock_resource(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
@@ -639,18 +629,14 @@ async fn lock_resource(
     state
         .resource_registry
         .lock(&id, &user_id)
-        .map_err(|e| ProblemDetail::conflict(&e))?;
+        .map_err(|e| lock_failure(&state, &id, &user_id, e))?;
 
-    let resource = state.resource_registry.get(&id).unwrap();
-
-    // Broadcast ResourceChanged event (Option B).
-    let _ = state.device_manager.broadcast(
-        ok_fpga_core::manager::DeviceEvent::ResourceChanged {
-            resource_id: id.clone(),
-            new_state: "In Use (Locked)".to_string(),
-            timestamp: chrono::Utc::now(),
-        },
-    );
+    emit_resource_changed(&state, &id);
+    let _ = state.device_manager.broadcast(DeviceEvent::ResourceLocked {
+        resource_id: id.clone(),
+        user_id: user_id.clone(),
+        timestamp: chrono::Utc::now(),
+    });
 
     // Broadcast event for dashboard auto-refresh (Phase 28D — was missing).
     state.broadcast_event(&format!(
@@ -658,12 +644,17 @@ async fn lock_resource(
         id, user_id
     ));
 
+    let resource = state
+        .resource_registry
+        .get(&id)
+        .ok_or_else(|| ProblemDetail::not_found(format!("Resource '{}' not found", id)))?;
     Ok(Json(ResourceView::from(&resource)))
 }
 
 /// `POST /resources/{id}/unlock` — Unlock a previously locked resource (ADR-020 §3).
 ///
 /// Only the user who locked the resource can unlock it.
+/// Emits `ResourceChanged` and `ResourceUnlocked`.
 async fn unlock_resource(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
@@ -676,18 +667,14 @@ async fn unlock_resource(
     state
         .resource_registry
         .unlock(&id, &user_id)
-        .map_err(|e| ProblemDetail::conflict(&e))?;
+        .map_err(|e| lock_failure(&state, &id, &user_id, e))?;
 
-    let resource = state.resource_registry.get(&id).unwrap();
-
-    // Broadcast ResourceChanged event (Option B).
-    let _ = state.device_manager.broadcast(
-        ok_fpga_core::manager::DeviceEvent::ResourceChanged {
-            resource_id: id.clone(),
-            new_state: "In Use (Shared)".to_string(),
-            timestamp: chrono::Utc::now(),
-        },
-    );
+    emit_resource_changed(&state, &id);
+    let _ = state.device_manager.broadcast(DeviceEvent::ResourceUnlocked {
+        resource_id: id.clone(),
+        user_id: user_id.clone(),
+        timestamp: chrono::Utc::now(),
+    });
 
     // Broadcast event for dashboard auto-refresh (Phase 28D — was missing).
     state.broadcast_event(&format!(
@@ -695,5 +682,430 @@ async fn unlock_resource(
         id, user_id
     ));
 
+    let resource = state
+        .resource_registry
+        .get(&id)
+        .ok_or_else(|| ProblemDetail::not_found(format!("Resource '{}' not found", id)))?;
     Ok(Json(ResourceView::from(&resource)))
+}
+
+// ============================================================================
+// Tests (Tier 3: in-process router, no hardware)
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::Request;
+    use ok_fpga_core::device::*;
+    use ok_fpga_core::manager::DeviceManager;
+    use ok_fpga_core::resource::ResourceRegistry;
+    use ok_fpga_core::service_manager::ServiceManager;
+    use ok_fpga_core::user::UserSessionRegistry;
+    use tower::ServiceExt;
+
+    const SERIAL: &str = "TEST0001";
+
+    /// Device info for an emulated XEM8320.
+    fn test_info(serial: &str) -> DeviceInfo {
+        DeviceInfo {
+            serial: serial.to_string(),
+            product_name: "XEM8320-AU25P".to_string(),
+            product_id: 56,
+            device_interface: DeviceInterface::Usb3,
+            usb_speed: UsbSpeed::Super,
+            device_major_version: 1,
+            device_minor_version: 0,
+            wire_width: 32,
+            trigger_width: 32,
+            pipe_width: 32,
+            register_address_width: 32,
+            register_data_width: 32,
+            fpga_vendor: FpgaVendor::Xilinx,
+            dataport: DataportType::Legacy,
+            device_id: "".to_string(),
+        }
+    }
+
+    /// Build an `AppState` with one programmed device.
+    fn test_state() -> Arc<AppState> {
+        let device_manager = Arc::new(DeviceManager::new());
+        device_manager.registry().add(FpgaDevice {
+            info: test_info(SERIAL),
+            state: DeviceState::Programmed {
+                bitfile: BitfileRecord {
+                    filename: "test.bit".to_string(),
+                    description: None,
+                    programmed_at: chrono::Utc::now(),
+                    programmed_by: "tester".to_string(),
+                    file_path: None,
+                    md5_hash: None,
+                },
+            },
+        });
+        let auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider> =
+            Arc::from(ok_fpga_core::auth::create_provider("none", vec![], None));
+        Arc::new(AppState::new(
+            device_manager,
+            Arc::new(ResourceRegistry::new()),
+            Arc::new(ServiceManager::new()),
+            None,
+            auth_provider,
+            Arc::new(ok_fpga_core::auth::SessionManager::new(3600)),
+            Arc::new(UserSessionRegistry::new()),
+            crate::state::EndpointEnforcement::Off,
+            crate::config::ServerConfig::default(),
+            None,
+        ))
+    }
+
+    /// Send one request through the resource router.
+    async fn send(
+        state: &Arc<AppState>,
+        method: &str,
+        uri: &str,
+        body: serde_json::Value,
+    ) -> (StatusCode, HeaderMap, serde_json::Value) {
+        send_raw(state, method, uri, body.to_string()).await
+    }
+
+    /// Like [`send`] but with a raw text body (for malformed JSON).
+    async fn send_raw(
+        state: &Arc<AppState>,
+        method: &str,
+        uri: &str,
+        body: String,
+    ) -> (StatusCode, HeaderMap, serde_json::Value) {
+        let app = routes().with_state(state.clone());
+        let request = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(body))
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json = if bytes.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)
+        };
+        (status, headers, json)
+    }
+
+    /// A shared resource declaring one wire-in.
+    fn shared_wire_resource(name: &str) -> serde_json::Value {
+        serde_json::json!({
+            "name": name,
+            "device_serial": SERIAL,
+            "access_mode": "shared",
+            "interfaces": ["classic"],
+            "endpoints": {"entries": [
+                {"address": "0x01", "type": "wire_in", "access": "shared"}
+            ]}
+        })
+    }
+
+    #[tokio::test]
+    async fn test_create_resource_request_full_schema_roundtrips() {
+        let state = test_state();
+        let body = serde_json::json!({
+            "name": "counters",
+            "description": "counter block",
+            "device_serial": SERIAL,
+            "access_mode": "shared",
+            "private": true,
+            "interfaces": ["classic", "axi_lite"],
+            "endpoints": {
+                "default_access": "exclusive",
+                "entries": [
+                    {"address": "0x00", "type": "wire_in", "access": "shared",
+                     "private": true, "description": "reset"},
+                    {"address": "0x20", "type": "wire_out"}
+                ]
+            },
+            "address_ranges": [
+                {"name": "regs", "start": "0x44A60000", "end": "0x44A6FFFF",
+                 "access": "exclusive", "private": false, "description": "AXI regs"}
+            ],
+            "metadata": {"version": "1.2"}
+        });
+        let (status, _, json) = send(&state, "POST", "/resources", body).await;
+        assert_eq!(status, StatusCode::CREATED, "{json}");
+        assert_eq!(json["id"], format!("{SERIAL}:counters"));
+        assert_eq!(json["state"], "available");
+        assert_eq!(json["access_mode"], "shared");
+        assert_eq!(json["private"], true);
+        assert_eq!(json["interfaces"], serde_json::json!(["classic", "axi_lite"]));
+        assert_eq!(json["endpoints"]["default_access"], "exclusive");
+        let entries = json["endpoints"]["entries"].as_array().unwrap();
+        assert_eq!(entries[0]["address"], "0x00");
+        assert_eq!(entries[0]["type"], "wire_in");
+        assert_eq!(entries[0]["access"], "shared");
+        assert_eq!(entries[0]["private"], true);
+        assert_eq!(entries[0]["description"], "reset");
+        // D61: an entry without `access` takes `default_access`.
+        assert_eq!(entries[1]["access"], "exclusive");
+        let range = &json["address_ranges"][0];
+        assert_eq!(range["name"], "regs");
+        assert_eq!(range["start"], "0x44A60000");
+        assert_eq!(range["end"], "0x44A6FFFF");
+        assert_eq!(range["access"], "exclusive");
+        assert_eq!(range["description"], "AXI regs");
+        assert_eq!(json["metadata"]["version"], "1.2");
+        assert_eq!(json["holders"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn test_create_resource_request_malformed_json_returns_422() {
+        let state = test_state();
+        let (status, _, json) =
+            send_raw(&state, "POST", "/resources", "{not json".to_string()).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(json["conflict"]["code"], "validation");
+    }
+
+    #[tokio::test]
+    async fn test_create_resource_metadata_non_string_returns_422() {
+        let state = test_state();
+        let mut body = shared_wire_resource("meta");
+        body["metadata"] = serde_json::json!({"count": 3});
+        let (status, _, json) = send(&state, "POST", "/resources", body).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(json["detail"].as_str().unwrap().contains("metadata"));
+        assert_eq!(json["conflict"]["code"], "validation");
+    }
+
+    #[tokio::test]
+    async fn test_create_resource_unknown_device_returns_404() {
+        let state = test_state();
+        let mut body = shared_wire_resource("ghost");
+        body["device_serial"] = serde_json::json!("NOPE");
+        let (status, _, _) = send(&state, "POST", "/resources", body).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_create_resource_duplicate_returns_409_without_conflict() {
+        let state = test_state();
+        let (status, _, _) = send(&state, "POST", "/resources", shared_wire_resource("dup")).await;
+        assert_eq!(status, StatusCode::CREATED);
+        let (status, _, json) =
+            send(&state, "POST", "/resources", shared_wire_resource("dup")).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(json.get("conflict").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_conflict_error_body_names_resource_and_item() {
+        let state = test_state();
+        let first = serde_json::json!({
+            "name": "a", "device_serial": SERIAL, "access_mode": "exclusive",
+            "interfaces": ["classic"],
+            "endpoints": {"entries": [{"address": "0x05", "type": "wire_in", "access": "exclusive"}]}
+        });
+        let mut second = first.clone();
+        second["name"] = serde_json::json!("b");
+        let (status, _, _) = send(&state, "POST", "/resources", first).await;
+        assert_eq!(status, StatusCode::CREATED);
+        let (status, _, json) = send(&state, "POST", "/resources", second).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(json["conflict"]["code"], "overlap");
+        assert_eq!(json["conflict"]["resource_id"], format!("{SERIAL}:a"));
+        assert_eq!(json["conflict"]["resource_name"], "a");
+        assert_eq!(json["conflict"]["item_type"], "endpoint");
+        assert_eq!(json["conflict"]["item"], "0x05");
+    }
+
+    #[tokio::test]
+    async fn test_create_resource_sets_location_header() {
+        let state = test_state();
+        let (status, headers, _) =
+            send(&state, "POST", "/resources", shared_wire_resource("loc")).await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(
+            headers.get(header::LOCATION).unwrap(),
+            &format!("/api/v1/resources/{SERIAL}:loc")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_acquire_resource_invalid_mode_returns_422() {
+        let state = test_state();
+        send(&state, "POST", "/resources", shared_wire_resource("acq")).await;
+        let uri = format!("/resources/{SERIAL}:acq/acquire");
+        let (status, _, json) = send(
+            &state,
+            "POST",
+            &uri,
+            serde_json::json!({"user_id": "alice", "mode": "bogus"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(json["conflict"]["code"], "validation");
+    }
+
+    #[tokio::test]
+    async fn test_acquire_resource_unknown_with_invalid_mode_returns_404() {
+        // Same order as gRPC: the lookup comes before the mode check.
+        let state = test_state();
+        let (status, _, _) = send(
+            &state,
+            "POST",
+            "/resources/nope/acquire",
+            serde_json::json!({"user_id": "alice", "mode": "bogus"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn test_encode_path_segment_special_chars_percent_encoded() {
+        assert_eq!(encode_path_segment("SN1:dac-0_a.b~"), "SN1:dac-0_a.b~");
+        assert_eq!(encode_path_segment("SN1:my dac/1"), "SN1:my%20dac%2F1");
+        assert_eq!(encode_path_segment("é"), "%C3%A9");
+    }
+
+    #[tokio::test]
+    async fn test_acquire_resource_mode_omitted_returns_holder_view() {
+        let state = test_state();
+        send(&state, "POST", "/resources", shared_wire_resource("acq2")).await;
+        let uri = format!("/resources/{SERIAL}:acq2/acquire");
+        let (status, _, json) =
+            send(&state, "POST", &uri, serde_json::json!({"user_id": "alice"})).await;
+        assert_eq!(status, StatusCode::OK, "{json}");
+        assert_eq!(json["state"], "in_use_shared");
+        assert_eq!(
+            json["holders"],
+            serde_json::json!([{"user_id": "alice", "mode": "shared"}])
+        );
+    }
+
+    #[tokio::test]
+    async fn test_acquire_resource_exclusively_held_returns_locked_conflict() {
+        let state = test_state();
+        let body = serde_json::json!({
+            "name": "ex", "device_serial": SERIAL, "interfaces": ["classic"]
+        });
+        let (status, _, _) = send(&state, "POST", "/resources", body).await;
+        assert_eq!(status, StatusCode::CREATED);
+        let uri = format!("/resources/{SERIAL}:ex/acquire");
+        send(&state, "POST", &uri, serde_json::json!({"user_id": "alice"})).await;
+        let (status, _, json) =
+            send(&state, "POST", &uri, serde_json::json!({"user_id": "bob"})).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(json["conflict"]["code"], "locked");
+        assert_eq!(json["conflict"]["resource_id"], format!("{SERIAL}:ex"));
+    }
+
+    #[tokio::test]
+    async fn test_lock_resource_success_emits_resource_locked_event() {
+        let state = test_state();
+        send(&state, "POST", "/resources", shared_wire_resource("lk")).await;
+        let id = format!("{SERIAL}:lk");
+        send(
+            &state,
+            "POST",
+            &format!("/resources/{id}/acquire"),
+            serde_json::json!({"user_id": "alice"}),
+        )
+        .await;
+        let mut events = state.device_manager.subscribe();
+        let (status, _, json) = send(
+            &state,
+            "POST",
+            &format!("/resources/{id}/lock"),
+            serde_json::json!({"user_id": "alice"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["locked_by"], "alice");
+
+        let mut saw_locked = false;
+        while let Ok(event) = events.try_recv() {
+            if let DeviceEvent::ResourceLocked { resource_id, user_id, .. } = event {
+                assert_eq!(resource_id, id);
+                assert_eq!(user_id, "alice");
+                saw_locked = true;
+            }
+        }
+        assert!(saw_locked, "ResourceLocked event not broadcast");
+    }
+
+    #[tokio::test]
+    async fn test_lock_resource_locked_by_other_returns_locked_conflict() {
+        let state = test_state();
+        send(&state, "POST", "/resources", shared_wire_resource("lk2")).await;
+        let id = format!("{SERIAL}:lk2");
+        for user in ["alice", "bob"] {
+            send(
+                &state,
+                "POST",
+                &format!("/resources/{id}/acquire"),
+                serde_json::json!({"user_id": user}),
+            )
+            .await;
+        }
+        send(
+            &state,
+            "POST",
+            &format!("/resources/{id}/lock"),
+            serde_json::json!({"user_id": "alice"}),
+        )
+        .await;
+        let (status, _, json) = send(
+            &state,
+            "POST",
+            &format!("/resources/{id}/lock"),
+            serde_json::json!({"user_id": "bob"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(json["conflict"]["code"], "locked");
+    }
+
+    #[tokio::test]
+    async fn test_delete_resource_emits_client_reason() {
+        let state = test_state();
+        send(&state, "POST", "/resources", shared_wire_resource("del")).await;
+        let mut events = state.device_manager.subscribe();
+        let (status, _, _) = send(
+            &state,
+            "DELETE",
+            &format!("/resources/{SERIAL}:del"),
+            serde_json::Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        match events.try_recv() {
+            Ok(DeviceEvent::ResourceDeleted { reason, .. }) => {
+                assert_eq!(reason, DeleteReason::Client)
+            }
+            other => panic!("expected ResourceDeleted, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_resource_changed_event_new_state_uses_spec_strings() {
+        let state = test_state();
+        send(&state, "POST", "/resources", shared_wire_resource("chg")).await;
+        let mut events = state.device_manager.subscribe();
+        send(
+            &state,
+            "POST",
+            &format!("/resources/{SERIAL}:chg/acquire"),
+            serde_json::json!({"user_id": "alice"}),
+        )
+        .await;
+        match events.try_recv() {
+            Ok(DeviceEvent::ResourceChanged { new_state, .. }) => {
+                assert_eq!(new_state, "in_use_shared")
+            }
+            other => panic!("expected ResourceChanged, got {other:?}"),
+        }
+    }
 }

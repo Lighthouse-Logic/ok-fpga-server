@@ -685,7 +685,9 @@ async fn write_to_pipe_in(
     }
 
     Ok(Json(PipeTransferResponse {
-        bytes_transferred: transferred,
+        // `c_long` is 32-bit on Windows but 64-bit on Linux; the count is
+        // bounded by the request size, so narrowing to the spec i32 is safe.
+        bytes_transferred: transferred as i32,
     }))
 }
 
@@ -730,7 +732,9 @@ async fn read_from_pipe_out(
     let encoded = base64::engine::general_purpose::STANDARD.encode(&buffer);
 
     Ok(Json(PipeReadResponse {
-        bytes_transferred: transferred,
+        // `c_long` is 32-bit on Windows but 64-bit on Linux; the count is
+        // bounded by the request size, so narrowing to the spec i32 is safe.
+        bytes_transferred: transferred as i32,
         data: encoded,
     }))
 }
@@ -770,7 +774,9 @@ async fn write_to_block_pipe_in(
     }
 
     Ok(Json(PipeTransferResponse {
-        bytes_transferred: transferred,
+        // `c_long` is 32-bit on Windows but 64-bit on Linux; the count is
+        // bounded by the request size, so narrowing to the spec i32 is safe.
+        bytes_transferred: transferred as i32,
     }))
 }
 
@@ -814,7 +820,9 @@ async fn read_from_block_pipe_out(
     let encoded = base64::engine::general_purpose::STANDARD.encode(&buffer);
 
     Ok(Json(PipeReadResponse {
-        bytes_transferred: transferred,
+        // `c_long` is 32-bit on Windows but 64-bit on Linux; the count is
+        // bounded by the request size, so narrowing to the spec i32 is safe.
+        bytes_transferred: transferred as i32,
         data: encoded,
     }))
 }
