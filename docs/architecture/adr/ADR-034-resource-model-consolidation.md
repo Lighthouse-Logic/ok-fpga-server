@@ -3,7 +3,7 @@
 **Status**: Accepted — 44-A implemented; post-44-A read semantics (0.3.0)
 implemented; 44-B … 44-J pending
 **Date**: 2026-10-11
-**Commit hash**: 44-A `c5e4f79`; 0.3.0 read semantics (D75–D77) `pending`
+**Commit hash**: 44-A `c5e4f79`; 0.3.0 read semantics (D75–D77) `5de5ab6`
 **Deciders**: Project owner, Architecture Team
 **Phase**: 44 ([development-roadmap.md](../../development-roadmap.md) §44)
 **Supersedes (in part)**: ADR-020 §7, §8 and the Validation Responses table
