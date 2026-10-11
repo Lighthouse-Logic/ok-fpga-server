@@ -2,9 +2,7 @@
 
 **Status**: Accepted — 44-A implemented; 44-B … 44-J pending
 **Date**: 2026-10-11
-**Commit hash**: 44-A — see `git log --grep "ADR-034 resource contract"` (the
-hash is filled in by the next sub-phase commit, because a commit cannot
-contain its own hash)
+**Commit hash**: 44-A `c5e4f79`
 **Deciders**: Project owner, Architecture Team
 **Phase**: 44 ([development-roadmap.md](../../development-roadmap.md) §44)
 **Supersedes (in part)**: ADR-020 §7, §8 and the Validation Responses table
