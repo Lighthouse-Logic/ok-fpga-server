@@ -1,7 +1,7 @@
 # Archive — Phase 39: SSE Event Expansion
 
 > **Archived:** 2026-08-23
-> **Commits:** `84fbc33` (docs), `5f787a5` (implementation)
+> **Commits:** `a593cf5` (docs), `e8b52a2` (implementation)
 > **ADR:** [ADR-030 — SSE Event Expansion](../architecture/adr/ADR-030-sse-event-expansion.md)
 
 ---

@@ -22,7 +22,7 @@ tests exercise real FPGA hardware through the server's API.
 #### Phase 19A: Device Handle Pool Infrastructure
 
 **Status**: `[x]` Completed (2026-08-17)  
-**Commit**: `704f37f`
+**Commit**: `b063467`
 
 1. âœ… Created `crates/ok-fpga-server/src/handle_pool.rs`:
    - `DeviceHandlePool` struct with `open()`, `close()`, `get()`, `configure()` methods
@@ -36,7 +36,7 @@ tests exercise real FPGA hardware through the server's API.
 #### Phase 19B: Configure FPGA + Device Endpoints
 
 **Status**: `[x]` Completed (2026-08-17)  
-**Commit**: `704f37f`
+**Commit**: `b063467`
 
 Wired 4 device-level endpoints:
 
@@ -50,7 +50,7 @@ Wired 4 device-level endpoints:
 #### Phase 19C: Classic Data Port Endpoints
 
 **Status**: `[x]` Completed (2026-08-17)  
-**Commit**: `704f37f`
+**Commit**: `b063467`
 
 Wired all Classic handlers in `classic.rs` to FFI:
 
@@ -115,7 +115,7 @@ distinct protocols** that must NOT fall back to each other:
 #### Phase 19E: gRPC Classic Wiring + Client Updates
 
 **Status**: `[x]` Completed (2026-08-17)  
-**Commits**: `2a77e48`, `7bbb732`
+**Commits**: `6153a0d`, `982b8cc`
 
 1. âœ… Wired all 18 Classic `ClassicDataPortService` gRPC stubs to FFI in
    `classic_service.rs` (were returning UNIMPLEMENTED)
@@ -228,7 +228,7 @@ from ADR-020.
 
 #### Phase 20A: Enhanced Resource Schema
 
-**Status**: `[x]` Completed (2026-08-17, `247b045`)
+**Status**: `[x]` Completed (2026-08-17, `c999c08`)
 
 1. Extend `Resource` struct in `ok-fpga-core/src/resource.rs` with:
    - `access_mode: AccessMode` (resource-level, not per-acquisition)
@@ -242,7 +242,7 @@ from ADR-020.
 
 #### Phase 20B: Registration-Time Validation
 
-**Status**: `[x]` Completed (2026-08-17, `247b045`)
+**Status**: `[x]` Completed (2026-08-17, `c999c08`)
 
 1. **Interface validation (strict)**: If `axi_lite/full/stream` is declared, call
    `GetFPGADataPortAXI()` and the specific sub-handle getter. Reject if unsupported.
@@ -258,7 +258,7 @@ from ADR-020.
 
 #### Phase 20C: Access Mode & Lock/Unlock
 
-**Status**: `[x]` Completed (2026-08-17, `247b045`, `1d15d61`)
+**Status**: `[x]` Completed (2026-08-17, `c999c08`, `df59119`)
 
 1. Change acquisition logic: `exclusive` resources always transition to `InUseLocked`
    on acquire (no mode choice). `shared` resources transition to `InUseShared`.
@@ -272,7 +272,7 @@ from ADR-020.
 
 #### Phase 20D: Heartbeat / Liveness
 
-**Status**: `[/]` Partially complete (2026-08-17, `1d15d61`)
+**Status**: `[/]` Partially complete (2026-08-17, `df59119`)
 
 > Explicit heartbeat endpoints implemented. Items 1, 2, 4, 6 deferred to Phase 21.
 
@@ -290,7 +290,7 @@ from ADR-020.
 
 #### Phase 20E: Resource Persistence Rules
 
-**Status**: `[/]` Partially complete (2026-08-17, `247b045`)
+**Status**: `[/]` Partially complete (2026-08-17, `c999c08`)
 
 > Resource deletion on device disconnect implemented. Holder notification deferred to Phase 22.
 
@@ -380,7 +380,7 @@ resources held by expired users.
 
 #### Phase 21A: User Session Registry
 
-**Status**: `[x]` Completed (2026-08-17, `e7a1808`)
+**Status**: `[x]` Completed (2026-08-17, `62ca90c`)
 
 1. Create a `UserSession` struct with `user_id: String`,
    `last_seen_at: DateTime<Utc>`, and `held_resource_ids: Vec<String>`.
@@ -402,7 +402,7 @@ resources held by expired users.
 
 #### Phase 21B: Implicit Heartbeat Middleware
 
-**Status**: `[x]` Completed (2026-08-17, `228e055`)
+**Status**: `[x]` Completed (2026-08-17, `463cbd0`)
 
 1. Create an Axum middleware layer wrapping all `/api/v1/*` routes that:
    - Extracts `user_id` from the `X-User-Id` request header (when `auth.provider = "none"`)
@@ -417,7 +417,7 @@ resources held by expired users.
 
 #### Phase 21C: Server Sweep Task
 
-**Status**: `[x]` Completed (2026-08-17, `a3cf276`)
+**Status**: `[x]` Completed (2026-08-17, `28bdd42`)
 
 1. Add two new fields to `CoreConfig` in `config.rs`:
    ```toml
@@ -468,7 +468,7 @@ stub methods to `ResourceAccessPolicy` for future HDL-specific validation.
 
 #### Phase 22A: Event Notifications
 
-**Status**: `[x]` Completed (2026-08-17, `7ba1e38`)
+**Status**: `[x]` Completed (2026-08-17, `10f1fc6`)
 
 1. **SSE endpoint** â€” Replace the `501 Not Implemented` stub in `rest/events.rs`
    with a real SSE implementation using `axum::response::sse::Sse` and
@@ -492,7 +492,7 @@ stub methods to `ResourceAccessPolicy` for future HDL-specific validation.
 
 #### Phase 22B: ResourceAccessPolicy Trait Stubs
 
-**Status**: `[x]` Completed (2026-08-17, `7ba1e38`)  
+**Status**: `[x]` Completed (2026-08-17, `10f1fc6`)  
 (Moved from Phase 20G)
 
 1. Add three new **default-implemented** methods to the `ResourceAccessPolicy`

@@ -29,7 +29,7 @@ parsing, and align the server response with the OpenAPI spec.
 - Rust GUI clients work with both modes (ServerPath / LocalFile) ✅
 - `cargo test` passes, `cargo build` succeeds ✅
 
-**Commits:** `2fb31b2` (server + Rust GUI client), `59702ad` (ADR-028 status), `e58933c` (all REST client addendum)
+**Commits:** `fc0d77d` (server + Rust GUI client), `2959752` (ADR-028 status), `c0709a7` (all REST client addendum)
 
 **Addendum:** All REST client examples updated (Python common, Python
 standalone, Rust standalone) to use `/configure_from_server_path` for

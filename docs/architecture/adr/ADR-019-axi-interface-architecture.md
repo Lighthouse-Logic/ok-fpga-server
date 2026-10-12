@@ -52,7 +52,7 @@ The AXI data port is only available on **FP-Gen3-USB** devices. Such devices rep
 
 ### Problem: Incorrect Polymorphic Fallback
 
-An earlier implementation (commit `704f37f`) incorrectly treated the AXI Lite
+An earlier implementation (commit `b063467`) incorrectly treated the AXI Lite
 endpoints as "polymorphic" — the `axi_lite_read/write` REST handlers would fall
 back to AXI Full when AXI Lite was unavailable. **This is architecturally wrong**
 because:

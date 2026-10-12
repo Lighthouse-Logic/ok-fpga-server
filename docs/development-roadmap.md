@@ -247,14 +247,14 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
 - Archived with the post-44-A read-semantics change (D75–D77, 0.3.0) and
   the IsTriggered mask default (D78, 0.3.1):
   [archive/roadmap-phases-44.md](archive/roadmap-phases-44.md).
-- Commits `c5e4f79`, `5de5ab6`, `d88e5c5` (+ doc commits). Carried
+- Commits `d3b19a6`, `dcb5e5a`, `6e11f9b` (+ doc commits). Carried
   forward: F1 / F2 / F4 enforcement and D77 coverage → 44-E; trigger-bit
   validation → 44-E; TriggerOut event log → 🔵 Later.
 
 **44-B Registration (R1) — ✅ Done (0.3.3)**
 - Archived: [archive/roadmap-phases-44.md](archive/roadmap-phases-44.md)
   (owner decisions Q1–Q5, rules, tests as implemented).
-- Commits `8a9e928` (0.3.2, heartbeat text / shipped enforce), `dcbda14`
+- Commits `2e2f7a3` (0.3.2, heartbeat text / shipped enforce), `1d95a6f`
   (44-B). ADR-034 §10. Carried forward: self-overlap "private wins" and
   D77 coverage enforcement → 44-E; registration vs unplug / reprogram
   (Q5) → 44-F.

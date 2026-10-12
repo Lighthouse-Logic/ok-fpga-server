@@ -4,7 +4,7 @@
 
 **Status:** ✅ Completed 2026-08-20  
 **ADR:** [ADR-026 — Read-Only Acquisition & Private Data](../architecture/adr/ADR-026-readonly-acquisition.md)  
-**Commits:** `0a1e2c6` (docs), `cd0ea2f` (code + specs + GUI demos)
+**Commits:** `94a4a4b` (docs), `fd46b97` (code + specs + GUI demos)
 
 ### Focus
 

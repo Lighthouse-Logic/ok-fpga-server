@@ -295,7 +295,7 @@ were wired to the existing `resource_registry`. The `list_users`,
 `get_device_sensors` wrapper methods were added to both Rust and Python gRPC
 client libraries.
 
-**Commit**: `2cfc9c4`
+**Commit**: `1688be2`
 
 ## GUI Demos (Tier 2) — ADR-023
 

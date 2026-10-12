@@ -415,7 +415,7 @@ match the real server's response format** — a contract-mismatch class of bug.
 ## Addendum: Phase 25-Fix-F — Iced GUI Demo + Server Bug Fixes
 
 **Date**: 2026-08-18  
-**Status**: Completed (2026-08-18, `56db45b`)
+**Status**: Completed (2026-08-18, `d9da0db`)
 
 ### Problem
 
@@ -444,7 +444,7 @@ device revealed 7 bugs spanning the server, client libraries, and the GUI demo.
    (REST or gRPC, by any user), the server clears **all** resources for that device.
    The GUI handles 409 by looking up the existing resource and proceeding.
 
-3. **F6/F7 — Completed in Phase 25-Fix-G** (`a963be4`). Added `/mgmt/resources` and
+3. **F6/F7 — Completed in Phase 25-Fix-G** (`bdf2b68`). Added `/mgmt/resources` and
    `/mgmt/users` management API endpoints and updated the dashboard to fetch and
    render data from them.
 
@@ -465,7 +465,7 @@ device revealed 7 bugs spanning the server, client libraries, and the GUI demo.
 ## Addendum: Phase 25-Fix-G — Dashboard Fixes
 
 **Date**: 2026-08-18  
-**Status**: Completed (2026-08-18, `a963be4`)
+**Status**: Completed (2026-08-18, `bdf2b68`)
 
 ### Problem
 

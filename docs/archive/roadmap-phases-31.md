@@ -4,7 +4,7 @@
 
 **Status:** ✅ Completed 2026-08-21  
 **ADR:** [ADR-027 — OS-Native mDNS Registration](../architecture/adr/ADR-027-native-mdns-registration.md)  
-**Commits:** `8e7dbd5` (docs), `502f995` (tiered registration), `3ce6441` (A/AAAA fix + client IPv4)
+**Commits:** `a561e38` (docs), `e5d6989` (tiered registration), `6da9726` (A/AAAA fix + client IPv4)
 
 ### Focus
 

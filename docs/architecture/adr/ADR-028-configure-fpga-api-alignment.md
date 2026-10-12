@@ -4,7 +4,7 @@
 **Date:** 2026-08-23
 **Deciders:** Architecture Team
 **Roadmap Phase:** 36
-**Commit:** `2fb31b2`
+**Commit:** `fc0d77d`
 
 ---
 
@@ -220,7 +220,7 @@ This will be tracked as a separate task, not part of Phase 36.
 | `client-examples/rust-rest-gui-common/src/lib.rs` | Updated `configure_fpga()` URL, rewrote `configure_fpga_from_file()` with multipart, updated test |
 | `api/openapi.yaml` | Added `/configure_from_server_path` endpoint, cleaned Phase 34-C annotations |
 
-**Commit:** `2fb31b2`
+**Commit:** `fc0d77d`
 
 ---
 

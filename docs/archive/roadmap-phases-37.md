@@ -32,4 +32,4 @@ with typed `#[derive(Serialize)]` structs.
 - `cargo test` passes (core: 11, server: 4) ✅
 - Hardware verified with XEM7320 (server status, device list, device info, dataport) ✅
 
-**Commits:** `25fab65`
+**Commits:** `b0c8182`

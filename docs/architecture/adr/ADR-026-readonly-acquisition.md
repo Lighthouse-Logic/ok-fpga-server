@@ -1,7 +1,7 @@
 # ADR-026: Read-Only Resource Acquisition & Private Data
 
 **Date:** 2026-08-20  
-**Status:** Accepted ✅ — Implemented (Phase 30, commits `0a1e2c6`, `cd0ea2f`)  
+**Status:** Accepted ✅ — Implemented (Phase 30, commits `94a4a4b`, `fd46b97`)  
 **Extends:** [ADR-024](ADR-024-endpoint-access-enforcement.md), [ADR-025](ADR-025-classic-address-mapping.md)
 
 ---
@@ -283,9 +283,9 @@ PrivateResource {
 
 ---
 
-## Addendum — Implementation Notes (2026-08-20, `cd0ea2f`)
+## Addendum — Implementation Notes (2026-08-20, `fd46b97`)
 
-**Commit:** `0a1e2c6` (docs), `cd0ea2f` (code + specs + GUI demos)
+**Commit:** `94a4a4b` (docs), `fd46b97` (code + specs + GUI demos)
 
 ### Deviations from Original Design
 
@@ -331,5 +331,5 @@ Phase 30 — ReadOnly enforcement is handled entirely within the core registry's
 server handlers call. The original table also listed `grpc/resource_service.rs`,
 which does not exist; the correct file is `grpc/device_service.rs`.
 
-The corrected table above reflects the actual files modified in commit `cd0ea2f`.
+The corrected table above reflects the actual files modified in commit `fd46b97`.
 

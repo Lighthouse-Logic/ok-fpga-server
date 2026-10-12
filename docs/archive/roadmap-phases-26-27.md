@@ -7,7 +7,7 @@
 ---
 ## Phase 26: Endpoint Access Enforcement (ADR-024)
 
-**Status**: `[x]` Completed (2026-08-19, `aedc074`, `ae39b9d`, `48fe98a`)
+**Status**: `[x]` Completed (2026-08-19, `ca032f7`, `f86ed71`, `478e5f5`)
 **Depends on**: Phase 20 (Resource Registration), Phase 21 (User Session Tracking)
 **ADR reference**: [ADR-024](../architecture/adr/ADR-024-endpoint-access-enforcement.md)
 
@@ -83,7 +83,7 @@ endpoint_enforcement = "off"
 ---
 ## Phase 27: OpenAPI Spec Gaps
 
-**Status**: `[x]` Completed (2026-08-19, `008da32`)
+**Status**: `[x]` Completed (2026-08-19, `9c2f439`)
 **Depends on**: Phase 1 (OpenAPI Spec), Phase 20 (Resource Registration)
 **ADR reference**: [ADR-004](../architecture/adr/ADR-004-rest-api-design.md),
 [ADR-020](../architecture/adr/ADR-020-client-side-resource-registration.md)

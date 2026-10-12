@@ -142,7 +142,7 @@ and F4 and the D77 coverage change land in 44-E.
 ### 2.1 Contradictions (⚠C) and gaps (❓G)
 
 All C- and G-items are resolved. G18 closed by D51. Full history: rev 5
-(commit `8b6ae7c`).
+(commit `e418550`).
 
 ### 2.2 Gaps N1–N29
 

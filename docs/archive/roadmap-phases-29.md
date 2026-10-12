@@ -5,7 +5,7 @@
 **Status:** ✅ Completed 2026-08-20  
 **ADR:** [ADR-025 — Developer-Defined Classic Address Mapping](../architecture/adr/ADR-025-classic-address-mapping.md)  
 **Developer Guide:** [Classic Address Mapping](../guides/classic-address-mapping.md)  
-**Commits:** `c048279` (docs), `615e854` (code)
+**Commits:** `3d6b32f` (docs), `f05c8a0` (code)
 
 ### Focus
 

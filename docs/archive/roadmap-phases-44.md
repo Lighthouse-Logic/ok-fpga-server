@@ -13,9 +13,9 @@ roadmap until the whole phase completes.
 
 ## 44-A — Contract, wire formats and ADR-034 (0.2.0 → 0.3.1)
 
-**Commits:** `c5e4f79` (44-A, 0.2.0), `9389a32` (ADR hash), `2433a68`
-(MQTT follow-up item), `5de5ab6` (post-44-A read semantics D75–D77,
-0.3.0), `cc04972` (ADR hash), `d88e5c5` (IsTriggered mask default D78,
+**Commits:** `d3b19a6` (44-A, 0.2.0), `656d1f6` (ADR hash), `422d714`
+(MQTT follow-up item), `dcb5e5a` (post-44-A read semantics D75–D77,
+0.3.0), `f414b8b` (ADR hash), `6e11f9b` (IsTriggered mask default D78,
 0.3.1).
 
 **Verification:** `cargo test --workspace` and `cargo test --workspace
@@ -75,7 +75,7 @@ applied, pre-existing ones moved to 44-E / ADR-034 open items).
   `test_grpc_user_session_holdings_include_mode`. Manual check: dashboard
   resources and users pages with one shared and one exclusive resource.
 - Commit: `feat: ADR-034 resource contract and declaration types` (0.2.0).
-  **Done:** `c5e4f79`.
+  **Done:** `d3b19a6`.
 
 **Post-44-A: Opal Kelly read semantics and ReadOnly rule (D75–D77) 🔒 — 0.3.0**
 - Owner decisions 2026-10-11 (F1–F4, Q-B, Q-C, Q-E, Q-G, Q-H, Q-I); spec
@@ -103,20 +103,20 @@ applied, pre-existing ones moved to 44-E / ADR-034 open items).
 - Enforcement of F1 / F2, the D77 coverage change and the F4 warning come
   in 44-E.
 - Commit: `feat: Opal Kelly snapshot reads, no whole-bank reads, ReadOnly
-  rule D75-D77` (0.3.0). **Done:** `5de5ab6` (+ `cc04972` ADR hash).
+  rule D75-D77` (0.3.0). **Done:** `dcb5e5a` (+ `f414b8b` ADR hash).
 - Follow-up D78 (0.3.1): IsTriggered `mask` defaults to 0 on REST and gRPC
   (was `0xFFFFFFFF` on REST / OpenAPI). Tests
   `test_trigger_out_query_mask_omitted_defaults_to_zero`,
   `test_trigger_out_query_mask_given_is_used`. Commit `fix: IsTriggered mask
-  defaults to 0 (D78, 0.3.1)`. **Done:** `d88e5c5`.
+  defaults to 0 (D78, 0.3.1)`. **Done:** `6e11f9b`.
 
 ---
 
 ## 44-B — Registration (R1) (0.3.2 → 0.3.3)
 
-**Commits:** `8a9e928` (0.3.2: heartbeat ≤ 24 s text in OpenAPI / proto,
+**Commits:** `2e2f7a3` (0.3.2: heartbeat ≤ 24 s text in OpenAPI / proto,
 shipped `config.toml` with `endpoint_enforcement = "enforce"`; done
-between 44-A and 44-B), `dcbda14` (44-B, 0.3.3).
+between 44-A and 44-B), `1d95a6f` (44-B, 0.3.3).
 
 **Verification:** `cargo test` and `cargo test --features full` green
 (core 240, server 157 with `full`), except the 3 `tests/mqtt_integration.rs`
@@ -189,4 +189,4 @@ adopted, 2 rejected as non-observable / redundant).
   - Not done: Tier 1 `okREALM_TEST` registration-conflict test (the route
     tests use the in-memory registry; no FFI involved in registration).
 - Commit: `feat: enforce resource registration overlap rules (R1) (0.3.3)`.
-  **Done:** `dcbda14`.
+  **Done:** `1d95a6f`.

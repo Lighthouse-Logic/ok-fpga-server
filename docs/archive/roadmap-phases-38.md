@@ -1,7 +1,7 @@
 # Archive — Phase 38: User Identification Consistency
 
 > **Archived:** 2026-08-23
-> **Commit:** `8507b4a`
+> **Commit:** `ba7f9fa`
 > **ADR:** [ADR-029 — User Identification Consistency](../architecture/adr/ADR-029-user-identification-consistency.md)
 
 ---

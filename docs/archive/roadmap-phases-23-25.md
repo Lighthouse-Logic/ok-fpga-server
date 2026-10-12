@@ -7,7 +7,7 @@
 ---
 ## Phase 23: Disconnect Detection Bug Fix
 
-**Status**: `[x]` Completed (2026-08-18, `d8b8341`)  
+**Status**: `[x]` Completed (2026-08-18, `8f33610`)  
 **Depends on**: Phase 15, Phase 19 (ADR-018 handle pool)  
 **ADR reference**: [ADR-002](architecture/adr/ADR-002-device-lifecycle.md) (addendum),
 [ADR-018](architecture/adr/ADR-018-device-handle-pool.md)
@@ -88,7 +88,7 @@ file on disk.
 
 #### Phase 24A: Server-Side Broadcast Layer
 
-**Status**: `[x]` Completed (2026-08-18, `cb55e75`)
+**Status**: `[x]` Completed (2026-08-18, `e488f0c`)
 
 1. **Create `log_broadcast.rs`** â€” a custom `tracing_subscriber::Layer` that:
    - Captures all events at TRACE level
@@ -107,7 +107,7 @@ file on disk.
 
 #### Phase 24B: WebSocket Per-Client Filtering
 
-**Status**: `[x]` Completed (2026-08-18, `cb55e75`)
+**Status**: `[x]` Completed (2026-08-18, `e488f0c`)
 
 1. **Update `handle_ws_connection`** in `management.rs`:
    - Accept `{"type": "set_log_level", "level": "DEBUG"}` control messages
@@ -122,7 +122,7 @@ file on disk.
 
 #### Phase 24C: FFI & Request Instrumentation
 
-**Status**: `[x]` Completed (2026-08-18, `1f30cb1`)
+**Status**: `[x]` Completed (2026-08-18, `e79cf99`)
 
 1. **Tower middleware** â€” shared between Axum and Tonic:
    - TRACE: log every request (method, path/RPC, status, latency)
@@ -138,7 +138,7 @@ file on disk.
 
 #### Phase 24D: Dashboard UI
 
-**Status**: `[x]` Completed (2026-08-18, `784d75b`)
+**Status**: `[x]` Completed (2026-08-18, `003d75b`)
 
 1. **Log level selector** â€” button group in Logs page header:
    `[TRACE] [DEBUG] [INFO] [WARN] [ERROR]`
@@ -188,7 +188,7 @@ cargo test --features full --lib
 ## Phase 25: GUI Example Clients â€” Interactive Counters.bit Demo (ADR-023)
 
 **Status**: `[/]` Implemented â€” unit tests pending (Phase 25-Fix)  
-**Commits**: `b72454a` (8 GUI demos + 4 common libraries), `3eda00b` (docs)  
+**Commits**: `e2ea397` (8 GUI demos + 4 common libraries), `26f9305` (docs)  
 **Depends on**: Phase 16 (example clients), Phase 18 (hardware integration tests),
 Phase 20 (enhanced resource registration), Phase 19 (FFI endpoint wiring)  
 **ADR reference**: [ADR-023](architecture/adr/ADR-023-gui-example-clients.md),
@@ -209,7 +209,7 @@ Two GUI frameworks per language provide framework comparison:
 
 #### Phase 25A: Rust REST GUI (egui) â€” "Rusty Rester"
 
-**Status**: `[x]` Completed (`b72454a`)
+**Status**: `[x]` Completed (`e2ea397`)
 
 1. âœ… Created `client-examples/rust-rest-gui-egui/` Cargo project
 2. âœ… Implemented connection panel (Connect â†’ Program â†’ Register â†’ Acquire)
@@ -221,27 +221,27 @@ Two GUI frameworks per language provide framework comparison:
 
 #### Phase 25B: Rust REST GUI (iced) â€” "Icy Rester"
 
-**Status**: `[x]` Completed (`b72454a`, upgraded to iced 0.14 in `1f71ede`)
+**Status**: `[x]` Completed (`e2ea397`, upgraded to iced 0.14 in `463810c`)
 
 Same feature set as 25A, using `iced` 0.14 framework (Elm Architecture).
 
 #### Phase 25C: Rust gRPC GUI (egui) â€” "Rusty Garpac"
 
-**Status**: `[x]` Completed (`b72454a`)
+**Status**: `[x]` Completed (`e2ea397`)
 
 Same feature set as 25A, using gRPC API (`tonic`) instead of REST (`reqwest`).
 Uses `tokio::sync::Mutex` for async-safe client access in spawned tasks.
 
 #### Phase 25D: Rust gRPC GUI (iced) â€” "Icy Garpac"
 
-**Status**: `[x]` Completed (`b72454a`, upgraded to iced 0.14 in `1f71ede`)
+**Status**: `[x]` Completed (`e2ea397`, upgraded to iced 0.14 in `463810c`)
 
 Same feature set as 25B, using gRPC API. Creates fresh gRPC connection per
 operation (iced Messages must be `Debug + Clone`, tonic client is not `Clone`).
 
 #### Phase 25E: Python REST GUI (tkinter) â€” "Pythos Rester"
 
-**Status**: `[x]` Completed (`b72454a`)
+**Status**: `[x]` Completed (`e2ea397`)
 
 1. âœ… Created `client-examples/python-rest-gui-tkinter/` Python application
 2. âœ… Implemented connection panel, counter panels, resource locking, shutdown prompt
@@ -249,25 +249,25 @@ operation (iced Messages must be `Debug + Clone`, tonic client is not `Clone`).
 
 #### Phase 25F: Python REST GUI (dearpygui) â€” "Dear Rester"
 
-**Status**: `[x]` Completed (`b72454a`)
+**Status**: `[x]` Completed (`e2ea397`)
 
 Same feature set as 25E, using `dearpygui` framework with background polling thread.
 
 #### Phase 25G: Python gRPC GUI (tkinter) â€” "Pythos Garpac"
 
-**Status**: `[x]` Completed (`b72454a`)
+**Status**: `[x]` Completed (`e2ea397`)
 
 Same feature set as 25E, using gRPC API (`grpcio`).
 
 #### Phase 25H: Python gRPC GUI (dearpygui) â€” "Dear Garpac"
 
-**Status**: `[x]` Completed (`b72454a`)
+**Status**: `[x]` Completed (`e2ea397`)
 
 Same feature set as 25F, using gRPC API.
 
 ### Phase 25-Fix: iced 0.14 Upgrade + Comprehensive Unit Tests
 
-**Status**: `[x]` Completed (2026-08-18, `1f71ede`, `a3f05c0`, `527938b`, `a7b7d9f`)  
+**Status**: `[x]` Completed (2026-08-18, `463810c`, `b30636d`, `966c1d0`, `62857f6`)  
 **Depends on**: Phase 25Aâ€“25H  
 **ADR reference**: [ADR-023 Â§8 Testing Strategy](architecture/adr/ADR-023-gui-example-clients.md)
 
@@ -345,7 +345,7 @@ after connect (user must select explicitly). All 48 iced tests pass.
 
 #### Phase 25-Fix-E: Client-Server Contract Alignment
 
-**Status**: `[x]` Completed (2026-08-18, `455d5ba`, `c850110`)  
+**Status**: `[x]` Completed (2026-08-18, `fded41f`, `d93d20e`)  
 **Depends on**: Phase 25-Fix-D  
 **ADR reference**: [ADR-023 Addendum: Phase 25-Fix-E](architecture/adr/ADR-023-gui-example-clients.md)  
 **Rule added**: [ai-collaboration.md Â§6 â€” API Specification Authority](../.agents/rules/ai-collaboration.md)
@@ -431,7 +431,7 @@ Each GUI demo should be verified with:
 
 #### Phase 25-Fix-F: Iced GUI + Server Bug Fixes
 
-**Status**: `[x]` Completed (2026-08-18, `56db45b`)  
+**Status**: `[x]` Completed (2026-08-18, `d9da0db`)  
 **Depends on**: Phase 25-Fix-E  
 **ADR reference**: [ADR-023 Addendum: Phase 25-Fix-F](architecture/adr/ADR-023-gui-example-clients.md)
 
@@ -459,7 +459,7 @@ F4 smart-skip, F5 bitfile toggle) are iced-specific and must be ported to other 
 
 #### Phase 25-Fix-G: Dashboard Fixes
 
-**Status**: `[x]` Completed (2026-08-18, `a963be4`)  
+**Status**: `[x]` Completed (2026-08-18, `bdf2b68`)  
 **Depends on**: Phase 25-Fix-F  
 **ADR reference**: [ADR-023 Addendum: Phase 25-Fix-F](architecture/adr/ADR-023-gui-example-clients.md)
 
@@ -472,7 +472,7 @@ Dashboard-focused phase for bugs deferred from Fix-F.
 
 #### Phase 25-Fix-H: QuitRelease Race, Dashboard Auto-Refresh, User Session Cleanup
 
-**Status**: `[x]` Completed (2026-08-18, `85d7b65..6b27019`)  
+**Status**: `[x]` Completed (2026-08-18, `0e8fb6a..7d67fe3`)  
 **Depends on**: Phase 25-Fix-G  
 **ADR reference**: [ADR-023 Addendum: Phase 25-Fix-H](architecture/adr/ADR-023-gui-example-clients.md)
 
