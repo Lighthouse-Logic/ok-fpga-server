@@ -1,10 +1,11 @@
 # ADR-034: Resource Model Consolidation
 
 **Status**: Accepted — 44-A implemented incl. post-44-A read semantics (0.3.0) and mask default (0.3.1);
-44-A archived; 44-B implemented (0.3.3); 44-C … 44-J pending
-**Date**: 2026-10-11
+44-A and 44-B archived; 44-B implemented (0.3.3); 44-C … 44-J pending
+**Date**: 2026-10-11 (amended 2026-10-12)
 **Commit hash**: 44-A `c5e4f79`; 0.3.0 read semantics (D75–D77) `5de5ab6`;
-0.3.1 IsTriggered mask default (D78) `d88e5c5`
+0.3.1 IsTriggered mask default (D78) `d88e5c5`; 0.3.2 heartbeat text and
+shipped enforcement `8a9e928`; 44-B registration rules (0.3.3) `dcbda14`
 **Deciders**: Project owner, Architecture Team
 **Phase**: 44 ([development-roadmap.md](../../development-roadmap.md) §44)
 **Supersedes (in part)**: ADR-020 §7, §8 and the Validation Responses table

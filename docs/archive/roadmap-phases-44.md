@@ -109,3 +109,84 @@ applied, pre-existing ones moved to 44-E / ADR-034 open items).
   `test_trigger_out_query_mask_omitted_defaults_to_zero`,
   `test_trigger_out_query_mask_given_is_used`. Commit `fix: IsTriggered mask
   defaults to 0 (D78, 0.3.1)`. **Done:** `d88e5c5`.
+
+---
+
+## 44-B — Registration (R1) (0.3.2 → 0.3.3)
+
+**Commits:** `8a9e928` (0.3.2: heartbeat ≤ 24 s text in OpenAPI / proto,
+shipped `config.toml` with `endpoint_enforcement = "enforce"`; done
+between 44-A and 44-B), `dcbda14` (44-B, 0.3.3).
+
+**Verification:** `cargo test` and `cargo test --features full` green
+(core 240, server 157 with `full`), except the 3 `tests/mqtt_integration.rs`
+tests that need a local Mosquitto broker. Strata drafted the core tests and
+the docs, and reviewed the final diff (no bugs; 8 of 10 suggested test gaps
+adopted, 2 rejected as non-observable / redundant).
+
+**44-B Registration (R1)**
+- Files: `api/openapi.yaml`, `proto/okfpga/v1/okfpga.proto`,
+  `crates/ok-fpga-core/src/declaration.rs`, `resource.rs`,
+  `crates/ok-fpga-server/src/rest/resources.rs`, `grpc/device_service.rs`,
+  `grpc/resource_mapping.rs`, `config.rs`, `warnings.rs` (new), `main.rs`,
+  `config.toml`, ADR-034 (§10), `docs/API-Specification/` (registration
+  rules, errors, Appendix A), `Cargo.toml` / `Cargo.lock`.
+- Rules, REST and gRPC through the same core functions
+  (`declaration::build_resource`, `check_overlap`,
+  `check_interfaces_for_dataport`, `self_overlapping_ranges`):
+  - R1 (S-19): first registration wins; overlap allowed only for shared
+    items in shared resources with the same EP type and the same
+    item-level `private` → otherwise 409 naming resource and item (D22).
+  - Rule A: an exclusive resource may contain only exclusive items (no
+    shared entry / range, no `default_access: shared`) → 422.
+  - Duplicate EP address in one declaration (even Pipe vs BTPipe) → 422.
+  - Strict REST EP address `^0x[0-9A-Fa-f]{2}$` (`parse_ep_address`) → 422.
+  - `axi_*` interfaces on a non-AXI data port → 422, checked **before** the
+    "device programmed" 409 (SD-09).
+  - Existing resources checked in `id` order (deterministic report).
+  - No-`endpoints` wildcard still claims 0x00–0xBF (D77 narrowing → 44-E).
+- Owner decisions (2026-10-11, 44-B review):
+  - **Q1** Overlapping ranges within one declaration allowed; `warn!` when
+    `access_control.warn_range_self_overlap` (default `true`, env
+    `OKFPGA_WARN_RANGE_SELF_OVERLAP`); private wins on shared addresses
+    (enforced in 44-E).
+  - **Q2** Spec text permission (OpenAPI, proto, recommendations, ADR,
+    Typst spec).
+  - **Q3** Only item-level `private` is compared; resource-level `private`
+    is not.
+  - **Q4** `ResourceConflict.items` / `ResourceConflictDetail.items = 6`:
+    every item clashing with the named resource (endpoints ascending, then
+    its ranges in declaration order); `item` = first entry; detail text
+    "(N conflicting items in total)".
+  - **Q5** Registration vs unplug / reprogram → carried to 44-F (roadmap).
+- Tests as implemented (Tier 3; names differ from the plan, which listed
+  route-level names):
+  - core `declaration.rs`: `test_build_resource_exclusive_with_*_rejected`,
+    `test_build_resource_shared_with_exclusive_items_accepted`,
+    `test_build_resource_duplicate_endpoint_address_rejected`,
+    `test_build_resource_duplicate_address_pipe_vs_btpipe_rejected`,
+    `test_parse_ep_address_strict_pattern`,
+    `test_self_overlapping_ranges_*`, `test_check_interfaces_for_dataport_*`,
+    `test_check_overlap_*` (shared/exclusive matrix, private and type
+    mismatch, resource-level private not compared, wildcard cases incl. 192
+    / 193 items, ranges incl. inclusive boundary and adjacency, multiple
+    items, deterministic lowest id).
+  - REST `rest/resources.rs`: `test_create_resource_axi_on_legacy_dataport_rejected`,
+    `test_create_resource_unprogrammed_legacy_with_axi_rejected_422`,
+    `test_create_resource_unprogrammed_classic_returns_409`,
+    `test_create_resource_endpoint_address_not_two_hex_digits_rejected`,
+    `test_create_resource_duplicate_endpoint_address_rejected`,
+    `test_create_resource_exclusive_with_shared_item_rejected`,
+    `test_create_resource_shared_overlap_allowed`,
+    `test_create_resource_no_endpoints_blocks_later_classic`,
+    `test_create_resource_self_overlapping_ranges_accepted`,
+    `test_create_resource_overlap_items_include_endpoints_and_ranges`.
+  - gRPC `grpc/device_service.rs`: `test_grpc_create_resource_*` for
+    overlap detail with `items`, Rule A, AXI on Classic (programmed and
+    unprogrammed), duplicate endpoint, self-overlap accepted, multi-item
+    conflict.
+  - config: `test_access_control_warn_range_self_overlap_omitted_defaults_true`.
+  - Not done: Tier 1 `okREALM_TEST` registration-conflict test (the route
+    tests use the in-memory registry; no FFI involved in registration).
+- Commit: `feat: enforce resource registration overlap rules (R1) (0.3.3)`.
+  **Done:** `dcbda14`.

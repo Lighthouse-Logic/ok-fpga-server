@@ -151,7 +151,7 @@ All decisions are recorded as ADRs in `docs/architecture/adr/`:
 | [ADR-031](adr/ADR-031-mqtt-discovery.md) | MQTT Cross-Subnet Server Discovery | Implemented |
 | [ADR-032](adr/ADR-032-mqtt-report-by-exception.md) | MQTT Report-by-Exception Publishing | Implemented |
 | [ADR-033](adr/ADR-033-singleton-guard.md) | Singleton Instance Guard & Startup Safety | Implemented |
-| [ADR-034](adr/ADR-034-resource-model-consolidation.md) | Resource Model Consolidation | Accepted (Phase 44; 44-A implemented) |
+| [ADR-034](adr/ADR-034-resource-model-consolidation.md) | Resource Model Consolidation | Accepted (Phase 44; 44-A, 44-B implemented) |
 
 ## 6. Technology Stack
 

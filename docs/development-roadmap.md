@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-10-11 (44-A archived incl. D75–D78 / 0.3.1; 44-B next for review)
+> **Last Updated:** 2026-10-12 (44-B archived, 0.3.3; 44-C next for planning)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -51,7 +51,7 @@
 | **Phase 41** | Singleton Instance Guard & Startup Safety | ADR-033 | ✅ [Archived](archive/roadmap-phases-40-43.md) |
 | **Phase 42** | mDNS Hostname Identity Alignment | — | ✅ [Archived](archive/roadmap-phases-40-43.md) |
 | **Phase 43** | mDNS Stale Registration Cleanup & Hostname Sanitization | — | ✅ [Archived](archive/roadmap-phases-40-43.md) |
-| **Phase 44** | Resource Model Consolidation & Enforcement Alignment | ADR-034 (supersedes parts of ADR-003/006/020/024/025/026) | 🚧 Now — 44-A ✅ [Archived](archive/roadmap-phases-44.md); 44-B next |
+| **Phase 44** | Resource Model Consolidation & Enforcement Alignment | ADR-034 (supersedes parts of ADR-003/006/020/024/025/026) | 🚧 Now — 44-A, 44-B ✅ [Archived](archive/roadmap-phases-44.md); 44-C next |
 
 ---
 
@@ -251,61 +251,13 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
   forward: F1 / F2 / F4 enforcement and D77 coverage → 44-E; trigger-bit
   validation → 44-E; TriggerOut event log → 🔵 Later.
 
-**44-B Registration (R1)**
-- Files: `ok-fpga-core/src/resource.rs` (one validator), `rest/resources.rs`,
-  `grpc/device_service.rs`.
-- Rules, REST and gRPC through the same validator:
-  - Overlap per R1 (S-19), first wins, type / `private` mismatch → 409 (D22).
-  - Rule A: an exclusive resource may contain only exclusive items → 422.
-  - No `endpoints` field = exclusive resource (coverage per D77 lands in
-    44-E); `access_mode` may be omitted, `shared` → 422 (D15a, D23, D68).
-  - `{"entries": []}` = no EPs (D55); ranges claim only what is declared (D52).
-  - `default_access` only fills a missing `access` on listed entries; an
-    entry with neither → 422 (D61, S-24).
-  - Missing `access_mode` with `endpoints` present → 422 (D62).
-  - `axi_*` interfaces → 422 on `OK_DATAPORT_LEGACY` devices; classic + AXI
-    allowed on `OK_DATAPORT_AXI` (D54, SD-09).
-  - 422 for request errors, 409 for clashes (D72).
-  - `private` stored on resource, entries, ranges (S-23); range
-    `name` / `description` stored; non-string metadata → 422 with a clear
-    message (S-24, D69).
-- Owner decisions (2026-10-11, 44-B review):
-  - **Q1** Overlapping ranges *within one declaration* are allowed. The
-    server logs `warn!` when the new setting `warn_range_self_overlap`
-    (`[access_control]`, default `true`, env
-    `OKFPGA_WARN_RANGE_SELF_OVERLAP`) is on. Where such ranges differ in
-    `private`, the most restrictive (private) applies (enforced in 44-E).
-  - **Q2** Spec permission: OpenAPI / proto description text for the
-    within-declaration rules and the new `items` field.
-  - **Q3** Overlap compares item-level `private` only; resource-level
-    `private` (ReadOnly acquisition) is not compared.
-  - **Q4** `ResourceConflict.items` (REST) / `ResourceConflictDetail.items`
-    (proto field 6, `repeated string`) lists **every** clashing item with
-    the named existing resource; `item` stays the first one.
-  - **Q5** Registration vs unplug / reprogram → 44-F (see there).
-  - Duplicate EP address in one declaration → 422; strict EP address
-    `^0x[0-9A-Fa-f]{2}$` on REST; existing resources checked in `id` order
-    (deterministic conflict report).
-- Tests (Tier 3): `test_create_resource_shared_overlap_allowed`,
-  `test_create_resource_shared_range_overlap_allowed`,
-  `test_create_resource_shared_vs_exclusive_overlap_denied`,
-  `test_create_resource_exclusive_range_overlap_denied`,
-  `test_create_resource_exclusive_with_shared_item_rejected`,
-  `test_create_resource_overlap_type_mismatch_denied`,
-  `test_create_resource_private_mismatch_denied`,
-  `test_create_resource_no_endpoints_blocks_later_classic`,
-  `test_create_resource_no_endpoints_no_access_mode_exclusive`,
-  `test_create_resource_no_endpoints_shared_rejected`,
-  `test_create_resource_empty_endpoints_claims_none`,
-  `test_create_resource_default_access_does_not_claim_unlisted`,
-  `test_create_resource_entry_without_access_or_default_rejected`,
-  `test_create_resource_missing_access_mode_rejected`,
-  `test_create_resource_metadata_non_string_rejected`,
-  `test_create_resource_private_fields_stored`,
-  `test_create_resource_axi_on_legacy_dataport_rejected`,
-  `test_grpc_register_resource_overlap_denied`. Tier 1: registration
-  conflicts on an `okREALM_TEST` device.
-- Commit: `feat: enforce resource registration overlap rules (R1)`.
+**44-B Registration (R1) — ✅ Done (0.3.3)**
+- Archived: [archive/roadmap-phases-44.md](archive/roadmap-phases-44.md)
+  (owner decisions Q1–Q5, rules, tests as implemented).
+- Commits `8a9e928` (0.3.2, heartbeat text / shipped enforce), `dcbda14`
+  (44-B). ADR-034 §10. Carried forward: self-overlap "private wins" and
+  D77 coverage enforcement → 44-E; registration vs unplug / reprogram
+  (Q5) → 44-F.
 
 **44-C Acquisition (A1)**
 - Files: `ok-fpga-core/src/resource.rs`, `rest/resources.rs`,
