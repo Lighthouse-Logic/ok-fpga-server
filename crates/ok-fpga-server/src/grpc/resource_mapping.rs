@@ -90,6 +90,7 @@ pub fn conflict_to_proto(c: &ResourceConflict) -> proto::ResourceConflictDetail 
         resource_name: c.resource_name.clone().unwrap_or_default(),
         item_type: c.item_type.map(|t| t.as_str().to_string()).unwrap_or_default(),
         item: c.item.clone().unwrap_or_default(),
+        items: c.items.clone(),
     }
 }
 

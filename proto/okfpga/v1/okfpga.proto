@@ -306,7 +306,9 @@ message EndpointDeclaration {
   // Mode for entries without their own `access` (D61). Used only at
   // registration; it never claims endpoints that are not listed.
   optional ResourceAccessMode default_access = 1;
-  // Declared endpoints.
+  // Declared endpoints. Each address may appear only once per declaration
+  // (INVALID_ARGUMENT otherwise, also for a Pipe and a BTPipe at the same
+  // address).
   repeated EndpointEntry entries = 2;
 }
 
@@ -383,8 +385,15 @@ message ResourceConflictDetail {
   string resource_name = 3;
   // "endpoint" or "address_range" (empty if none).
   string item_type = 4;
-  // The item: "0x05" or "0x44A60000-0x44A6FFFF" (empty if none).
+  // The item: "0x05" or "0x44A60000-0x44A6FFFF" (empty if none). On an
+  // overlap this is the first entry of `items`.
   string item = 5;
+  // Every conflicting item with the named existing resource, in order:
+  // endpoints ascending ("0xNN"), then that resource's ranges in declaration
+  // order ("0xSTART-0xEND"). Example: a resource without `endpoints`
+  // registered after another one lists every endpoint both claim. Empty when
+  // there is no item. Same as REST `ProblemDetail.conflict.items`.
+  repeated string items = 6;
 }
 
 // ============================================================================
@@ -1129,7 +1138,10 @@ message CreateResourceRequest {
   // explicitly. While such a resource exists no other classic resource can
   // register on the device (D23). Set but empty = no classic endpoints.
   EndpointDeclaration endpoints = 6;
-  // Declared 32-bit address ranges.
+  // Declared 32-bit address ranges. Ranges of one declaration may overlap
+  // each other; the server accepts this but logs a warning (setting
+  // `warn_range_self_overlap`). Where overlapping ranges differ in
+  // `private`, the private one applies to the shared addresses.
   repeated AddressRange address_ranges = 7;
   // Text-only metadata (D69).
   map<string, string> metadata = 8;

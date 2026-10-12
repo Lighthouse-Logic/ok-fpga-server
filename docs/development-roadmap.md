@@ -86,12 +86,13 @@
 > runs `cargo test --features full` as well as `cargo test`.
 
 > **Versioning:** the workspace version (root `Cargo.toml`, currently
-> `0.3.2`) went to `0.2.0` in 44-A (breaking API contract), to `0.3.0`
+> `0.3.3`) went to `0.2.0` in 44-A (breaking API contract), to `0.3.0`
 > with the post-44-A read-semantics change (breaking: whole-bank reads
 > removed, snapshot reads) and to `0.3.1` for the IsTriggered mask default
 > (D78), and to `0.3.2` for the 24 s heartbeat text and the shipped
 > `config.toml` setting `endpoint_enforcement = "enforce"` (code default
-> stays `off` until 44-E). It gets a patch bump in every later sub-phase.
+> stays `off` until 44-E), and to `0.3.3` for 44-B (registration rules,
+> conflict `items`). It gets a patch bump in every later sub-phase.
 > Python packages are bumped in the commit that changes them.
 
 > **API Specification (2026-10-11):** the developer-facing spec
@@ -268,6 +269,23 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
   - `private` stored on resource, entries, ranges (S-23); range
     `name` / `description` stored; non-string metadata → 422 with a clear
     message (S-24, D69).
+- Owner decisions (2026-10-11, 44-B review):
+  - **Q1** Overlapping ranges *within one declaration* are allowed. The
+    server logs `warn!` when the new setting `warn_range_self_overlap`
+    (`[access_control]`, default `true`, env
+    `OKFPGA_WARN_RANGE_SELF_OVERLAP`) is on. Where such ranges differ in
+    `private`, the most restrictive (private) applies (enforced in 44-E).
+  - **Q2** Spec permission: OpenAPI / proto description text for the
+    within-declaration rules and the new `items` field.
+  - **Q3** Overlap compares item-level `private` only; resource-level
+    `private` (ReadOnly acquisition) is not compared.
+  - **Q4** `ResourceConflict.items` (REST) / `ResourceConflictDetail.items`
+    (proto field 6, `repeated string`) lists **every** clashing item with
+    the named existing resource; `item` stays the first one.
+  - **Q5** Registration vs unplug / reprogram → 44-F (see there).
+  - Duplicate EP address in one declaration → 422; strict EP address
+    `^0x[0-9A-Fa-f]{2}$` on REST; existing resources checked in `id` order
+    (deterministic conflict report).
 - Tests (Tier 3): `test_create_resource_shared_overlap_allowed`,
   `test_create_resource_shared_range_overlap_allowed`,
   `test_create_resource_shared_vs_exclusive_overlap_denied`,
@@ -388,6 +406,32 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
   `clear`) → program / clear; every holder notified. Remove the OpenAPI 409
   "Device has resources in use" responses on configure / clear (Q44-14). `ResetFPGA` does not clear (D56). Proto comments on
   `DeleteResource` (P11) and `ClearFPGAConfiguration` (P12).
+- **Registration vs device lifecycle (owner, 2026-10-11, from 44-B Q5).**
+  `POST /resources` / `RegisterResource` checks the device registry
+  (exists, programmed) and later inserts into the resource registry under a
+  different lock, so an unplug or reprogram can land in between.
+  - *Owner:* a resource is tied to its device serial; if the device is
+    gone, the registration must go away too. A watchdog may take a few
+    seconds — that is acceptable. Today hot-unplug already deletes the
+    device's resources (`resource_registry.invalidate_device` in
+    `device_monitor.rs`), but a registration that lands *after* that
+    cleanup survives as an orphan. Fix: a periodic sweep (reuse the user
+    sweep in `sweep.rs`) deletes resources whose device is absent or
+    unprogrammed, reason `device_removed`, with events.
+  - *Owner:* for reprogram it matters only if a resource is tied to
+    identifying details of the bitfile. Today it is not: configure calls
+    `remove_for_device` *after* programming, so a registration racing a
+    fast second configure can end up attached to the second bitfile.
+    Proposal: the device records a *configuration generation* (counter
+    bumped on every configure / clear, plus bitfile name and hash);
+    `create_resource` captures it at lookup and `try_register` rejects
+    (409) if it changed. Optional, for discussion: a resource may declare
+    the bitfiles it is valid for (e.g. regex
+    `.*rgmii.*xem7320.*enetab.*\.bit`, owner's example) so the watchdog can
+    flag or delete resources whose device runs a non-matching bitfile.
+    The declaration field is a spec change (🔒, needs design discussion).
+  - Tests: `test_sweep_orphan_resource_device_absent_deleted`,
+    `test_create_resource_configure_generation_changed_conflict`.
 - Tests (Tier 3): `test_configure_fpga_held_resources_force_deleted`,
   `test_clear_fpga_notifies_all_holders`,
   `test_reset_fpga_resources_retained`,

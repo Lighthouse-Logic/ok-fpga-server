@@ -258,7 +258,7 @@ Classic-only.
 
 == Registration rules <res-registration>
 // ref: D6, D8, D22, D23, D33, D38, D48, D54, D55, D61, D62, D68, D72, D77
-// Implementation status: full rules are 44-B (see appendix-status).
+// ref: ADR-034 §10 (44-B owner decisions Q1, Q3, Q4); implemented in 0.3.3.
 
 Two rules govern what may be registered:
 
@@ -269,9 +269,24 @@ Two rules govern what may be registered:
 + *First registration wins.* The first resource that declares an endpoint or
   range defines it. A later registration MUST be accepted only if every
   overlap is a shared item in a shared resource *on both sides*, with the same
-  endpoint type and the same `private` flag. Otherwise it MUST be rejected
+  endpoint type and the same item-level `private` flag (the resource-level
+  `private` flag is not compared). Otherwise it MUST be rejected
   with *409*, and the error MUST name the existing resource and the
   conflicting item (@res-errors).
+
+Inside one declaration:
+
+- The same endpoint address MUST NOT appear twice, even with different
+  endpoint types (for example `pipe_in` and `bt_pipe_in` at `0x80`). This is
+  a *422* naming the endpoint.
+- On REST, endpoint addresses MUST be written as `0x` followed by exactly
+  two hex digits (`0x05`); `5`, `0x5`, `0x005` and `0X05` are rejected with
+  *422*. gRPC sends addresses as numbers.
+- Address ranges MAY overlap each other. The request succeeds (*201*), and
+  the server logs a warning unless the server setting
+  `access_control.warn_range_self_overlap` is turned off. Where overlapping
+  ranges differ in `private`, the private range applies to the addresses they
+  share.
 
 The server uses 409 for a clash with existing state and 422 for a request
 that is wrong on its own.
@@ -298,10 +313,21 @@ that is wrong on its own.
   [17], [—], [entry with no `access` and no `default_access`], [422],
   [18], [—], [Classic data port device, any AXI interface listed], [422],
   [19], [exclusive resource with `endpoints` omitted], [`{"entries": []}` with ranges that do not overlap A's ranges], [201: B claims no endpoints],
+  [20], [—], [one declaration listing EP `0x05` twice], [422: duplicate endpoint address],
+  [21], [—], [one declaration with two overlapping ranges], [201: allowed; a warning is logged],
+  [22], [shared resource, EP `0x00` shared, resource not private], [shared resource, EP `0x00` shared, resource private], [201: resource-level `private` is not compared],
 )
 
 Order matters: swapping rows 2 and 3 changes *which* registration fails,
-never *whether* both can coexist.
+never *whether* both can coexist. When B clashes with several existing
+resources, the error names the one with the lowest resource ID, so the answer
+is the same every time.
+
+The server checks a new declaration in this order: the request itself
+(*422*), the device (*404*), interfaces against the device's data port
+(*422*), whether the device is programmed (*409*), and finally overlap with
+existing resources (*409*). A declaration that can never be valid on a device
+therefore gets *422* even while that device is not programmed.
 
 *Rationale.* Shared items in shared resources may overlap because several
 functions often need the same physical endpoints. In the example of
@@ -602,7 +628,12 @@ When another resource or user causes the failure, `conflict` names it:
   [`resource_name`], [Its name.],
   [`item_type`], [`endpoint` or `address_range`.],
   [`item`], [For example `0x05` or `0x44A60000-0x44A6FFFF`.],
+  [`items`], [Every item that clashes with the named resource: endpoints in ascending order, then that resource's ranges in declaration order. `item` is the first entry.],
 )
+
+When more than one item clashes, `detail` ends with "(N conflicting items in
+total)". A resource without `endpoints` registered against another one lists
+every endpoint it claims.
 
 A duplicate name is a 409 without `conflict`. Malformed JSON and bad enum
 values are 422. gRPC maps 409 to `FAILED_PRECONDITION`, 404 to `NOT_FOUND`
@@ -623,7 +654,8 @@ standard `google.rpc.Status` details.
       "resource_id": "2149000ABC:counter-ctrl",
       "resource_name": "counter-ctrl",
       "item_type": "endpoint",
-      "item": "0x05"
+      "item": "0x05",
+      "items": ["0x05"]
     }
   }
   ```

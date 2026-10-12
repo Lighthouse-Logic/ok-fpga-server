@@ -441,6 +441,7 @@ pub struct LocalAuthConfig {
 /// ```toml
 /// [access_control]
 /// endpoint_enforcement = "off"  # "off", "warn", or "enforce"
+/// warn_range_self_overlap = true
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -455,12 +456,24 @@ pub struct AccessControlConfig {
     ///
     /// Default: `"off"`.
     pub endpoint_enforcement: String,
+
+    /// Log a warning when one resource declaration lists address ranges
+    /// that overlap each other (44-B, owner decision Q1).
+    ///
+    /// Such a declaration is *allowed*: the overlap is inside one resource,
+    /// so it cannot clash with anyone else. It is still worth a warning,
+    /// because it is usually a typo, and because overlapping ranges with
+    /// different `private` flags need a tie-break (the private one wins).
+    ///
+    /// Default: `true`. Env override: `OKFPGA_WARN_RANGE_SELF_OVERLAP`.
+    pub warn_range_self_overlap: bool,
 }
 
 impl Default for AccessControlConfig {
     fn default() -> Self {
         Self {
             endpoint_enforcement: "off".to_string(),
+            warn_range_self_overlap: true,
         }
     }
 }
@@ -664,6 +677,7 @@ fn load_from_file(path: &Path) -> anyhow::Result<ServerConfig> {
 /// - `OKFPGA_MQTT_BROKER_URL` → `mqtt.broker_url`
 /// - `OKFPGA_MQTT_ENABLED` → `mqtt.enabled`
 /// - `OKFPGA_MDNS_ENABLED` → `mdns.enabled`
+/// - `OKFPGA_WARN_RANGE_SELF_OVERLAP` → `access_control.warn_range_self_overlap`
 fn apply_env_overrides(mut config: ServerConfig) -> ServerConfig {
     if let Ok(val) = std::env::var("OKFPGA_LOG_LEVEL") {
         config.server.log_level = val;
@@ -697,6 +711,10 @@ fn apply_env_overrides(mut config: ServerConfig) -> ServerConfig {
     }
     if let Ok(val) = std::env::var("OKFPGA_MDNS_ENABLED") {
         config.mdns.enabled = parse_bool(&val, config.mdns.enabled);
+    }
+    if let Ok(val) = std::env::var("OKFPGA_WARN_RANGE_SELF_OVERLAP") {
+        config.access_control.warn_range_self_overlap =
+            parse_bool(&val, config.access_control.warn_range_self_overlap);
     }
     config
 }
@@ -782,6 +800,17 @@ mod tests {
         assert_eq!(cfg.server.management_port, 9090);
         assert_eq!(cfg.rest.port, 8080);
         assert_eq!(cfg.grpc.port, 50051);
+    }
+
+    #[test]
+    fn test_access_control_warn_range_self_overlap_omitted_defaults_true() {
+        assert!(ServerConfig::default().access_control.warn_range_self_overlap);
+        let cfg: ServerConfig =
+            toml::from_str("[access_control]\nendpoint_enforcement = \"enforce\"\n").unwrap();
+        assert!(cfg.access_control.warn_range_self_overlap);
+        let cfg: ServerConfig =
+            toml::from_str("[access_control]\nwarn_range_self_overlap = false\n").unwrap();
+        assert!(!cfg.access_control.warn_range_self_overlap);
     }
 
     #[test]

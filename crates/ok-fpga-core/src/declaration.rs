@@ -8,9 +8,9 @@
 //! REST and gRPC both call this module, so the two APIs apply the same rules
 //! (roadmap Q44-5: "REST and gRPC behave the same").
 //!
-//! ## What is checked here (sub-phase 44-A)
+//! ## What is checked here
 //!
-//! Only rules that the request *shape* forces:
+//! Shape rules (all **422**, sub-phases 44-A and 44-B):
 //! - `access_mode` is required when `endpoints` is present (D62).
 //! - No `endpoints` field = an exclusive resource that claims every classic
 //!   EP; `access_mode` may be omitted, `shared` is rejected (D68).
@@ -18,22 +18,32 @@
 //!   `default_access`, else the request is rejected (D61).
 //! - Every address range has an `access` and `start <= end`.
 //! - EP type matches its address; at least one known interface.
+//! - **Rule A**: an exclusive resource may contain only exclusive items (no
+//!   shared entry, no shared range, no `default_access: shared`).
+//! - Each endpoint address appears at most once in one declaration.
 //!
-//! The full overlap rule R1 (shared items may overlap, type / `private`
-//! mismatch, "exclusive resources contain only exclusive items", AXI
-//! interfaces vs. dataport) arrives in sub-phase 44-B. Until then
-//! [`check_overlap`] keeps the previous rule: two **exclusive** items may not
-//! overlap.
+//! Registration rule **R1** ([`check_overlap`], **409**): first registration
+//! wins. A new resource may overlap an existing one only where both items
+//! are shared items in shared resources with the same endpoint type and the
+//! same item-level `private` flag (ranges: both shared, same `private`).
+//! A resource without `endpoints` claims every classic EP (today
+//! 0x00–0xBF; D77 narrows this to 0x00–0x7F in 44-E).
+//!
+//! Helpers the server calls around these: [`parse_ep_address`] (strict REST
+//! address syntax), [`check_interfaces_for_dataport`] (AXI interfaces need an
+//! AXI data port) and [`self_overlapping_ranges`] (allowed, but logged).
 //!
 //! All errors are [`ResourceError`] values. A `Validation` code means the
 //! request is wrong (REST 422, gRPC `INVALID_ARGUMENT`); `Overlap` means it
 //! clashes with an existing resource (REST 409, gRPC `FAILED_PRECONDITION`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use crate::device::DataportType;
 use crate::resource::{
-    AccessMode, AddressRange, ConflictCode, EndpointDeclaration, EndpointEntry, EndpointType,
-    InterfaceDeclaration, Resource, ResourceConflict, ResourceError,
+    format_ep_address, format_u32_address, AccessMode, AddressRange, ConflictCode,
+    ConflictItemType, EndpointDeclaration, EndpointEntry, EndpointType, InterfaceDeclaration,
+    Resource, ResourceConflict, ResourceError,
 };
 
 // ============================================================================
@@ -133,6 +143,30 @@ pub fn parse_hex_u32(text: &str, field: &str) -> Result<u32, ResourceError> {
     })
 }
 
+/// Parse a Classic endpoint address with the strict OpenAPI pattern
+/// `^0x[0-9A-Fa-f]{2}$` (REST only; gRPC sends a number).
+///
+/// Only lowercase `0x` followed by exactly two hex digits is accepted, e.g.
+/// `0x05`. This is stricter than [`parse_hex_u32`] on purpose: `5`, `0x5`,
+/// `0x005`, `0X05` and `0x0_5` are all rejected, so every client writes
+/// addresses the same way the server reports them.
+///
+/// # Errors
+/// A validation [`ResourceError`] naming `field` if `text` does not match.
+pub fn parse_ep_address(text: &str, field: &str) -> Result<u32, ResourceError> {
+    let invalid = || {
+        ResourceError::validation(format!(
+            "{} '{}' must be 0x followed by exactly two hex digits, e.g. 0x05",
+            field, text
+        ))
+    };
+    let digits = text.strip_prefix("0x").ok_or_else(invalid)?;
+    if digits.len() != 2 || !digits.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(invalid());
+    }
+    u32::from_str_radix(digits, 16).map_err(|_| invalid())
+}
+
 /// Parse a declared mode string (`shared` / `exclusive`).
 ///
 /// # Errors
@@ -204,6 +238,14 @@ pub fn build_resource(spec: ResourceSpec) -> Result<Resource, ResourceError> {
         address_ranges.push(build_range(range)?);
     }
 
+    // Rule A: an exclusive resource may contain only exclusive items. It is
+    // checked here, before registration, so the answer is 422 "whatever
+    // exists" and never a 409 that depends on other resources. It runs after
+    // the items are built so the error can name the first bad item.
+    if access_mode == AccessMode::Exclusive {
+        check_rule_a(endpoints.as_ref(), &address_ranges)?;
+    }
+
     let id = format!("{}:{}", device_serial, name);
     let mut resource = Resource::new(id, name, spec.description, device_serial, access_mode);
     resource.interfaces = interfaces;
@@ -212,6 +254,47 @@ pub fn build_resource(spec: ResourceSpec) -> Result<Resource, ResourceError> {
     resource.metadata = spec.metadata;
     resource.private = spec.private;
     Ok(resource)
+}
+
+/// Rule A for an exclusive resource: no shared entry, no shared range and no
+/// `default_access: shared` (even with no entries, because the spec forbids
+/// the declaration itself, not only its effect).
+fn check_rule_a(
+    endpoints: Option<&EndpointDeclaration>,
+    ranges: &[AddressRange],
+) -> Result<(), ResourceError> {
+    const PREFIX: &str = "an exclusive resource may contain only exclusive items";
+    if let Some(ep) = endpoints {
+        if ep.default_access == Some(AccessMode::Shared) {
+            return Err(ResourceError::validation(format!(
+                "{}; endpoints.default_access is 'shared'",
+                PREFIX
+            )));
+        }
+        if let Some(entry) = ep.entries.iter().find(|e| e.access == AccessMode::Shared) {
+            return Err(ResourceError {
+                detail: format!(
+                    "{}; endpoint {} is declared shared",
+                    PREFIX,
+                    format_ep_address(entry.address)
+                ),
+                conflict: ResourceConflict::new(ConflictCode::Validation)
+                    .with_endpoint(entry.address),
+            });
+        }
+    }
+    if let Some(range) = ranges.iter().find(|r| r.access == AccessMode::Shared) {
+        return Err(ResourceError {
+            detail: format!(
+                "{}; address range {} is declared shared",
+                PREFIX,
+                format_range_item(range.start, range.end)
+            ),
+            conflict: ResourceConflict::new(ConflictCode::Validation)
+                .with_range(range.start, range.end),
+        });
+    }
+    Ok(())
 }
 
 /// Map interface names to the core flags; at least one is required.
@@ -256,6 +339,9 @@ fn build_endpoints(spec: EndpointSpec) -> Result<EndpointDeclaration, ResourceEr
         ));
     }
     let mut entries = Vec::with_capacity(spec.entries.len());
+    // One physical endpoint may be listed only once: two entries for the same
+    // address (even a Pipe and a BTPipe) would give it two types or modes.
+    let mut seen: HashSet<u8> = HashSet::new();
     for entry in spec.entries {
         let address = u8::try_from(entry.address)
             .ok()
@@ -270,6 +356,12 @@ fn build_endpoints(spec: EndpointSpec) -> Result<EndpointDeclaration, ResourceEr
             detail,
             conflict: ResourceConflict::new(ConflictCode::Validation).with_endpoint(address),
         };
+        if !seen.insert(address) {
+            return Err(invalid(format!(
+                "endpoint 0x{:02X} is listed more than once in this declaration",
+                address
+            )));
+        }
         let ep_type = EndpointType::parse(&entry.ep_type).ok_or_else(|| {
             invalid(format!(
                 "endpoint 0x{:02X}: unknown type '{}' (expected wire_in, wire_out, trigger_in, \
@@ -346,61 +438,269 @@ fn build_range(spec: AddressRangeSpec) -> Result<AddressRange, ResourceError> {
 }
 
 // ============================================================================
-// check_overlap (pre-R1 rule)
+// Helpers the server calls around registration (44-B)
 // ============================================================================
 
-/// Check a new resource against the existing resources of its device.
+/// Return the index pairs `(i, j)` (`i < j`) of address ranges in the
+/// **same** resource that overlap each other.
 ///
-/// **Interim rule (until 44-B):** two *exclusive* endpoint entries with the
-/// same address, or two *exclusive* address ranges that overlap, clash. This
-/// is the rule the REST handler applied before 44-A; it now lives here so
-/// gRPC applies it too.
-///
-/// # Errors
-/// An `Overlap` [`ResourceError`] naming the first existing resource and
-/// item that clash (first registration wins).
-pub fn check_overlap(existing: &[Resource], new: &Resource) -> Result<(), ResourceError> {
-    if let Some(new_eps) = &new.endpoints {
-        for new_ep in new_eps.entries.iter().filter(|e| e.access == AccessMode::Exclusive) {
-            for other in existing {
-                let Some(other_eps) = &other.endpoints else { continue };
-                if other_eps
-                    .entries
-                    .iter()
-                    .any(|e| e.address == new_ep.address && e.access == AccessMode::Exclusive)
-                {
-                    return Err(ResourceError {
-                        detail: format!(
-                            "Endpoint 0x{:02X} is already declared exclusive by resource '{}'",
-                            new_ep.address, other.name
-                        ),
-                        conflict: ResourceConflict::new(ConflictCode::Overlap)
-                            .with_resource(&other.id, &other.name)
-                            .with_endpoint(new_ep.address),
-                    });
-                }
+/// This is allowed (owner decision Q1, 44-B): the overlap is inside one
+/// resource, so it cannot clash with anyone else. The server only logs a
+/// warning when `warn_range_self_overlap` is on. Where two such ranges differ
+/// in `private`, the more restrictive one (private) applies to the addresses
+/// they share; that is enforced in 44-E.
+pub fn self_overlapping_ranges(resource: &Resource) -> Vec<(usize, usize)> {
+    let ranges = &resource.address_ranges;
+    let mut pairs = Vec::new();
+    for i in 0..ranges.len() {
+        for j in (i + 1)..ranges.len() {
+            if ranges[i].overlaps(&ranges[j]) {
+                pairs.push((i, j));
             }
         }
     }
+    pairs
+}
 
-    for new_range in new.address_ranges.iter().filter(|r| r.access == AccessMode::Exclusive) {
-        for other in existing {
-            if let Some(hit) = other
+/// Check the declared interfaces against the device's data port (SD-09).
+///
+/// `classic` is allowed on every device. `axi_lite`, `axi_full` and
+/// `axi_stream` need [`DataportType::Axi`]; `Legacy` (and `Unknown`, which
+/// public APIs never show) are rejected.
+///
+/// # Errors
+/// A validation [`ResourceError`] naming the first AXI interface listed.
+pub fn check_interfaces_for_dataport(
+    interfaces: &InterfaceDeclaration,
+    dataport: DataportType,
+) -> Result<(), ResourceError> {
+    if !interfaces.has_axi() || dataport == DataportType::Axi {
+        return Ok(());
+    }
+    let name = if interfaces.axi_lite {
+        "axi_lite"
+    } else if interfaces.axi_full {
+        "axi_full"
+    } else {
+        "axi_stream"
+    };
+    Err(ResourceError::validation(format!(
+        "interface '{}' needs a device with an AXI data port; this device has a {} data port",
+        name, dataport
+    )))
+}
+
+// ============================================================================
+// check_overlap (R1)
+// ============================================================================
+
+/// Last endpoint address claimed by a resource without `endpoints`.
+///
+/// Today that is every classic endpoint including the pipes (0x00–0xBF,
+/// registration row 12). D77 narrows it to the Wire and Trigger endpoints
+/// (0x7F) in 44-E.
+const WILDCARD_EP_LAST: u8 = 0xBF;
+
+/// One endpoint as one resource claims it.
+///
+/// `ep_type` is `None` for the "no `endpoints` field" wildcard: such a
+/// resource claims the address without saying what type it is, so it can
+/// never be compatible with anyone.
+#[derive(Clone, Copy)]
+struct EndpointClaim {
+    address: u8,
+    ep_type: Option<EndpointType>,
+    access: AccessMode,
+    private: bool,
+}
+
+/// Every endpoint `resource` claims, keyed by address.
+///
+/// A `BTreeMap` keeps the addresses sorted, so conflict lists come out in
+/// ascending order without an extra sort.
+fn endpoint_claims(resource: &Resource) -> std::collections::BTreeMap<u8, EndpointClaim> {
+    let mut map = std::collections::BTreeMap::new();
+    match &resource.endpoints {
+        // No `endpoints` field: an exclusive resource that claims them all.
+        None => {
+            for address in 0x00..=WILDCARD_EP_LAST {
+                map.insert(
+                    address,
+                    EndpointClaim { address, ep_type: None, access: AccessMode::Exclusive, private: false },
+                );
+            }
+        }
+        // `{"entries": []}` claims nothing (D55, row 19).
+        Some(decl) => {
+            for e in &decl.entries {
+                map.insert(
+                    e.address,
+                    EndpointClaim {
+                        address: e.address,
+                        ep_type: Some(e.ep_type),
+                        access: e.access,
+                        private: e.private,
+                    },
+                );
+            }
+        }
+    }
+    map
+}
+
+/// Both resources are shared (the first half of "shared item in a shared
+/// resource on both sides").
+fn both_shared(new: &Resource, other: &Resource) -> bool {
+    new.access_mode == Some(AccessMode::Shared) && other.access_mode == Some(AccessMode::Shared)
+}
+
+/// May two claims on the same endpoint coexist? Only shared items in shared
+/// resources with the same type and the same item-level `private` flag.
+/// Resource-level `private` is deliberately not compared (owner decision
+/// Q3): it controls who may *acquire* a resource, not who owns an item.
+fn endpoint_claims_compatible(
+    new: &Resource,
+    other: &Resource,
+    n: &EndpointClaim,
+    o: &EndpointClaim,
+) -> bool {
+    both_shared(new, other)
+        && n.access == AccessMode::Shared
+        && o.access == AccessMode::Shared
+        && n.ep_type.is_some()
+        && n.ep_type == o.ep_type
+        && n.private == o.private
+}
+
+/// May two overlapping ranges coexist? Same rule as endpoints, minus the
+/// type (ranges have none).
+fn ranges_compatible(new: &Resource, other: &Resource, n: &AddressRange, o: &AddressRange) -> bool {
+    both_shared(new, other)
+        && n.access == AccessMode::Shared
+        && o.access == AccessMode::Shared
+        && n.private == o.private
+}
+
+/// Human text for the first clashing endpoint, most important reason first.
+fn endpoint_detail(new: &Resource, other: &Resource, n: &EndpointClaim, o: &EndpointClaim) -> String {
+    let item = format_ep_address(o.address);
+    if other.access_mode == Some(AccessMode::Exclusive) {
+        format!("Endpoint {} belongs to exclusive resource '{}'", item, other.name)
+    } else if o.access == AccessMode::Exclusive {
+        format!("Endpoint {} is already declared exclusive by resource '{}'", item, other.name)
+    } else if new.access_mode == Some(AccessMode::Exclusive) || n.access == AccessMode::Exclusive {
+        format!("Endpoint {} is already declared shared by resource '{}'", item, other.name)
+    } else if n.ep_type != o.ep_type {
+        match o.ep_type {
+            Some(t) => format!(
+                "Endpoint {} is declared as {} by resource '{}' (type differs)",
+                item, t, other.name
+            ),
+            None => format!("Endpoint {} is claimed by resource '{}'", item, other.name),
+        }
+    } else {
+        format!(
+            "Endpoint {} is already declared shared by resource '{}' (private flag differs)",
+            item, other.name
+        )
+    }
+}
+
+/// Human text for the first clashing range, most important reason first.
+fn range_detail(new: &Resource, other: &Resource, n: &AddressRange, o: &AddressRange) -> String {
+    let item = format_range_item(o.start, o.end);
+    if other.access_mode == Some(AccessMode::Exclusive) {
+        format!("Address range {} belongs to exclusive resource '{}'", item, other.name)
+    } else if o.access == AccessMode::Exclusive {
+        format!("Address range {} is already declared exclusive by resource '{}'", item, other.name)
+    } else if new.access_mode == Some(AccessMode::Exclusive) || n.access == AccessMode::Exclusive {
+        format!("Address range {} is already declared shared by resource '{}'", item, other.name)
+    } else {
+        format!(
+            "Address range {} is already declared shared by resource '{}' (private flag differs)",
+            item, other.name
+        )
+    }
+}
+
+/// Format a range the way conflict items show it: `0xSTART-0xEND`.
+fn format_range_item(start: u32, end: u32) -> String {
+    format!("{}-{}", format_u32_address(start), format_u32_address(end))
+}
+
+/// Check a new resource against the existing resources of its device (R1).
+///
+/// **First registration wins.** The new resource is accepted only if every
+/// overlap with an existing resource is a shared item in a shared resource
+/// on both sides, with the same endpoint type and the same item-level
+/// `private` flag. A resource without `endpoints` claims every classic
+/// endpoint (see [`WILDCARD_EP_LAST`]), so it clashes with any resource that
+/// lists one, and with another resource without `endpoints`.
+///
+/// Existing resources are checked in `id` order. The registry is a
+/// `HashMap`, whose order is random; sorting makes the reported resource the
+/// same on every run.
+///
+/// # Errors
+/// An `Overlap` [`ResourceError`] for the first existing resource with at
+/// least one clash. `conflict.item` is the first clashing item and
+/// `conflict.items` lists **every** clashing item with that resource:
+/// endpoints ascending, then that resource's ranges in declaration order.
+pub fn check_overlap(existing: &[Resource], new: &Resource) -> Result<(), ResourceError> {
+    let mut sorted: Vec<&Resource> = existing.iter().collect();
+    sorted.sort_by(|a, b| a.id.cmp(&b.id));
+
+    let new_claims = endpoint_claims(new);
+
+    for other in sorted {
+        let other_claims = endpoint_claims(other);
+        let mut items: Vec<String> = Vec::new();
+        // (detail text, item type, item) of the first clash.
+        let mut first: Option<(String, ConflictItemType, String)> = None;
+
+        for (address, n) in &new_claims {
+            let Some(o) = other_claims.get(address) else { continue };
+            if endpoint_claims_compatible(new, other, n, o) {
+                continue;
+            }
+            let item = format_ep_address(*address);
+            if first.is_none() {
+                first = Some((endpoint_detail(new, other, n, o), ConflictItemType::Endpoint, item.clone()));
+            }
+            items.push(item);
+        }
+
+        // Ranges are reported as the *existing* resource's range: that is
+        // the item the client has to look up.
+        for o in &other.address_ranges {
+            let Some(n) = new
                 .address_ranges
                 .iter()
-                .find(|r| r.access == AccessMode::Exclusive && new_range.overlaps(r))
-            {
-                return Err(ResourceError {
-                    detail: format!(
-                        "Address range 0x{:08X}-0x{:08X} overlaps exclusive range \
-                         0x{:08X}-0x{:08X} of resource '{}'",
-                        new_range.start, new_range.end, hit.start, hit.end, other.name
-                    ),
-                    conflict: ResourceConflict::new(ConflictCode::Overlap)
-                        .with_resource(&other.id, &other.name)
-                        .with_range(hit.start, hit.end),
-                });
+                .find(|n| n.overlaps(o) && !ranges_compatible(new, other, n, o))
+            else {
+                continue;
+            };
+            let item = format_range_item(o.start, o.end);
+            if items.contains(&item) {
+                continue;
             }
+            if first.is_none() {
+                first = Some((range_detail(new, other, n, o), ConflictItemType::AddressRange, item.clone()));
+            }
+            items.push(item);
+        }
+
+        if let Some((detail, item_type, item)) = first {
+            let detail = if items.len() > 1 {
+                format!("{} ({} conflicting items in total)", detail, items.len())
+            } else {
+                detail
+            };
+            let mut conflict =
+                ResourceConflict::new(ConflictCode::Overlap).with_resource(&other.id, &other.name);
+            conflict.item_type = Some(item_type);
+            conflict.item = Some(item);
+            return Err(ResourceError { detail, conflict: conflict.with_items(items) });
         }
     }
     Ok(())
@@ -721,11 +1021,448 @@ mod tests {
     }
 
     #[test]
-    fn test_check_overlap_shared_items_allowed() {
+    fn test_check_overlap_shared_same_type_same_private_allowed() {
         let existing = build_resource(spec()).unwrap();
         let mut b = spec();
         b.name = "adc".into();
         let new = build_resource(b).unwrap();
         assert!(check_overlap(&[existing], &new).is_ok());
+    }
+
+    // ---- 44-B: shape rules inside one declaration -------------------------
+
+    /// Small helper: a spec named `name` with the given endpoint entries.
+    fn spec_with(name: &str, entries: Vec<EndpointEntrySpec>) -> ResourceSpec {
+        let mut s = spec();
+        s.name = name.into();
+        s.endpoints = Some(EndpointSpec { default_access: None, entries });
+        s
+    }
+
+    /// Small helper: a spec named `name` with no endpoint entries and the
+    /// given address ranges.
+    fn spec_ranges(name: &str, ranges: Vec<AddressRangeSpec>) -> ResourceSpec {
+        let mut s = spec();
+        s.name = name.into();
+        s.endpoints = Some(EndpointSpec::default());
+        s.address_ranges = ranges;
+        s
+    }
+
+    /// Small helper: a spec named `name` without an `endpoints` field (it
+    /// claims every classic endpoint).
+    fn spec_wildcard(name: &str) -> ResourceSpec {
+        let mut s = spec();
+        s.name = name.into();
+        s.endpoints = None;
+        s.access_mode = None;
+        s
+    }
+
+    #[test]
+    fn test_build_resource_exclusive_with_shared_entry_rejected() {
+        let mut s = spec_with("dac", vec![entry(0x05, "wire_in", Some(AccessMode::Shared))]);
+        s.access_mode = Some(AccessMode::Exclusive);
+        let err = build_resource(s).unwrap_err();
+        assert!(err.is_validation());
+        assert_eq!(err.conflict.item.as_deref(), Some("0x05"));
+    }
+
+    #[test]
+    fn test_build_resource_exclusive_with_shared_range_rejected() {
+        let mut s = spec_ranges("dac", vec![range(0x10, 0x20, Some(AccessMode::Shared))]);
+        s.access_mode = Some(AccessMode::Exclusive);
+        let err = build_resource(s).unwrap_err();
+        assert!(err.is_validation());
+        assert_eq!(err.conflict.item.as_deref(), Some("0x00000010-0x00000020"));
+    }
+
+    #[test]
+    fn test_build_resource_exclusive_with_default_access_shared_rejected() {
+        let mut s = spec();
+        s.access_mode = Some(AccessMode::Exclusive);
+        s.endpoints = Some(EndpointSpec {
+            default_access: Some(AccessMode::Shared),
+            entries: vec![entry(0x00, "wire_in", Some(AccessMode::Exclusive))],
+        });
+        let err = build_resource(s).unwrap_err();
+        assert!(err.is_validation());
+        assert!(err.detail.contains("default_access"));
+    }
+
+    #[test]
+    fn test_build_resource_exclusive_empty_entries_default_shared_rejected() {
+        let mut s = spec();
+        s.access_mode = Some(AccessMode::Exclusive);
+        s.endpoints = Some(EndpointSpec { default_access: Some(AccessMode::Shared), entries: vec![] });
+        let err = build_resource(s).unwrap_err();
+        assert!(err.is_validation());
+        assert!(err.detail.contains("default_access"));
+    }
+
+    #[test]
+    fn test_build_resource_shared_with_exclusive_items_accepted() {
+        // Rule A only restricts exclusive resources; a shared resource may
+        // hold exclusive items.
+        let mut s = spec_with("dac", vec![entry(0x00, "wire_in", Some(AccessMode::Exclusive))]);
+        s.address_ranges = vec![range(0x10, 0x20, Some(AccessMode::Exclusive))];
+        assert!(build_resource(s).is_ok());
+    }
+
+    #[test]
+    fn test_build_resource_duplicate_endpoint_address_rejected() {
+        let s = spec_with(
+            "dac",
+            vec![
+                entry(0x05, "wire_in", Some(AccessMode::Shared)),
+                entry(0x05, "wire_in", Some(AccessMode::Shared)),
+            ],
+        );
+        let err = build_resource(s).unwrap_err();
+        assert!(err.is_validation());
+        assert_eq!(err.conflict.item.as_deref(), Some("0x05"));
+    }
+
+    #[test]
+    fn test_build_resource_duplicate_address_pipe_vs_btpipe_rejected() {
+        let s = spec_with(
+            "dac",
+            vec![
+                entry(0x80, "pipe_in", Some(AccessMode::Shared)),
+                entry(0x80, "bt_pipe_in", Some(AccessMode::Shared)),
+            ],
+        );
+        let err = build_resource(s).unwrap_err();
+        assert!(err.is_validation());
+        assert_eq!(err.conflict.item.as_deref(), Some("0x80"));
+    }
+
+    #[test]
+    fn test_parse_ep_address_strict_pattern() {
+        assert_eq!(parse_ep_address("0x05", "address").unwrap(), 0x05);
+        assert_eq!(parse_ep_address("0xbF", "address").unwrap(), 0xBF);
+        for bad in ["5", "0x5", "0x005", "0X05", "0x0_5", "", "0x"] {
+            assert!(parse_ep_address(bad, "address").is_err(), "{bad:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn test_self_overlapping_ranges_reports_pairs() {
+        let s = spec_ranges(
+            "dac",
+            vec![
+                range(0x00, 0x0A, Some(AccessMode::Shared)),
+                range(0x05, 0x0F, Some(AccessMode::Shared)),
+                range(0x20, 0x30, Some(AccessMode::Shared)),
+                range(0x25, 0x35, Some(AccessMode::Exclusive)),
+            ],
+        );
+        let r = build_resource(s).unwrap();
+        assert_eq!(self_overlapping_ranges(&r), vec![(0, 1), (2, 3)]);
+    }
+
+    #[test]
+    fn test_self_overlapping_ranges_disjoint_and_adjacent_empty() {
+        let s = spec_ranges(
+            "dac",
+            vec![
+                range(0x00, 0x09, Some(AccessMode::Shared)),
+                range(0x0A, 0x19, Some(AccessMode::Shared)),
+            ],
+        );
+        let r = build_resource(s).unwrap();
+        assert!(self_overlapping_ranges(&r).is_empty());
+    }
+
+    fn ifaces(classic: bool, axi_lite: bool, axi_full: bool, axi_stream: bool) -> InterfaceDeclaration {
+        InterfaceDeclaration { classic, axi_lite, axi_full, axi_stream }
+    }
+
+    #[test]
+    fn test_check_interfaces_for_dataport_axi_on_legacy_rejected() {
+        let err = check_interfaces_for_dataport(&ifaces(true, true, false, false), DataportType::Legacy)
+            .unwrap_err();
+        assert!(err.is_validation());
+        assert!(err.detail.contains("axi_lite"));
+        assert!(err.detail.contains("Classic"));
+    }
+
+    #[test]
+    fn test_check_interfaces_for_dataport_classic_on_legacy_accepted() {
+        assert!(check_interfaces_for_dataport(&ifaces(true, false, false, false), DataportType::Legacy).is_ok());
+    }
+
+    #[test]
+    fn test_check_interfaces_for_dataport_axi_on_axi_accepted() {
+        assert!(check_interfaces_for_dataport(&ifaces(true, true, true, true), DataportType::Axi).is_ok());
+    }
+
+    #[test]
+    fn test_check_interfaces_for_dataport_axi_on_unknown_rejected() {
+        let err = check_interfaces_for_dataport(&ifaces(false, false, true, false), DataportType::Unknown)
+            .unwrap_err();
+        assert!(err.is_validation());
+        assert!(err.detail.contains("axi_full"));
+    }
+
+    // ---- 44-B: R1 overlap between resources -------------------------------
+
+    #[test]
+    fn test_check_overlap_existing_shared_new_exclusive_denied() {
+        let existing = build_resource(spec()).unwrap();
+        let new = build_resource(spec_with("adc", vec![entry(0x00, "wire_in", Some(AccessMode::Exclusive))]))
+            .unwrap();
+        let err = check_overlap(&[existing], &new).unwrap_err();
+        assert_eq!(err.conflict.code, ConflictCode::Overlap);
+        assert!(err.detail.contains("already declared shared"));
+        assert_eq!(err.conflict.items, vec!["0x00"]);
+    }
+
+    #[test]
+    fn test_check_overlap_existing_exclusive_new_shared_denied() {
+        let existing = build_resource(spec_with("dac", vec![entry(0x00, "wire_in", Some(AccessMode::Exclusive))]))
+            .unwrap();
+        let new = build_resource(spec_with("adc", vec![entry(0x00, "wire_in", Some(AccessMode::Shared))])).unwrap();
+        let err = check_overlap(&[existing], &new).unwrap_err();
+        assert!(err.detail.contains("already declared exclusive"));
+    }
+
+    #[test]
+    fn test_check_overlap_exclusive_resource_item_denied() {
+        let mut a = spec_with("dac", vec![entry(0x00, "wire_in", Some(AccessMode::Exclusive))]);
+        a.access_mode = Some(AccessMode::Exclusive);
+        let existing = build_resource(a).unwrap();
+        let new = build_resource(spec_with("adc", vec![entry(0x00, "wire_in", Some(AccessMode::Shared))])).unwrap();
+        let err = check_overlap(&[existing], &new).unwrap_err();
+        assert!(err.detail.contains("belongs to exclusive resource 'dac'"));
+    }
+
+    #[test]
+    fn test_check_overlap_private_mismatch_denied() {
+        let existing = build_resource(spec()).unwrap();
+        let new = build_resource(spec_with(
+            "adc",
+            vec![EndpointEntrySpec { private: true, ..entry(0x00, "wire_in", Some(AccessMode::Shared)) }],
+        ))
+        .unwrap();
+        let err = check_overlap(&[existing], &new).unwrap_err();
+        assert!(err.detail.contains("private flag differs"));
+    }
+
+    #[test]
+    fn test_check_overlap_resource_private_not_compared_allowed() {
+        // Resource-level `private` controls ReadOnly acquisition only; it is
+        // not part of the overlap rule (owner decision Q3).
+        let existing = build_resource(spec()).unwrap();
+        let mut b = spec();
+        b.name = "adc".into();
+        b.private = true;
+        let new = build_resource(b).unwrap();
+        assert!(check_overlap(&[existing], &new).is_ok());
+    }
+
+    #[test]
+    fn test_check_overlap_type_mismatch_denied() {
+        let existing = build_resource(spec_with("dac", vec![entry(0x80, "pipe_in", Some(AccessMode::Shared))])).unwrap();
+        let new = build_resource(spec_with("adc", vec![entry(0x80, "bt_pipe_in", Some(AccessMode::Shared))])).unwrap();
+        let err = check_overlap(&[existing], &new).unwrap_err();
+        assert!(err.detail.contains("type differs"));
+    }
+
+    #[test]
+    fn test_check_overlap_wildcard_blocks_later_entry_denied() {
+        let existing = build_resource(spec_wildcard("all")).unwrap();
+        let new = build_resource(spec_with("adc", vec![entry(0x00, "wire_in", Some(AccessMode::Shared))])).unwrap();
+        let err = check_overlap(&[existing], &new).unwrap_err();
+        assert_eq!(err.conflict.item.as_deref(), Some("0x00"));
+        assert!(err.detail.contains("belongs to exclusive resource 'all'"));
+    }
+
+    #[test]
+    fn test_check_overlap_new_wildcard_vs_existing_entry_denied() {
+        let existing = build_resource(spec()).unwrap();
+        let new = build_resource(spec_wildcard("all")).unwrap();
+        let err = check_overlap(&[existing], &new).unwrap_err();
+        assert!(err.detail.contains("already declared shared"));
+        assert_eq!(err.conflict.items, vec!["0x00"]);
+    }
+
+    #[test]
+    fn test_check_overlap_wildcard_vs_wildcard_lists_all_endpoints() {
+        let existing = build_resource(spec_wildcard("a")).unwrap();
+        let new = build_resource(spec_wildcard("b")).unwrap();
+        let err = check_overlap(&[existing], &new).unwrap_err();
+        assert_eq!(err.conflict.items.len(), 192);
+        assert_eq!(err.conflict.items[0], "0x00");
+        assert_eq!(err.conflict.items[191], "0xBF");
+        assert_eq!(err.conflict.item.as_deref(), Some("0x00"));
+        assert!(err.detail.contains("(192 conflicting items in total)"));
+    }
+
+    #[test]
+    fn test_check_overlap_wildcard_blocks_pipe_denied() {
+        let existing = build_resource(spec_wildcard("all")).unwrap();
+        let new = build_resource(spec_with("adc", vec![entry(0x80, "pipe_in", Some(AccessMode::Shared))])).unwrap();
+        let err = check_overlap(&[existing], &new).unwrap_err();
+        assert_eq!(err.conflict.item.as_deref(), Some("0x80"));
+    }
+
+    #[test]
+    fn test_check_overlap_wildcard_vs_empty_entries_allowed() {
+        let existing = build_resource(spec_wildcard("all")).unwrap();
+        let new = build_resource(spec_ranges("adc", vec![])).unwrap();
+        assert!(check_overlap(&[existing], &new).is_ok());
+    }
+
+    #[test]
+    fn test_check_overlap_shared_range_partial_allowed() {
+        let existing = build_resource(spec_ranges("dac", vec![range(0x1000, 0x1FFF, Some(AccessMode::Shared))])).unwrap();
+        let new = build_resource(spec_ranges("adc", vec![range(0x1800, 0x2FFF, Some(AccessMode::Shared))])).unwrap();
+        assert!(check_overlap(&[existing], &new).is_ok());
+    }
+
+    #[test]
+    fn test_check_overlap_range_private_mismatch_denied() {
+        let existing = build_resource(spec_ranges("dac", vec![range(0x1000, 0x1FFF, Some(AccessMode::Shared))])).unwrap();
+        let new = build_resource(spec_ranges(
+            "adc",
+            vec![AddressRangeSpec { private: true, ..range(0x1800, 0x2FFF, Some(AccessMode::Shared)) }],
+        ))
+        .unwrap();
+        let err = check_overlap(&[existing], &new).unwrap_err();
+        assert!(err.detail.contains("private flag differs"));
+    }
+
+    #[test]
+    fn test_check_overlap_existing_exclusive_range_vs_shared_denied() {
+        let existing =
+            build_resource(spec_ranges("dac", vec![range(0x1000, 0x1FFF, Some(AccessMode::Exclusive))])).unwrap();
+        let new = build_resource(spec_ranges("adc", vec![range(0x1800, 0x2FFF, Some(AccessMode::Shared))])).unwrap();
+        let err = check_overlap(&[existing], &new).unwrap_err();
+        assert!(err.detail.contains("already declared exclusive"));
+    }
+
+    #[test]
+    fn test_check_overlap_adjacent_ranges_allowed() {
+        let existing =
+            build_resource(spec_ranges("dac", vec![range(0x1000, 0x1FFF, Some(AccessMode::Exclusive))])).unwrap();
+        let new = build_resource(spec_ranges("adc", vec![range(0x2000, 0x2FFF, Some(AccessMode::Exclusive))])).unwrap();
+        assert!(check_overlap(&[existing], &new).is_ok());
+    }
+
+    #[test]
+    fn test_check_overlap_inclusive_boundary_denied() {
+        let existing =
+            build_resource(spec_ranges("dac", vec![range(0x1000, 0x1FFF, Some(AccessMode::Exclusive))])).unwrap();
+        let new = build_resource(spec_ranges("adc", vec![range(0x1FFF, 0x2FFF, Some(AccessMode::Shared))])).unwrap();
+        let err = check_overlap(&[existing], &new).unwrap_err();
+        assert_eq!(err.conflict.item.as_deref(), Some("0x00001000-0x00001FFF"));
+    }
+
+    #[test]
+    fn test_check_overlap_multiple_items_listed() {
+        let mut a = spec_with(
+            "dac",
+            vec![
+                entry(0x01, "wire_in", Some(AccessMode::Exclusive)),
+                entry(0x00, "wire_in", Some(AccessMode::Exclusive)),
+            ],
+        );
+        a.address_ranges = vec![range(0x1000, 0x1FFF, Some(AccessMode::Exclusive))];
+        let existing = build_resource(a).unwrap();
+        let mut b = spec_with(
+            "adc",
+            vec![
+                entry(0x00, "wire_in", Some(AccessMode::Exclusive)),
+                entry(0x01, "wire_in", Some(AccessMode::Exclusive)),
+            ],
+        );
+        b.address_ranges = vec![range(0x1800, 0x2FFF, Some(AccessMode::Exclusive))];
+        let new = build_resource(b).unwrap();
+        let err = check_overlap(&[existing], &new).unwrap_err();
+        assert_eq!(err.conflict.items, vec!["0x00", "0x01", "0x00001000-0x00001FFF"]);
+        assert_eq!(err.conflict.item.as_deref(), Some("0x00"));
+        assert!(err.detail.contains("(3 conflicting items in total)"));
+    }
+
+    #[test]
+    fn test_check_overlap_multiple_conflicting_resources_deterministic() {
+        let a = spec_with("a", vec![entry(0x00, "wire_in", Some(AccessMode::Exclusive))]);
+        let b = spec_with("b", vec![entry(0x00, "wire_in", Some(AccessMode::Exclusive))]);
+        // Listed out of order on purpose: the check sorts by id.
+        let existing = vec![build_resource(b).unwrap(), build_resource(a).unwrap()];
+        let new = build_resource(spec_with("new", vec![entry(0x00, "wire_in", Some(AccessMode::Shared))])).unwrap();
+        let err = check_overlap(&existing, &new).unwrap_err();
+        assert_eq!(err.conflict.resource_id.as_deref(), Some("SN1:a"));
+    }
+
+    #[test]
+    fn test_check_overlap_multiple_conflicting_resources_reports_lowest_id_items() {
+        // Only the items that clash with the *named* resource are listed.
+        let a = spec_with("a", vec![entry(0x00, "wire_in", Some(AccessMode::Exclusive))]);
+        let b = spec_with("b", vec![entry(0x01, "wire_in", Some(AccessMode::Exclusive))]);
+        let existing = vec![build_resource(b).unwrap(), build_resource(a).unwrap()];
+        let new = build_resource(spec_with(
+            "new",
+            vec![
+                entry(0x00, "wire_in", Some(AccessMode::Shared)),
+                entry(0x01, "wire_in", Some(AccessMode::Shared)),
+            ],
+        ))
+        .unwrap();
+        let err = check_overlap(&existing, &new).unwrap_err();
+        assert_eq!(err.conflict.resource_id.as_deref(), Some("SN1:a"));
+        assert_eq!(err.conflict.items, vec!["0x00"]);
+    }
+
+    #[test]
+    fn test_check_overlap_existing_range_overlaps_several_new_ranges_finds_incompatible() {
+        // The first overlapping new range is compatible; a later one is not.
+        let existing =
+            build_resource(spec_ranges("dac", vec![range(0x1000, 0x1FFF, Some(AccessMode::Shared))])).unwrap();
+        let new = build_resource(spec_ranges(
+            "adc",
+            vec![
+                range(0x0000, 0x0FFF, Some(AccessMode::Shared)),
+                range(0x1800, 0x2FFF, Some(AccessMode::Shared)),
+                AddressRangeSpec { private: true, ..range(0x1000, 0x10FF, Some(AccessMode::Shared)) },
+            ],
+        ))
+        .unwrap();
+        let err = check_overlap(&[existing], &new).unwrap_err();
+        assert_eq!(err.conflict.item.as_deref(), Some("0x00001000-0x00001FFF"));
+        assert_eq!(err.conflict.items, vec!["0x00001000-0x00001FFF"]);
+        assert!(err.detail.contains("private flag differs"));
+    }
+
+    #[test]
+    fn test_check_overlap_identical_existing_ranges_second_incompatible_reports_once() {
+        let existing = build_resource(spec_ranges(
+            "dac",
+            vec![
+                range(0x1000, 0x1FFF, Some(AccessMode::Shared)),
+                AddressRangeSpec { private: true, ..range(0x1000, 0x1FFF, Some(AccessMode::Shared)) },
+            ],
+        ))
+        .unwrap();
+        let new = build_resource(spec_ranges("adc", vec![range(0x1800, 0x2FFF, Some(AccessMode::Shared))])).unwrap();
+        let err = check_overlap(&[existing], &new).unwrap_err();
+        assert_eq!(err.conflict.items, vec!["0x00001000-0x00001FFF"]);
+    }
+
+    #[test]
+    fn test_check_overlap_wildcard_vs_wildcard_with_ranges_lists_endpoints_then_ranges() {
+        let mut a = spec_wildcard("a");
+        a.address_ranges = vec![range(0x1000, 0x1FFF, Some(AccessMode::Exclusive))];
+        let existing = build_resource(a).unwrap();
+        let mut b = spec_wildcard("b");
+        b.address_ranges = vec![range(0x1800, 0x2FFF, Some(AccessMode::Exclusive))];
+        let new = build_resource(b).unwrap();
+        let err = check_overlap(&[existing], &new).unwrap_err();
+        assert_eq!(err.conflict.items.len(), 193);
+        assert_eq!(err.conflict.items[191], "0xBF");
+        assert_eq!(err.conflict.items[192], "0x00001000-0x00001FFF");
+        assert_eq!(err.conflict.item_type, Some(ConflictItemType::Endpoint));
+        assert!(err.detail.contains("(193 conflicting items in total)"));
     }
 }

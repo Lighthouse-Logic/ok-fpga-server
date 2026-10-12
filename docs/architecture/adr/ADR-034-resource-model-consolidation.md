@@ -1,7 +1,7 @@
 # ADR-034: Resource Model Consolidation
 
 **Status**: Accepted — 44-A implemented incl. post-44-A read semantics (0.3.0) and mask default (0.3.1);
-44-A archived; 44-B … 44-J pending
+44-A archived; 44-B implemented (0.3.3); 44-C … 44-J pending
 **Date**: 2026-10-11
 **Commit hash**: 44-A `c5e4f79`; 0.3.0 read semantics (D75–D77) `5de5ab6`;
 0.3.1 IsTriggered mask default (D78) `d88e5c5`
@@ -75,15 +75,15 @@ in `data:` (no `{"VariantName": {...}}` wrapper).
   `default_access` only fills a missing `access`. Neither → 422.
 - `{"entries": []}` means "no classic endpoints".
 
-The full R1 overlap rules, Rule A and the interface/dataport check come in
-44-B. 44-A keeps the existing exclusive-overlap check, now reported as a
-structured conflict.
+The full R1 overlap rules, Rule A and the interface/dataport check are
+implemented in 44-B (0.3.3), see §10. 44-A kept the existing
+exclusive-overlap check, reported as a structured conflict.
 
 ### §4 Structured errors (Q44-13)
 
 - **REST**: 409 and 422 responses use `ProblemDetail`. When another
   resource or user is the cause, `conflict` names it:
-  `{code, resource_id, resource_name, item_type, item}`
+  `{code, resource_id, resource_name, item_type, item, items}`
   (`code` ∈ `overlap`, `locked`, `blocked`, `mode_mismatch`, `validation`;
   `blocked` and `mode_mismatch` are emitted from 44-D / 44-C).
   A duplicate name is a 409 without `conflict`.
@@ -191,6 +191,45 @@ implementation now follows the spec.
 The logic lives in one helper, `snapshot::read_snapshot(update, refresh,
 read)`, which REST and gRPC both call, so the two APIs cannot drift apart.
 
+### §10 Registration rules (44-B, 0.3.3)
+
+REST and gRPC share `declaration::check_overlap` and the helpers below, so
+the two APIs cannot drift apart.
+
+- **Rule A** (422): an exclusive resource may contain only exclusive items:
+  no shared entry, no shared range, no `default_access: shared` (even with
+  `entries: []`).
+- **R1** (409): first registration wins. An overlap is allowed only where
+  both items are shared items in shared resources, with the same endpoint
+  type and the same item-level `private` flag (ranges: both shared, same
+  `private`).
+- **Q3 — item-level `private` only.** Resource-level `private` (which denies
+  ReadOnly acquisition) is not compared.
+- **Q1 — self-overlap.** Ranges inside one declaration may overlap (201).
+  `access_control.warn_range_self_overlap` (default `true`, env
+  `OKFPGA_WARN_RANGE_SELF_OVERLAP`) logs a `warn!` per overlapping pair
+  (`warnings.rs`). Where such ranges differ in `private`, the private one
+  applies to the shared addresses; enforced with 44-E.
+- **Duplicate endpoint addresses** (422): an address may appear once per
+  declaration, even `pipe_in` vs `bt_pipe_in`.
+- **Strict REST address syntax** (422): `^0x[0-9A-Fa-f]{2}$`
+  (`parse_ep_address`); `5`, `0x5`, `0x005`, `0X05` are rejected.
+- **Q4 — conflict `items`.** `ResourceConflict.items` (REST) /
+  `ResourceConflictDetail.items = 6` (proto) lists every item that clashes
+  with the named resource: endpoints ascending, then that resource's ranges
+  in declaration order; `item` is the first entry. `detail` ends with
+  "(N conflicting items in total)" when N > 1. Wildcard vs wildcard lists
+  all 192 endpoints.
+- **Deterministic choice**: existing resources are checked in `id` order
+  (the registry is a `HashMap`), so the lowest id is named.
+- **Check order on create**: build (422) → device lookup (404) → interfaces
+  vs data port (422) → programmed (409) → self-overlap warning → R1 (409).
+  A declaration that can never be valid on a device is 422 even while the
+  device is unprogrammed.
+- **Wildcard coverage** is still 0x00–0xBF; D77 (0x00–0x7F) lands in 44-E.
+- **Q5 — registration vs device lifecycle** (unplug / reprogram during or
+  after registration) is deferred to 44-F (roadmap).
+
 ### Rationale
 
 One schema shared by REST, gRPC and the dashboard removes the guessing that
@@ -250,12 +289,31 @@ Owner permission 2026-10-11 (API Specification review):
 - Docs: this ADR, `docs/API-Specification/` (Appendix A, ref comments),
   `docs/development-roadmap.md`.
 
+## Files changed (0.3.3, 44-B)
+
+Owner permission 2026-10-11 for the spec text changes (Q2):
+
+- Spec: `api/openapi.yaml` (`ResourceConflict.items`, `address_ranges` and
+  `entries` descriptions); `proto/okfpga/v1/okfpga.proto`
+  (`ResourceConflictDetail.items = 6`, comments).
+- Core: `crates/ok-fpga-core/src/declaration.rs` (Rule A, R1, strict
+  address parsing, duplicate check, data-port and self-overlap helpers),
+  `crates/ok-fpga-core/src/resource.rs` (`ResourceConflict.items`,
+  `with_items`).
+- Server: `crates/ok-fpga-server/src/rest/resources.rs`,
+  `grpc/device_service.rs`, `grpc/resource_mapping.rs`, `config.rs`
+  (`warn_range_self_overlap`), `warnings.rs` (new), `main.rs`.
+- Config: `config.toml`.
+- Version: `Cargo.toml`, `Cargo.lock` (0.3.3).
+- Docs: this ADR, `docs/API-Specification/`, `docs/development-roadmap.md`.
+
 ## Open items
 
-- **44-B**: R1 overlap rules, Rule A, interface/dataport check, `private`
+- ~~**44-B**: R1 overlap rules, Rule A, interface/dataport check, `private`
   storage; tighten endpoint address parsing to the spec pattern
   `^0x[0-9A-Fa-f]{2}$` (today `5` and `0x5` are accepted); reject the same
-  endpoint address listed twice in one declaration (Strata 44-A review).
+  endpoint address listed twice in one declaration (Strata 44-A review).~~
+  **Done in 0.3.3** (§10).
 - **44-C**: REST acquire still lets the declared `access_mode` override the
   requested `mode` (S-03); A1 rules for REST and gRPC.
 - **44-D**: lock blocking B1–B4; gRPC `WatchDeviceEvents` fan-out.
@@ -274,7 +332,9 @@ Owner permission 2026-10-11 (API Specification review):
     (`rest/classic.rs`, `grpc/classic_service.rs`); `bit` outside 0–31
     panics in debug builds. Validate (422 / `INVALID_ARGUMENT`) in 44-E.
 - **44-F**: forced cleanup on configure / clear; `reprogram` / `clear`
-  delete reasons.
+  delete reasons; registration vs device lifecycle (orphan sweep on unplug,
+  configuration-generation check, optional bitfile name pattern), see
+  roadmap 44-F.
 - **44-G**: example clients and `client/python-labview-client` are out of
   step with this contract until then.
 - **Spec ↔ implementation discrepancies (spec unchanged)**:

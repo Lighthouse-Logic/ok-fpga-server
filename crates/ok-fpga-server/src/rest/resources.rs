@@ -17,12 +17,19 @@
 //!    [`ResourceSpec`](ok_fpga_core::declaration::ResourceSpec) — the same type
 //!    the gRPC service builds — and
 //!    [`build_resource`](ok_fpga_core::declaration::build_resource) applies
-//!    every shape rule. Any problem is a **422** with a `conflict` object
-//!    whose `code` is `validation`.
-//! 3. The device must exist (404) and be programmed (409).
-//! 4. [`ResourceRegistry::try_register`] runs the overlap check and the
+//!    every shape rule (including "an exclusive resource contains only
+//!    exclusive items" and "each endpoint address once"). Any problem is a
+//!    **422** with a `conflict` object whose `code` is `validation`.
+//! 3. The device must exist (404). Its data port must support the declared
+//!    interfaces: `classic` always, `axi_*` only on an AXI data-port device
+//!    (422, SD-09). Only then must it be programmed (409), so a bad
+//!    declaration is never hidden behind "not programmed".
+//! 4. [`ResourceRegistry::try_register`] runs the overlap check (R1) and the
 //!    insert under one lock. An overlap is a **409** whose `conflict` names
-//!    the existing resource and the clashing item (D73).
+//!    the existing resource, the first clashing item and, in `items`, every
+//!    clashing item (D73, 44-B).
+//! 5. Ranges of one declaration that overlap each other are accepted; the
+//!    server logs a warning when `warn_range_self_overlap` is on.
 //!
 //! Responses use the shared [`ResourceView`] so REST, the dashboard API and
 //! the docs all show the same JSON.
@@ -40,8 +47,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use ok_fpga_core::declaration::{
-    build_resource, check_overlap, parse_declared_mode, parse_hex_u32, AddressRangeSpec,
-    EndpointEntrySpec, EndpointSpec, ResourceSpec,
+    build_resource, check_interfaces_for_dataport, check_overlap, parse_declared_mode,
+    parse_ep_address, parse_hex_u32, AddressRangeSpec, EndpointEntrySpec, EndpointSpec,
+    ResourceSpec,
 };
 use ok_fpga_core::manager::{DeleteReason, DeviceEvent};
 use ok_fpga_core::resource::{
@@ -187,7 +195,9 @@ impl CreateResourceRequest {
                 let mut entries = Vec::with_capacity(body.entries.len());
                 for entry in body.entries {
                     entries.push(EndpointEntrySpec {
-                        address: parse_hex_u32(&entry.address, "endpoint address")?,
+                        // Strict OpenAPI pattern `^0x[0-9A-Fa-f]{2}$`: `5` or
+                        // `0x5` are rejected here (gRPC sends a number).
+                        address: parse_ep_address(&entry.address, "endpoint address")?,
                         ep_type: entry.ep_type,
                         access: entry
                             .access
@@ -385,13 +395,17 @@ async fn create_resource(
     let spec = request.into_spec().map_err(ProblemDetail::from_resource_error)?;
     let resource = build_resource(spec).map_err(ProblemDetail::from_resource_error)?;
 
-    // 3. The device must exist and be programmed.
+    // 3. The device must exist; its data port must support the declared
+    //    interfaces (422); only then must it be programmed (409).
     match state.device_manager.registry().get(&resource.device_serial) {
-        Some(dev) if dev.is_programmed() => {}
-        Some(_) => {
-            return Err(ProblemDetail::conflict(
-                "FPGA is not programmed -- program it first with POST /configure or /configure_from_server_path",
-            ));
+        Some(dev) => {
+            check_interfaces_for_dataport(&resource.interfaces, dev.info.dataport)
+                .map_err(ProblemDetail::from_resource_error)?;
+            if !dev.is_programmed() {
+                return Err(ProblemDetail::conflict(
+                    "FPGA is not programmed -- program it first with POST /configure or /configure_from_server_path",
+                ));
+            }
         }
         None => {
             return Err(ProblemDetail::not_found(format!(
@@ -399,6 +413,17 @@ async fn create_resource(
                 resource.device_serial
             )));
         }
+    }
+
+    // Ranges of one declaration may overlap each other (owner decision Q1);
+    // that is allowed, so it is only a warning, and only if enabled.
+    let warn_self_overlap = state
+        .config
+        .read()
+        .map(|c| c.access_control.warn_range_self_overlap)
+        .unwrap_or(true);
+    if warn_self_overlap {
+        crate::warnings::warn_self_overlapping_ranges(&resource);
     }
 
     // 4. Overlap check + insert, atomically.
@@ -705,6 +730,22 @@ mod tests {
     use tower::ServiceExt;
 
     const SERIAL: &str = "TEST0001";
+    /// A programmed device with an AXI data port (AXI interfaces allowed).
+    const AXI_SERIAL: &str = "TEST0002";
+    /// A connected but unprogrammed device with a Classic data port.
+    const UNPROGRAMMED_SERIAL: &str = "TEST0003";
+
+    /// A bitfile record for the `Programmed` test devices.
+    fn test_bitfile() -> BitfileRecord {
+        BitfileRecord {
+            filename: "test.bit".to_string(),
+            description: None,
+            programmed_at: chrono::Utc::now(),
+            programmed_by: "tester".to_string(),
+            file_path: None,
+            md5_hash: None,
+        }
+    }
 
     /// Device info for an emulated XEM8320.
     fn test_info(serial: &str) -> DeviceInfo {
@@ -727,21 +768,24 @@ mod tests {
         }
     }
 
-    /// Build an `AppState` with one programmed device.
+    /// Build an `AppState` with three devices: [`SERIAL`] (programmed,
+    /// Classic data port), [`AXI_SERIAL`] (programmed, AXI data port) and
+    /// [`UNPROGRAMMED_SERIAL`] (connected only, Classic data port).
     fn test_state() -> Arc<AppState> {
         let device_manager = Arc::new(DeviceManager::new());
         device_manager.registry().add(FpgaDevice {
             info: test_info(SERIAL),
-            state: DeviceState::Programmed {
-                bitfile: BitfileRecord {
-                    filename: "test.bit".to_string(),
-                    description: None,
-                    programmed_at: chrono::Utc::now(),
-                    programmed_by: "tester".to_string(),
-                    file_path: None,
-                    md5_hash: None,
-                },
-            },
+            state: DeviceState::Programmed { bitfile: test_bitfile() },
+        });
+        let mut axi_info = test_info(AXI_SERIAL);
+        axi_info.dataport = DataportType::Axi;
+        device_manager.registry().add(FpgaDevice {
+            info: axi_info,
+            state: DeviceState::Programmed { bitfile: test_bitfile() },
+        });
+        device_manager.registry().add(FpgaDevice {
+            info: test_info(UNPROGRAMMED_SERIAL),
+            state: DeviceState::Connected,
         });
         let auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider> =
             Arc::from(ok_fpga_core::auth::create_provider("none", vec![], None));
@@ -816,7 +860,8 @@ mod tests {
         let body = serde_json::json!({
             "name": "counters",
             "description": "counter block",
-            "device_serial": SERIAL,
+            // `axi_lite` needs a device with an AXI data port.
+            "device_serial": AXI_SERIAL,
             "access_mode": "shared",
             "private": true,
             "interfaces": ["classic", "axi_lite"],
@@ -836,7 +881,7 @@ mod tests {
         });
         let (status, _, json) = send(&state, "POST", "/resources", body).await;
         assert_eq!(status, StatusCode::CREATED, "{json}");
-        assert_eq!(json["id"], format!("{SERIAL}:counters"));
+        assert_eq!(json["id"], format!("{AXI_SERIAL}:counters"));
         assert_eq!(json["state"], "available");
         assert_eq!(json["access_mode"], "shared");
         assert_eq!(json["private"], true);
@@ -919,6 +964,143 @@ mod tests {
         assert_eq!(json["conflict"]["resource_name"], "a");
         assert_eq!(json["conflict"]["item_type"], "endpoint");
         assert_eq!(json["conflict"]["item"], "0x05");
+        assert_eq!(json["conflict"]["items"], serde_json::json!(["0x05"]));
+    }
+
+    // ---- 44-B: registration rules over REST ---------------------------------
+
+    #[tokio::test]
+    async fn test_create_resource_axi_on_legacy_dataport_rejected() {
+        let state = test_state();
+        let mut body = shared_wire_resource("axi");
+        body["interfaces"] = serde_json::json!(["classic", "axi_lite"]);
+        let (status, _, json) = send(&state, "POST", "/resources", body).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{json}");
+        assert_eq!(json["conflict"]["code"], "validation");
+        assert!(json["detail"].as_str().unwrap().contains("axi_lite"));
+    }
+
+    #[tokio::test]
+    async fn test_create_resource_unprogrammed_legacy_with_axi_rejected_422() {
+        // The data-port check runs before the "device is programmed" check:
+        // a declaration that can never be valid on this device gets 422,
+        // not a 409 that suggests programming the device would help.
+        let state = test_state();
+        let mut body = shared_wire_resource("axi");
+        body["device_serial"] = serde_json::json!(UNPROGRAMMED_SERIAL);
+        body["interfaces"] = serde_json::json!(["axi_lite"]);
+        let (status, _, json) = send(&state, "POST", "/resources", body).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{json}");
+    }
+
+    #[tokio::test]
+    async fn test_create_resource_unprogrammed_classic_returns_409() {
+        let state = test_state();
+        let mut body = shared_wire_resource("early");
+        body["device_serial"] = serde_json::json!(UNPROGRAMMED_SERIAL);
+        let (status, _, json) = send(&state, "POST", "/resources", body).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{json}");
+    }
+
+    #[tokio::test]
+    async fn test_create_resource_endpoint_address_not_two_hex_digits_rejected() {
+        let state = test_state();
+        for bad in ["5", "0x5", "0x005", "0X05"] {
+            let mut body = shared_wire_resource("addr");
+            body["endpoints"]["entries"][0]["address"] = serde_json::json!(bad);
+            let (status, _, json) = send(&state, "POST", "/resources", body).await;
+            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{bad}: {json}");
+            assert_eq!(json["conflict"]["code"], "validation");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_resource_duplicate_endpoint_address_rejected() {
+        let state = test_state();
+        let mut body = shared_wire_resource("dup_ep");
+        body["endpoints"]["entries"] = serde_json::json!([
+            {"address": "0x01", "type": "wire_in", "access": "shared"},
+            {"address": "0x01", "type": "wire_in", "access": "exclusive"}
+        ]);
+        let (status, _, json) = send(&state, "POST", "/resources", body).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{json}");
+        assert_eq!(json["conflict"]["item"], "0x01");
+    }
+
+    #[tokio::test]
+    async fn test_create_resource_exclusive_with_shared_item_rejected() {
+        let state = test_state();
+        let mut body = shared_wire_resource("rule_a");
+        body["access_mode"] = serde_json::json!("exclusive");
+        let (status, _, json) = send(&state, "POST", "/resources", body).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{json}");
+        assert_eq!(json["conflict"]["code"], "validation");
+        assert_eq!(json["conflict"]["item"], "0x01");
+    }
+
+    #[tokio::test]
+    async fn test_create_resource_shared_overlap_allowed() {
+        let state = test_state();
+        let (status, _, _) = send(&state, "POST", "/resources", shared_wire_resource("one")).await;
+        assert_eq!(status, StatusCode::CREATED);
+        let (status, _, json) = send(&state, "POST", "/resources", shared_wire_resource("two")).await;
+        assert_eq!(status, StatusCode::CREATED, "{json}");
+    }
+
+    #[tokio::test]
+    async fn test_create_resource_no_endpoints_blocks_later_classic() {
+        let state = test_state();
+        let all = serde_json::json!({
+            "name": "all", "device_serial": SERIAL, "interfaces": ["classic"]
+        });
+        let (status, _, json) = send(&state, "POST", "/resources", all).await;
+        assert_eq!(status, StatusCode::CREATED, "{json}");
+        let (status, _, json) = send(&state, "POST", "/resources", shared_wire_resource("late")).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{json}");
+        assert_eq!(json["conflict"]["code"], "overlap");
+        assert_eq!(json["conflict"]["resource_id"], format!("{SERIAL}:all"));
+        assert_eq!(json["conflict"]["items"], serde_json::json!(["0x01"]));
+    }
+
+    #[tokio::test]
+    async fn test_create_resource_self_overlapping_ranges_accepted() {
+        // Overlapping ranges inside one declaration are allowed (only a
+        // warning is logged).
+        let state = test_state();
+        let mut body = shared_wire_resource("self");
+        body["address_ranges"] = serde_json::json!([
+            {"start": "0x1000", "end": "0x1FFF", "access": "shared"},
+            {"start": "0x1800", "end": "0x2FFF", "access": "exclusive", "private": true}
+        ]);
+        let (status, _, json) = send(&state, "POST", "/resources", body).await;
+        assert_eq!(status, StatusCode::CREATED, "{json}");
+    }
+
+    #[tokio::test]
+    async fn test_create_resource_overlap_items_include_endpoints_and_ranges() {
+        let state = test_state();
+        let decl = |name: &str, first: &str, second: &str, start: &str, end: &str| {
+            serde_json::json!({
+                "name": name, "device_serial": SERIAL, "access_mode": "exclusive",
+                "interfaces": ["classic"],
+                "endpoints": {"entries": [
+                    {"address": first, "type": "wire_in", "access": "exclusive"},
+                    {"address": second, "type": "wire_in", "access": "exclusive"}
+                ]},
+                "address_ranges": [{"start": start, "end": end, "access": "exclusive"}]
+            })
+        };
+        let (status, _, _) =
+            send(&state, "POST", "/resources", decl("a", "0x01", "0x00", "0x1000", "0x1FFF")).await;
+        assert_eq!(status, StatusCode::CREATED);
+        let (status, _, json) =
+            send(&state, "POST", "/resources", decl("b", "0x00", "0x01", "0x1800", "0x2FFF")).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{json}");
+        assert_eq!(json["conflict"]["item"], "0x00");
+        assert_eq!(
+            json["conflict"]["items"],
+            serde_json::json!(["0x00", "0x01", "0x00001000-0x00001FFF"])
+        );
     }
 
     #[tokio::test]

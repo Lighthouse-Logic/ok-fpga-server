@@ -10,20 +10,21 @@
 // Update this appendix with every sub-phase commit.
 #import "../lib.typ": *
 
-= Implementation Status (server 0.3.2) <appendix-status>
+= Implementation Status (server 0.3.3) <appendix-status>
 
-This document specifies the target behaviour. Server version 0.3.2
+This document specifies the target behaviour. Server version 0.3.3
 implements part of it. Clients SHOULD be written against the specification;
 the items below show where today's server still differs.
 
 #table(
   columns: (1fr, auto),
-  [Behaviour], [Status in 0.3.2],
+  [Behaviour], [Status in 0.3.3],
   [Declaration schema, holder objects, state strings, structured conflicts (@res-declare, @res-errors)], [implemented],
   [Opal Kelly snapshot reads, `update` flag, one endpoint per read, mask default 0 (@enf-opalkelly)], [implemented],
   [`ResourceLocked` / `ResourceUnlocked` events; `holdings` in user listings], [implemented],
-  [Full registration rules: shared-overlap rule, exclusive-only rule, interface / data port check, storage of `private` flags (@res-registration)], [planned],
-  [Strict endpoint address format (`0x` + two hex digits) and rejection of duplicate entries], [planned],
+  [Full registration rules: shared-overlap rule, exclusive-only rule, interface / data port check, storage of `private` flags (@res-registration)], [implemented],
+  [Strict endpoint address format (`0x` + two hex digits) and rejection of duplicate entries], [implemented],
+  [Conflict `items` list (@res-errors)], [implemented],
   [Acquire mode rules: a requested mode that differs from the declared mode is rejected (@res-acquire)], [planned; today the declared mode overrides the request],
   [Blocking of overlapping resources (@res-blocking)], [planned],
   [gRPC event stream fan-out (`WatchDeviceEvents`)], [planned],

@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tonic::{Code, Request, Response, Status};
 use tracing::{info, warn};
 
-use ok_fpga_core::declaration::{build_resource, check_overlap};
+use ok_fpga_core::declaration::{build_resource, check_interfaces_for_dataport, check_overlap};
 use ok_fpga_core::manager::{DeleteReason, DeviceEvent};
 use ok_fpga_core::resource::{
     AccessMode, ConflictCode, RegisterError, ResourceConflict,
@@ -1098,13 +1098,18 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         let spec = create_request_to_spec(req).map_err(|e| resource_error_status(&e))?;
         let resource = build_resource(spec).map_err(|e| resource_error_status(&e))?;
 
-        // Validate the device exists and is programmed.
+        // The device must exist; its data port must support the declared
+        // interfaces (INVALID_ARGUMENT); only then must it be programmed.
+        // Same order as REST `create_resource`.
         match self.state.device_manager.registry().get(&resource.device_serial) {
-            Some(dev) if dev.is_programmed() => {}
-            Some(_) => {
-                return Err(Status::failed_precondition(
-                    "FPGA is not programmed — configure it first",
-                ));
+            Some(dev) => {
+                check_interfaces_for_dataport(&resource.interfaces, dev.info.dataport)
+                    .map_err(|e| resource_error_status(&e))?;
+                if !dev.is_programmed() {
+                    return Err(Status::failed_precondition(
+                        "FPGA is not programmed — configure it first",
+                    ));
+                }
             }
             None => {
                 return Err(Status::not_found(format!(
@@ -1112,6 +1117,18 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
                     resource.device_serial
                 )));
             }
+        }
+
+        // Overlapping ranges inside one declaration are allowed (owner
+        // decision Q1); log a warning if the setting is on.
+        let warn_self_overlap = self
+            .state
+            .config
+            .read()
+            .map(|c| c.access_control.warn_range_self_overlap)
+            .unwrap_or(true);
+        if warn_self_overlap {
+            crate::warnings::warn_self_overlapping_ranges(&resource);
         }
 
         let resource_id = resource.id.clone();
@@ -1430,28 +1447,36 @@ mod tests {
     use ok_fpga_core::user::UserSessionRegistry;
 
     const SERIAL: &str = "GRPC0001";
+    /// A connected but unprogrammed device with a Classic data port.
+    const UNPROGRAMMED_SERIAL: &str = "GRPC0003";
 
-    /// A service whose state holds one programmed (emulated) device.
+    /// A service whose state holds one programmed (emulated) device,
+    /// [`SERIAL`], plus the unprogrammed [`UNPROGRAMMED_SERIAL`].
     fn service() -> DeviceServiceImpl {
         let device_manager = Arc::new(DeviceManager::new());
+        let info = |serial: &str| DeviceInfo {
+            serial: serial.to_string(),
+            product_name: "XEM8320-AU25P".to_string(),
+            product_id: 56,
+            device_interface: DeviceInterface::Usb3,
+            usb_speed: UsbSpeed::Super,
+            device_major_version: 1,
+            device_minor_version: 0,
+            wire_width: 32,
+            trigger_width: 32,
+            pipe_width: 32,
+            register_address_width: 32,
+            register_data_width: 32,
+            fpga_vendor: FpgaVendor::Xilinx,
+            dataport: DataportType::Legacy,
+            device_id: String::new(),
+        };
         device_manager.registry().add(FpgaDevice {
-            info: DeviceInfo {
-                serial: SERIAL.to_string(),
-                product_name: "XEM8320-AU25P".to_string(),
-                product_id: 56,
-                device_interface: DeviceInterface::Usb3,
-                usb_speed: UsbSpeed::Super,
-                device_major_version: 1,
-                device_minor_version: 0,
-                wire_width: 32,
-                trigger_width: 32,
-                pipe_width: 32,
-                register_address_width: 32,
-                register_data_width: 32,
-                fpga_vendor: FpgaVendor::Xilinx,
-                dataport: DataportType::Legacy,
-                device_id: String::new(),
-            },
+            info: info(UNPROGRAMMED_SERIAL),
+            state: DeviceState::Connected,
+        });
+        device_manager.registry().add(FpgaDevice {
+            info: info(SERIAL),
             state: DeviceState::Programmed {
                 bitfile: BitfileRecord {
                     filename: "test.bit".to_string(),
@@ -1525,6 +1550,7 @@ mod tests {
         assert_eq!(detail.code, "overlap");
         assert_eq!(detail.resource_id, format!("{SERIAL}:a"));
         assert_eq!(detail.item, "0x05");
+        assert_eq!(detail.items, vec!["0x05".to_string()]);
     }
 
     #[tokio::test]
@@ -1536,6 +1562,105 @@ mod tests {
         let status = svc.create_resource(Request::new(req)).await.unwrap_err();
         assert_eq!(status.code(), Code::InvalidArgument);
         assert_eq!(decode_conflict_detail(&status).unwrap().code, "validation");
+    }
+
+    #[tokio::test]
+    async fn test_grpc_create_resource_exclusive_with_shared_item_invalid_argument() {
+        let svc = service();
+        let mut req = create_request("rule_a");
+        req.endpoints.as_mut().unwrap().entries[0].access =
+            Some(proto::ResourceAccessMode::Shared as i32);
+        let status = svc.create_resource(Request::new(req)).await.unwrap_err();
+        assert_eq!(status.code(), Code::InvalidArgument);
+        let detail = decode_conflict_detail(&status).unwrap();
+        assert_eq!(detail.code, "validation");
+        assert_eq!(detail.item, "0x05");
+    }
+
+    #[tokio::test]
+    async fn test_grpc_create_resource_axi_on_legacy_invalid_argument() {
+        let svc = service();
+        let mut req = create_request("axi");
+        req.interfaces = vec!["axi_lite".to_string()];
+        let status = svc.create_resource(Request::new(req)).await.unwrap_err();
+        assert_eq!(status.code(), Code::InvalidArgument);
+        assert!(status.message().contains("axi_lite"));
+    }
+
+    #[tokio::test]
+    async fn test_grpc_create_resource_unprogrammed_legacy_with_axi_invalid_argument() {
+        // Same order as REST: the data-port check (INVALID_ARGUMENT) runs
+        // before the "device is programmed" check (FAILED_PRECONDITION).
+        let svc = service();
+        let mut req = create_request("axi_unprog");
+        req.device_serial = UNPROGRAMMED_SERIAL.to_string();
+        req.interfaces = vec!["axi_lite".to_string()];
+        let status = svc.create_resource(Request::new(req)).await.unwrap_err();
+        assert_eq!(status.code(), Code::InvalidArgument);
+        assert!(status.message().contains("axi_lite"));
+    }
+
+    /// An address range for gRPC requests.
+    fn proto_range(start: u32, end: u32, access: proto::ResourceAccessMode, private: bool) -> proto::AddressRange {
+        proto::AddressRange {
+            start,
+            end,
+            access: Some(access as i32),
+            private,
+            ..Default::default()
+        }
+    }
+
+    /// An endpoint entry for gRPC requests.
+    fn proto_entry(address: u32, access: proto::ResourceAccessMode) -> proto::EndpointEntry {
+        proto::EndpointEntry {
+            address,
+            r#type: "wire_in".to_string(),
+            access: Some(access as i32),
+            private: false,
+            description: String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_grpc_create_resource_self_overlapping_ranges_accepted() {
+        let svc = service();
+        let mut req = create_request("self");
+        req.address_ranges = vec![
+            proto_range(0x1000, 0x1FFF, proto::ResourceAccessMode::Exclusive, false),
+            proto_range(0x1800, 0x2FFF, proto::ResourceAccessMode::Exclusive, true),
+        ];
+        assert!(svc.create_resource(Request::new(req)).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_grpc_create_resource_overlap_items_include_endpoints_and_ranges() {
+        use proto::ResourceAccessMode::Exclusive;
+        let svc = service();
+        let mut first = create_request("a");
+        first.endpoints.as_mut().unwrap().entries = vec![proto_entry(0x01, Exclusive), proto_entry(0x00, Exclusive)];
+        first.address_ranges = vec![proto_range(0x1000, 0x1FFF, Exclusive, false)];
+        svc.create_resource(Request::new(first)).await.unwrap();
+
+        let mut second = create_request("b");
+        second.endpoints.as_mut().unwrap().entries = vec![proto_entry(0x00, Exclusive), proto_entry(0x01, Exclusive)];
+        second.address_ranges = vec![proto_range(0x1800, 0x2FFF, Exclusive, false)];
+        let status = svc.create_resource(Request::new(second)).await.unwrap_err();
+        assert_eq!(status.code(), Code::FailedPrecondition);
+        let detail = decode_conflict_detail(&status).unwrap();
+        assert_eq!(detail.item, "0x00");
+        assert_eq!(detail.items, vec!["0x00", "0x01", "0x00001000-0x00001FFF"]);
+    }
+
+    #[tokio::test]
+    async fn test_grpc_create_resource_duplicate_endpoint_invalid_argument() {
+        let svc = service();
+        let mut req = create_request("dup_ep");
+        let eps = req.endpoints.as_mut().unwrap();
+        let again = eps.entries[0].clone();
+        eps.entries.push(again);
+        let status = svc.create_resource(Request::new(req)).await.unwrap_err();
+        assert_eq!(status.code(), Code::InvalidArgument);
     }
 
     #[tokio::test]

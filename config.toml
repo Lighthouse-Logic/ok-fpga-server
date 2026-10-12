@@ -72,6 +72,9 @@ uid_attribute = "uid"
 # "off" | "warn" | "enforce". All clients must comply with "enforce";
 # "off" and "warn" are debugging aids (API Specification §4.1).
 endpoint_enforcement = "enforce"
+# Log a warning when one resource lists address ranges that overlap each
+# other (allowed, but usually a mistake). Env: OKFPGA_WARN_RANGE_SELF_OVERLAP.
+warn_range_self_overlap = true
 
 [catalog]
 syzygy_boards = []

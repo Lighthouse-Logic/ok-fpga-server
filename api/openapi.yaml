@@ -1953,7 +1953,19 @@ components:
           description: The kind of item involved, if any.
         item:
           type: string
-          description: The item, e.g. `0x05` or `0x44A60000-0x44A6FFFF`.
+          description: |
+            The item, e.g. `0x05` or `0x44A60000-0x44A6FFFF`. On an overlap
+            this is the first entry of `items`.
+        items:
+          type: array
+          items:
+            type: string
+          description: |
+            Every conflicting item with the named existing resource:
+            endpoints ascending (`0xNN`), then that resource's ranges in
+            declaration order (`0xSTART-0xEND`). For example, a resource
+            without `endpoints` registered after another one lists every
+            endpoint both claim. Omitted when there is no item.
 
     # ---- Device ----
 
@@ -2302,6 +2314,11 @@ components:
           $ref: '#/components/schemas/EndpointDeclaration'
         address_ranges:
           type: array
+          description: |
+            Ranges of one declaration may overlap each other; the server
+            accepts this but logs a warning (setting
+            `warn_range_self_overlap`). Where overlapping ranges differ in
+            `private`, the private one applies to the shared addresses.
           items:
             $ref: '#/components/schemas/AddressRange'
         metadata:
@@ -2323,6 +2340,9 @@ components:
           description: Mode for entries without `access` (D61). Never claims unlisted endpoints.
         entries:
           type: array
+          description: |
+            Each endpoint address may appear only once per declaration
+            (422 otherwise, also for a Pipe and a BTPipe at the same address).
           items:
             $ref: '#/components/schemas/EndpointEntry'
 

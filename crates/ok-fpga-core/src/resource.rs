@@ -711,6 +711,12 @@ pub struct ResourceConflict {
     /// The item itself (EP address or range), if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub item: Option<String>,
+    /// Every conflicting item with the named existing resource (EP as
+    /// `0xNN`, range as `0xSTART-0xEND`); `item` stays the first one
+    /// (44-B, owner decision Q4). Empty, and left out of the JSON, when
+    /// there is no item.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub items: Vec<String>,
 }
 
 impl ResourceConflict {
@@ -725,6 +731,7 @@ impl ResourceConflict {
             resource_name: None,
             item_type: None,
             item: None,
+            items: Vec::new(),
         }
     }
 
@@ -746,6 +753,12 @@ impl ResourceConflict {
     pub fn with_range(mut self, start: u32, end: u32) -> Self {
         self.item_type = Some(ConflictItemType::AddressRange);
         self.item = Some(format!("{}-{}", format_u32_address(start), format_u32_address(end)));
+        self
+    }
+
+    /// Attach the list of every conflicting item (see [`Self::items`]).
+    pub fn with_items(mut self, items: Vec<String>) -> Self {
+        self.items = items;
         self
     }
 }

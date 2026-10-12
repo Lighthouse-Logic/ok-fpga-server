@@ -117,6 +117,9 @@ mod sweep;
 /// Opal Kelly snapshot-read ordering for output endpoints (ADR-034 §9, D76).
 mod snapshot;
 
+/// Registration-time warnings for allowed-but-suspicious declarations (44-B).
+mod warnings;
+
 use std::sync::Arc;
 
 use ok_fpga_core::manager::DeviceManager;
