@@ -25,3 +25,9 @@ Thumbs.db
 
 # Server logs
 logs/
+# FPGA bitfiles: never commit (custom / customer designs stay local).
+# Exception: Opal Kelly example bitfiles used by the hardware tests
+# (crates/ok-fpga-ffi/tests/hardware.rs). These must be removed before
+# any public release of this repository.
+*.bit
+!FrontPanel-6.1.0/ExampleBitfiles/**/*.bit
