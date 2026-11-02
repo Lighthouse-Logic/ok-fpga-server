@@ -309,3 +309,4 @@ adopted, 2 rejected as non-observable / redundant).
   - gRPC `grpc/device_service.rs`: `test_grpc_lock_events_emitted`,
     `test_grpc_watch_device_events_streams_resource_events`.
 - Commit: `feat: resource lock blocking and lock events (B1-B4) (0.3.5)`.
+  **Done:** `e562705`.

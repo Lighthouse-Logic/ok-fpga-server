@@ -269,7 +269,7 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
 - Archived: [archive/roadmap-phases-44.md](archive/roadmap-phases-44.md)
   (owner decisions Q1–Q3, blocking rules B1–B4/D35, `WatchDeviceEvents`,
   tests as implemented).
-- Commit `(this commit)`. ADR-034 §12. Carried forward: runtime write
+- Commit `e562705`. ADR-034 §12. Carried forward: runtime write
   blocking enforcement (`B2`) → 44-E.
 
 **44-E Enforcement pipeline (B2)**
