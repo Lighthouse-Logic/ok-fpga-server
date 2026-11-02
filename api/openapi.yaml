@@ -1481,8 +1481,9 @@ paths:
         '409':
           description: |
             Resource is held or locked by another user (`conflict.code` =
-            `locked`), or the requested mode clashes with the current holders
-            (`mode_mismatch`).
+            `locked`), the requested mode clashes with the resource's declared
+            mode or the caller's existing holding (`mode_mismatch`), or
+            `read_only` was requested on a `private` resource (`private`).
           content:
             application/json:
               schema:
@@ -1937,7 +1938,7 @@ components:
       properties:
         code:
           type: string
-          enum: [overlap, locked, blocked, mode_mismatch, validation]
+          enum: [overlap, locked, blocked, mode_mismatch, private, validation]
           description: |
             `validation` = request error (422); every other code = clash with
             existing state (409).

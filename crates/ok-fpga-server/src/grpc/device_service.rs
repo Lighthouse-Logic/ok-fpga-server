@@ -12,7 +12,7 @@ use tracing::{info, warn};
 use ok_fpga_core::declaration::{build_resource, check_interfaces_for_dataport, check_overlap};
 use ok_fpga_core::manager::{DeleteReason, DeviceEvent};
 use ok_fpga_core::resource::{
-    AccessMode, ConflictCode, RegisterError, ResourceConflict,
+    AccessMode, AcquireOutcome, ConflictCode, RegisterError, ResourceConflict,
 };
 
 use crate::grpc::proto;
@@ -1010,17 +1010,23 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             None => resource.access_mode.unwrap_or(AccessMode::Shared),
         };
 
-        if let Err(denied) = self
+        let outcome = match self
             .state
             .resource_registry
             .acquire(&req.resource_id, &req.user_id, mode)
         {
-            return Err(conflict_status(
-                Code::FailedPrecondition,
-                denied.to_string(),
-                denied.to_conflict(&resource).as_ref(),
-            ));
-        }
+            Ok(outcome) => outcome,
+            Err(denied) => {
+                return Err(conflict_status(
+                    Code::FailedPrecondition,
+                    denied.to_string(),
+                    denied.to_conflict(&resource).as_ref(),
+                ));
+            }
+        };
+
+        // Track the user session (implicit heartbeat on acquire, same as REST).
+        self.state.user_sessions.touch(&req.user_id);
 
         let resource = self
             .state
@@ -1028,13 +1034,15 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             .get(&req.resource_id)
             .ok_or_else(|| Status::internal("Resource vanished after acquire"))?;
 
-        self.emit_resource_changed(&req.resource_id);
+        if outcome == AcquireOutcome::Acquired {
+            self.emit_resource_changed(&req.resource_id);
 
-        // Broadcast event for dashboard auto-refresh (Phase 28D).
-        self.state.broadcast_event(&format!(
-            r#"{{"type":"resource_acquired","resource_id":"{}","user_id":"{}"}}"#,
-            req.resource_id, req.user_id
-        ));
+            // Broadcast event for dashboard auto-refresh (Phase 28D).
+            self.state.broadcast_event(&format!(
+                r#"{{"type":"resource_acquired","resource_id":"{}","user_id":"{}"}}"#,
+                req.resource_id, req.user_id
+            ));
+        }
 
         Ok(Response::new(proto::ResourceResponse {
             resource: Some(Self::resource_to_proto(&resource)),
@@ -1065,6 +1073,9 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
                 req.user_id, req.resource_id
             )));
         }
+
+        // Track the user session (implicit heartbeat on release, same as REST).
+        self.state.user_sessions.touch(&req.user_id);
 
         self.emit_resource_changed(&req.resource_id);
 
@@ -1702,5 +1713,139 @@ mod tests {
         assert_eq!(users.len(), 1);
         assert_eq!(users[0].holdings[0].resource_id, format!("{SERIAL}:u"));
         assert_eq!(users[0].holdings[0].mode, proto::AccessMode::Exclusive as i32);
+    }
+
+    // ── Phase 44-C: Acquisition rules (A1) ─────────────────────
+
+    #[tokio::test]
+    async fn test_grpc_acquire_same_mode_idempotent() {
+        let svc = service();
+        svc.create_resource(Request::new(create_request("idem"))).await.unwrap();
+        let id = format!("{SERIAL}:idem");
+
+        svc.acquire_resource(Request::new(proto::AcquireResourceRequest {
+            resource_id: id.clone(),
+            user_id: "alice".to_string(),
+            mode: None,
+        }))
+        .await
+        .unwrap();
+
+        let mut events = svc.state.device_manager.subscribe();
+        let resp = svc
+            .acquire_resource(Request::new(proto::AcquireResourceRequest {
+                resource_id: id,
+                user_id: "alice".to_string(),
+                mode: Some(proto::AccessMode::Exclusive as i32),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        let resource = resp.resource.unwrap();
+        assert_eq!(resource.holders.len(), 1);
+        assert_eq!(resource.locked_by, "alice");
+        assert!(events.try_recv().is_err(), "no event on idempotent repeat acquire");
+    }
+
+    #[tokio::test]
+    async fn test_grpc_acquire_different_mode_failed_precondition() {
+        let svc = service();
+        svc.create_resource(Request::new(create_request("diff"))).await.unwrap();
+        let id = format!("{SERIAL}:diff");
+
+        svc.acquire_resource(Request::new(proto::AcquireResourceRequest {
+            resource_id: id.clone(),
+            user_id: "alice".to_string(),
+            mode: Some(proto::AccessMode::Exclusive as i32),
+        }))
+        .await
+        .unwrap();
+
+        // Same user requesting ReadOnly without releasing first -> FAILED_PRECONDITION + mode_mismatch.
+        let status = svc
+            .acquire_resource(Request::new(proto::AcquireResourceRequest {
+                resource_id: id.clone(),
+                user_id: "alice".to_string(),
+                mode: Some(proto::AccessMode::ReadOnly as i32),
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(status.code(), Code::FailedPrecondition);
+        let detail = decode_conflict_detail(&status).expect("conflict detail");
+        assert_eq!(detail.code, "mode_mismatch");
+        assert_eq!(detail.resource_id, id);
+
+        // Requesting Shared on an Exclusive resource -> FAILED_PRECONDITION + mode_mismatch (D62).
+        let status = svc
+            .acquire_resource(Request::new(proto::AcquireResourceRequest {
+                resource_id: id,
+                user_id: "bob".to_string(),
+                mode: Some(proto::AccessMode::Shared as i32),
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(status.code(), Code::FailedPrecondition);
+        assert_eq!(decode_conflict_detail(&status).unwrap().code, "mode_mismatch");
+    }
+
+    #[tokio::test]
+    async fn test_grpc_acquire_readonly_private_denied() {
+        let svc = service();
+        let mut req = create_request("priv");
+        req.private = true;
+        svc.create_resource(Request::new(req)).await.unwrap();
+        let id = format!("{SERIAL}:priv");
+
+        let status = svc
+            .acquire_resource(Request::new(proto::AcquireResourceRequest {
+                resource_id: id.clone(),
+                user_id: "bob".to_string(),
+                mode: Some(proto::AccessMode::ReadOnly as i32),
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(status.code(), Code::FailedPrecondition);
+        let detail = decode_conflict_detail(&status).expect("conflict detail");
+        assert_eq!(detail.code, "private");
+        assert_eq!(detail.resource_id, id);
+        assert_eq!(detail.resource_name, "priv");
+    }
+
+    #[tokio::test]
+    async fn test_grpc_acquire_exclusive_with_readonly_holders_allowed() {
+        let svc = service();
+        svc.create_resource(Request::new(create_request("ro_excl"))).await.unwrap();
+        let id = format!("{SERIAL}:ro_excl");
+
+        // D25b: ReadOnly acquires available Exclusive resource -> InUseShared.
+        let r1 = svc
+            .acquire_resource(Request::new(proto::AcquireResourceRequest {
+                resource_id: id.clone(),
+                user_id: "bob".to_string(),
+                mode: Some(proto::AccessMode::ReadOnly as i32),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .resource
+            .unwrap();
+        assert_eq!(r1.state, proto::ResourceState::InUseShared as i32);
+        assert!(r1.locked_by.is_empty());
+
+        // D25c: Exclusive holder joins -> InUseLocked, locked_by = "alice".
+        let r2 = svc
+            .acquire_resource(Request::new(proto::AcquireResourceRequest {
+                resource_id: id,
+                user_id: "alice".to_string(),
+                mode: None,
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .resource
+            .unwrap();
+        assert_eq!(r2.state, proto::ResourceState::InUseLocked as i32);
+        assert_eq!(r2.locked_by, "alice");
+        assert_eq!(r2.holders.len(), 2);
     }
 }

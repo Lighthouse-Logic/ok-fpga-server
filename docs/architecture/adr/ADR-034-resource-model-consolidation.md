@@ -1,11 +1,12 @@
 # ADR-034: Resource Model Consolidation
 
 **Status**: Accepted — 44-A implemented incl. post-44-A read semantics (0.3.0) and mask default (0.3.1);
-44-A and 44-B archived; 44-B implemented (0.3.3); 44-C … 44-J pending
-**Date**: 2026-10-11 (amended 2026-10-12)
+44-A, 44-B and 44-C archived; 44-B implemented (0.3.3); 44-C implemented (0.3.4); 44-D … 44-J pending
+**Date**: 2026-10-11 (amended 2026-11-02)
 **Commit hash**: 44-A `d3b19a6`; 0.3.0 read semantics (D75–D77) `dcb5e5a`;
 0.3.1 IsTriggered mask default (D78) `6e11f9b`; 0.3.2 heartbeat text and
-shipped enforcement `2e2f7a3`; 44-B registration rules (0.3.3) `1d95a6f`
+shipped enforcement `2e2f7a3`; 44-B registration rules (0.3.3) `1d95a6f`;
+44-C acquisition rules (0.3.4) `pending`
 **Deciders**: Project owner, Architecture Team
 **Phase**: 44 ([development-roadmap.md](../../development-roadmap.md) §44)
 **Supersedes (in part)**: ADR-020 §7, §8 and the Validation Responses table
@@ -85,8 +86,8 @@ exclusive-overlap check, reported as a structured conflict.
 - **REST**: 409 and 422 responses use `ProblemDetail`. When another
   resource or user is the cause, `conflict` names it:
   `{code, resource_id, resource_name, item_type, item, items}`
-  (`code` ∈ `overlap`, `locked`, `blocked`, `mode_mismatch`, `validation`;
-  `blocked` and `mode_mismatch` are emitted from 44-D / 44-C).
+  (`code` ∈ `overlap`, `locked`, `blocked`, `mode_mismatch`, `private`,
+  `validation`; `blocked` is emitted from 44-D).
   A duplicate name is a 409 without `conflict`.
 - Malformed JSON or bad enum values are 422 (not 400); the create route no
   longer returns 400.
@@ -231,6 +232,47 @@ the two APIs cannot drift apart.
 - **Q5 — registration vs device lifecycle** (unplug / reprogram during or
   after registration) is deferred to 44-F (roadmap).
 
+### §11 Acquisition rules (44-C, 0.3.4)
+
+REST `POST /resources/{id}/acquire` and gRPC `DeviceService.AcquireResource`
+both delegate to `ResourceRegistry::acquire` and `DefaultAccessPolicy::can_acquire`:
+
+- **S-03 fixed**: on REST, `mode` resolves as
+  `requested.or(resource.access_mode).unwrap_or(AccessMode::Shared)`, so an
+  explicit `mode` (such as `read_only` on a `shared` or `exclusive`
+  resource) is honored rather than overridden by `resource.access_mode`.
+- **Repeat acquire by an existing holder (A1, D2, D7, D28, D43)**:
+  - Same mode → 200 / `OK` (`AcquireOutcome::AlreadyHeld`), idempotent: no
+    duplicate `HolderEntry`, no state change, no `ResourceChanged` event
+    (while still touching `user_sessions`).
+  - Different mode → 409 / `FAILED_PRECONDITION` (`HolderModeMismatch`,
+    `conflict.code = "mode_mismatch"`, "release first, then acquire").
+- **Declared vs requested mode (D62)**: a non-`read_only` request whose
+  `mode` differs from `resource.access_mode` (e.g. `shared` on an
+  `exclusive` resource or `exclusive` on a `shared` resource) is rejected
+  with 409 / `FAILED_PRECONDITION` (`DeclaredModeMismatch`,
+  `conflict.code = "mode_mismatch"`).
+- **Private resource ReadOnly denial (owner decision Q2)**: requesting
+  `read_only` on a resource with `private: true` returns 409 /
+  `FAILED_PRECONDITION` with `conflict.code = "private"`, naming the
+  resource (`resource_id`, `resource_name`).
+- **ReadOnly and Exclusive transitions (D25a/b/c)**:
+  - `D25a`: `read_only` on a held `exclusive` resource (`in_use_locked`) is
+    allowed (unless `private`); state stays `in_use_locked`.
+  - `D25b`: `read_only` on an `available` `exclusive` resource transitions
+    it to `in_use_shared` (`locked_by = None`).
+  - `D25c`: `exclusive` acquisition of an `exclusive` resource in
+    `in_use_shared` (held only by `read_only` observers) succeeds,
+    transitioning to `in_use_locked` with `locked_by = Some(user_id)` while
+    retaining the `read_only` holders. When the `exclusive` holder later
+    releases and `read_only` holders remain, the resource transitions back
+    to `in_use_shared`.
+- **Implicit lock on Exclusive resources (S-22, owner decision Q1 Option A)**:
+  acquiring in `exclusive` mode sets `locked_by = Some(user_id)` so the
+  holder is shown as lock owner and passes `ExclusiveAddressRange` checks
+  without calling `lock()`. Removing the `locked_by` check for exclusive
+  address ranges on shared resources (`S-14`) remains scoped to 44-E.
+
 ### Rationale
 
 One schema shared by REST, gRPC and the dashboard removes the guessing that
@@ -308,6 +350,28 @@ Owner permission 2026-10-11 for the spec text changes (Q2):
 - Version: `Cargo.toml`, `Cargo.lock` (0.3.3).
 - Docs: this ADR, `docs/API-Specification/`, `docs/development-roadmap.md`.
 
+## Files changed (0.3.4, 44-C)
+
+Owner permission 2026-11-02 for the `ConflictCode::Private` (`"private"`)
+spec addition (Q2) and S-22 scoping (Q1 Option A):
+
+- Spec: `api/openapi.yaml` (`ResourceConflict.code` adds `private`,
+  `/resources/{resource_id}/acquire` 409 description);
+  `proto/okfpga/v1/okfpga.proto` (`ResourceConflictDetail.code` and
+  `DeviceService` comments add `private`).
+- Core: `crates/ok-fpga-core/src/resource.rs` (`ConflictCode::Private`,
+  `AcquireOutcome`, `HolderModeMismatch`, `DeclaredModeMismatch`,
+  `DefaultAccessPolicy::can_acquire`, `ResourceRegistry::acquire` /
+  `release` / `release_all_for_user`, `check_endpoint_access`),
+  `crates/ok-fpga-core/tests/device_resource_integration.rs`.
+- Server: `crates/ok-fpga-server/src/rest/resources.rs` (S-03 mode
+  precedence, idempotent event suppression, Tier 3 tests),
+  `crates/ok-fpga-server/src/grpc/device_service.rs` (session touch on
+  acquire/release, idempotent event suppression, Tier 3 tests).
+- Version: `Cargo.toml`, `Cargo.lock` (0.3.4).
+- Docs: this ADR, `docs/API-Specification/`, `docs/archive/roadmap-phases-44.md`,
+  `docs/development-roadmap.md`.
+
 ## Open items
 
 - ~~**44-B**: R1 overlap rules, Rule A, interface/dataport check, `private`
@@ -315,8 +379,9 @@ Owner permission 2026-10-11 for the spec text changes (Q2):
   `^0x[0-9A-Fa-f]{2}$` (today `5` and `0x5` are accepted); reject the same
   endpoint address listed twice in one declaration (Strata 44-A review).~~
   **Done in 0.3.3** (§10).
-- **44-C**: REST acquire still lets the declared `access_mode` override the
-  requested `mode` (S-03); A1 rules for REST and gRPC.
+- ~~**44-C**: REST acquire still lets the declared `access_mode` override the
+  requested `mode` (S-03); A1 rules for REST and gRPC.~~
+  **Done in 0.3.4** (§11).
 - **44-D**: lock blocking B1–B4; gRPC `WatchDeviceEvents` fan-out.
 - **44-E**: endpoint coverage per D61 and D77 (omitted `endpoints` =
   0x00–0x7F only), enforcement on all data-port routes, enforcement on by

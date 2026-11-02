@@ -190,3 +190,66 @@ adopted, 2 rejected as non-observable / redundant).
     tests use the in-memory registry; no FFI involved in registration).
 - Commit: `feat: enforce resource registration overlap rules (R1) (0.3.3)`.
   **Done:** `1d95a6f`.
+
+---
+
+## 44-C — Acquisition (A1) (0.3.4)
+
+**Owner decisions (2026-11-02):**
+- **Q1 (Exclusive range lock check — `S-22` vs `S-14`):** Option A — keep
+  44-C scoped to `S-22` (setting `locked_by = Some(user_id)` on `Exclusive`
+  resource acquisition so exclusive holders pass `ExclusiveAddressRange`
+  checks without calling `lock()`). Removing `locked_by` checks on
+  shared-resource exclusive ranges (`S-14`) stays in 44-E.
+- **Q2 (`PrivateResource` conflict code):** expand `ConflictCode` with
+  `Private` (`"private"`) so `read_only` acquisition denied on a resource
+  with `private: true` returns 409 / `FAILED_PRECONDITION` with
+  `conflict = { code: "private", resource_id, resource_name }`. Updated
+  `api/openapi.yaml` and `proto/okfpga/v1/okfpga.proto`.
+
+**44-C Acquisition (A1)**
+- Files: `api/openapi.yaml`, `proto/okfpga/v1/okfpga.proto`,
+  `crates/ok-fpga-core/src/resource.rs`,
+  `crates/ok-fpga-core/tests/device_resource_integration.rs`,
+  `crates/ok-fpga-server/src/rest/resources.rs`,
+  `crates/ok-fpga-server/src/grpc/device_service.rs`,
+  `docs/API-Specification/` (+ rebuilt PDF).
+- Implemented:
+  - REST `acquire_resource` mode precedence (`S-03`):
+    `requested.or(resource.access_mode).unwrap_or(AccessMode::Shared)`.
+  - Repeat acquire by existing holder (`A1`, `D2`, `D7`, `D28`, `D43`):
+    same mode returns `Ok(AcquireOutcome::AlreadyHeld)` (idempotent 200 /
+    `OK`, no duplicate `HolderEntry`, no `ResourceChanged` event, touches
+    `user_sessions`); different mode returns `HolderModeMismatch` → 409 /
+    `FAILED_PRECONDITION` (`conflict.code = "mode_mismatch"`, "release
+    first, then acquire").
+  - Declared vs requested mode (`D62`): non-`read_only` request differing
+    from `resource.access_mode` returns `DeclaredModeMismatch` → 409 /
+    `FAILED_PRECONDITION` (`conflict.code = "mode_mismatch"`).
+  - Private resource `read_only` denial (Q2): `PrivateResource` maps to
+    `ConflictCode::Private` (`"private"`).
+  - `ReadOnly` + `Exclusive` transitions (`D25a/b/c`): `Exclusive` acquire
+    allowed when current holders of an `Exclusive` resource are all
+    `ReadOnly`; state transitions to `InUseLocked` with
+    `locked_by = Some(user_id)` (`S-22`); releasing the `Exclusive` holder
+    while `ReadOnly` holders remain transitions back to `InUseShared`.
+  - `check_endpoint_access` checks `is_readonly` write denial before the
+    `InUseLocked` skip so `ReadOnly` holders on `Exclusive` resources still
+    receive `ReadOnlyWriteAttempt`.
+- Tests:
+  - Core `resource.rs`: `test_acquire_same_mode_idempotent`,
+    `test_acquire_different_mode_conflict`,
+    `test_acquire_declared_mode_mismatch_conflict`,
+    `test_acquire_readonly_private_denied`,
+    `test_acquire_exclusive_with_readonly_holders_allowed`,
+    `test_acquire_exclusive_holder_writes_without_lock_allowed`.
+  - REST `rest/resources.rs`: `test_acquire_same_mode_idempotent`,
+    `test_acquire_different_mode_conflict`,
+    `test_acquire_omitted_mode_uses_declared_mode`,
+    `test_acquire_readonly_private_denied`,
+    `test_acquire_exclusive_with_readonly_holders_allowed`.
+  - gRPC `grpc/device_service.rs`: `test_grpc_acquire_same_mode_idempotent`,
+    `test_grpc_acquire_different_mode_failed_precondition`,
+    `test_grpc_acquire_readonly_private_denied`,
+    `test_grpc_acquire_exclusive_with_readonly_holders_allowed`.
+- Commit: `feat: resource acquisition holder-mode rules (A1) (0.3.4)`.

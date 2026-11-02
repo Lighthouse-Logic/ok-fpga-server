@@ -369,8 +369,7 @@ the `ResourceState` enum on gRPC.
 Blocking (@res-blocking) never changes a resource's own state.
 
 == Acquire and release <res-acquire>
-// ref: ADR-006; ADR-020 §3; ADR-026 §4; D7, D15f, D25, D28, D43, D62
-// Implementation status: REST acquire mode rules (S-03/A1) are 44-C.
+// ref: ADR-006; ADR-020 §3; ADR-026 §4; ADR-034 §11 (44-C, Q1, Q2); D7, D15f, D25, D28, D43, D62; implemented in 0.3.4.
 
 #table(
   columns: (auto, 1fr, 1fr),
@@ -396,14 +395,14 @@ Acquire outcomes:
   [Resource state], [Request], [Result],
   [`available`], [`mode` omitted or equal to `access_mode`], [200],
   [any], [`shared` on an exclusive resource, or `exclusive` on a shared resource], [409 (`mode_mismatch`)],
-  [`available`], [`read_only`], [200 unless the resource is private → `in_use_shared`],
+  [`available`], [`read_only`], [200 → `in_use_shared` (or 409 `private` if the resource is private)],
   [`in_use_shared` (shared resource)], [`shared`], [200: holder added],
-  [`in_use_shared` / `in_use_locked`], [`read_only`], [200 unless the resource is private],
+  [`in_use_shared` / `in_use_locked`], [`read_only`], [200 (or 409 `private` if the resource is private)],
   [`in_use_shared`, only ReadOnly holders (exclusive resource)], [`exclusive`], [200 → `in_use_locked`; ReadOnly holders stay],
-  [`in_use_locked` (exclusive resource held)], [`exclusive`], [409],
-  [`in_use_locked` (shared resource locked)], [`shared`], [409],
+  [`in_use_locked` (exclusive resource held)], [`exclusive`], [409 (`locked`)],
+  [`in_use_locked` (shared resource locked)], [`shared`], [409 (`locked`)],
   [any], [caller already holds it in the *same* mode], [200, idempotent, no change],
-  [any], [caller already holds it in a *different* mode], [409: release first],
+  [any], [caller already holds it in a *different* mode], [409 (`mode_mismatch`): release first],
   [`unavailable` / `initializing`], [any], [409],
 )
 
@@ -623,7 +622,7 @@ When another resource or user causes the failure, `conflict` names it:
 #table(
   columns: (auto, 1fr),
   [`conflict` field], [Meaning],
-  [`code`], [`overlap`, `locked`, `blocked`, `mode_mismatch` or `validation`.],
+  [`code`], [`overlap`, `locked`, `blocked`, `mode_mismatch`, `private` or `validation`.],
   [`resource_id`], [The existing resource involved.],
   [`resource_name`], [Its name.],
   [`item_type`], [`endpoint` or `address_range`.],

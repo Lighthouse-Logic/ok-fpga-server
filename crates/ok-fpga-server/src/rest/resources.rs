@@ -53,7 +53,7 @@ use ok_fpga_core::declaration::{
 };
 use ok_fpga_core::manager::{DeleteReason, DeviceEvent};
 use ok_fpga_core::resource::{
-    AccessMode, ConflictCode, RegisterError, ResourceConflict, ResourceError,
+    AccessMode, AcquireOutcome, ConflictCode, RegisterError, ResourceConflict, ResourceError,
 };
 
 use crate::rest::errors::ProblemDetail;
@@ -539,12 +539,14 @@ async fn delete_resource(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// `POST /resources/{id}/acquire` — Acquire a resource for a user.
+/// `POST /resources/{id}/acquire` — Acquire a resource for a user (ADR-034 A1).
 ///
-/// `mode` is optional. In 44-A the effective mode is still the resource's
-/// declared mode when it has one (the full S-03 rules arrive in 44-C); an
-/// unknown `mode` string is a 422. A denial is a 409 with a `conflict`
-/// object when a D73 code fits (`locked`, `mode_mismatch`).
+/// `mode` is optional (`D62`): when omitted, the resource's declared
+/// `access_mode` is used (falling back to `shared` for legacy resources).
+/// When supplied, `mode` takes precedence (`S-03`) so a caller can request
+/// `read_only` on a `shared` or `exclusive` resource. An unknown `mode`
+/// string is a 422 (`validation`). A denial is a 409 with a `conflict`
+/// object (`locked`, `mode_mismatch`, or `private`).
 async fn acquire_resource(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
@@ -573,28 +575,35 @@ async fn acquire_resource(
         })?),
     };
 
-    let mode = resource
-        .access_mode
-        .unwrap_or(requested.unwrap_or(AccessMode::Shared));
+    let mode = requested
+        .or(resource.access_mode)
+        .unwrap_or(AccessMode::Shared);
 
-    if let Err(denied) = state.resource_registry.acquire(&id, &user_id, mode) {
-        let problem = ProblemDetail::conflict(denied.to_string());
-        return Err(match denied.to_conflict(&resource) {
-            Some(conflict) => problem.with_conflict(conflict),
-            None => problem,
-        });
-    }
+    let outcome = match state.resource_registry.acquire(&id, &user_id, mode) {
+        Ok(outcome) => outcome,
+        Err(denied) => {
+            let problem = ProblemDetail::conflict(denied.to_string());
+            return Err(match denied.to_conflict(&resource) {
+                Some(conflict) => problem.with_conflict(conflict),
+                None => problem,
+            });
+        }
+    };
 
     // Track the user session (implicit heartbeat on acquire).
     state.user_sessions.touch(&user_id);
 
-    emit_resource_changed(&state, &id);
+    // Only emit change events when a new holder entry was added; an
+    // idempotent repeat acquire (AlreadyHeld) did not change state.
+    if outcome == AcquireOutcome::Acquired {
+        emit_resource_changed(&state, &id);
 
-    // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
-    state.broadcast_event(&format!(
-        r#"{{"type":"resource_acquired","resource_id":"{}","user_id":"{}"}}"#,
-        id, user_id
-    ));
+        // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
+        state.broadcast_event(&format!(
+            r#"{{"type":"resource_acquired","resource_id":"{}","user_id":"{}"}}"#,
+            id, user_id
+        ));
+    }
 
     let resource = state
         .resource_registry
@@ -1289,5 +1298,161 @@ mod tests {
             }
             other => panic!("expected ResourceChanged, got {other:?}"),
         }
+    }
+
+    // ── Phase 44-C: Acquisition rules (A1) ─────────────────────
+
+    #[tokio::test]
+    async fn test_acquire_same_mode_idempotent() {
+        let state = test_state();
+        send(&state, "POST", "/resources", shared_wire_resource("idem")).await;
+        let uri = format!("/resources/{SERIAL}:idem/acquire");
+
+        let (status, _, _) =
+            send(&state, "POST", &uri, serde_json::json!({"user_id": "alice"})).await;
+        assert_eq!(status, StatusCode::OK);
+
+        // Subscribe after first acquire: a repeat acquire in the same mode
+        // must succeed with 1 holder and no duplicate ResourceChanged event.
+        let mut events = state.device_manager.subscribe();
+        let (status, _, json) = send(
+            &state,
+            "POST",
+            &uri,
+            serde_json::json!({"user_id": "alice", "mode": "shared"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{json}");
+        assert_eq!(
+            json["holders"],
+            serde_json::json!([{"user_id": "alice", "mode": "shared"}])
+        );
+        assert!(events.try_recv().is_err(), "no event on idempotent repeat acquire");
+    }
+
+    #[tokio::test]
+    async fn test_acquire_different_mode_conflict() {
+        let state = test_state();
+        send(&state, "POST", "/resources", shared_wire_resource("diff")).await;
+        let uri = format!("/resources/{SERIAL}:diff/acquire");
+
+        let (status, _, _) = send(
+            &state,
+            "POST",
+            &uri,
+            serde_json::json!({"user_id": "alice", "mode": "shared"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        // Existing holder requesting read_only without releasing first -> 409 mode_mismatch.
+        let (status, _, json) = send(
+            &state,
+            "POST",
+            &uri,
+            serde_json::json!({"user_id": "alice", "mode": "read_only"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{json}");
+        assert_eq!(json["conflict"]["code"], "mode_mismatch");
+        assert_eq!(json["conflict"]["resource_id"], format!("{SERIAL}:diff"));
+
+        // Requesting exclusive on a shared resource -> 409 mode_mismatch (D62).
+        let (status, _, json) = send(
+            &state,
+            "POST",
+            &uri,
+            serde_json::json!({"user_id": "bob", "mode": "exclusive"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{json}");
+        assert_eq!(json["conflict"]["code"], "mode_mismatch");
+    }
+
+    #[tokio::test]
+    async fn test_acquire_omitted_mode_uses_declared_mode() {
+        let state = test_state();
+        let excl = serde_json::json!({
+            "name": "excl_def", "device_serial": SERIAL, "interfaces": ["classic"]
+        });
+        send(&state, "POST", "/resources", excl).await;
+        let uri = format!("/resources/{SERIAL}:excl_def/acquire");
+
+        // Omitted mode on an exclusive resource uses "exclusive" and sets locked_by.
+        let (status, _, json) =
+            send(&state, "POST", &uri, serde_json::json!({"user_id": "alice"})).await;
+        assert_eq!(status, StatusCode::OK, "{json}");
+        assert_eq!(json["state"], "in_use_locked");
+        assert_eq!(json["locked_by"], "alice");
+        assert_eq!(
+            json["holders"],
+            serde_json::json!([{"user_id": "alice", "mode": "exclusive"}])
+        );
+
+        // Explicit mode: "read_only" on an exclusive resource uses "read_only" (S-03).
+        let (status, _, json) = send(
+            &state,
+            "POST",
+            &uri,
+            serde_json::json!({"user_id": "bob", "mode": "read_only"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{json}");
+        assert_eq!(json["state"], "in_use_locked");
+        assert_eq!(json["locked_by"], "alice");
+        assert_eq!(json["holders"].as_array().unwrap().len(), 2);
+        assert_eq!(json["holders"][1]["mode"], "read_only");
+    }
+
+    #[tokio::test]
+    async fn test_acquire_readonly_private_denied() {
+        let state = test_state();
+        let mut body = shared_wire_resource("priv_res");
+        body["private"] = serde_json::json!(true);
+        let (status, _, _) = send(&state, "POST", "/resources", body).await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        let uri = format!("/resources/{SERIAL}:priv_res/acquire");
+        let (status, _, json) = send(
+            &state,
+            "POST",
+            &uri,
+            serde_json::json!({"user_id": "bob", "mode": "read_only"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{json}");
+        assert_eq!(json["conflict"]["code"], "private");
+        assert_eq!(json["conflict"]["resource_id"], format!("{SERIAL}:priv_res"));
+        assert_eq!(json["conflict"]["resource_name"], "priv_res");
+    }
+
+    #[tokio::test]
+    async fn test_acquire_exclusive_with_readonly_holders_allowed() {
+        let state = test_state();
+        let excl = serde_json::json!({
+            "name": "excl_ro", "device_serial": SERIAL, "interfaces": ["classic"]
+        });
+        send(&state, "POST", "/resources", excl).await;
+        let uri = format!("/resources/{SERIAL}:excl_ro/acquire");
+
+        // D25b: ReadOnly acquires available Exclusive resource -> in_use_shared.
+        let (status, _, json) = send(
+            &state,
+            "POST",
+            &uri,
+            serde_json::json!({"user_id": "bob", "mode": "read_only"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{json}");
+        assert_eq!(json["state"], "in_use_shared");
+        assert!(json["locked_by"].is_null());
+
+        // D25c: Exclusive holder joins -> in_use_locked, locked_by = "alice".
+        let (status, _, json) =
+            send(&state, "POST", &uri, serde_json::json!({"user_id": "alice"})).await;
+        assert_eq!(status, StatusCode::OK, "{json}");
+        assert_eq!(json["state"], "in_use_locked");
+        assert_eq!(json["locked_by"], "alice");
+        assert_eq!(json["holders"].as_array().unwrap().len(), 2);
     }
 }

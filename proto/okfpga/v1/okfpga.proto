@@ -377,7 +377,7 @@ message UserSession {
 // `type.googleapis.com/okFPGAService.v1.ResourceConflictDetail`.
 // Same fields as the REST `ProblemDetail.conflict` object.
 message ResourceConflictDetail {
-  // "overlap", "locked", "blocked", "mode_mismatch" or "validation".
+  // "overlap", "locked", "blocked", "mode_mismatch", "private" or "validation".
   string code = 1;
   // Existing resource involved (empty if none).
   string resource_id = 2;
@@ -1227,7 +1227,7 @@ message LockResourceRequest {
 // Status mapping for resource RPCs (ADR-034 P7), matching REST:
 //   REST 404 -> NOT_FOUND            (unknown resource / device)
 //   REST 409 -> FAILED_PRECONDITION  (overlap, locked, blocked,
-//                                     mode_mismatch, duplicate name,
+//                                     mode_mismatch, private, duplicate name,
 //                                     device not programmed, held on delete)
 //   REST 422 -> INVALID_ARGUMENT     (invalid declaration or mode)
 // When a D73 code applies, the error details carry a

@@ -650,8 +650,11 @@ pub enum ConflictCode {
     Locked,
     /// The resource is blocked by a lock on an overlapping resource (44-D).
     Blocked,
-    /// The caller already holds the resource in a different mode (44-C).
+    /// The caller already holds the resource in a different mode, or
+    /// requested a mode incompatible with the resource (44-C).
     ModeMismatch,
+    /// The resource is marked `private`, so `read_only` acquisition is denied (44-C).
+    Private,
     /// The request is invalid (missing field, bad type/address, ...).
     Validation,
 }
@@ -664,6 +667,7 @@ impl ConflictCode {
             ConflictCode::Locked => "locked",
             ConflictCode::Blocked => "blocked",
             ConflictCode::ModeMismatch => "mode_mismatch",
+            ConflictCode::Private => "private",
             ConflictCode::Validation => "validation",
         }
     }
@@ -823,8 +827,22 @@ pub struct Holding {
 }
 
 // ============================================================================
-// Acquisition Denied Error
+// Acquisition Outcome & Denied Error
 // ============================================================================
+
+/// What [`ResourceRegistry::acquire`] did when the call succeeded (ADR-034, A1).
+///
+/// Re-acquiring a resource in the **same** mode by the same user is an
+/// idempotent no-op (`D28`, `D43`): the call returns `Ok(AlreadyHeld)` so
+/// transport handlers can skip duplicate change events while still touching
+/// the user's session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AcquireOutcome {
+    /// The user was added as a new holder of the resource.
+    Acquired,
+    /// The user already held the resource in the requested mode (no state change).
+    AlreadyHeld,
+}
 
 /// Reason why a resource acquisition was denied.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -837,6 +855,19 @@ pub enum AcquisitionDenied {
 
     /// The user requested exclusive mode but the resource is already shared.
     AlreadyShared { holder_count: usize },
+
+    /// The user already holds the resource in a different mode ("release, then acquire", A1/D7/D43).
+    HolderModeMismatch {
+        user_id: UserId,
+        existing_mode: AccessMode,
+        requested_mode: AccessMode,
+    },
+
+    /// The requested mode is incompatible with the resource's declared `access_mode` (D62).
+    DeclaredModeMismatch {
+        declared: AccessMode,
+        requested: AccessMode,
+    },
 
     /// The resource is marked private — ReadOnly acquisition is denied (ADR-026).
     PrivateResource { resource_id: String },
@@ -861,6 +892,30 @@ impl fmt::Display for AcquisitionDenied {
                     holder_count
                 )
             }
+            AcquisitionDenied::HolderModeMismatch {
+                user_id,
+                existing_mode,
+                requested_mode,
+            } => {
+                write!(
+                    f,
+                    "User '{}' already holds the resource as '{}' (requested '{}') — release first, then acquire",
+                    user_id,
+                    existing_mode.as_str(),
+                    requested_mode.as_str()
+                )
+            }
+            AcquisitionDenied::DeclaredModeMismatch {
+                declared,
+                requested,
+            } => {
+                write!(
+                    f,
+                    "Resource access_mode is '{}', cannot acquire as '{}'",
+                    declared.as_str(),
+                    requested.as_str()
+                )
+            }
             AcquisitionDenied::PrivateResource { resource_id } => {
                 write!(
                     f,
@@ -880,12 +935,17 @@ impl AcquisitionDenied {
     /// fits; `None` otherwise (the response then carries only text).
     ///
     /// - `ExclusivelyHeld` → `locked` (someone else holds the resource).
-    /// - `AlreadyShared` → `mode_mismatch` (exclusive requested on a shared
-    ///   resource; the full A1 rule arrives in 44-C).
+    /// - `AlreadyShared` / `HolderModeMismatch` / `DeclaredModeMismatch` →
+    ///   `mode_mismatch` (ADR-034 A1, D62).
+    /// - `PrivateResource` → `private` (ReadOnly requested on a private
+    ///   resource, 44-C owner decision Q2).
     pub fn to_conflict(&self, resource: &Resource) -> Option<ResourceConflict> {
         let code = match self {
             AcquisitionDenied::ExclusivelyHeld { .. } => ConflictCode::Locked,
-            AcquisitionDenied::AlreadyShared { .. } => ConflictCode::ModeMismatch,
+            AcquisitionDenied::AlreadyShared { .. }
+            | AcquisitionDenied::HolderModeMismatch { .. }
+            | AcquisitionDenied::DeclaredModeMismatch { .. } => ConflictCode::ModeMismatch,
+            AcquisitionDenied::PrivateResource { .. } => ConflictCode::Private,
             _ => return None,
         };
         Some(ResourceConflict::new(code).with_resource(&resource.id, &resource.name))
@@ -1394,25 +1454,72 @@ impl ResourceAccessPolicy for DefaultAccessPolicy {
     fn can_acquire(
         &self,
         resource: &Resource,
-        _user: &UserId,
+        user: &UserId,
         requested_mode: AccessMode,
     ) -> Result<(), AcquisitionDenied> {
-        // ADR-026: Private resource check — deny ReadOnly acquisition.
+        //Unavailable or Initializing resources cannot be acquired at all.
+        if matches!(
+            resource.state,
+            ResourceState::Unavailable | ResourceState::Initializing
+        ) {
+            return Err(AcquisitionDenied::InvalidState {
+                current_state: resource.state.clone(),
+            });
+        }
+
+        // ADR-026 / 44-C Q2: Private resource check — ReadOnly acquisition is
+        // never permitted on a private resource (`conflict.code = "private"`).
         if requested_mode == AccessMode::ReadOnly && resource.private {
             return Err(AcquisitionDenied::PrivateResource {
                 resource_id: resource.id.clone(),
             });
         }
 
+        // ADR-034 A1 (D2, D7, D28, D43): Repeat acquire by an existing holder.
+        // - Same mode: idempotent success (even if the resource is locked).
+        // - Different mode: 409 mode_mismatch ("release, then acquire").
+        if let Some(existing) = resource.holder_entry(user) {
+            if existing.mode == requested_mode {
+                return Ok(());
+            } else {
+                return Err(AcquisitionDenied::HolderModeMismatch {
+                    user_id: user.clone(),
+                    existing_mode: existing.mode,
+                    requested_mode,
+                });
+            }
+        }
+
+        // ADR-034 D62: A non-ReadOnly request must match the resource's
+        // declared access_mode (e.g. requesting Shared on an Exclusive
+        // resource or Exclusive on a Shared resource is a 409 mode_mismatch).
+        if requested_mode != AccessMode::ReadOnly {
+            if let Some(declared) = resource.access_mode {
+                if requested_mode != declared {
+                    return Err(AcquisitionDenied::DeclaredModeMismatch {
+                        declared,
+                        requested: requested_mode,
+                    });
+                }
+            }
+        }
+
         match &resource.state {
             ResourceState::Available => {
-                // Available resources can be acquired in any mode.
+                // Available resources can be acquired in any compatible mode.
                 Ok(())
             }
             ResourceState::InUseShared => {
                 // Shared resources accept more Shared users and ReadOnly users.
+                // Exclusive resources in InUseShared (because they have only
+                // ReadOnly holders, D25b) accept an Exclusive holder (D25c).
                 if requested_mode == AccessMode::Shared
                     || requested_mode == AccessMode::ReadOnly
+                    || (requested_mode == AccessMode::Exclusive
+                        && resource
+                            .holders
+                            .iter()
+                            .all(|h| h.mode == AccessMode::ReadOnly))
                 {
                     Ok(())
                 } else {
@@ -1422,7 +1529,7 @@ impl ResourceAccessPolicy for DefaultAccessPolicy {
                 }
             }
             ResourceState::InUseLocked => {
-                // ADR-026: ReadOnly users CAN join even a locked/exclusive
+                // ADR-026 / D25a: ReadOnly users CAN join even a locked/exclusive
                 // resource — they don't interfere with the holder's operations.
                 if requested_mode == AccessMode::ReadOnly {
                     return Ok(());
@@ -1431,7 +1538,14 @@ impl ResourceAccessPolicy for DefaultAccessPolicy {
                 let held_by = resource
                     .locked_by
                     .clone()
-                    .or_else(|| resource.holders.first().map(|h| h.user_id.clone()))
+                    .or_else(|| {
+                        resource
+                            .holders
+                            .iter()
+                            .find(|h| h.mode != AccessMode::ReadOnly)
+                            .or_else(|| resource.holders.first())
+                            .map(|h| h.user_id.clone())
+                    })
                     .unwrap_or_else(|| "unknown".to_string());
                 Err(AcquisitionDenied::ExclusivelyHeld { held_by })
             }
@@ -1635,10 +1749,9 @@ impl ResourceRegistry {
                 // No more holders — transition back to Available.
                 resource.state = ResourceState::Available;
                 resource.locked_by = None;
-            } else if resource.locked_by.is_none()
-                && resource.access_mode == Some(AccessMode::Shared)
-            {
-                // Shared resource, locker left, back to InUseShared.
+            } else if resource.locked_by.is_none() {
+                // Locker (or exclusive holder) left while other holders
+                // (e.g. Shared or ReadOnly) remain — back to InUseShared.
                 resource.state = ResourceState::InUseShared;
             }
         }
@@ -1646,21 +1759,18 @@ impl ResourceRegistry {
         released
     }
 
-    /// Attempt to acquire a resource for a user (ADR-020 §3).
+    /// Attempt to acquire a resource for a user (ADR-020 §3, ADR-034 A1).
     ///
-    /// The access mode is determined by the resource's `access_mode` field
-    /// (set at registration time), not by the caller. The `mode` parameter
-    /// is used for backward compatibility and should match the resource's
-    /// declared mode.
-    ///
-    /// Returns `Ok(())` if the acquisition succeeded, or
-    /// `Err(AcquisitionDenied)` if the policy denied it.
+    /// Returns [`Ok(AcquireOutcome::Acquired)`] when a new holder entry was
+    /// added, [`Ok(AcquireOutcome::AlreadyHeld)`] when the user already held
+    /// the resource in the same mode (idempotent no-op, D28/D43), or
+    /// `Err(AcquisitionDenied)` if the policy denied the request.
     pub fn acquire(
         &self,
         resource_id: &str,
         user_id: &UserId,
         mode: AccessMode,
-    ) -> Result<(), AcquisitionDenied> {
+    ) -> Result<AcquireOutcome, AcquisitionDenied> {
         let mut map = self.resources.write().unwrap();
         let resource = map
             .get(resource_id)
@@ -1671,26 +1781,41 @@ impl ResourceRegistry {
         // Check policy first (on immutable reference).
         self.policy.can_acquire(resource, user_id, mode)?;
 
+        // Idempotent repeat acquire (A1, D28, D43): if the user already holds
+        // the resource in the same mode, leave holders, state, and locked_by
+        // untouched.
+        if let Some(existing) = resource.holder_entry(user_id) {
+            if existing.mode == mode {
+                return Ok(AcquireOutcome::AlreadyHeld);
+            }
+        }
+
         // Policy approved — mutate the resource.
         let resource = map.get_mut(resource_id).unwrap();
         resource.holders.push(HolderEntry::new(user_id.clone(), mode));
 
-        // Use the resource's declared access mode if available,
-        // falling back to the caller-provided mode for compatibility.
-        // ReadOnly holders do NOT change the resource state — they
-        // join silently alongside existing holders (ADR-026).
-        if mode != AccessMode::ReadOnly {
-            let effective_mode = resource.access_mode.unwrap_or(mode);
-            resource.state = match effective_mode {
-                AccessMode::Shared | AccessMode::ReadOnly => ResourceState::InUseShared,
-                AccessMode::Exclusive => ResourceState::InUseLocked,
-            };
-        } else if resource.state == ResourceState::Available {
-            // First holder is ReadOnly — resource is in use but not locked.
-            resource.state = ResourceState::InUseShared;
+        match mode {
+            AccessMode::Exclusive => {
+                // Exclusive resources are implicitly locked by their exclusive
+                // holder (ADR-034, D25c, S-22).
+                resource.state = ResourceState::InUseLocked;
+                resource.locked_by = Some(user_id.clone());
+            }
+            AccessMode::Shared => {
+                if resource.state != ResourceState::InUseLocked {
+                    resource.state = ResourceState::InUseShared;
+                }
+            }
+            AccessMode::ReadOnly => {
+                // ReadOnly holders do NOT change InUseLocked or InUseShared
+                // (D25a), but transition Available -> InUseShared (D25b).
+                if resource.state == ResourceState::Available {
+                    resource.state = ResourceState::InUseShared;
+                }
+            }
         }
 
-        Ok(())
+        Ok(AcquireOutcome::Acquired)
     }
 
     /// Release a resource for a user.
@@ -1713,11 +1838,9 @@ impl ResourceRegistry {
                 // No more holders — transition back to Available.
                 resource.state = ResourceState::Available;
                 resource.locked_by = None;
-            } else if removed
-                && resource.locked_by.is_none()
-                && resource.access_mode == Some(AccessMode::Shared)
-            {
-                // Shared resource, locker left, back to InUseShared.
+            } else if removed && resource.locked_by.is_none() {
+                // Locker (or exclusive holder) left while other holders
+                // (e.g. Shared or ReadOnly) remain — back to InUseShared.
                 resource.state = ResourceState::InUseShared;
             }
 
@@ -1924,23 +2047,6 @@ impl ResourceRegistry {
 
         // Check each held resource for endpoint coverage.
         for resource in &held_resources {
-            // Lock enforcement (ADR-024 §6, amended by Phase 33):
-            // If the resource is locked by another user, WRITE operations
-            // (input endpoints) are blocked. READ operations (output
-            // endpoints) are still allowed for all holders, including
-            // ReadOnly observers (ADR-026 §5).
-            if resource.state == ResourceState::InUseLocked {
-                if let Some(ref locker) = resource.locked_by {
-                    if locker != user_id && ep_type.is_input() {
-                        // Write operation on a resource locked by another
-                        // user — skip it. We don't immediately deny because
-                        // the user might hold another resource that covers
-                        // this endpoint.
-                        continue;
-                    }
-                }
-            }
-
             // Check endpoint coverage (ADR-024 §2 + §3).
             let endpoint_covered = match &resource.endpoints {
                 None => {
@@ -1967,8 +2073,10 @@ impl ResourceRegistry {
                 continue;
             }
 
-            // Endpoint is covered by this resource. Now check ADR-026
-            // ReadOnly restrictions before proceeding to address resolution.
+            // Endpoint is covered by this resource. Check ADR-026 ReadOnly
+            // restrictions before lock enforcement so a ReadOnly holder
+            // attempting a write on an Exclusive or locked resource gets
+            // ReadOnlyWriteAttempt rather than LockedByOther.
             let holder_entry = resource.holder_entry(user_id);
             let is_readonly = holder_entry
                 .map(|h| h.mode == AccessMode::ReadOnly)
@@ -2004,6 +2112,23 @@ impl ResourceRegistry {
                                 ),
                             });
                         }
+                    }
+                }
+            }
+
+            // Lock enforcement (ADR-024 §6, amended by Phase 33):
+            // If the resource is locked by another user, WRITE operations
+            // (input endpoints) are blocked. READ operations (output
+            // endpoints) are still allowed for all holders, including
+            // ReadOnly observers (ADR-026 §5).
+            if resource.state == ResourceState::InUseLocked {
+                if let Some(ref locker) = resource.locked_by {
+                    if locker != user_id && ep_type.is_input() {
+                        // Write operation on a resource locked by another
+                        // user — skip it. We don't immediately deny because
+                        // the user might hold another resource that covers
+                        // this endpoint.
+                        continue;
                     }
                 }
             }
@@ -3726,6 +3851,21 @@ mod tests {
         assert_eq!(held.to_conflict(&r).unwrap().code, ConflictCode::Locked);
         let shared = AcquisitionDenied::AlreadyShared { holder_count: 2 };
         assert_eq!(shared.to_conflict(&r).unwrap().code, ConflictCode::ModeMismatch);
+        let holder_mismatch = AcquisitionDenied::HolderModeMismatch {
+            user_id: "alice".into(),
+            existing_mode: AccessMode::Shared,
+            requested_mode: AccessMode::ReadOnly,
+        };
+        assert_eq!(holder_mismatch.to_conflict(&r).unwrap().code, ConflictCode::ModeMismatch);
+        let decl_mismatch = AcquisitionDenied::DeclaredModeMismatch {
+            declared: AccessMode::Exclusive,
+            requested: AccessMode::Shared,
+        };
+        assert_eq!(decl_mismatch.to_conflict(&r).unwrap().code, ConflictCode::ModeMismatch);
+        let priv_res = AcquisitionDenied::PrivateResource { resource_id: "r1".into() };
+        let priv_conflict = priv_res.to_conflict(&r).unwrap();
+        assert_eq!(priv_conflict.code, ConflictCode::Private);
+        assert_eq!(priv_conflict.resource_id.as_deref(), Some("r1"));
         let custom = AcquisitionDenied::Custom { reason: "x".into() };
         assert!(custom.to_conflict(&r).is_none());
     }
@@ -3772,6 +3912,178 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, RegisterError::Rejected(ref e) if e.is_validation()));
         assert!(registry.get("r2").is_none());
+    }
+
+    // ── ADR-034 / 44-C acquisition rules (A1) ───────────────────
+
+    #[test]
+    fn test_acquire_same_mode_idempotent() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource("shared_r"));
+        registry.register(test_exclusive_resource("excl_r"));
+
+        // Shared repeat acquire is idempotent and does not duplicate HolderEntry.
+        assert_eq!(
+            registry
+                .acquire("shared_r", &"alice".to_string(), AccessMode::Shared)
+                .unwrap(),
+            AcquireOutcome::Acquired
+        );
+        assert_eq!(
+            registry
+                .acquire("shared_r", &"alice".to_string(), AccessMode::Shared)
+                .unwrap(),
+            AcquireOutcome::AlreadyHeld
+        );
+        assert_eq!(registry.get("shared_r").unwrap().holders.len(), 1);
+
+        // Exclusive repeat acquire is also idempotent (even though state == InUseLocked).
+        assert_eq!(
+            registry
+                .acquire("excl_r", &"alice".to_string(), AccessMode::Exclusive)
+                .unwrap(),
+            AcquireOutcome::Acquired
+        );
+        assert_eq!(
+            registry
+                .acquire("excl_r", &"alice".to_string(), AccessMode::Exclusive)
+                .unwrap(),
+            AcquireOutcome::AlreadyHeld
+        );
+        let r = registry.get("excl_r").unwrap();
+        assert_eq!(r.holders.len(), 1);
+        assert_eq!(r.locked_by.as_deref(), Some("alice"));
+    }
+
+    #[test]
+    fn test_acquire_different_mode_conflict() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource("shared_r"));
+        registry
+            .acquire("shared_r", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        let err = registry
+            .acquire("shared_r", &"alice".to_string(), AccessMode::ReadOnly)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            AcquisitionDenied::HolderModeMismatch {
+                existing_mode: AccessMode::Shared,
+                requested_mode: AccessMode::ReadOnly,
+                ..
+            }
+        ));
+        let r = registry.get("shared_r").unwrap();
+        assert_eq!(err.to_conflict(&r).unwrap().code, ConflictCode::ModeMismatch);
+    }
+
+    #[test]
+    fn test_acquire_declared_mode_mismatch_conflict() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_resource("shared_r"));
+        registry.register(test_exclusive_resource("excl_r"));
+
+        // Exclusive requested on an available Shared resource -> DeclaredModeMismatch.
+        let err1 = registry
+            .acquire("shared_r", &"alice".to_string(), AccessMode::Exclusive)
+            .unwrap_err();
+        assert!(matches!(
+            err1,
+            AcquisitionDenied::DeclaredModeMismatch {
+                declared: AccessMode::Shared,
+                requested: AccessMode::Exclusive,
+            }
+        ));
+        assert_eq!(
+            err1.to_conflict(&registry.get("shared_r").unwrap()).unwrap().code,
+            ConflictCode::ModeMismatch
+        );
+
+        // Shared requested on an available Exclusive resource -> DeclaredModeMismatch.
+        let err2 = registry
+            .acquire("excl_r", &"alice".to_string(), AccessMode::Shared)
+            .unwrap_err();
+        assert!(matches!(
+            err2,
+            AcquisitionDenied::DeclaredModeMismatch {
+                declared: AccessMode::Exclusive,
+                requested: AccessMode::Shared,
+            }
+        ));
+        assert_eq!(
+            err2.to_conflict(&registry.get("excl_r").unwrap()).unwrap().code,
+            ConflictCode::ModeMismatch
+        );
+    }
+
+    #[test]
+    fn test_acquire_readonly_private_denied() {
+        let registry = ResourceRegistry::new();
+        let mut r = test_exclusive_resource("priv_r");
+        r.private = true;
+        registry.register(r);
+
+        let err = registry
+            .acquire("priv_r", &"bob".to_string(), AccessMode::ReadOnly)
+            .unwrap_err();
+        assert!(matches!(err, AcquisitionDenied::PrivateResource { .. }));
+        let stored = registry.get("priv_r").unwrap();
+        let conflict = err.to_conflict(&stored).unwrap();
+        assert_eq!(conflict.code, ConflictCode::Private);
+        assert_eq!(conflict.resource_id.as_deref(), Some("priv_r"));
+    }
+
+    #[test]
+    fn test_acquire_exclusive_with_readonly_holders_allowed() {
+        let registry = ResourceRegistry::new();
+        registry.register(test_exclusive_resource("excl_r"));
+
+        // D25b: ReadOnly acquires available Exclusive resource -> InUseShared, locked_by = None.
+        registry
+            .acquire("excl_r", &"bob".to_string(), AccessMode::ReadOnly)
+            .unwrap();
+        let r = registry.get("excl_r").unwrap();
+        assert_eq!(r.state, ResourceState::InUseShared);
+        assert!(r.locked_by.is_none());
+
+        // D25c: Exclusive holder can still acquire while ReadOnly holder is present.
+        registry
+            .acquire("excl_r", &"alice".to_string(), AccessMode::Exclusive)
+            .unwrap();
+        let r = registry.get("excl_r").unwrap();
+        assert_eq!(r.state, ResourceState::InUseLocked);
+        assert_eq!(r.locked_by.as_deref(), Some("alice"));
+        assert_eq!(r.holders.len(), 2);
+
+        // When the Exclusive holder releases and ReadOnly remains, state returns to InUseShared.
+        assert!(registry.release("excl_r", &"alice".to_string()));
+        let r = registry.get("excl_r").unwrap();
+        assert_eq!(r.state, ResourceState::InUseShared);
+        assert!(r.locked_by.is_none());
+        assert_eq!(r.holders.len(), 1);
+    }
+
+    #[test]
+    fn test_acquire_exclusive_holder_writes_without_lock_allowed() {
+        // S-22: An Exclusive resource sets locked_by = Some(user_id) on acquire,
+        // so the holder passes the ExclusiveAddressRange check without calling lock().
+        let policy = Box::new(TestAddressMappingPolicy);
+        let registry = ResourceRegistry::with_policy(policy);
+        let mut r = test_resource_with_address_ranges("excl_r", "DEV_A");
+        r.access_mode = Some(AccessMode::Exclusive);
+        registry.register(r);
+
+        registry
+            .acquire("excl_r", &"alice".to_string(), AccessMode::Exclusive)
+            .unwrap();
+        let stored = registry.get("excl_r").unwrap();
+        assert_eq!(stored.locked_by.as_deref(), Some("alice"));
+
+        // Address 0x0042 is in the Exclusive range 0x0000–0x00FF.
+        assert!(registry
+            .check_endpoint_access("alice", "DEV_A", 0x01, &EndpointType::WireIn, Some(0x0042))
+            .is_ok());
     }
 }
 

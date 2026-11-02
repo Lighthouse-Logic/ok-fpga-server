@@ -132,7 +132,7 @@ fn make_exclusive_resource(device_serial: &str, name: &str) -> Resource {
 fn resource_lifecycle_acquire_release() {
     let rr = ResourceRegistry::new();
 
-    rr.register(make_resource("DEV001", "dac_ch1"));
+    rr.register(make_exclusive_resource("DEV001", "dac_ch1"));
     assert_eq!(rr.count(), 1);
 
     let user = "alice".to_string();

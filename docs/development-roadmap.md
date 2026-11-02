@@ -259,23 +259,11 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
   D77 coverage enforcement → 44-E; registration vs unplug / reprogram
   (Q5) → 44-F.
 
-**44-C Acquisition (A1)**
-- Files: `ok-fpga-core/src/resource.rs`, `rest/resources.rs`,
-  `grpc/device_service.rs`.
-- Holder entries with mode; same mode → 200; different mode → 409 "release,
-  then acquire" (S-03); acquire `mode` optional, omitted = declared mode,
-  `read_only` opt-in (D62); ReadOnly rules incl. exclusive resources (D25);
-  implicit lock shown as `locked_by` = holder for exclusive resources,
-  display only (S-22).
-- Tests (Tier 3): `test_acquire_same_mode_idempotent`,
-  `test_acquire_different_mode_conflict`,
-  `test_acquire_omitted_mode_uses_declared_mode`,
-  `test_acquire_readonly_private_denied`,
-  `test_acquire_exclusive_with_readonly_holders_allowed`,
-  `test_acquire_exclusive_holder_writes_without_lock_allowed`,
-  `test_grpc_acquire_different_mode_failed_precondition` (status per
-  Q44-13). Tier 1: acquire/release flow.
-- Commit: `feat: resource acquisition holder-mode rules (A1)`.
+**44-C Acquisition (A1) — ✅ Done (0.3.4)**
+- Archived: [archive/roadmap-phases-44.md](archive/roadmap-phases-44.md)
+  (owner decisions Q1–Q2, rules, tests as implemented).
+- ADR-034 §11. Carried forward: removing `locked_by` checks on shared-resource
+  exclusive ranges (`S-14`) → 44-E.
 
 **44-D Locking and blocking (B1–B4) + events**
 - Files: `ok-fpga-core/src/resource.rs`, `rest/resources.rs`,
