@@ -253,3 +253,4 @@ adopted, 2 rejected as non-observable / redundant).
     `test_grpc_acquire_readonly_private_denied`,
     `test_grpc_acquire_exclusive_with_readonly_holders_allowed`.
 - Commit: `feat: resource acquisition holder-mode rules (A1) (0.3.4)`.
+  **Done:** `2167914`.

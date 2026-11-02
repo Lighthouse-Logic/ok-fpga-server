@@ -262,8 +262,8 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
 **44-C Acquisition (A1) — ✅ Done (0.3.4)**
 - Archived: [archive/roadmap-phases-44.md](archive/roadmap-phases-44.md)
   (owner decisions Q1–Q2, rules, tests as implemented).
-- ADR-034 §11. Carried forward: removing `locked_by` checks on shared-resource
-  exclusive ranges (`S-14`) → 44-E.
+- Commit `2167914`. ADR-034 §11. Carried forward: removing `locked_by`
+  checks on shared-resource exclusive ranges (`S-14`) → 44-E.
 
 **44-D Locking and blocking (B1–B4) + events**
 - Files: `ok-fpga-core/src/resource.rs`, `rest/resources.rs`,
