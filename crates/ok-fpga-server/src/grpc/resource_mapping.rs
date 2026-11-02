@@ -33,8 +33,9 @@ use prost::Message;
 use tonic::{Code, Status};
 
 use ok_fpga_core::declaration::{AddressRangeSpec, EndpointEntrySpec, EndpointSpec, ResourceSpec};
+use ok_fpga_core::manager::{DeleteReason, DeviceEvent};
 use ok_fpga_core::resource::{
-    AccessMode, AddressRange, EndpointDeclaration, Holding, Resource, ResourceConflict,
+    AccessMode, AddressRange, EndpointDeclaration, Holding, LockError, Resource, ResourceConflict,
     ResourceError, ResourceState,
 };
 use ok_fpga_core::user::UserSession;
@@ -130,6 +131,20 @@ pub fn resource_error_status(err: &ResourceError) -> Status {
         Code::FailedPrecondition
     };
     conflict_status(code, err.detail.clone(), Some(&err.conflict))
+}
+
+/// Map a core [`LockError`] to a gRPC [`Status`] (ADR-034 P7, D73).
+///
+/// - [`LockError::NotFound`] → `NOT_FOUND`
+/// - [`LockError::PreconditionFailed`] → `FAILED_PRECONDITION` (no conflict detail)
+/// - [`LockError::Conflict`] → `FAILED_PRECONDITION` with `ResourceConflictDetail`
+///   (`code = "locked"` or `code = "blocked"`) packed into `google.rpc.Status` details.
+pub fn lock_error_status(err: &LockError) -> Status {
+    match err {
+        LockError::NotFound(msg) => Status::not_found(msg.clone()),
+        LockError::PreconditionFailed(msg) => Status::failed_precondition(msg.clone()),
+        LockError::Conflict(res_err) => resource_error_status(res_err),
+    }
 }
 
 /// Decode the `ResourceConflictDetail` carried by a `Status`, if any.
@@ -372,6 +387,158 @@ pub fn user_session_to_proto(s: &UserSession, holdings: &[Holding]) -> proto::Us
         connected_at: s.last_seen_at.to_rfc3339(),
         held_resource_ids: s.held_resource_ids.clone(),
         holdings: holdings.iter().map(holding_to_proto).collect(),
+    }
+}
+
+/// Convert a core [`DeviceEvent`] into a protobuf [`proto::DeviceEvent`] for
+/// `WatchDeviceEvents` streaming (ADR-034 P6, Phase 44-D).
+pub fn device_event_to_proto(event: &DeviceEvent) -> proto::DeviceEvent {
+    use proto::device_event::Event;
+
+    match event {
+        DeviceEvent::DeviceAdded {
+            serial,
+            product_name,
+            interface,
+            timestamp,
+        } => {
+            let device_interface = match interface.as_str() {
+                "PCIe" => proto::DeviceInterface::Pcie as i32,
+                "USB 3.0" | "USB3" => proto::DeviceInterface::Usb3 as i32,
+                "Gen3" | "USB 3.0 (Gen3)" => proto::DeviceInterface::Gen3 as i32,
+                "USB 2.0" | "USB2" => proto::DeviceInterface::Usb2 as i32,
+                _ => proto::DeviceInterface::Unknown as i32,
+            };
+            proto::DeviceEvent {
+                timestamp: timestamp.to_rfc3339(),
+                event: Some(Event::DeviceAdded(proto::DeviceAdded {
+                    serial: serial.clone(),
+                    product_name: product_name.clone(),
+                    device_interface,
+                })),
+            }
+        }
+        DeviceEvent::DeviceRemoved { serial, timestamp } => proto::DeviceEvent {
+            timestamp: timestamp.to_rfc3339(),
+            event: Some(Event::DeviceRemoved(proto::DeviceRemoved {
+                serial: serial.clone(),
+            })),
+        },
+        DeviceEvent::DeviceProgrammed {
+            serial,
+            bitfile,
+            programmed_by,
+            timestamp,
+        } => proto::DeviceEvent {
+            timestamp: timestamp.to_rfc3339(),
+            event: Some(Event::BitfileProgrammed(proto::BitfileProgrammed {
+                serial: serial.clone(),
+                filename: bitfile.clone(),
+                programmed_by: programmed_by.clone(),
+            })),
+        },
+        DeviceEvent::ResourceChanged {
+            resource_id,
+            new_state,
+            timestamp,
+        } => {
+            let new_state_proto = match new_state.as_str() {
+                "initializing" => proto::ResourceState::Initializing as i32,
+                "available" => proto::ResourceState::Available as i32,
+                "in_use_shared" => proto::ResourceState::InUseShared as i32,
+                "in_use_locked" => proto::ResourceState::InUseLocked as i32,
+                _ => proto::ResourceState::Unavailable as i32,
+            };
+            let device_serial = resource_id
+                .split_once(':')
+                .map(|(serial, _)| serial.to_string())
+                .unwrap_or_default();
+            proto::DeviceEvent {
+                timestamp: timestamp.to_rfc3339(),
+                event: Some(Event::ResourceStateChanged(proto::ResourceStateChanged {
+                    resource_id: resource_id.clone(),
+                    previous_state: proto::ResourceState::Unavailable as i32,
+                    new_state: new_state_proto,
+                    device_serial,
+                })),
+            }
+        }
+        DeviceEvent::ResourceCreated {
+            resource_id,
+            device_serial,
+            name,
+            timestamp,
+        } => proto::DeviceEvent {
+            timestamp: timestamp.to_rfc3339(),
+            event: Some(Event::ResourceCreated(proto::ResourceCreatedEvent {
+                resource_id: resource_id.clone(),
+                device_serial: device_serial.clone(),
+                name: name.clone(),
+            })),
+        },
+        DeviceEvent::ResourceDeleted {
+            resource_id,
+            reason,
+            timestamp,
+        } => {
+            let reason_proto = match reason {
+                DeleteReason::Client => proto::DeleteReason::Client as i32,
+                DeleteReason::Reprogram => proto::DeleteReason::Reprogram as i32,
+                DeleteReason::Clear => proto::DeleteReason::Clear as i32,
+            };
+            proto::DeviceEvent {
+                timestamp: timestamp.to_rfc3339(),
+                event: Some(Event::ResourceDeleted(proto::ResourceDeletedEvent {
+                    resource_id: resource_id.clone(),
+                    reason: reason_proto,
+                })),
+            }
+        }
+        DeviceEvent::ResourceLocked {
+            resource_id,
+            user_id,
+            timestamp,
+        } => proto::DeviceEvent {
+            timestamp: timestamp.to_rfc3339(),
+            event: Some(Event::ResourceLocked(proto::ResourceLockedEvent {
+                resource_id: resource_id.clone(),
+                user_id: user_id.clone(),
+            })),
+        },
+        DeviceEvent::ResourceUnlocked {
+            resource_id,
+            user_id,
+            timestamp,
+        } => proto::DeviceEvent {
+            timestamp: timestamp.to_rfc3339(),
+            event: Some(Event::ResourceUnlocked(proto::ResourceUnlockedEvent {
+                resource_id: resource_id.clone(),
+                user_id: user_id.clone(),
+            })),
+        },
+        DeviceEvent::UserConnected { user_id, timestamp } => proto::DeviceEvent {
+            timestamp: timestamp.to_rfc3339(),
+            event: Some(Event::UserConnected(proto::UserConnectedEvent {
+                user_id: user_id.clone(),
+            })),
+        },
+        DeviceEvent::UserDisconnected {
+            user_id,
+            reason,
+            timestamp,
+        } => proto::DeviceEvent {
+            timestamp: timestamp.to_rfc3339(),
+            event: Some(Event::UserDisconnected(proto::UserDisconnectedEvent {
+                user_id: user_id.clone(),
+                reason: reason.clone(),
+            })),
+        },
+        DeviceEvent::ServerShutdown { reason, timestamp } => proto::DeviceEvent {
+            timestamp: timestamp.to_rfc3339(),
+            event: Some(Event::ServerShutdown(proto::ServerShutdownEvent {
+                reason: reason.clone(),
+            })),
+        },
     }
 }
 

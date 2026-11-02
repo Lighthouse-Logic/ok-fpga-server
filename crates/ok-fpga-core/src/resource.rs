@@ -616,6 +616,35 @@ impl Resource {
     pub fn holder_entry(&self, user_id: &str) -> Option<&HolderEntry> {
         self.holders.iter().find(|h| h.user_id == user_id)
     }
+
+    /// Returns `true` if `self` and `other` declare at least one common item
+    /// (a Classic endpoint address declared by both, or an overlapping 32-bit
+    /// `AddressRange`) (ADR-034 B1).
+    pub fn shares_item_with(&self, other: &Resource) -> bool {
+        // 1. Check Classic endpoint overlap.
+        let classic_overlap = match (&self.endpoints, &other.endpoints) {
+            (Some(a), Some(b)) => a
+                .entries
+                .iter()
+                .any(|ea| b.entries.iter().any(|eb| ea.address == eb.address)),
+            (Some(a), None) if other.interfaces.classic => {
+                a.entries.iter().any(|ea| ea.address <= 0x7F)
+            }
+            (None, Some(b)) if self.interfaces.classic => {
+                b.entries.iter().any(|eb| eb.address <= 0x7F)
+            }
+            (None, None) => self.interfaces.classic && other.interfaces.classic,
+            _ => false,
+        };
+        if classic_overlap {
+            return true;
+        }
+
+        // 2. Check 32-bit address range overlap.
+        self.address_ranges
+            .iter()
+            .any(|ra| other.address_ranges.iter().any(|rb| ra.overlaps(rb)))
+    }
 }
 
 
@@ -961,6 +990,109 @@ pub enum RegisterError {
     Duplicate,
     /// The registration check failed (overlap or validation).
     Rejected(ResourceError),
+}
+
+// ============================================================================
+// Lock / Unlock & Release Outcomes (ADR-034, Phase 44-D)
+// ============================================================================
+
+/// What [`ResourceRegistry::lock`] did when the call succeeded (ADR-034, 44-D).
+///
+/// Re-locking a resource when the caller already holds its lock is an
+/// idempotent no-op (44-D Q2): the call returns [`LockOutcome::AlreadyLockedBySelf`]
+/// so transport handlers can affirm the lock without emitting duplicate
+/// `ResourceLocked` / `ResourceChanged` events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LockOutcome {
+    /// The caller just acquired the lock (`state` became `InUseLocked`).
+    Locked,
+    /// The caller already held the lock on this resource (no state change).
+    AlreadyLockedBySelf,
+}
+
+/// Why a [`ResourceRegistry::lock`] or [`ResourceRegistry::unlock`] call failed (ADR-034, 44-D).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LockError {
+    /// The resource does not exist (REST 404 / gRPC `NOT_FOUND`).
+    NotFound(String),
+    /// The resource is not a `shared` resource, or is not held by the caller,
+    /// or the caller holds it as `read_only`, or the caller is not the locker
+    /// on unlock when no one else holds the lock (REST 409 / gRPC
+    /// `FAILED_PRECONDITION` without a `conflict` object).
+    PreconditionFailed(String),
+    /// The resource is already locked by another user (`conflict.code = "locked"`, B3)
+    /// or is blocked by another user's lock on an overlapping resource
+    /// (`conflict.code = "blocked"`, B1/B3).
+    Conflict(ResourceError),
+}
+
+impl LockError {
+    /// Human-readable error message.
+    pub fn detail(&self) -> &str {
+        match self {
+            LockError::NotFound(msg) | LockError::PreconditionFailed(msg) => msg,
+            LockError::Conflict(err) => &err.detail,
+        }
+    }
+
+    /// Optional structured [`ResourceConflict`] for 409 / `FAILED_PRECONDITION`.
+    pub fn conflict(&self) -> Option<&ResourceConflict> {
+        match self {
+            LockError::Conflict(err) => Some(&err.conflict),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for LockError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.detail())
+    }
+}
+
+/// Information about a resource that was released by a user (44-D Q3).
+///
+/// Returned by [`ResourceRegistry::release_with_info`] and
+/// [`ResourceRegistry::release_all_for_user_with_info`] so transport handlers
+/// and the session sweep task can emit `ResourceUnlocked` whenever a release
+/// implicitly ends a shared-resource lock, followed by `ResourceChanged`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReleasedResource {
+    /// ID of the released resource.
+    pub resource_id: ResourceId,
+    /// `true` if the releasing user held an explicit shared-resource lock on
+    /// this resource (`access_mode == Some(Shared)` and `locked_by == Some(user)`).
+    pub was_locked: bool,
+    /// State of the resource after the release (`Available` or `InUseShared`).
+    pub new_state: ResourceState,
+}
+
+/// Find the first resource (in deterministic `id` ascending order) on the
+/// same device that blocks `target` for `user_id` (ADR-034 B1, B4, D35).
+///
+/// Resource `target` is blocked for `user_id` when another resource `other`
+/// (`other.id != target.id`, `other.device_serial == target.device_serial`)
+/// is currently locked by a different user (`other.locked_by == Some(v)` with
+/// `v != user_id`) and declares at least one common item with `target`.
+fn find_blocking_resource<'a, I>(
+    resources: I,
+    target: &Resource,
+    user_id: &str,
+) -> Option<&'a Resource>
+where
+    I: IntoIterator<Item = &'a Resource>,
+{
+    let mut candidates: Vec<&'a Resource> = resources
+        .into_iter()
+        .filter(|r| {
+            r.id != target.id
+                && r.device_serial == target.device_serial
+                && r.locked_by.as_deref().is_some_and(|locker| locker != user_id)
+                && target.shares_item_with(r)
+        })
+        .collect();
+    candidates.sort_by(|a, b| a.id.cmp(&b.id));
+    candidates.into_iter().next()
 }
 
 // ============================================================================
@@ -1726,8 +1858,15 @@ impl ResourceRegistry {
     ///
     /// Returns the number of resources that were actually released.
     pub fn release_all_for_user(&self, user_id: &UserId) -> usize {
+        self.release_all_for_user_with_info(user_id).len()
+    }
+
+    /// Release all resources held by `user_id` across all devices and return
+    /// per-resource details (sorted by `resource_id`) so transport handlers
+    /// can broadcast `ResourceUnlocked` and `ResourceChanged` events (44-D Q3).
+    pub fn release_all_for_user_with_info(&self, user_id: &UserId) -> Vec<ReleasedResource> {
         let mut map = self.resources.write().unwrap();
-        let mut released = 0;
+        let mut released = Vec::new();
 
         for resource in map.values_mut() {
             let before = resource.holders.len();
@@ -1738,7 +1877,8 @@ impl ResourceRegistry {
                 continue;
             }
 
-            released += 1;
+            let was_locked = resource.access_mode == Some(AccessMode::Shared)
+                && resource.locked_by.as_deref() == Some(user_id);
 
             // If the releasing user was the locker, clear the lock.
             if resource.locked_by.as_deref() == Some(user_id) {
@@ -1754,8 +1894,15 @@ impl ResourceRegistry {
                 // (e.g. Shared or ReadOnly) remain — back to InUseShared.
                 resource.state = ResourceState::InUseShared;
             }
+
+            released.push(ReleasedResource {
+                resource_id: resource.id.clone(),
+                was_locked,
+                new_state: resource.state.clone(),
+            });
         }
 
+        released.sort_by(|a, b| a.resource_id.cmp(&b.resource_id));
         released
     }
 
@@ -1823,104 +1970,183 @@ impl ResourceRegistry {
     /// Returns `true` if the user was holding the resource and it was released.
     /// Returns `false` if the user was not holding the resource.
     pub fn release(&self, resource_id: &str, user_id: &UserId) -> bool {
-        let mut map = self.resources.write().unwrap();
-        if let Some(resource) = map.get_mut(resource_id) {
-            let before = resource.holders.len();
-            resource.holders.retain(|h| h.user_id != *user_id);
-            let removed = resource.holders.len() < before;
-
-            // If the releasing user was the locker, clear the lock.
-            if removed && resource.locked_by.as_deref() == Some(user_id) {
-                resource.locked_by = None;
-            }
-
-            if removed && resource.holders.is_empty() {
-                // No more holders — transition back to Available.
-                resource.state = ResourceState::Available;
-                resource.locked_by = None;
-            } else if removed && resource.locked_by.is_none() {
-                // Locker (or exclusive holder) left while other holders
-                // (e.g. Shared or ReadOnly) remain — back to InUseShared.
-                resource.state = ResourceState::InUseShared;
-            }
-
-            removed
-        } else {
-            false
-        }
+        self.release_with_info(resource_id, user_id).is_some()
     }
 
-    /// Lock a shared resource for exclusive use by a holder (ADR-020 §3).
+    /// Release a resource for `user_id` and return details about whether an
+    /// explicit shared-resource lock ended and the new resource state (44-D Q3).
+    pub fn release_with_info(
+        &self,
+        resource_id: &str,
+        user_id: &UserId,
+    ) -> Option<ReleasedResource> {
+        let mut map = self.resources.write().unwrap();
+        let resource = map.get_mut(resource_id)?;
+
+        let before = resource.holders.len();
+        resource.holders.retain(|h| h.user_id != *user_id);
+        let removed = resource.holders.len() < before;
+
+        if !removed {
+            return None;
+        }
+
+        let was_locked = resource.access_mode == Some(AccessMode::Shared)
+            && resource.locked_by.as_deref() == Some(user_id);
+
+        // If the releasing user was the locker, clear the lock.
+        if resource.locked_by.as_deref() == Some(user_id) {
+            resource.locked_by = None;
+        }
+
+        if resource.holders.is_empty() {
+            // No more holders — transition back to Available.
+            resource.state = ResourceState::Available;
+            resource.locked_by = None;
+        } else if resource.locked_by.is_none() {
+            // Locker (or exclusive holder) left while other holders
+            // (e.g. Shared or ReadOnly) remain — back to InUseShared.
+            resource.state = ResourceState::InUseShared;
+        }
+
+        Some(ReleasedResource {
+            resource_id: resource.id.clone(),
+            was_locked,
+            new_state: resource.state.clone(),
+        })
+    }
+
+    /// If `resource_id` is blocked for `user_id` by another resource's lock on
+    /// the same device (ADR-034 B1, B4, D35), returns the [`ResourceConflict`]
+    /// (`code: ConflictCode::Blocked`, `resource_id`, `resource_name`).
+    pub fn blocking_conflict_for(
+        &self,
+        resource_id: &str,
+        user_id: &str,
+    ) -> Option<ResourceConflict> {
+        let map = self.resources.read().unwrap();
+        let target = map.get(resource_id)?;
+        let blocker = find_blocking_resource(map.values(), target, user_id)?;
+        Some(
+            ResourceConflict::new(ConflictCode::Blocked)
+                .with_resource(&blocker.id, &blocker.name),
+        )
+    }
+
+    /// Lock a shared resource for exclusive use by a holder (ADR-020 §3, ADR-034 B1–B4).
     ///
     /// Preconditions:
-    /// - Resource must exist and be in `InUseShared` state.
-    /// - `user_id` must be a current holder.
-    /// - Resource's `access_mode` must be `Shared` (exclusive resources are
-    ///   always implicitly locked).
-    ///
-    /// Returns `Ok(())` on success, or an error string.
-    pub fn lock(&self, resource_id: &str, user_id: &UserId) -> Result<(), String> {
+    /// - Resource must exist (`LockError::NotFound` otherwise).
+    /// - Resource's `access_mode` must be `Shared` (`LockError::PreconditionFailed` otherwise).
+    /// - `user_id` must be a current holder, and not in `ReadOnly` mode
+    ///   (`LockError::PreconditionFailed` otherwise).
+    /// - If `user_id` already holds the lock on this resource, returns
+    ///   `Ok(LockOutcome::AlreadyLockedBySelf)` (idempotent, 44-D Q2).
+    /// - If another user holds the lock on this resource, returns
+    ///   `Err(LockError::Conflict)` with `ConflictCode::Locked` (B3).
+    /// - If another user holds the lock on an overlapping resource on the
+    ///   same device, returns `Err(LockError::Conflict)` with
+    ///   `ConflictCode::Blocked` naming that resource (B1, B3, B4, D35).
+    pub fn lock(&self, resource_id: &str, user_id: &UserId) -> Result<LockOutcome, LockError> {
         let mut map = self.resources.write().unwrap();
-        let resource = map.get_mut(resource_id).ok_or_else(|| {
-            format!("Resource '{}' not found", resource_id)
+        let resource = map.get(resource_id).ok_or_else(|| {
+            LockError::NotFound(format!("Resource '{}' not found", resource_id))
         })?;
 
         if resource.access_mode != Some(AccessMode::Shared) {
-            return Err("Cannot lock/unlock an exclusive resource — it is always implicitly locked".to_string());
+            return Err(LockError::PreconditionFailed(
+                "Cannot lock/unlock an exclusive resource — it is always implicitly locked"
+                    .to_string(),
+            ));
         }
 
-        if !resource.has_holder(user_id) {
-            return Err(format!(
+        let Some(entry) = resource.holder_entry(user_id) else {
+            return Err(LockError::PreconditionFailed(format!(
                 "User '{}' is not a holder of resource '{}'",
                 user_id, resource_id
-            ));
-        }
+            )));
+        };
 
         // ADR-026: ReadOnly holders cannot lock.
-        if let Some(entry) = resource.holder_entry(user_id) {
-            if entry.mode == AccessMode::ReadOnly {
-                return Err(format!(
-                    "User '{}' acquired resource '{}' as ReadOnly — cannot lock",
-                    user_id, resource_id
-                ));
+        if entry.mode == AccessMode::ReadOnly {
+            return Err(LockError::PreconditionFailed(format!(
+                "User '{}' acquired resource '{}' as ReadOnly — cannot lock",
+                user_id, resource_id
+            )));
+        }
+
+        // Check if this resource itself is already locked.
+        if let Some(ref locker) = resource.locked_by {
+            if locker == user_id {
+                // 44-D Q2: Repeat lock by the current lock holder is an
+                // idempotent success.
+                return Ok(LockOutcome::AlreadyLockedBySelf);
             }
+            return Err(LockError::Conflict(ResourceError {
+                detail: format!(
+                    "Resource '{}' is already locked by '{}'",
+                    resource_id, locker
+                ),
+                conflict: ResourceConflict::new(ConflictCode::Locked)
+                    .with_resource(&resource.id, &resource.name),
+            }));
         }
 
-        if resource.locked_by.is_some() {
-            return Err(format!(
-                "Resource '{}' is already locked by '{}'",
-                resource_id,
-                resource.locked_by.as_deref().unwrap_or("unknown")
-            ));
+        // B1 / B3 / B4 / D35: Check whether another resource on the same
+        // device is locked by a different user and shares at least one item
+        // with this resource.
+        if let Some(blocker) = find_blocking_resource(map.values(), resource, user_id) {
+            let blocker_locker = blocker.locked_by.as_deref().unwrap_or("unknown");
+            return Err(LockError::Conflict(ResourceError {
+                detail: format!(
+                    "Resource '{}' is blocked for '{}' by resource '{}' (locked by '{}')",
+                    resource_id, user_id, blocker.id, blocker_locker
+                ),
+                conflict: ResourceConflict::new(ConflictCode::Blocked)
+                    .with_resource(&blocker.id, &blocker.name),
+            }));
         }
 
+        let resource = map.get_mut(resource_id).unwrap();
         resource.locked_by = Some(user_id.clone());
         resource.state = ResourceState::InUseLocked;
-        Ok(())
+        Ok(LockOutcome::Locked)
     }
 
     /// Unlock a previously locked shared resource (ADR-020 §3).
     ///
     /// Preconditions:
-    /// - Resource must exist and be in `InUseLocked` state.
+    /// - Resource must exist (`LockError::NotFound` otherwise).
+    /// - Resource's `access_mode` must be `Shared`.
     /// - `user_id` must be the user who locked the resource.
-    ///
-    /// Returns `Ok(())` on success, or an error string.
-    pub fn unlock(&self, resource_id: &str, user_id: &UserId) -> Result<(), String> {
+    pub fn unlock(&self, resource_id: &str, user_id: &UserId) -> Result<(), LockError> {
         let mut map = self.resources.write().unwrap();
         let resource = map.get_mut(resource_id).ok_or_else(|| {
-            format!("Resource '{}' not found", resource_id)
+            LockError::NotFound(format!("Resource '{}' not found", resource_id))
         })?;
 
         if resource.access_mode != Some(AccessMode::Shared) {
-            return Err("Cannot lock/unlock an exclusive resource — it is always implicitly locked".to_string());
+            return Err(LockError::PreconditionFailed(
+                "Cannot lock/unlock an exclusive resource — it is always implicitly locked"
+                    .to_string(),
+            ));
         }
 
         if resource.locked_by.as_deref() != Some(user_id.as_str()) {
-            return Err(format!(
+            if let Some(ref locker) = resource.locked_by {
+                return Err(LockError::Conflict(ResourceError {
+                    detail: format!(
+                        "User '{}' did not lock resource '{}' (locked by '{}')",
+                        user_id, resource_id, locker
+                    ),
+                    conflict: ResourceConflict::new(ConflictCode::Locked)
+                        .with_resource(&resource.id, &resource.name),
+                }));
+            }
+            return Err(LockError::PreconditionFailed(format!(
                 "User '{}' did not lock resource '{}'",
                 user_id, resource_id
-            ));
+            )));
         }
 
         resource.locked_by = None;
@@ -4084,6 +4310,198 @@ mod tests {
         assert!(registry
             .check_endpoint_access("alice", "DEV_A", 0x01, &EndpointType::WireIn, Some(0x0042))
             .is_ok());
+    }
+
+    // ── Phase 44-D: Locking and blocking (B1–B4, D35) ────────────
+
+    /// Build a shared resource on `serial` declaring the given WireIn endpoints as shared.
+    fn shared_ep_resource(id: &str, name: &str, serial: &str, eps: &[u8]) -> Resource {
+        let mut r = Resource::new(
+            id.to_string(),
+            name.to_string(),
+            None,
+            serial.to_string(),
+            AccessMode::Shared,
+        );
+        r.interfaces.classic = true;
+        r.endpoints = Some(EndpointDeclaration {
+            default_access: Some(AccessMode::Shared),
+            entries: eps
+                .iter()
+                .map(|&addr| EndpointEntry {
+                    address: addr,
+                    ep_type: EndpointType::WireIn,
+                    access: AccessMode::Shared,
+                    private: false,
+                    description: None,
+                })
+                .collect(),
+        });
+        r
+    }
+
+    #[test]
+    fn test_blocking_shared_item_blocks_other_resource() {
+        // B1, B3: R = {0x00, 0x01} and S = {0x01, 0x02} share endpoint 0x01 on DEV_A.
+        // Alice locks R -> S is blocked for Bob with ConflictCode::Blocked naming R.
+        let registry = ResourceRegistry::new();
+        registry.register(shared_ep_resource("DEV_A:res_r", "res_r", "DEV_A", &[0x00, 0x01]));
+        registry.register(shared_ep_resource("DEV_A:res_s", "res_s", "DEV_A", &[0x01, 0x02]));
+
+        registry
+            .acquire("DEV_A:res_r", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("DEV_A:res_s", &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        assert_eq!(
+            registry.lock("DEV_A:res_r", &"alice".to_string()).unwrap(),
+            LockOutcome::Locked
+        );
+
+        let err = registry.lock("DEV_A:res_s", &"bob".to_string()).unwrap_err();
+        let conflict = err.conflict().expect("Blocked error must carry a conflict");
+        assert_eq!(conflict.code, ConflictCode::Blocked);
+        assert_eq!(conflict.resource_id.as_deref(), Some("DEV_A:res_r"));
+        assert_eq!(conflict.resource_name.as_deref(), Some("res_r"));
+        assert!(conflict.item_type.is_none());
+        assert!(conflict.item.is_none());
+        assert!(conflict.items.is_empty());
+
+        // Also verify overlapping address ranges trigger blocking.
+        let registry_ranges = ResourceRegistry::new();
+        let mut r_range = Resource::new(
+            "DEV_A:range_r".to_string(),
+            "range_r".to_string(),
+            None,
+            "DEV_A".to_string(),
+            AccessMode::Shared,
+        );
+        r_range.address_ranges.push(AddressRange {
+            name: None,
+            start: 0x1000,
+            end: 0x1FFF,
+            access: AccessMode::Shared,
+            private: false,
+            description: None,
+        });
+        let mut s_range = Resource::new(
+            "DEV_A:range_s".to_string(),
+            "range_s".to_string(),
+            None,
+            "DEV_A".to_string(),
+            AccessMode::Shared,
+        );
+        s_range.address_ranges.push(AddressRange {
+            name: None,
+            start: 0x1800,
+            end: 0x2FFF,
+            access: AccessMode::Shared,
+            private: false,
+            description: None,
+        });
+        registry_ranges.register(r_range);
+        registry_ranges.register(s_range);
+        registry_ranges
+            .acquire("DEV_A:range_r", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry_ranges
+            .acquire("DEV_A:range_s", &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry_ranges
+            .lock("DEV_A:range_r", &"alice".to_string())
+            .unwrap();
+
+        let err2 = registry_ranges
+            .lock("DEV_A:range_s", &"bob".to_string())
+            .unwrap_err();
+        let conflict2 = err2.conflict().unwrap();
+        assert_eq!(conflict2.code, ConflictCode::Blocked);
+        assert_eq!(conflict2.resource_id.as_deref(), Some("DEV_A:range_r"));
+        assert_eq!(conflict2.resource_name.as_deref(), Some("range_r"));
+    }
+
+    #[test]
+    fn test_blocking_non_transitive() {
+        // B4: R = {0x00, 0x01}, S = {0x01, 0x02}, T = {0x02, 0x03}.
+        // Alice locks R -> S is blocked for Bob, but T is NOT blocked for Bob.
+        let registry = ResourceRegistry::new();
+        registry.register(shared_ep_resource("DEV_A:r", "r", "DEV_A", &[0x00, 0x01]));
+        registry.register(shared_ep_resource("DEV_A:s", "s", "DEV_A", &[0x01, 0x02]));
+        registry.register(shared_ep_resource("DEV_A:t", "t", "DEV_A", &[0x02, 0x03]));
+
+        registry
+            .acquire("DEV_A:r", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("DEV_A:s", &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("DEV_A:t", &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        registry.lock("DEV_A:r", &"alice".to_string()).unwrap();
+
+        // S is blocked for Bob (shares 0x01 with R).
+        let err_s = registry.lock("DEV_A:s", &"bob".to_string()).unwrap_err();
+        assert_eq!(err_s.conflict().unwrap().code, ConflictCode::Blocked);
+
+        // T is NOT blocked for Bob (shares 0x02 with S, which is unlocked, and nothing with R).
+        assert_eq!(
+            registry.lock("DEV_A:t", &"bob".to_string()).unwrap(),
+            LockOutcome::Locked
+        );
+    }
+
+    #[test]
+    fn test_blocking_own_lock_not_blocked() {
+        // D35: The locker is never blocked by her own lock.
+        // Alice holds and locks R = {0x00, 0x01}, and also holds S = {0x01, 0x02}.
+        // Alice can lock S as well.
+        let registry = ResourceRegistry::new();
+        registry.register(shared_ep_resource("DEV_A:r", "r", "DEV_A", &[0x00, 0x01]));
+        registry.register(shared_ep_resource("DEV_A:s", "s", "DEV_A", &[0x01, 0x02]));
+
+        registry
+            .acquire("DEV_A:r", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("DEV_A:s", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        assert_eq!(
+            registry.lock("DEV_A:r", &"alice".to_string()).unwrap(),
+            LockOutcome::Locked
+        );
+        assert!(registry.blocking_conflict_for("DEV_A:s", "alice").is_none());
+        assert_eq!(
+            registry.lock("DEV_A:s", &"alice".to_string()).unwrap(),
+            LockOutcome::Locked
+        );
+    }
+
+    #[test]
+    fn test_lock_repeat_by_same_user_is_idempotent() {
+        // 44-D Q2: If Alice holds the lock and calls lock() again, it succeeds
+        // with LockOutcome::AlreadyLockedBySelf.
+        let registry = ResourceRegistry::new();
+        registry.register(shared_ep_resource("DEV_A:r", "r", "DEV_A", &[0x00]));
+        registry
+            .acquire("DEV_A:r", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        assert_eq!(
+            registry.lock("DEV_A:r", &"alice".to_string()).unwrap(),
+            LockOutcome::Locked
+        );
+        assert_eq!(
+            registry.lock("DEV_A:r", &"alice".to_string()).unwrap(),
+            LockOutcome::AlreadyLockedBySelf
+        );
+        let r = registry.get("DEV_A:r").unwrap();
+        assert_eq!(r.state, ResourceState::InUseLocked);
+        assert_eq!(r.locked_by.as_deref(), Some("alice"));
     }
 }
 

@@ -265,23 +265,12 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
 - Commit `2167914`. ADR-034 §11. Carried forward: removing `locked_by`
   checks on shared-resource exclusive ranges (`S-14`) → 44-E.
 
-**44-D Locking and blocking (B1–B4) + events**
-- Files: `ok-fpga-core/src/resource.rs`, `rest/resources.rs`,
-  `rest/events.rs`, `grpc/device_service.rs`.
-- Lock preconditions (holder, not ReadOnly); 409 if locked or blocked for
-  the caller (B3); whole-resource lock; blocking computation (B1, B4); own
-  lock never blocks self (D35). Emit `resource_locked` /
-  `resource_unlocked` (SSE and gRPC `DeviceEvent`) to holders of the
-  resource **and** of the resources it blocks.
-- Implement gRPC `WatchDeviceEvents` (currently `UNIMPLEMENTED`) so gRPC
-  clients receive the same events as SSE (scope note in 44-A).
-  Test: `test_grpc_watch_device_events_streams_resource_events`.
-- Tests (Tier 3): `test_lock_blocked_resource_conflict`,
-  `test_blocking_shared_item_blocks_other_resource`,
-  `test_blocking_non_transitive`, `test_blocking_own_lock_not_blocked`,
-  `test_unlock_notifies_blocked_holders`, `test_grpc_lock_events_emitted`.
-  Tier 1: two users, two overlapping shared resources.
-- Commit: `feat: resource lock blocking and lock events (B1-B4)`.
+**44-D Locking and blocking (B1–B4) + events — ✅ Done (0.3.5)**
+- Archived: [archive/roadmap-phases-44.md](archive/roadmap-phases-44.md)
+  (owner decisions Q1–Q3, blocking rules B1–B4/D35, `WatchDeviceEvents`,
+  tests as implemented).
+- Commit `(this commit)`. ADR-034 §12. Carried forward: runtime write
+  blocking enforcement (`B2`) → 44-E.
 
 **44-E Enforcement pipeline (B2)**
 - Files: `config.rs`, `config.toml`, `rest/mod.rs`, `rest/access_middleware.rs`,

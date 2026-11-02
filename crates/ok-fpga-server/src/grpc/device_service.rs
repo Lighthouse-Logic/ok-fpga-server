@@ -11,14 +11,12 @@ use tracing::{info, warn};
 
 use ok_fpga_core::declaration::{build_resource, check_interfaces_for_dataport, check_overlap};
 use ok_fpga_core::manager::{DeleteReason, DeviceEvent};
-use ok_fpga_core::resource::{
-    AccessMode, AcquireOutcome, ConflictCode, RegisterError, ResourceConflict,
-};
+use ok_fpga_core::resource::{AccessMode, AcquireOutcome, LockOutcome, RegisterError};
 
 use crate::grpc::proto;
 use crate::grpc::resource_mapping::{
-    conflict_status, create_request_to_spec, holder_mode_from_proto, resource_error_status,
-    user_session_to_proto,
+    conflict_status, create_request_to_spec, device_event_to_proto, holder_mode_from_proto,
+    lock_error_status, resource_error_status, user_session_to_proto,
 };
 use crate::state::AppState;
 
@@ -78,26 +76,6 @@ impl DeviceServiceImpl {
                 new_state: resource.state.as_str().to_string(),
                 timestamp: chrono::Utc::now(),
             });
-        }
-    }
-
-    /// Turn a failed lock/unlock into a `Status`: `NOT_FOUND` for an
-    /// unknown resource, otherwise `FAILED_PRECONDITION`, with a `locked`
-    /// conflict detail when another user holds the lock (same rule as REST).
-    fn lock_failure(&self, id: &str, user_id: &str, message: String) -> Status {
-        match self.state.resource_registry.get(id) {
-            None => Status::not_found(format!("Resource '{}' not found", id)),
-            Some(resource) => match resource.locked_by.as_deref() {
-                Some(locker) if locker != user_id => conflict_status(
-                    Code::FailedPrecondition,
-                    message,
-                    Some(
-                        &ResourceConflict::new(ConflictCode::Locked)
-                            .with_resource(&resource.id, &resource.name),
-                    ),
-                ),
-                _ => Status::failed_precondition(message),
-            },
         }
     }
 }
@@ -934,9 +912,34 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         &self,
         _request: Request<proto::WatchDeviceEventsRequest>,
     ) -> Result<Response<Self::WatchDeviceEventsStream>, Status> {
-        Err(Status::unimplemented(
-            "WatchDeviceEvents requires event bridge",
-        ))
+        let mut rx = self.state.device_manager.subscribe();
+        let (tx, stream_rx) = tokio::sync::mpsc::channel(64);
+
+        tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(event) => {
+                        let proto_event = device_event_to_proto(&event);
+                        if tx.send(Ok(proto_event)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        warn!(
+                            skipped = skipped,
+                            "gRPC WatchDeviceEvents subscriber lagged, skipped events"
+                        );
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        break;
+                    }
+                }
+            }
+        });
+
+        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
+            stream_rx,
+        )))
     }
 
     // ========================================================================
@@ -1062,20 +1065,36 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             return Err(Status::invalid_argument("user_id is required"));
         }
 
-        let released = self
+        let Some(released) = self
             .state
             .resource_registry
-            .release(&req.resource_id, &req.user_id);
-
-        if !released {
+            .release_with_info(&req.resource_id, &req.user_id)
+        else {
             return Err(Status::not_found(format!(
                 "User '{}' is not holding resource '{}'",
                 req.user_id, req.resource_id
             )));
-        }
+        };
 
         // Track the user session (implicit heartbeat on release, same as REST).
         self.state.user_sessions.touch(&req.user_id);
+
+        // 44-D Q3: If the releasing user held the lock on a shared resource,
+        // broadcast ResourceUnlocked before ResourceChanged.
+        if released.was_locked {
+            let _ = self
+                .state
+                .device_manager
+                .broadcast(DeviceEvent::ResourceUnlocked {
+                    resource_id: req.resource_id.clone(),
+                    user_id: req.user_id.clone(),
+                    timestamp: chrono::Utc::now(),
+                });
+            self.state.broadcast_event(&format!(
+                r#"{{"type":"resource_unlocked","resource_id":"{}","user_id":"{}"}}"#,
+                req.resource_id, req.user_id
+            ));
+        }
 
         self.emit_resource_changed(&req.resource_id);
 
@@ -1271,10 +1290,14 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             return Err(Status::invalid_argument("user_id is required"));
         }
 
-        self.state
+        let outcome = self
+            .state
             .resource_registry
             .lock(&req.resource_id, &req.user_id)
-            .map_err(|e| self.lock_failure(&req.resource_id, &req.user_id, e))?;
+            .map_err(|e| lock_error_status(&e))?;
+
+        // Track the user session (implicit heartbeat on lock).
+        self.state.user_sessions.touch(&req.user_id);
 
         let resource = self
             .state
@@ -1282,18 +1305,22 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             .get(&req.resource_id)
             .ok_or_else(|| Status::internal("Resource disappeared after lock"))?;
 
-        self.emit_resource_changed(&req.resource_id);
-        let _ = self.state.device_manager.broadcast(DeviceEvent::ResourceLocked {
-            resource_id: req.resource_id.clone(),
-            user_id: req.user_id.clone(),
-            timestamp: chrono::Utc::now(),
-        });
+        // 44-D Q2: Only emit ResourceChanged and ResourceLocked when a new lock
+        // was acquired; repeat lock by the current locker is idempotent.
+        if outcome == LockOutcome::Locked {
+            self.emit_resource_changed(&req.resource_id);
+            let _ = self.state.device_manager.broadcast(DeviceEvent::ResourceLocked {
+                resource_id: req.resource_id.clone(),
+                user_id: req.user_id.clone(),
+                timestamp: chrono::Utc::now(),
+            });
 
-        // Broadcast event for dashboard auto-refresh (Phase 28D).
-        self.state.broadcast_event(&format!(
-            r#"{{"type":"resource_locked","resource_id":"{}","user_id":"{}"}}"#,
-            req.resource_id, req.user_id
-        ));
+            // Broadcast event for dashboard auto-refresh (Phase 28D).
+            self.state.broadcast_event(&format!(
+                r#"{{"type":"resource_locked","resource_id":"{}","user_id":"{}"}}"#,
+                req.resource_id, req.user_id
+            ));
+        }
 
         Ok(Response::new(proto::ResourceResponse {
             resource: Some(Self::resource_to_proto(&resource)),
@@ -1321,7 +1348,10 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         self.state
             .resource_registry
             .unlock(&req.resource_id, &req.user_id)
-            .map_err(|e| self.lock_failure(&req.resource_id, &req.user_id, e))?;
+            .map_err(|e| lock_error_status(&e))?;
+
+        // Track the user session (implicit heartbeat on unlock).
+        self.state.user_sessions.touch(&req.user_id);
 
         let resource = self
             .state
@@ -1401,10 +1431,40 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         }
 
         // Release all resources held by this user across all devices.
-        let released = self
+        let released_items = self
             .state
             .resource_registry
-            .release_all_for_user(&req.user_id);
+            .release_all_for_user_with_info(&req.user_id);
+        let released = released_items.len();
+
+        for item in &released_items {
+            if item.was_locked {
+                let _ = self
+                    .state
+                    .device_manager
+                    .broadcast(DeviceEvent::ResourceUnlocked {
+                        resource_id: item.resource_id.clone(),
+                        user_id: req.user_id.clone(),
+                        timestamp: chrono::Utc::now(),
+                    });
+                self.state.broadcast_event(&format!(
+                    r#"{{"type":"resource_unlocked","resource_id":"{}","user_id":"{}"}}"#,
+                    item.resource_id, req.user_id
+                ));
+            }
+            let _ = self
+                .state
+                .device_manager
+                .broadcast(DeviceEvent::ResourceChanged {
+                    resource_id: item.resource_id.clone(),
+                    new_state: item.new_state.as_str().to_string(),
+                    timestamp: chrono::Utc::now(),
+                });
+            self.state.broadcast_event(&format!(
+                r#"{{"type":"resource_released","resource_id":"{}","user_id":"{}"}}"#,
+                item.resource_id, req.user_id
+            ));
+        }
 
         // Remove the user session entirely.
         self.state.user_sessions.remove(&req.user_id);
@@ -1414,6 +1474,15 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             released_count = released,
             "User disconnected via gRPC Disconnect"
         );
+
+        let _ = self
+            .state
+            .device_manager
+            .broadcast(DeviceEvent::UserDisconnected {
+                user_id: req.user_id.clone(),
+                reason: "explicit".to_string(),
+                timestamp: chrono::Utc::now(),
+            });
 
         // Broadcast event for dashboard auto-refresh (Phase 28D).
         self.state.broadcast_event(&format!(
@@ -1847,5 +1916,233 @@ mod tests {
         assert_eq!(r2.state, proto::ResourceState::InUseLocked as i32);
         assert_eq!(r2.locked_by, "alice");
         assert_eq!(r2.holders.len(), 2);
+    }
+
+    // ── Phase 44-D: gRPC Locking, Blocking & WatchDeviceEvents ──
+
+    fn shared_create_request(name: &str, ep: u32) -> proto::CreateResourceRequest {
+        let mut req = create_request(name);
+        req.access_mode = Some(proto::ResourceAccessMode::Shared as i32);
+        req.endpoints = Some(proto::EndpointDeclaration {
+            default_access: Some(proto::ResourceAccessMode::Shared as i32),
+            entries: vec![proto::EndpointEntry {
+                address: ep,
+                r#type: "wire_in".to_string(),
+                access: Some(proto::ResourceAccessMode::Shared as i32),
+                private: false,
+                description: String::new(),
+            }],
+        });
+        req
+    }
+
+    #[tokio::test]
+    async fn test_grpc_lock_events_emitted() {
+        let svc = service();
+        svc.create_resource(Request::new(shared_create_request("lk_r", 0x01)))
+            .await
+            .unwrap();
+        svc.create_resource(Request::new(shared_create_request("lk_s", 0x01)))
+            .await
+            .unwrap();
+
+        let id_r = format!("{SERIAL}:lk_r");
+        let id_s = format!("{SERIAL}:lk_s");
+
+        svc.acquire_resource(Request::new(proto::AcquireResourceRequest {
+            resource_id: id_r.clone(),
+            user_id: "alice".to_string(),
+            mode: None,
+        }))
+        .await
+        .unwrap();
+        svc.acquire_resource(Request::new(proto::AcquireResourceRequest {
+            resource_id: id_s.clone(),
+            user_id: "bob".to_string(),
+            mode: None,
+        }))
+        .await
+        .unwrap();
+
+        let mut events = svc.state.device_manager.subscribe();
+
+        // Alice locks lk_r -> emits ResourceChanged and ResourceLocked.
+        let locked = svc
+            .lock_resource(Request::new(proto::LockResourceRequest {
+                resource_id: id_r.clone(),
+                user_id: "alice".to_string(),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .resource
+            .unwrap();
+        assert_eq!(locked.locked_by, "alice");
+        assert_eq!(locked.state, proto::ResourceState::InUseLocked as i32);
+
+        let mut saw_locked = false;
+        while let Ok(evt) = events.try_recv() {
+            if let DeviceEvent::ResourceLocked { resource_id, user_id, .. } = evt {
+                assert_eq!(resource_id, id_r);
+                assert_eq!(user_id, "alice");
+                saw_locked = true;
+            }
+        }
+        assert!(saw_locked, "gRPC LockResource must emit ResourceLocked");
+
+        // 44-D Q2: Repeat lock by Alice succeeds idempotently with no duplicate event.
+        let repeat = svc
+            .lock_resource(Request::new(proto::LockResourceRequest {
+                resource_id: id_r.clone(),
+                user_id: "alice".to_string(),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .resource
+            .unwrap();
+        assert_eq!(repeat.locked_by, "alice");
+        assert!(events.try_recv().is_err(), "no event on idempotent repeat lock");
+
+        // Bob tries to lock lk_s -> FAILED_PRECONDITION with ConflictCode::Blocked naming lk_r.
+        let status = svc
+            .lock_resource(Request::new(proto::LockResourceRequest {
+                resource_id: id_s.clone(),
+                user_id: "bob".to_string(),
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(status.code(), Code::FailedPrecondition);
+        let detail = decode_conflict_detail(&status).expect("Blocked conflict detail");
+        assert_eq!(detail.code, "blocked");
+        assert_eq!(detail.resource_id, id_r);
+        assert_eq!(detail.resource_name, "lk_r");
+        assert!(detail.item.is_empty());
+        assert!(detail.items.is_empty());
+
+        // Alice unlocks lk_r -> emits ResourceUnlocked.
+        svc.unlock_resource(Request::new(proto::LockResourceRequest {
+            resource_id: id_r.clone(),
+            user_id: "alice".to_string(),
+        }))
+        .await
+        .unwrap();
+
+        let mut saw_unlocked = false;
+        while let Ok(evt) = events.try_recv() {
+            if let DeviceEvent::ResourceUnlocked { resource_id, user_id, .. } = evt {
+                assert_eq!(resource_id, id_r);
+                assert_eq!(user_id, "alice");
+                saw_unlocked = true;
+            }
+        }
+        assert!(saw_unlocked, "gRPC UnlockResource must emit ResourceUnlocked");
+    }
+
+    #[tokio::test]
+    async fn test_grpc_watch_device_events_streams_resource_events() {
+        use tokio_stream::StreamExt;
+
+        let svc = service();
+        let mut stream = svc
+            .watch_device_events(Request::new(proto::WatchDeviceEventsRequest {}))
+            .await
+            .unwrap()
+            .into_inner();
+
+        let id = format!("{SERIAL}:stream_res");
+
+        // 1. Create resource -> ResourceCreated
+        svc.create_resource(Request::new(shared_create_request("stream_res", 0x02)))
+            .await
+            .unwrap();
+        let evt1 = stream.next().await.unwrap().unwrap();
+        assert!(matches!(
+            evt1.event,
+            Some(proto::device_event::Event::ResourceCreated(ref e))
+                if e.resource_id == id && e.name == "stream_res"
+        ));
+
+        // 2. Acquire resource -> ResourceStateChanged (InUseShared)
+        svc.acquire_resource(Request::new(proto::AcquireResourceRequest {
+            resource_id: id.clone(),
+            user_id: "alice".to_string(),
+            mode: None,
+        }))
+        .await
+        .unwrap();
+        let evt2 = stream.next().await.unwrap().unwrap();
+        assert!(matches!(
+            evt2.event,
+            Some(proto::device_event::Event::ResourceStateChanged(ref e))
+                if e.resource_id == id && e.new_state == proto::ResourceState::InUseShared as i32
+        ));
+
+        // 3. Lock resource -> ResourceStateChanged (InUseLocked) + ResourceLocked
+        svc.lock_resource(Request::new(proto::LockResourceRequest {
+            resource_id: id.clone(),
+            user_id: "alice".to_string(),
+        }))
+        .await
+        .unwrap();
+        let evt3 = stream.next().await.unwrap().unwrap();
+        assert!(matches!(
+            evt3.event,
+            Some(proto::device_event::Event::ResourceStateChanged(ref e))
+                if e.resource_id == id && e.new_state == proto::ResourceState::InUseLocked as i32
+        ));
+        let evt4 = stream.next().await.unwrap().unwrap();
+        assert!(matches!(
+            evt4.event,
+            Some(proto::device_event::Event::ResourceLocked(ref e))
+                if e.resource_id == id && e.user_id == "alice"
+        ));
+
+        // 4. Unlock resource -> ResourceStateChanged (InUseShared) + ResourceUnlocked
+        svc.unlock_resource(Request::new(proto::LockResourceRequest {
+            resource_id: id.clone(),
+            user_id: "alice".to_string(),
+        }))
+        .await
+        .unwrap();
+        let evt5 = stream.next().await.unwrap().unwrap();
+        assert!(matches!(
+            evt5.event,
+            Some(proto::device_event::Event::ResourceStateChanged(ref e))
+                if e.resource_id == id && e.new_state == proto::ResourceState::InUseShared as i32
+        ));
+        let evt6 = stream.next().await.unwrap().unwrap();
+        assert!(matches!(
+            evt6.event,
+            Some(proto::device_event::Event::ResourceUnlocked(ref e))
+                if e.resource_id == id && e.user_id == "alice"
+        ));
+
+        // 5. Release resource -> ResourceStateChanged (Available)
+        svc.release_resource(Request::new(proto::ReleaseResourceRequest {
+            resource_id: id.clone(),
+            user_id: "alice".to_string(),
+        }))
+        .await
+        .unwrap();
+        let evt7 = stream.next().await.unwrap().unwrap();
+        assert!(matches!(
+            evt7.event,
+            Some(proto::device_event::Event::ResourceStateChanged(ref e))
+                if e.resource_id == id && e.new_state == proto::ResourceState::Available as i32
+        ));
+
+        // 6. Delete resource -> ResourceDeleted (Client)
+        svc.delete_resource(Request::new(proto::ResourceRequest {
+            resource_id: id.clone(),
+        }))
+        .await
+        .unwrap();
+        let evt8 = stream.next().await.unwrap().unwrap();
+        assert!(matches!(
+            evt8.event,
+            Some(proto::device_event::Event::ResourceDeleted(ref e))
+                if e.resource_id == id && e.reason == proto::DeleteReason::Client as i32
+        ));
     }
 }

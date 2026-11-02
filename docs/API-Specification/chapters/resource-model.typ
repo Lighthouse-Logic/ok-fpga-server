@@ -437,7 +437,7 @@ accident.
 
 == Lock and unlock <res-lock>
 // ref: ADR-020 §3; ADR-024 §6; D1, D5, D18, D19, D35, D38, D44, D46
-// Implementation status: blocking (B1–B4) is 44-D.
+// Implementation status: blocking (B1–B4) and WatchDeviceEvents implemented in 44-D (0.3.5).
 
 #table(
   columns: (auto, 1fr, 1fr),
@@ -453,6 +453,9 @@ Both take `resource_id` (proto field 1) and `user_id` (proto field 2) in
 - Lock MUST be denied with 409 if the resource is already locked by another
   user, or is blocked for the caller. The error names the locking resource
   and user (`conflict.code` = `locked` or `blocked`).
+- Locking a resource that the caller *already* holds the lock on is an
+  idempotent no-op: the server returns the resource (`locked_by` = caller)
+  without emitting a duplicate `ResourceLocked` event.
 - Lock is try-lock only. The server MUST NOT queue lock requests. A client
   that is refused waits for a `ResourceUnlocked` event and retries.
 - An exclusive resource is implicitly locked while held. Lock and unlock on
@@ -461,7 +464,8 @@ Both take `resource_id` (proto field 1) and `user_id` (proto field 2) in
   Other holders stay holders and receive a `ResourceLocked` event.
 - Only the locker may unlock. Unlock returns the state to `in_use_shared`.
   Holders of the resource *and of every resource it blocked* receive
-  `ResourceUnlocked`.
+  `ResourceUnlocked` (including when the lock ends implicitly via release,
+  disconnect or session timeout).
 
 === Blocking <res-blocking>
 Resource S is *blocked* for user U when another user V (V ≠ U) holds the

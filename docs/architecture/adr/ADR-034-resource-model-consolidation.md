@@ -1,12 +1,12 @@
 # ADR-034: Resource Model Consolidation
 
 **Status**: Accepted — 44-A implemented incl. post-44-A read semantics (0.3.0) and mask default (0.3.1);
-44-A, 44-B and 44-C archived; 44-B implemented (0.3.3); 44-C implemented (0.3.4); 44-D … 44-J pending
+44-A, 44-B, 44-C and 44-D archived; 44-B implemented (0.3.3); 44-C implemented (0.3.4); 44-D implemented (0.3.5); 44-E … 44-J pending
 **Date**: 2026-10-11 (amended 2026-11-02)
 **Commit hash**: 44-A `d3b19a6`; 0.3.0 read semantics (D75–D77) `dcb5e5a`;
 0.3.1 IsTriggered mask default (D78) `6e11f9b`; 0.3.2 heartbeat text and
 shipped enforcement `2e2f7a3`; 44-B registration rules (0.3.3) `1d95a6f`;
-44-C acquisition rules (0.3.4) `2167914`
+44-C acquisition rules (0.3.4) `2167914`; 44-D locking, blocking & events (0.3.5) `(this commit)`
 **Deciders**: Project owner, Architecture Team
 **Phase**: 44 ([development-roadmap.md](../../development-roadmap.md) §44)
 **Supersedes (in part)**: ADR-020 §7, §8 and the Validation Responses table
@@ -273,6 +273,39 @@ both delegate to `ResourceRegistry::acquire` and `DefaultAccessPolicy::can_acqui
   without calling `lock()`. Removing the `locked_by` check for exclusive
   address ranges on shared resources (`S-14`) remains scoped to 44-E.
 
+#### 12. Locking, blocking and events (0.3.5, 44-D)
+
+`ResourceRegistry::lock` and `ResourceRegistry::unlock` enforce the B1, B3,
+B4 and D35 rules and return structured `LockOutcome` / `LockError` types so
+REST and gRPC share the exact same logic:
+
+- **Blocking (B1, B4, D35)**: resource `S` is blocked for user `U` when
+  another resource `R` on the same device (`R.id != S.id`) is locked by
+  another user `V` (`V != U`, so a user's own lock never blocks self, D35)
+  and `R` declares at least one common item (a Classic endpoint address or
+  an overlapping 32-bit `AddressRange`) with `S`. Blocking is direct overlap
+  only — not transitive (B4).
+- **Lock denial (B3, owner decision 44-D Q1)**:
+  - If `S` itself is locked by another user, `lock` returns 409 /
+    `FAILED_PRECONDITION` with `conflict = { code: "locked", resource_id: S.id, resource_name: S.name }`.
+  - If `S` is blocked for the caller by `R` (checked in deterministic
+    ascending `R.id` order), `lock` returns 409 / `FAILED_PRECONDITION` with
+    `conflict = { code: "blocked", resource_id: R.id, resource_name: R.name }`
+    (no item fields needed for `blocked`).
+- **Idempotent repeat lock (owner decision 44-D Q2)**: if the caller already
+  holds the lock on `S`, calling `lock` again returns
+  `Ok(LockOutcome::AlreadyLockedBySelf)` (200 / `OK` affirming the lock,
+  touching the user session, and suppressing duplicate `ResourceLocked` /
+  `ResourceChanged` events).
+- **Implicit unlock event completeness (owner decision 44-D Q3)**: when a
+  holder of a shared-resource lock releases via `/release`, `ReleaseResource`,
+  `/disconnect`, `Disconnect` or session timeout sweep without calling
+  `/unlock` first, `ResourceUnlocked` is broadcast before `ResourceChanged`
+  so holders of blocked resources are always notified.
+- **gRPC `WatchDeviceEvents` fan-out**: subscribes to
+  `DeviceManager::subscribe()`, converts all 11 `DeviceEvent` variants via
+  `device_event_to_proto`, and streams them over `ReceiverStream`.
+
 ### Rationale
 
 One schema shared by REST, gRPC and the dashboard removes the guessing that
@@ -372,6 +405,27 @@ spec addition (Q2) and S-22 scoping (Q1 Option A):
 - Docs: this ADR, `docs/API-Specification/`, `docs/archive/roadmap-phases-44.md`,
   `docs/development-roadmap.md`.
 
+## Files changed (0.3.5, 44-D)
+
+Owner decisions 2026-11-02 (`blocked` conflict fields Q1, idempotent repeat
+lock Q2, implicit unlock events Q3):
+
+- Core: `crates/ok-fpga-core/src/resource.rs` (`Resource::shares_item_with`,
+  `LockOutcome`, `LockError`, `ReleasedResource`, `find_blocking_resource`,
+  `ResourceRegistry::blocking_conflict_for` / `lock` / `unlock` /
+  `release_with_info` / `release_all_for_user_with_info`, unit tests),
+  `crates/ok-fpga-core/tests/device_resource_integration.rs`.
+- Server: `crates/ok-fpga-server/src/rest/resources.rs`,
+  `crates/ok-fpga-server/src/rest/server.rs`,
+  `crates/ok-fpga-server/src/sweep.rs`,
+  `crates/ok-fpga-server/src/grpc/resource_mapping.rs` (`lock_error_status`,
+  `device_event_to_proto`),
+  `crates/ok-fpga-server/src/grpc/device_service.rs` (`watch_device_events`,
+  `lock_resource`, `unlock_resource`, `release_resource`, `disconnect`, Tier 3 tests).
+- Version: `Cargo.toml`, `Cargo.lock` (0.3.5).
+- Docs: this ADR, `docs/API-Specification/`, `docs/archive/roadmap-phases-44.md`,
+  `docs/development-roadmap.md`.
+
 ## Open items
 
 - ~~**44-B**: R1 overlap rules, Rule A, interface/dataport check, `private`
@@ -382,7 +436,8 @@ spec addition (Q2) and S-22 scoping (Q1 Option A):
 - ~~**44-C**: REST acquire still lets the declared `access_mode` override the
   requested `mode` (S-03); A1 rules for REST and gRPC.~~
   **Done in 0.3.4** (§11).
-- **44-D**: lock blocking B1–B4; gRPC `WatchDeviceEvents` fan-out.
+- ~~**44-D**: lock blocking B1–B4; gRPC `WatchDeviceEvents` fan-out.~~
+  **Done in 0.3.5** (§12).
 - **44-E**: endpoint coverage per D61 and D77 (omitted `endpoints` =
   0x00–0x7F only), enforcement on all data-port routes, enforcement on by
   default; ReadOnly F1 (`ResetFPGA`, AXI resets) and F2 (private

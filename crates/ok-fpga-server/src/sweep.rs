@@ -95,22 +95,39 @@ pub fn spawn_sweep_task(
                 for resource in &all_resources {
                     if resource.has_holder(&session.user_id) {
                         // Release this user's hold on the resource.
-                        if resource_registry.release(&resource.id, &session.user_id) {
+                        if let Some(released) = resource_registry
+                            .release_with_info(&resource.id, &session.user_id)
+                        {
                             released_count += 1;
+
+                            if released.was_locked {
+                                let _ = device_manager.broadcast(DeviceEvent::ResourceUnlocked {
+                                    resource_id: resource.id.clone(),
+                                    user_id: session.user_id.clone(),
+                                    timestamp: chrono::Utc::now(),
+                                });
+                                if let Some(ref tx) = event_tx {
+                                    let _ = tx.send(format!(
+                                        r#"{{"type":"resource_unlocked","resource_id":"{}","user_id":"{}"}}"#,
+                                        resource.id, session.user_id
+                                    ));
+                                }
+                            }
 
                             // Broadcast a ResourceChanged event (Option B — handlers broadcast).
                             // Read the state back after the release and send its spec
                             // string (`available`, `in_use_shared`, ...; roadmap S-09).
-                            let new_state = resource_registry
-                                .get(&resource.id)
-                                .map(|r| r.state.as_str())
-                                .unwrap_or("available");
-
                             let _ = device_manager.broadcast(DeviceEvent::ResourceChanged {
                                 resource_id: resource.id.clone(),
-                                new_state: new_state.to_string(),
+                                new_state: released.new_state.as_str().to_string(),
                                 timestamp: chrono::Utc::now(),
                             });
+                            if let Some(ref tx) = event_tx {
+                                let _ = tx.send(format!(
+                                    r#"{{"type":"resource_released","resource_id":"{}","user_id":"{}"}}"#,
+                                    resource.id, session.user_id
+                                ));
+                            }
                         }
                     }
                 }

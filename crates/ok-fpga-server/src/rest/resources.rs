@@ -53,7 +53,7 @@ use ok_fpga_core::declaration::{
 };
 use ok_fpga_core::manager::{DeleteReason, DeviceEvent};
 use ok_fpga_core::resource::{
-    AccessMode, AcquireOutcome, ConflictCode, RegisterError, ResourceConflict, ResourceError,
+    AccessMode, AcquireOutcome, LockError, LockOutcome, RegisterError, ResourceError,
 };
 
 use crate::rest::errors::ProblemDetail;
@@ -332,25 +332,13 @@ fn emit_resource_changed(state: &AppState, id: &str) {
     }
 }
 
-/// Turn a failed lock/unlock into a 409, adding a `locked` conflict when
-/// someone else holds the lock.
-///
-/// The registry reports lock errors as text; rather than match on that
-/// text, we look at the resource *after* the failure: if another user holds
-/// the lock, that is the D73 `locked` case.
-fn lock_failure(state: &AppState, id: &str, user_id: &str, message: String) -> ProblemDetail {
-    match state.resource_registry.get(id) {
-        None => ProblemDetail::not_found(format!("Resource '{}' not found", id)),
-        Some(resource) => {
-            let problem = ProblemDetail::conflict(message);
-            match resource.locked_by.as_deref() {
-                Some(locker) if locker != user_id => problem.with_conflict(
-                    ResourceConflict::new(ConflictCode::Locked)
-                        .with_resource(&resource.id, &resource.name),
-                ),
-                _ => problem,
-            }
-        }
+/// Turn a [`LockError`] into a [`ProblemDetail`] (404 or 409, with `conflict`
+/// attached for `locked` and `blocked`).
+fn lock_failure(err: LockError) -> ProblemDetail {
+    match err {
+        LockError::NotFound(detail) => ProblemDetail::not_found(detail),
+        LockError::PreconditionFailed(detail) => ProblemDetail::conflict(detail),
+        LockError::Conflict(res_err) => ProblemDetail::from_resource_error(res_err),
     }
 }
 
@@ -622,9 +610,24 @@ async fn release_resource(
     // Resolve user identity: body first, then X-User-Id header (ADR-029).
     let user_id = super::resolve_user_id(body.user_id.as_deref(), &headers)?;
 
-    if state.resource_registry.release(&id, &user_id) {
+    if let Some(released) = state.resource_registry.release_with_info(&id, &user_id) {
         // Track the user session (implicit heartbeat on release).
         state.user_sessions.touch(&user_id);
+
+        // 44-D Q3: If the releasing user held the lock on a shared resource,
+        // broadcast ResourceUnlocked before ResourceChanged so blocked holders
+        // and other holders of this resource know the lock has ended.
+        if released.was_locked {
+            let _ = state.device_manager.broadcast(DeviceEvent::ResourceUnlocked {
+                resource_id: id.clone(),
+                user_id: user_id.clone(),
+                timestamp: chrono::Utc::now(),
+            });
+            state.broadcast_event(&format!(
+                r#"{{"type":"resource_unlocked","resource_id":"{}","user_id":"{}"}}"#,
+                id, user_id
+            ));
+        }
 
         emit_resource_changed(&state, &id);
 
@@ -646,11 +649,13 @@ async fn release_resource(
     }
 }
 
-/// `POST /resources/{id}/lock` — Lock a shared resource (ADR-020 §3).
+/// `POST /resources/{id}/lock` — Lock a shared resource (ADR-020 §3, ADR-034 B1–B4).
 ///
 /// A holder of a shared resource can temporarily lock it for exclusive use.
-/// Other holders remain in the holders list but cannot operate until unlock.
-/// Emits `ResourceChanged` and `ResourceLocked`.
+/// Other holders remain in the holders list; overlapping shared resources are
+/// blocked for other users until unlock. Emits `ResourceChanged` and
+/// `ResourceLocked` when a new lock is acquired (idempotent repeat lock by the
+/// current locker affirms the lock without duplicate events, 44-D Q2).
 async fn lock_resource(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
@@ -660,23 +665,28 @@ async fn lock_resource(
     // Resolve user identity: body first, then X-User-Id header (ADR-029).
     let user_id = super::resolve_user_id(body.user_id.as_deref(), &headers)?;
 
-    state
+    let outcome = state
         .resource_registry
         .lock(&id, &user_id)
-        .map_err(|e| lock_failure(&state, &id, &user_id, e))?;
+        .map_err(lock_failure)?;
 
-    emit_resource_changed(&state, &id);
-    let _ = state.device_manager.broadcast(DeviceEvent::ResourceLocked {
-        resource_id: id.clone(),
-        user_id: user_id.clone(),
-        timestamp: chrono::Utc::now(),
-    });
+    // Track the user session (implicit heartbeat on lock).
+    state.user_sessions.touch(&user_id);
 
-    // Broadcast event for dashboard auto-refresh (Phase 28D — was missing).
-    state.broadcast_event(&format!(
-        r#"{{"type":"resource_locked","resource_id":"{}","user_id":"{}"}}"#,
-        id, user_id
-    ));
+    if outcome == LockOutcome::Locked {
+        emit_resource_changed(&state, &id);
+        let _ = state.device_manager.broadcast(DeviceEvent::ResourceLocked {
+            resource_id: id.clone(),
+            user_id: user_id.clone(),
+            timestamp: chrono::Utc::now(),
+        });
+
+        // Broadcast event for dashboard auto-refresh (Phase 28D — was missing).
+        state.broadcast_event(&format!(
+            r#"{{"type":"resource_locked","resource_id":"{}","user_id":"{}"}}"#,
+            id, user_id
+        ));
+    }
 
     let resource = state
         .resource_registry
@@ -701,7 +711,10 @@ async fn unlock_resource(
     state
         .resource_registry
         .unlock(&id, &user_id)
-        .map_err(|e| lock_failure(&state, &id, &user_id, e))?;
+        .map_err(lock_failure)?;
+
+    // Track the user session (implicit heartbeat on unlock).
+    state.user_sessions.touch(&user_id);
 
     emit_resource_changed(&state, &id);
     let _ = state.device_manager.broadcast(DeviceEvent::ResourceUnlocked {
@@ -1454,5 +1467,157 @@ mod tests {
         assert_eq!(json["state"], "in_use_locked");
         assert_eq!(json["locked_by"], "alice");
         assert_eq!(json["holders"].as_array().unwrap().len(), 2);
+    }
+
+    // ── Phase 44-D: Locking, blocking (B1–B4) & events ──────────
+
+    #[tokio::test]
+    async fn test_lock_blocked_resource_conflict() {
+        let state = test_state();
+        // Register two shared resources that share WireIn 0x01.
+        send(&state, "POST", "/resources", shared_wire_resource("blk_r")).await;
+        send(&state, "POST", "/resources", shared_wire_resource("blk_s")).await;
+
+        let id_r = format!("{SERIAL}:blk_r");
+        let id_s = format!("{SERIAL}:blk_s");
+
+        send(
+            &state,
+            "POST",
+            &format!("/resources/{id_r}/acquire"),
+            serde_json::json!({"user_id": "alice"}),
+        )
+        .await;
+        send(
+            &state,
+            "POST",
+            &format!("/resources/{id_s}/acquire"),
+            serde_json::json!({"user_id": "bob"}),
+        )
+        .await;
+
+        // Alice locks blk_r.
+        let (status, _, json) = send(
+            &state,
+            "POST",
+            &format!("/resources/{id_r}/lock"),
+            serde_json::json!({"user_id": "alice"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{json}");
+        assert_eq!(json["locked_by"], "alice");
+
+        // 44-D Q2: Repeat lock by Alice succeeds idempotently with no duplicate event.
+        let mut events = state.device_manager.subscribe();
+        let (status, _, json) = send(
+            &state,
+            "POST",
+            &format!("/resources/{id_r}/lock"),
+            serde_json::json!({"user_id": "alice"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{json}");
+        assert_eq!(json["locked_by"], "alice");
+        assert!(events.try_recv().is_err(), "no event on idempotent repeat lock");
+
+        // Bob tries to lock blk_s -> 409 Conflict with conflict.code == "blocked" naming blk_r.
+        let (status, _, json) = send(
+            &state,
+            "POST",
+            &format!("/resources/{id_s}/lock"),
+            serde_json::json!({"user_id": "bob"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{json}");
+        assert_eq!(json["conflict"]["code"], "blocked");
+        assert_eq!(json["conflict"]["resource_id"], id_r);
+        assert_eq!(json["conflict"]["resource_name"], "blk_r");
+        assert!(json["conflict"].get("item").is_none());
+        assert!(json["conflict"].get("items").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_unlock_notifies_blocked_holders() {
+        let state = test_state();
+        send(&state, "POST", "/resources", shared_wire_resource("unlk_r")).await;
+        send(&state, "POST", "/resources", shared_wire_resource("unlk_s")).await;
+
+        let id_r = format!("{SERIAL}:unlk_r");
+        let id_s = format!("{SERIAL}:unlk_s");
+
+        send(
+            &state,
+            "POST",
+            &format!("/resources/{id_r}/acquire"),
+            serde_json::json!({"user_id": "alice"}),
+        )
+        .await;
+        send(
+            &state,
+            "POST",
+            &format!("/resources/{id_s}/acquire"),
+            serde_json::json!({"user_id": "bob"}),
+        )
+        .await;
+        send(
+            &state,
+            "POST",
+            &format!("/resources/{id_r}/lock"),
+            serde_json::json!({"user_id": "alice"}),
+        )
+        .await;
+
+        // Subscribe on the event bus (which serves both holders of unlk_r and
+        // holders of blocked resource unlk_s) and unlock unlk_r.
+        let mut events = state.device_manager.subscribe();
+        let (status, _, _) = send(
+            &state,
+            "POST",
+            &format!("/resources/{id_r}/unlock"),
+            serde_json::json!({"user_id": "alice"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let mut saw_unlocked = false;
+        while let Ok(evt) = events.try_recv() {
+            if let DeviceEvent::ResourceUnlocked { resource_id, user_id, .. } = evt {
+                assert_eq!(resource_id, id_r);
+                assert_eq!(user_id, "alice");
+                saw_unlocked = true;
+            }
+        }
+        assert!(saw_unlocked, "ResourceUnlocked event must be broadcast on /unlock");
+
+        // Now test implicit unlock when the locker releases without calling /unlock (44-D Q3).
+        send(
+            &state,
+            "POST",
+            &format!("/resources/{id_r}/lock"),
+            serde_json::json!({"user_id": "alice"}),
+        )
+        .await;
+        let mut events2 = state.device_manager.subscribe();
+        let (status, _, _) = send(
+            &state,
+            "POST",
+            &format!("/resources/{id_r}/release"),
+            serde_json::json!({"user_id": "alice"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let mut saw_implicit_unlocked = false;
+        while let Ok(evt) = events2.try_recv() {
+            if let DeviceEvent::ResourceUnlocked { resource_id, user_id, .. } = evt {
+                assert_eq!(resource_id, id_r);
+                assert_eq!(user_id, "alice");
+                saw_implicit_unlocked = true;
+            }
+        }
+        assert!(
+            saw_implicit_unlocked,
+            "ResourceUnlocked event must be broadcast when locker releases"
+        );
     }
 }

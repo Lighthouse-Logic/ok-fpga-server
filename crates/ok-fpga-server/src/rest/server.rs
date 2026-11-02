@@ -312,7 +312,37 @@ async fn disconnect(
     }
 
     // Release all resources held by this user across all devices.
-    let released = state.resource_registry.release_all_for_user(&user_id);
+    let released_items = state
+        .resource_registry
+        .release_all_for_user_with_info(&user_id);
+    let released = released_items.len();
+
+    for item in &released_items {
+        if item.was_locked {
+            let _ = state.device_manager.broadcast(
+                ok_fpga_core::manager::DeviceEvent::ResourceUnlocked {
+                    resource_id: item.resource_id.clone(),
+                    user_id: user_id.clone(),
+                    timestamp: chrono::Utc::now(),
+                },
+            );
+            state.broadcast_event(&format!(
+                r#"{{"type":"resource_unlocked","resource_id":"{}","user_id":"{}"}}"#,
+                item.resource_id, user_id
+            ));
+        }
+        let _ = state.device_manager.broadcast(
+            ok_fpga_core::manager::DeviceEvent::ResourceChanged {
+                resource_id: item.resource_id.clone(),
+                new_state: item.new_state.as_str().to_string(),
+                timestamp: chrono::Utc::now(),
+            },
+        );
+        state.broadcast_event(&format!(
+            r#"{{"type":"resource_released","resource_id":"{}","user_id":"{}"}}"#,
+            item.resource_id, user_id
+        ));
+    }
 
     // Remove the user session entirely.
     state.user_sessions.remove(&user_id);

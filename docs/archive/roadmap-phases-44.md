@@ -254,3 +254,58 @@ adopted, 2 rejected as non-observable / redundant).
     `test_grpc_acquire_exclusive_with_readonly_holders_allowed`.
 - Commit: `feat: resource acquisition holder-mode rules (A1) (0.3.4)`.
   **Done:** `2167914`.
+
+---
+
+## 44-D — Locking and blocking (B1–B4) + events (0.3.5)
+
+**Owner decisions (2026-11-02):**
+- **Q1 (`ConflictCode::Blocked` fields):** populate only `code: "blocked"`,
+  `resource_id: R.id`, and `resource_name: R.name` (no `item_type` / `item` /
+  `items`).
+- **Q2 (Repeat lock by current lock holder):** idempotent success
+  (`Ok(LockOutcome::AlreadyLockedBySelf)`) — returns 200 / `OK` affirming the
+  caller's lock, touches `user_sessions`, and suppresses duplicate
+  `ResourceLocked` / `ResourceChanged` events.
+- **Q3 (Implicit unlock events on release / disconnect / sweep):** whenever a
+  user holding a shared-resource lock releases via `/release`,
+  `ReleaseResource`, `/disconnect`, `Disconnect`, or session timeout sweep
+  without calling `/unlock` first, broadcast `DeviceEvent::ResourceUnlocked`
+  (and dashboard `resource_unlocked`) before `DeviceEvent::ResourceChanged`.
+
+**44-D Locking and blocking (B1–B4) + events**
+- Files: `crates/ok-fpga-core/src/resource.rs`,
+  `crates/ok-fpga-core/tests/device_resource_integration.rs`,
+  `crates/ok-fpga-server/src/rest/resources.rs`,
+  `crates/ok-fpga-server/src/rest/server.rs`,
+  `crates/ok-fpga-server/src/sweep.rs`,
+  `crates/ok-fpga-server/src/grpc/resource_mapping.rs`,
+  `crates/ok-fpga-server/src/grpc/device_service.rs`,
+  `docs/API-Specification/`, `Cargo.toml` / `Cargo.lock`.
+- Implemented:
+  - `Resource::shares_item_with`, `find_blocking_resource`, and
+    `ResourceRegistry::blocking_conflict_for` (`B1`, `B4`, `D35`): checks
+    other resources on the same device in deterministic ascending `id` order
+    that are locked by a different user (`V != U`, so own lock never blocks
+    self, `D35`) and share at least one Classic endpoint address or
+    overlapping `AddressRange` (`B4`: non-transitive).
+  - Structured `LockOutcome` (`Locked`, `AlreadyLockedBySelf`) and
+    `LockError` (`NotFound`, `PreconditionFailed`, `Conflict`) returned by
+    `ResourceRegistry::lock` and `unlock` (`B3`, `D73`).
+  - `ReleasedResource` (`release_with_info`, `release_all_for_user_with_info`)
+    so REST/gRPC `release`, `disconnect`, and `sweep` broadcast
+    `ResourceUnlocked` when a shared-resource lock ends implicitly (Q3), and
+    gRPC `Disconnect` also broadcasts `UserDisconnected` (`reason: "explicit"`).
+  - gRPC `WatchDeviceEvents` (`device_event_to_proto` + `ReceiverStream` over
+    `device_manager.subscribe()`), streaming all 11 `DeviceEvent` variants.
+- Tests:
+  - Core `resource.rs`: `test_blocking_shared_item_blocks_other_resource`,
+    `test_blocking_non_transitive`, `test_blocking_own_lock_not_blocked`,
+    `test_lock_repeat_by_same_user_is_idempotent`.
+  - Tier 1 `device_resource_integration.rs`:
+    `test_two_users_two_overlapping_shared_resources_lock_blocking`.
+  - REST `rest/resources.rs`: `test_lock_blocked_resource_conflict`,
+    `test_unlock_notifies_blocked_holders`.
+  - gRPC `grpc/device_service.rs`: `test_grpc_lock_events_emitted`,
+    `test_grpc_watch_device_events_streams_resource_events`.
+- Commit: `feat: resource lock blocking and lock events (B1-B4) (0.3.5)`.
