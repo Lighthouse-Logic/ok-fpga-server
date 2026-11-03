@@ -401,3 +401,4 @@ adopted, 2 rejected as non-observable / redundant).
     `test_block_pipe_routes_enforce_endpoint_access`,
     `test_axi_lite_read_write_enforce_address_access`.
 - Commit: `feat: align endpoint enforcement with overlap and blocking (B2) (0.3.6)`.
+  **Done:** `7c39e74`.

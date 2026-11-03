@@ -276,7 +276,7 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
 - Archived: [archive/roadmap-phases-44.md](archive/roadmap-phases-44.md)
   (owner decisions Q1–Q5, enforcement pipeline `B2`/`S-12..S-20`, `D75` F1/F2/F4,
   `D77` wildcard coverage `0x00–0x7F`, `ClassicAddressBridgePolicy`, tests).
-- ADR-034 §13. Carried forward to 🔵 Later: explicit `warnings` list field on
+- Commit `7c39e74`. ADR-034 §13. Carried forward to 🔵 Later: explicit `warnings` list field on
   `CreateResource` responses in OpenAPI/proto (Q1 Option B); explicit
   "no-classic-endpoints" ergonomics beyond `"endpoints": {"entries": []}` (Q2);
   migrating older Tier 3 route unit tests from `EndpointEnforcement::Off` to
