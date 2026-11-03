@@ -1,0 +1,5 @@
+# Opal Kelly FrontPanel USB udev rules (Linux)
+# Install with:
+#   sudo cp FrontPanel-6.1.0/60-opalkelly.rules /etc/udev/rules.d/60-opalkelly.rules
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+SUBSYSTEM=="usb", ATTRS{idVendor}=="151f", MODE="0666", GROUP="plugdev"

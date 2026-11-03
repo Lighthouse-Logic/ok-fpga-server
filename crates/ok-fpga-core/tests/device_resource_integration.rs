@@ -536,17 +536,59 @@ fn test_hardware_xem7320_counters_enforcement_pipeline() {
         let count = (dll.devices_get_count)(devices_handle);
         assert!(count > 0, "Expected at least one connected FPGA device");
 
-        let mut serial_buf = [0i8; 11];
-        (dll.devices_get_serial)(devices_handle, 0, serial_buf.as_mut_ptr());
-        let serial = CStr::from_ptr(serial_buf.as_ptr())
-            .to_string_lossy()
-            .to_string();
-        eprintln!("  Opening connected device[0] serial={}", serial);
+        // Try each enumerated device until an XEM7320 opens (skipping any
+        // non-XEM7320 board such as XEM8320), and report a clear udev hint on
+        // Linux if USB device nodes lack read/write permissions.
+        let mut opened: Option<(okFrontPanel_HANDLE, String)> = None;
+        for idx in 0..count {
+            let mut serial_buf = [0i8; 11];
+            (dll.devices_get_serial)(devices_handle, idx, serial_buf.as_mut_ptr());
+            let serial = CStr::from_ptr(serial_buf.as_ptr())
+                .to_string_lossy()
+                .to_string();
+            eprintln!("  Opening connected device[{}] serial={}", idx, serial);
 
-        let serial_c = CString::new(serial.clone()).unwrap();
-        let fp_handle = (dll.devices_open)(devices_handle, serial_c.as_ptr());
+            let serial_c = CString::new(serial.clone()).unwrap();
+            let fp_handle = (dll.devices_open)(devices_handle, serial_c.as_ptr());
+            if fp_handle.is_null() {
+                continue;
+            }
+
+            let mut info = okTDeviceInfo::default();
+            let size = std::mem::size_of::<okTDeviceInfo>() as u32;
+            let rc = (dll.fp_get_device_info_with_size)(fp_handle, &mut info, size);
+            let product_name = if rc as i32 == ok_ErrorCode::ok_NoError as i32 {
+                CStr::from_ptr(info.productName.as_ptr())
+                    .to_string_lossy()
+                    .to_string()
+            } else {
+                String::new()
+            };
+
+            if product_name.starts_with("XEM7320") {
+                eprintln!("  Selected {} (serial={})", product_name, serial);
+                opened = Some((fp_handle, serial));
+                break;
+            } else {
+                eprintln!(
+                    "  Skipping non-XEM7320 device {} (serial={})",
+                    product_name, serial
+                );
+                (dll.fp_destruct)(fp_handle);
+            }
+        }
         (dll.devices_destruct)(devices_handle);
-        assert!(!fp_handle.is_null(), "Failed to open device {}", serial);
+
+        let (fp_handle, serial) = opened.unwrap_or_else(|| {
+            panic!(
+                "Failed to open any connected XEM7320 among {} enumerated FPGA device(s). \
+                 On Linux, this is caused by missing read/write permissions on /dev/bus/usb/*/* \
+                 (root:root 0664). Install FrontPanel-6.1.0/60-opalkelly.rules:\n  \
+                 sudo cp FrontPanel-6.1.0/60-opalkelly.rules /etc/udev/rules.d/60-opalkelly.rules && \
+                 sudo udevadm control --reload-rules && sudo udevadm trigger",
+                count
+            )
+        });
 
         // Program Counters.bit on the connected XEM7320.
         let bit_c = CString::new(counters_bit.to_string_lossy().as_ref()).unwrap();

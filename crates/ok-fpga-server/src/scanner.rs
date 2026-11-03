@@ -165,6 +165,13 @@ impl DeviceScanner {
                     (self.dll.devices_open)(devices_handle, serial_c.as_ptr());
 
                 if fp_handle.is_null() {
+                    #[cfg(target_os = "linux")]
+                    warn!(
+                        serial = %serial,
+                        "could not open device — skipping (check /dev/bus/usb read/write \
+                         permissions and /etc/udev/rules.d/60-opalkelly.rules for vendor 151f)"
+                    );
+                    #[cfg(not(target_os = "linux"))]
                     warn!(serial = %serial, "could not open device — skipping");
                     continue;
                 }

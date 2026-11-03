@@ -55,7 +55,7 @@ fn dll_path() -> PathBuf {
 
     workspace_root
         .join("FrontPanel-6.1.0")
-        .join("okFrontPanel.dll")
+        .join(FrontPanelDll::default_library_name())
 }
 
 /// Load the FrontPanel DLL or skip the test if it's unavailable.
@@ -120,7 +120,11 @@ unsafe fn open_first_device(dll: &FrontPanelDll) -> (okFrontPanel_HANDLE, String
     (dll.devices_destruct)(devices_handle);
 
     if fp_handle.is_null() {
-        panic!("Failed to open device {}", serial);
+        panic!(
+            "Failed to open device {} (on Linux, check /dev/bus/usb permissions and install \
+             /etc/udev/rules.d/60-opalkelly.rules for USB vendor 151f)",
+            serial
+        );
     }
 
     (fp_handle, serial)
