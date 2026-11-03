@@ -282,47 +282,17 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
   migrating older Tier 3 route unit tests from `EndpointEnforcement::Off` to
   `EndpointEnforcement::Enforce` (Q3b).
 
-**44-F Reprogram and clear cleanup (D26) 🔒**
-- Files: `rest/devices.rs`, `grpc/device_service.rs`,
-  `ok-fpga-core/src/resource.rs`.
-- `ConfigureFPGA`, `ConfigureFPGAFromServerPath` / `ConfigureFPGAFromMemory`,
-  `ClearFPGAConfiguration` (REST and gRPC): under the device lock unlock all
-  → release all → delete all (`resource_deleted` reason `reprogram` /
-  `clear`) → program / clear; every holder notified. Remove the OpenAPI 409
-  "Device has resources in use" responses on configure / clear (Q44-14). `ResetFPGA` does not clear (D56). Proto comments on
-  `DeleteResource` (P11) and `ClearFPGAConfiguration` (P12).
-- **Registration vs device lifecycle (owner, 2026-10-11, from 44-B Q5).**
-  `POST /resources` / `RegisterResource` checks the device registry
-  (exists, programmed) and later inserts into the resource registry under a
-  different lock, so an unplug or reprogram can land in between.
-  - *Owner:* a resource is tied to its device serial; if the device is
-    gone, the registration must go away too. A watchdog may take a few
-    seconds — that is acceptable. Today hot-unplug already deletes the
-    device's resources (`resource_registry.invalidate_device` in
-    `device_monitor.rs`), but a registration that lands *after* that
-    cleanup survives as an orphan. Fix: a periodic sweep (reuse the user
-    sweep in `sweep.rs`) deletes resources whose device is absent or
-    unprogrammed, reason `device_removed`, with events.
-  - *Owner:* for reprogram it matters only if a resource is tied to
-    identifying details of the bitfile. Today it is not: configure calls
-    `remove_for_device` *after* programming, so a registration racing a
-    fast second configure can end up attached to the second bitfile.
-    Proposal: the device records a *configuration generation* (counter
-    bumped on every configure / clear, plus bitfile name and hash);
-    `create_resource` captures it at lookup and `try_register` rejects
-    (409) if it changed. Optional, for discussion: a resource may declare
-    the bitfiles it is valid for (e.g. regex
-    `.*rgmii.*xem7320.*enetab.*\.bit`, owner's example) so the watchdog can
-    flag or delete resources whose device runs a non-matching bitfile.
-    The declaration field is a spec change (🔒, needs design discussion).
-  - Tests: `test_sweep_orphan_resource_device_absent_deleted`,
-    `test_create_resource_configure_generation_changed_conflict`.
-- Tests (Tier 3): `test_configure_fpga_held_resources_force_deleted`,
-  `test_clear_fpga_notifies_all_holders`,
-  `test_reset_fpga_resources_retained`,
-  `test_grpc_configure_fpga_force_deletes_resources`. Tier 1: reprogram
-  cleanup.
-- Commit: `fix: forced resource cleanup on configure and clear`.
+**44-F Reprogram and clear cleanup (D26) 🔒 — ✅ Done (0.3.7)**
+- Archived: [archive/roadmap-phases-44.md](archive/roadmap-phases-44.md)
+  (owner decisions Q1–Q5, `D26` forced cleanup on configure/clear,
+  `DeleteReason::DeviceRemoved`, `config_generation` precondition check,
+  `sweep_orphan_resources`, tests).
+- ADR-034 §14. **Rejected & dropped (Q4):** optional bitfile-matching regex/hash
+  on resource declarations (from 44-B Q5) was rejected and dropped because
+  bitfile hashes change on rebuilds even with zero code changes; `config_generation`
+  + `D26` forced cleanup covers configuration lifecycle boundaries. Carried
+  forward to 🔵 Later (Q5): remove tracked proprietary Opal Kelly FrontPanel
+  IP/SDK files from git and document external SDK installation.
 
 **44-G Classic data-path spec alignment**
 - Files: `rest/classic.rs`; `client-examples/` (Rust and Python REST
@@ -425,7 +395,11 @@ P14 → 44-E; P9 → 44-H.)
 Dropped: the 2026-10-08 ADR proposals for this phase, old Q44-7
 (superseded by D48, D68) and old S-16, the **per-holder** TriggerOut cache
 (still rejected: no per-holder state, D67; the device-wide event log above
-is a different design). ADR-034 now means the consolidated ADR (44.1).
+is a different design), and **optional bitfile-matching regex/hash on
+resource declarations** (44-B Q5 / 44-F Q4: rejected and dropped because
+bitfile hashes change across rebuilds even with zero code changes, and
+`config_generation` + `D26` forced cleanup covers configuration lifecycle
+boundaries). ADR-034 now means the consolidated ADR (44.1).
 
 #### 44.6 F-1 spec sketch (for S-01/S-02 — applied in 44-A)
 
@@ -735,6 +709,13 @@ Features in this section represent uncommitted research or long-term capabilitie
      `test_state()` helper with `EndpointEnforcement::Off` to test query/body
      parsing in isolation) so all unit tests run with
      `EndpointEnforcement::Enforce` enabled.
+
+* **Purge tracked proprietary Opal Kelly FrontPanel SDK/IP files from git (Phase 44-F Q5)** —
+  remove tracked proprietary FrontPanel SDK headers, C++ wrappers, sample
+  bitfiles, and libraries under `FrontPanel-6.1.0/` from git tracking, keep
+  `FrontPanel-6.1.0/` gitignored, and document how developers and CI machines
+  install or point `OK_FRONTPANEL_SDK_DIR` / `LD_LIBRARY_PATH` at an external
+  Opal Kelly FrontPanel SDK directory.
 
 * **Rust egui demo unit tests** — egui does not provide a built-in test harness
   like iced's `iced_test`; implementing headless UI tests will require

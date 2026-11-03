@@ -567,14 +567,20 @@ every overlapping resource forever. A 24-second heartbeat against a
 
 - Delete returns `204 No Content`, or 409 if anyone holds the resource. Any
   connected user MAY delete a resource.
-- When a device disconnects, all its resources MUST be deleted and their
-  holders notified.
+- When a device disconnects (or an orphan sweep finds its device absent), all
+  its resources MUST be deleted with reason `device_removed` ( emitting
+  `ResourceUnlocked` first for any locked shared resource) and their holders
+  notified.
 - Programming or clearing a device is a forced override, done atomically
-  under the device lock, at every enforcement level: (1) all locks end,
-  (2) all holders are released, (3) all resources are deleted with reason
-  `reprogram` or `clear`, (4) the bitfile is written or the configuration
-  cleared. Every holder of every resource on the device MUST be informed,
-  whatever its state. The programming client then registers new resources.
+  before the FFI hardware call, at every enforcement level: (1) the device
+  transitions to `Connected` (unprogrammed) and bumps its configuration
+  generation, (2) all locks end (`ResourceUnlocked` emitted for locked shared
+  resources), (3) all holders are released, (4) all resources are deleted with
+  reason `reprogram` or `clear`, (5) the bitfile is written or the
+  configuration cleared. If a bitfile transfer fails mid-way, the device
+  remains in `Connected` (unprogrammed) state (`44-F q3a`). Every holder of
+  every resource on the device MUST be informed, whatever its state. The
+  programming client then registers new resources.
 - `ResetFPGA` is *not* a reprogram: resources stay (@enf-reset).
 
 *Rationale.* A new bitfile is a new design: the old endpoint and register
@@ -605,8 +611,8 @@ stream (`GET /events`) and the gRPC stream
   [Server shutting down], [`ServerShutdown`], [`server_shutdown` (12)],
 )
 
-The delete `reason` is `client`, `reprogram` or `clear` (proto
-`DeleteReason`). The SSE `data:` field is the event object itself, not
+The delete `reason` is `client`, `reprogram`, `clear` or `device_removed`
+(proto `DeleteReason`). The SSE `data:` field is the event object itself, not
 wrapped in the event name. The server sends a `:ping` comment every 15
 seconds to keep proxies from closing the stream.
 

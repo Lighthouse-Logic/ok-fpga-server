@@ -130,6 +130,19 @@ impl OpenDevice {
         self.axi_stream
     }
 
+    /// Clear all cached data port handles and mark the device as unprogrammed.
+    ///
+    /// Called before `ConfigureFPGA*` (so a failed bitfile transfer leaves no
+    /// stale data ports, 44-F `q3a`) and on `ClearFPGAConfiguration`.
+    fn clear_data_ports(&mut self) {
+        self.is_programmed = false;
+        self.classic_port = None;
+        self.axi_port = None;
+        self.axi_lite = None;
+        self.axi_full = None;
+        self.axi_stream = None;
+    }
+
     /// Obtain data port handles after FPGA configuration.
     ///
     /// Calls `GetFPGADataPortClassic` and `GetFPGADataPortAXI` to obtain
@@ -428,6 +441,10 @@ impl DeviceHandlePool {
             }
         })?;
 
+        // Drop any cached data ports and mark unprogrammed before FFI transfer
+        // so a failed bitfile transfer leaves no stale handles (44-F `q3a`).
+        device.clear_data_ports();
+
         // SAFETY: device.handle is valid (opened in pool.open()), path_c is
         // a valid null-terminated C string pointing to the bitfile.
         trace!(
@@ -473,6 +490,10 @@ impl DeviceHandlePool {
 
         let mut device = device_arc.lock().await;
 
+        // Drop any cached data ports and mark unprogrammed before FFI transfer
+        // so a failed bitfile transfer leaves no stale handles (44-F `q3a`).
+        device.clear_data_ports();
+
         // SAFETY: device.handle is valid, data is a valid byte slice.
         // ConfigureFPGAFromMemory reads `len` bytes from the pointer.
         trace!(
@@ -501,6 +522,38 @@ impl DeviceHandlePool {
         device.is_programmed = true;
         device.acquire_data_ports();
 
+        Ok(())
+    }
+
+    /// Clear the FPGA configuration on a device (ADR-034 §7 & §14, D26).
+    ///
+    /// Drops cached data port handles, marks the device unprogrammed, and
+    /// calls `okFrontPanel_ClearFPGAConfiguration(handle)`.
+    pub async fn clear_configuration(&self, serial: &str) -> Result<(), FfiError> {
+        let device_arc = self.get(serial).await.ok_or_else(|| FfiError::FrontPanelError {
+            code: -1,
+            message: format!("device '{}' not found in handle pool", serial),
+        })?;
+
+        let mut device = device_arc.lock().await;
+        device.clear_data_ports();
+
+        // SAFETY: device.handle is valid (opened in pool.open()).
+        trace!(
+            serial = %serial,
+            function = "okFrontPanel_ClearFPGAConfiguration",
+            "FFI call"
+        );
+        let rc = unsafe { (device.dll.fp_clear_fpga_configuration)(device.handle) };
+        trace!(
+            serial = %serial,
+            function = "okFrontPanel_ClearFPGAConfiguration",
+            result = ?rc,
+            "FFI result"
+        );
+
+        FfiError::from_code(rc)?;
+        info!(serial = %serial, "FPGA configuration cleared successfully");
         Ok(())
     }
 

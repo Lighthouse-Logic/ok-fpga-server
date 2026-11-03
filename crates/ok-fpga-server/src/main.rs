@@ -447,14 +447,23 @@ async fn device_poll_loop(
                     );
                     device_manager.on_device_removed(serial);
 
-                    // ADR-020 §4: Delete all resources for the disconnected device.
-                    // Resources become invalid when the device state is unknown.
-                    let deleted = resource_registry.invalidate_device(serial);
+                    // ADR-020 §4 / ADR-034 §14 (44-F q2): Forcibly unlock,
+                    // release, and delete all resources for the disconnected
+                    // device and emit `ResourceUnlocked` (if locked) +
+                    // `ResourceDeleted { reason: DeviceRemoved }`.
+                    let deleted = resource_registry.force_delete_for_device(serial);
                     if !deleted.is_empty() {
                         info!(
                             serial = %serial,
                             count = deleted.len(),
                             "deleted resources for disconnected device"
+                        );
+                        state::broadcast_force_deleted_resources(
+                            &device_manager,
+                            Some(&event_tx),
+                            serial,
+                            &deleted,
+                            ok_fpga_core::manager::DeleteReason::DeviceRemoved,
                         );
                     }
 

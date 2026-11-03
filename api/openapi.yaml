@@ -390,9 +390,15 @@ paths:
       summary: Program the FPGA with an uploaded bitfile
       description: |
         Uploads and programs a bitfile to the specified FPGA via multipart file
-        upload. The bitfile binary is sent as the `bitfile` form field. After
-        successful programming, the device transitions from Connected to
-        Programmed state and resources can be created.
+        upload. The bitfile binary is sent as the `bitfile` form field.
+
+        Programming is a **forced override** (ADR-034, D26): all locks on the
+        device's resources are ended (`ResourceUnlocked`), all holders are
+        released, and all existing resources on the device are deleted
+        (`ResourceDeleted` with `reason: reprogram`) before programming. If the
+        hardware configuration fails, the device transitions to `Connected`
+        (unprogrammed). After successful programming, the device transitions to
+        `Programmed` and new resources can be created.
 
         For server-side path programming (bitfile already on the server's
         filesystem), use `POST /devices/{serial}/configure_from_server_path`
@@ -449,16 +455,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
-        '409':
-          description: Device has resources in use — cannot reprogram
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetail'
     delete:
       tags: [Devices]
       summary: Clear FPGA configuration
-      description: Un-programs the FPGA. All resources for this device become Unavailable.
+      description: |
+        Un-programs the FPGA (`ClearFPGAConfiguration`). This is a **forced
+        override** (ADR-034, D26): all locks on the device's resources are
+        ended (`ResourceUnlocked`), all holders are released, and all existing
+        resources on the device are deleted (`ResourceDeleted` with
+        `reason: clear`) before the configuration is cleared.
       operationId: clearFPGAConfiguration
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -475,12 +480,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
-        '409':
-          description: Device has resources in use
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetail'
 
   /devices/{serial}/configure_from_server_path:
     post:
@@ -490,6 +489,13 @@ paths:
         Programs the FPGA using a bitfile that already exists on the server's
         filesystem. The client sends only the path; the server reads and programs
         the file directly.
+
+        Programming is a **forced override** (ADR-034, D26): all locks on the
+        device's resources are ended (`ResourceUnlocked`), all holders are
+        released, and all existing resources on the device are deleted
+        (`ResourceDeleted` with `reason: reprogram`) before programming. If the
+        hardware configuration fails, the device transitions to `Connected`
+        (unprogrammed).
 
         For uploading a bitfile from the client machine, use
         `POST /devices/{serial}/configure` with `multipart/form-data` instead.
@@ -535,12 +541,6 @@ paths:
                 $ref: '#/components/schemas/ProblemDetail'
         '404':
           description: Device not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetail'
-        '409':
-          description: Device has resources in use — cannot reprogram
           content:
             application/json:
               schema:
@@ -2705,11 +2705,12 @@ components:
           type: string
         reason:
           type: string
-          enum: [client, reprogram, clear]
+          enum: [client, reprogram, clear, device_removed]
           description: |
-            Why it was deleted (D58): `client` = a client deleted it;
+            Why it was deleted (D58, 44-F Q2): `client` = a client deleted it;
             `reprogram` / `clear` = forced cleanup when the FPGA was
-            reprogrammed or cleared.
+            reprogrammed or cleared; `device_removed` = forced cleanup when the
+            physical device disconnected or was swept as absent.
         timestamp:
           type: string
           format: date-time

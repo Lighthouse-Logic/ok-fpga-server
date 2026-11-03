@@ -78,6 +78,56 @@ impl DeviceServiceImpl {
             });
         }
     }
+
+    /// Extract the `x-user-id` gRPC metadata header, if present and non-empty.
+    fn extract_metadata_user_id<T>(request: &Request<T>) -> Option<String> {
+        request
+            .metadata()
+            .get("x-user-id")
+            .and_then(|v| v.to_str().ok())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+    }
+
+    /// Resolve caller identity from the request body's `user_id` field and/or
+    /// the `x-user-id` gRPC metadata header (ADR-029, S-18).
+    ///
+    /// - If both body and metadata are non-empty and differ, returns
+    ///   `Err(Status::invalid_argument(...))`.
+    /// - If neither is present:
+    ///   - when `enforcement == Off`, returns `Ok("Unknown".to_string())`
+    ///   - when `enforcement` is `Warn` or `Enforce`, returns
+    ///     `Err(Status::invalid_argument("user_id is required (in request or x-user-id metadata)"))`.
+    fn resolve_caller_id(
+        &self,
+        body_user_id: Option<&str>,
+        metadata_user_id: Option<&str>,
+    ) -> Result<String, Status> {
+        let body = body_user_id.filter(|s| !s.is_empty());
+        let meta = metadata_user_id.filter(|s| !s.is_empty());
+
+        if let (Some(b), Some(m)) = (body, meta) {
+            if b != m {
+                return Err(Status::invalid_argument(format!(
+                    "user_id field '{}' does not match x-user-id metadata '{}'",
+                    b, m
+                )));
+            }
+        }
+
+        if let Some(uid) = body.or(meta) {
+            self.state.user_sessions.touch(uid);
+            return Ok(uid.to_string());
+        }
+
+        if self.state.enforcement() == crate::state::EndpointEnforcement::Off {
+            Ok("Unknown".to_string())
+        } else {
+            Err(Status::invalid_argument(
+                "user_id is required (in request or x-user-id metadata)",
+            ))
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -569,11 +619,14 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
     /// `ConfigureFPGA` — program the FPGA from a bitfile path on the server.
     ///
     /// Delegates to `DeviceHandlePool::configure_from_path()` which calls
-    /// `okFrontPanel_ConfigureFPGA(handle, path)` via FFI.
+    /// `okFrontPanel_ConfigureFPGA(handle, path)` via FFI (when `handle_pool`
+    /// is present; in Tier 3 tests without `handle_pool`, state and resource
+    /// cleanup run in memory per `44-F q3b`).
     async fn configure_fpga(
         &self,
         request: Request<proto::ConfigureFpgaRequest>,
     ) -> Result<Response<proto::ConfigureFpgaResponse>, Status> {
+        let meta_uid = Self::extract_metadata_user_id(&request);
         let req = request.into_inner();
         let serial = &req.serial;
         let bitfile_path = &req.bitfile_path;
@@ -583,12 +636,6 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             return Err(Status::not_found(format!("device '{}' not found", serial)));
         }
 
-        let pool = self
-            .state
-            .handle_pool
-            .as_ref()
-            .ok_or_else(|| Status::unavailable("FrontPanel DLL not loaded"))?;
-
         let path = std::path::Path::new(bitfile_path);
         if !path.exists() {
             return Err(Status::invalid_argument(format!(
@@ -596,9 +643,33 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             )));
         }
 
-        pool.configure_from_path(serial, path)
-            .await
-            .map_err(|e| Status::internal(format!("FFI error: {}", e)))?;
+        let programmed_by =
+            self.resolve_caller_id(Some(req.user_id.as_str()), meta_uid.as_deref())?;
+
+        // D26 / 44-F q3a: Transition the device to `Connected` (unprogrammed,
+        // bumping `config_generation`) and forcibly unlock, release, and delete
+        // all resources on the device BEFORE the FFI call so a mid-transfer
+        // failure leaves the device unprogrammed with no stale resources.
+        self.state
+            .device_manager
+            .registry()
+            .update_state(serial, ok_fpga_core::device::DeviceState::Connected);
+        let cleared = self
+            .state
+            .force_cleanup_device_resources(serial, DeleteReason::Reprogram);
+        if cleared > 0 {
+            info!(
+                serial = %serial,
+                cleared,
+                "Force-deleted resources before re-programming device (gRPC ConfigureFPGA)"
+            );
+        }
+
+        if let Some(pool) = self.state.handle_pool.as_ref() {
+            pool.configure_from_path(serial, path)
+                .await
+                .map_err(|e| Status::internal(format!("FFI error: {}", e)))?;
+        }
 
         // Phase 34-C: Extract filename as basename, track full path, compute MD5.
         let filename = path.file_name()
@@ -612,19 +683,30 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
 
         // Update device state in the registry.
         let now = chrono::Utc::now();
+        let record = ok_fpga_core::device::BitfileRecord {
+            filename: filename.clone(),
+            description: None,
+            programmed_at: now,
+            programmed_by: programmed_by.clone(),
+            file_path: Some(file_path_str.clone()),
+            md5_hash: md5_hash.clone(),
+        };
         self.state.device_manager.registry().update_state(
             serial,
             ok_fpga_core::device::DeviceState::Programmed {
-                bitfile: ok_fpga_core::device::BitfileRecord {
-                    filename: filename.clone(),
-                    description: None,
-                    programmed_at: now,
-                    programmed_by: req.user_id.clone(),
-                    file_path: Some(file_path_str.clone()),
-                    md5_hash: md5_hash.clone(),
-                },
+                bitfile: record.clone(),
             },
         );
+
+        let _ = self
+            .state
+            .device_manager
+            .broadcast(DeviceEvent::DeviceProgrammed {
+                serial: serial.clone(),
+                bitfile: record.filename,
+                programmed_by: record.programmed_by,
+                timestamp: now,
+            });
 
         info!(serial = %serial, path = %bitfile_path, "gRPC ConfigureFPGA succeeded");
 
@@ -634,23 +716,12 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             serial
         ));
 
-        // Clear stale resources for this device (Phase 25-Fix-F, F3).
-        let cleared = self.state.resource_registry.remove_for_device(serial);
-        if cleared > 0 {
-            info!(serial = %serial, cleared, "Cleared resources for re-programmed device");
-
-            self.state.broadcast_event(&format!(
-                r#"{{"type":"resources_cleared","device_serial":"{}","cleared_count":{}}}"#,
-                serial, cleared
-            ));
-        }
-
         Ok(Response::new(proto::ConfigureFpgaResponse {
             bitfile: Some(proto::BitfileInfo {
                 filename,
                 description: String::new(),
                 programmed_at: now.to_rfc3339(),
-                programmed_by: req.user_id,
+                programmed_by,
                 file_path: file_path_str,
                 md5_hash: md5_hash.unwrap_or_default(),
             }),
@@ -671,6 +742,7 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         &self,
         request: Request<tonic::Streaming<proto::ConfigureFpgaChunk>>,
     ) -> Result<Response<proto::ConfigureFpgaResponse>, Status> {
+        let meta_uid = Self::extract_metadata_user_id(&request);
         let mut stream = request.into_inner();
         let mut serial = String::new();
         let mut user_id = String::new();
@@ -709,34 +781,68 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             return Err(Status::not_found(format!("device '{}' not found", serial)));
         }
 
-        let pool = self
-            .state
-            .handle_pool
-            .as_ref()
-            .ok_or_else(|| Status::unavailable("FrontPanel DLL not loaded"))?;
+        let programmed_by =
+            self.resolve_caller_id(Some(user_id.as_str()), meta_uid.as_deref())?;
 
-        pool.configure_from_memory(&serial, &bitfile_data)
-            .await
-            .map_err(|e| Status::internal(format!("FFI error: {}", e)))?;
+        // D26 / 44-F q3a: Transition the device to `Connected` (unprogrammed,
+        // bumping `config_generation`) and forcibly unlock, release, and delete
+        // all resources on the device BEFORE the FFI call so a mid-transfer
+        // failure leaves the device unprogrammed with no stale resources.
+        self.state
+            .device_manager
+            .registry()
+            .update_state(&serial, ok_fpga_core::device::DeviceState::Connected);
+        let cleared = self
+            .state
+            .force_cleanup_device_resources(&serial, DeleteReason::Reprogram);
+        if cleared > 0 {
+            info!(
+                serial = %serial,
+                cleared,
+                "Force-deleted resources before re-programming device (gRPC ConfigureFPGAFromMemory)"
+            );
+        }
+
+        if let Some(pool) = self.state.handle_pool.as_ref() {
+            pool.configure_from_memory(&serial, &bitfile_data)
+                .await
+                .map_err(|e| Status::internal(format!("FFI error: {}", e)))?;
+        }
 
         // Phase 34-C: Compute MD5 hash from accumulated bitfile bytes.
         let md5_hash = Some(format!("{:x}", md5::compute(&bitfile_data)));
 
         // Update device state in the registry.
         let now = chrono::Utc::now();
+        let record = ok_fpga_core::device::BitfileRecord {
+            filename: filename.clone(),
+            description: None,
+            programmed_at: now,
+            programmed_by: programmed_by.clone(),
+            file_path: None,
+            md5_hash: md5_hash.clone(),
+        };
         self.state.device_manager.registry().update_state(
             &serial,
             ok_fpga_core::device::DeviceState::Programmed {
-                bitfile: ok_fpga_core::device::BitfileRecord {
-                    filename: filename.clone(),
-                    description: None,
-                    programmed_at: now,
-                    programmed_by: user_id.clone(),
-                    file_path: None,
-                    md5_hash: md5_hash.clone(),
-                },
+                bitfile: record.clone(),
             },
         );
+
+        let _ = self
+            .state
+            .device_manager
+            .broadcast(DeviceEvent::DeviceProgrammed {
+                serial: serial.clone(),
+                bitfile: record.filename,
+                programmed_by: record.programmed_by,
+                timestamp: now,
+            });
+
+        self.state.broadcast_event(&format!(
+            r#"{{"type":"device_programmed","device_serial":"{}"}}"#,
+            serial
+        ));
 
         info!(
             serial = %serial,
@@ -744,18 +850,12 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             "gRPC ConfigureFPGAFromMemory succeeded"
         );
 
-        // Clear stale resources for this device (Phase 25-Fix-F, F3).
-        let cleared = self.state.resource_registry.remove_for_device(&serial);
-        if cleared > 0 {
-            info!(serial = %serial, cleared, "Cleared resources for re-programmed device");
-        }
-
         Ok(Response::new(proto::ConfigureFpgaResponse {
             bitfile: Some(proto::BitfileInfo {
                 filename,
                 description: String::new(),
                 programmed_at: now.to_rfc3339(),
-                programmed_by: user_id,
+                programmed_by,
                 file_path: String::new(),
                 md5_hash: md5_hash.unwrap_or_default(),
             }),
@@ -769,11 +869,50 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
 
     async fn clear_fpga_configuration(
         &self,
-        _request: Request<proto::DeviceRequest>,
+        request: Request<proto::DeviceRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
-        Err(Status::unimplemented(
-            "ClearFPGAConfiguration requires FFI integration",
-        ))
+        let meta_uid = Self::extract_metadata_user_id(&request);
+        let serial = &request.get_ref().serial;
+
+        // Verify device exists in registry.
+        if !self.state.device_manager.registry().contains(serial) {
+            return Err(Status::not_found(format!("device '{}' not found", serial)));
+        }
+
+        let _ = self.resolve_caller_id(None, meta_uid.as_deref())?;
+
+        // D26 / 44-F q3a & q3b: Transition the device to `Connected`
+        // (unprogrammed, bumping `config_generation`) and forcibly unlock,
+        // release, and delete all resources on the device (`reason = "clear"`).
+        self.state
+            .device_manager
+            .registry()
+            .update_state(serial, ok_fpga_core::device::DeviceState::Connected);
+        let cleared = self
+            .state
+            .force_cleanup_device_resources(serial, DeleteReason::Clear);
+        if cleared > 0 {
+            info!(
+                serial = %serial,
+                cleared,
+                "Force-deleted resources on clear FPGA configuration (gRPC ClearFPGAConfiguration)"
+            );
+        }
+
+        if let Some(pool) = self.state.handle_pool.as_ref() {
+            pool.clear_configuration(serial)
+                .await
+                .map_err(|e| Status::internal(format!("FFI error: {}", e)))?;
+        }
+
+        self.state.broadcast_event(&format!(
+            r#"{{"type":"device_cleared","device_serial":"{}"}}"#,
+            serial
+        ));
+
+        Ok(Response::new(proto::StatusResponse {
+            error: Self::ok_cluster(),
+        }))
     }
 
     async fn get_bitfile_info(
@@ -1131,7 +1270,7 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         // The device must exist; its data port must support the declared
         // interfaces (INVALID_ARGUMENT); only then must it be programmed.
         // Same order as REST `create_resource`.
-        match self.state.device_manager.registry().get(&resource.device_serial) {
+        let expected_gen = match self.state.device_manager.registry().get(&resource.device_serial) {
             Some(dev) => {
                 check_interfaces_for_dataport(&resource.interfaces, dev.info.dataport)
                     .map_err(|e| resource_error_status(&e))?;
@@ -1140,6 +1279,7 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
                         "FPGA is not programmed — configure it first",
                     ));
                 }
+                dev.config_generation
             }
             None => {
                 return Err(Status::not_found(format!(
@@ -1147,7 +1287,7 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
                     resource.device_serial
                 )));
             }
-        }
+        };
 
         // Overlapping ranges inside one declaration are allowed (owner
         // decision Q1); log a warning if the setting is on.
@@ -1169,13 +1309,28 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         let resource_id = resource.id.clone();
         let device_serial = resource.device_serial.clone();
         let name = resource.name.clone();
-        match self.state.resource_registry.try_register(resource, check_overlap) {
+        let dm_registry = self.state.device_manager.registry();
+        let check_serial = device_serial.clone();
+        match self.state.resource_registry.try_register_with_precondition(
+            resource,
+            move || match dm_registry.get(&check_serial) {
+                Some(dev) if dev.is_programmed() && dev.config_generation == expected_gen => Ok(()),
+                _ => Err(
+                    "Device configuration changed during resource registration — retry after programming completes"
+                        .to_string(),
+                ),
+            },
+            check_overlap,
+        ) {
             Ok(()) => {}
             Err(RegisterError::Duplicate) => {
                 return Err(Status::failed_precondition(format!(
                     "Resource '{}' already exists",
                     resource_id
                 )));
+            }
+            Err(RegisterError::PreconditionFailed(msg)) => {
+                return Err(Status::failed_precondition(msg));
             }
             Err(RegisterError::Rejected(err)) => return Err(resource_error_status(&err)),
         }
@@ -1565,6 +1720,7 @@ mod tests {
         device_manager.registry().add(FpgaDevice {
             info: info(UNPROGRAMMED_SERIAL),
             state: DeviceState::Connected,
+            config_generation: 0,
         });
         device_manager.registry().add(FpgaDevice {
             info: info(SERIAL),
@@ -1578,6 +1734,7 @@ mod tests {
                     md5_hash: None,
                 },
             },
+            config_generation: 0,
         });
         let auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider> =
             Arc::from(ok_fpga_core::auth::create_provider("none", vec![], None));
@@ -2155,5 +2312,141 @@ mod tests {
             Some(proto::device_event::Event::ResourceDeleted(ref e))
                 if e.resource_id == id && e.reason == proto::DeleteReason::Client as i32
         ));
+    }
+
+    #[tokio::test]
+    async fn test_grpc_configure_fpga_force_deletes_resources() {
+        let svc = service();
+        let id = format!("{SERIAL}:grpc_reprog_res");
+
+        svc.create_resource(Request::new(shared_create_request("grpc_reprog_res", 0x03)))
+            .await
+            .unwrap();
+        svc.acquire_resource(Request::new(proto::AcquireResourceRequest {
+            resource_id: id.clone(),
+            user_id: "alice".to_string(),
+            mode: None,
+        }))
+        .await
+        .unwrap();
+        svc.lock_resource(Request::new(proto::LockResourceRequest {
+            resource_id: id.clone(),
+            user_id: "alice".to_string(),
+        }))
+        .await
+        .unwrap();
+
+        let tmp_path = std::env::temp_dir().join("test_grpc_44f_reprog.bit");
+        std::fs::write(&tmp_path, b"grpc-bitstream-bytes").unwrap();
+
+        let mut events = svc.state.device_manager.subscribe();
+        let resp = svc
+            .configure_fpga(Request::new(proto::ConfigureFpgaRequest {
+                serial: SERIAL.to_string(),
+                bitfile_path: tmp_path.to_string_lossy().to_string(),
+                user_id: "alice".to_string(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        let _ = std::fs::remove_file(&tmp_path);
+
+        assert_eq!(resp.bitfile.as_ref().unwrap().programmed_by, "alice");
+        assert_eq!(svc.state.resource_registry.count(), 0);
+        assert!(svc.state.resource_registry.holdings_for("alice").is_empty());
+
+        let mut collected = Vec::new();
+        while let Ok(evt) = events.try_recv() {
+            collected.push(evt);
+        }
+        let unlock_pos = collected
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    DeviceEvent::ResourceUnlocked { resource_id, user_id, .. }
+                        if resource_id == &id && user_id == "alice"
+                )
+            })
+            .expect("ResourceUnlocked must be emitted before ResourceDeleted on gRPC ConfigureFPGA");
+        let delete_pos = collected
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    DeviceEvent::ResourceDeleted { resource_id, reason: DeleteReason::Reprogram, .. }
+                        if resource_id == &id
+                )
+            })
+            .expect("ResourceDeleted(Reprogram) must be emitted on gRPC ConfigureFPGA");
+        assert!(unlock_pos < delete_pos);
+    }
+
+    #[tokio::test]
+    async fn test_grpc_clear_fpga_notifies_all_holders() {
+        let svc = service();
+        let id = format!("{SERIAL}:grpc_clear_res");
+
+        svc.create_resource(Request::new(shared_create_request("grpc_clear_res", 0x04)))
+            .await
+            .unwrap();
+        svc.acquire_resource(Request::new(proto::AcquireResourceRequest {
+            resource_id: id.clone(),
+            user_id: "alice".to_string(),
+            mode: None,
+        }))
+        .await
+        .unwrap();
+        svc.acquire_resource(Request::new(proto::AcquireResourceRequest {
+            resource_id: id.clone(),
+            user_id: "bob".to_string(),
+            mode: None,
+        }))
+        .await
+        .unwrap();
+        svc.lock_resource(Request::new(proto::LockResourceRequest {
+            resource_id: id.clone(),
+            user_id: "alice".to_string(),
+        }))
+        .await
+        .unwrap();
+
+        let mut events = svc.state.device_manager.subscribe();
+        let mut req = Request::new(proto::DeviceRequest {
+            serial: SERIAL.to_string(),
+        });
+        req.metadata_mut()
+            .insert("x-user-id", "alice".parse().unwrap());
+        svc.clear_fpga_configuration(req).await.unwrap();
+
+        assert_eq!(svc.state.resource_registry.count(), 0);
+        let dev = svc.state.device_manager.registry().get(SERIAL).unwrap();
+        assert!(!dev.is_programmed());
+
+        let mut collected = Vec::new();
+        while let Ok(evt) = events.try_recv() {
+            collected.push(evt);
+        }
+        let unlock_pos = collected
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    DeviceEvent::ResourceUnlocked { resource_id, user_id, .. }
+                        if resource_id == &id && user_id == "alice"
+                )
+            })
+            .expect("ResourceUnlocked must be emitted before ResourceDeleted on gRPC ClearFPGAConfiguration");
+        let delete_pos = collected
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    DeviceEvent::ResourceDeleted { resource_id, reason: DeleteReason::Clear, .. }
+                        if resource_id == &id
+                )
+            })
+            .expect("ResourceDeleted(Clear) must be emitted on gRPC ClearFPGAConfiguration");
+        assert!(unlock_pos < delete_pos);
     }
 }

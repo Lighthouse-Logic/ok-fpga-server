@@ -1096,6 +1096,11 @@ pub enum RegisterError {
     /// REST 409 / gRPC `FAILED_PRECONDITION`, without a `conflict` object
     /// (no D73 code describes a duplicate name).
     Duplicate,
+    /// A device-state precondition failed while holding the registry lock
+    /// (e.g. the device was reprogrammed, cleared, or unplugged between initial
+    /// lookup and registration; 44-B Q5 / 44-F q4).
+    /// REST 409 / gRPC `FAILED_PRECONDITION`, without a `conflict` object.
+    PreconditionFailed(String),
     /// The registration check failed (overlap or validation).
     Rejected(ResourceError),
 }
@@ -1173,6 +1178,26 @@ pub struct ReleasedResource {
     pub was_locked: bool,
     /// State of the resource after the release (`Available` or `InUseShared`).
     pub new_state: ResourceState,
+}
+
+/// Information about a resource that was forcibly deleted on reprogram, clear,
+/// hot-unplug, or orphan sweep (ADR-034 §7 & §14, D26, `resource-model.typ` §3.6).
+///
+/// Returned by [`ResourceRegistry::force_delete_for_device`] and
+/// [`ResourceRegistry::force_delete_resource`] so transport handlers and
+/// background sweep tasks can emit `ResourceUnlocked` (if a shared resource
+/// had an active lock) followed by `ResourceDeleted { reason }`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForceDeletedResource {
+    /// ID of the deleted resource (`{device_serial}:{name}`).
+    pub resource_id: ResourceId,
+    /// If the deleted resource was a shared resource with an explicit lock
+    /// (`access_mode == Some(Shared)` and `locked_by == Some(user)`), the
+    /// user who held the lock so `ResourceUnlocked` is emitted before
+    /// `ResourceDeleted` (D26, `resource-model.typ` §3.6).
+    pub unlocked_user: Option<UserId>,
+    /// Holders who were released when the resource was force-deleted.
+    pub released_holders: Vec<UserId>,
 }
 
 /// Find the first resource (in deterministic `id` ascending order) on the
@@ -2039,7 +2064,29 @@ impl ResourceRegistry {
     where
         F: FnOnce(&[Resource], &Resource) -> Result<(), ResourceError>,
     {
+        self.try_register_with_precondition(resource, || Ok(()), check)
+    }
+
+    /// Register a resource after checking a device-state `precondition` and
+    /// running `check` against existing resources on the same device while
+    /// holding the registry's write lock (44-B Q5 / 44-F q4).
+    ///
+    /// Running `precondition` inside the write lock closes the TOCTOU window
+    /// between initial device lookup and resource insertion when a concurrent
+    /// `ConfigureFPGA*` or `ClearFPGAConfiguration` updates the device's
+    /// `config_generation` or state.
+    pub fn try_register_with_precondition<P, F>(
+        &self,
+        resource: Resource,
+        precondition: P,
+        check: F,
+    ) -> Result<(), RegisterError>
+    where
+        P: FnOnce() -> Result<(), String>,
+        F: FnOnce(&[Resource], &Resource) -> Result<(), ResourceError>,
+    {
         let mut map = self.resources.write().unwrap();
+        precondition().map_err(RegisterError::PreconditionFailed)?;
         if map.contains_key(&resource.id) {
             return Err(RegisterError::Duplicate);
         }
@@ -2104,19 +2151,74 @@ impl ResourceRegistry {
     /// Used when the FPGA is re-programmed: all resources for the device
     /// become invalid because the bitfile has changed.
     ///
-    /// Returns the number of resources removed.
+    /// Returns the number of resources removed. Prefer
+    /// [`force_delete_for_device`](Self::force_delete_for_device) when caller
+    /// needs to emit `ResourceUnlocked` and `ResourceDeleted` events (D26).
     pub fn remove_for_device(&self, serial: &str) -> usize {
+        self.force_delete_for_device(serial).len()
+    }
+
+    /// Forcibly unlock, release all holders, and delete every resource on
+    /// `serial` (ADR-034 §7 & §14, D26, `resource-model.typ` §3.6).
+    ///
+    /// Used on `ConfigureFPGA*`, `ClearFPGAConfiguration`, and hot-unplug.
+    /// Returns per-resource details sorted by `resource_id` ascending so
+    /// transport handlers can deterministically emit `ResourceUnlocked`
+    /// (for shared resources that had an active lock) followed by
+    /// `ResourceDeleted { reason }`.
+    pub fn force_delete_for_device(&self, serial: &str) -> Vec<ForceDeletedResource> {
         let mut map = self.resources.write().unwrap();
-        let ids_to_remove: Vec<String> = map
+        let mut ids_to_remove: Vec<ResourceId> = map
             .values()
             .filter(|r| r.device_serial == serial)
             .map(|r| r.id.clone())
             .collect();
-        let count = ids_to_remove.len();
+        ids_to_remove.sort();
+
+        let mut deleted = Vec::with_capacity(ids_to_remove.len());
         for id in ids_to_remove {
-            map.remove(&id);
+            if let Some(resource) = map.remove(&id) {
+                let unlocked_user = if resource.access_mode == Some(AccessMode::Shared) {
+                    resource.locked_by.clone()
+                } else {
+                    None
+                };
+                let released_holders: Vec<UserId> =
+                    resource.holders.iter().map(|h| h.user_id.clone()).collect();
+                self.policy
+                    .on_resource_invalidated(&resource, &released_holders);
+                deleted.push(ForceDeletedResource {
+                    resource_id: resource.id,
+                    unlocked_user,
+                    released_holders,
+                });
+            }
         }
-        count
+        deleted
+    }
+
+    /// Forcibly unlock, release all holders, and delete a single resource by ID
+    /// (ADR-034 §14, orphan resource sweep).
+    ///
+    /// Returns [`Some(ForceDeletedResource)`] if the resource existed and was
+    /// removed, or `None` if it was already gone.
+    pub fn force_delete_resource(&self, resource_id: &str) -> Option<ForceDeletedResource> {
+        let mut map = self.resources.write().unwrap();
+        let resource = map.remove(resource_id)?;
+        let unlocked_user = if resource.access_mode == Some(AccessMode::Shared) {
+            resource.locked_by.clone()
+        } else {
+            None
+        };
+        let released_holders: Vec<UserId> =
+            resource.holders.iter().map(|h| h.user_id.clone()).collect();
+        self.policy
+            .on_resource_invalidated(&resource, &released_holders);
+        Some(ForceDeletedResource {
+            resource_id: resource.id,
+            unlocked_user,
+            released_holders,
+        })
     }
 
     /// Release all resources held by a specific user, across all devices.

@@ -28,6 +28,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 
 use ok_fpga_core::device::{BitfileRecord, DeviceState};
+use ok_fpga_core::manager::{DeleteReason, DeviceEvent};
 use ok_fpga_ffi::error::FfiError;
 
 use crate::rest::errors::ProblemDetail;
@@ -49,7 +50,9 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/devices/{serial}/configure",
             // Multipart uploads can be large (bitfiles are typically ~11MB, max ~50MB).
             // Override axum's default 2MB body limit for this route only.
-            post(configure_fpga).layer(DefaultBodyLimit::max(100 * 1024 * 1024)),
+            post(configure_fpga)
+                .delete(clear_fpga_configuration)
+                .layer(DefaultBodyLimit::max(100 * 1024 * 1024)),
         )
         .route("/devices/{serial}/configure_from_server_path", post(configure_fpga_from_server_path))
         .route("/devices/{serial}/bitfile", get(get_bitfile_info))
@@ -814,16 +817,12 @@ async fn get_syzygy_ports(
 
 // `resolve_user_id` is now a shared function in `crate::rest::mod.rs` (ADR-029).
 
-/// Shared post-configure logic: update device state, broadcast events, clear stale resources.
+/// Shared post-configure logic: update device state and broadcast `DeviceProgrammed`.
 ///
 /// Called by both `configure_fpga` (multipart upload) and
 /// `configure_fpga_from_server_path` (JSON path) after successful FPGA
-/// programming. Performs three steps:
-///
-/// 1. Updates the device's state to `Programmed` with the given `BitfileRecord`.
-/// 2. Broadcasts a `device_programmed` SSE event for dashboard auto-refresh.
-/// 3. Clears any existing resources for the device (old bitfile's resources
-///    are invalid after re-programming — Phase 25-Fix-F, F3).
+/// programming. Note that forced cleanup of any previous resources on the
+/// device (`D26`) already ran **before** the FFI call (`44-F q3a`).
 ///
 /// Returns the `BitfileRecord` unchanged (for use as the HTTP response body).
 fn finalize_configure(
@@ -831,7 +830,7 @@ fn finalize_configure(
     serial: &str,
     bitfile: BitfileRecord,
 ) -> BitfileRecord {
-    // 1. Update device state in the registry.
+    // 1. Update device state in the registry (bumps `config_generation`).
     state.device_manager.registry().update_state(
         serial,
         DeviceState::Programmed {
@@ -839,24 +838,19 @@ fn finalize_configure(
         },
     );
 
-    // 2. Broadcast device_programmed event for dashboard auto-refresh (Phase 28D).
+    // 2. Broadcast `DeviceEvent::DeviceProgrammed` for SSE / gRPC subscribers.
+    let _ = state.device_manager.broadcast(DeviceEvent::DeviceProgrammed {
+        serial: serial.to_string(),
+        bitfile: bitfile.filename.clone(),
+        programmed_by: bitfile.programmed_by.clone(),
+        timestamp: chrono::Utc::now(),
+    });
+
+    // 3. Broadcast device_programmed event for dashboard auto-refresh (Phase 28D).
     state.broadcast_event(&format!(
         r#"{{"type":"device_programmed","device_serial":"{}"}}"#,
         serial
     ));
-
-    // 3. Clear any existing resources for this device — the old bitfile's
-    //    resources are invalid after re-programming (Phase 25-Fix-F, F3).
-    let cleared = state.resource_registry.remove_for_device(serial);
-    if cleared > 0 {
-        tracing::info!(serial = %serial, cleared, "Cleared resources for re-programmed device");
-
-        // Broadcast event for dashboard auto-refresh (Phase 25-Fix-H, F9).
-        state.broadcast_event(&format!(
-            r#"{{"type":"resources_cleared","device_serial":"{}","cleared_count":{}}}"#,
-            serial, cleared
-        ));
-    }
 
     bitfile
 }
@@ -871,12 +865,15 @@ fn finalize_configure(
 ///
 /// Returns `BitfileInfo` (serialized `BitfileRecord`) on success.
 ///
-/// ## gRPC equivalent
-/// Maps to `ConfigureFPGAFromMemory(stream ConfigureFPGAChunk)` in the proto.
+/// ## Forced resource cleanup (`D26`, `44-F q3a`, `q3b`)
 ///
-/// ## Body limit
-/// This route has a 100MB body limit (most bitfiles are ~11MB).
-/// The limit is configured via `DefaultBodyLimit` in the route definition.
+/// Reprogramming invalidates the running FPGA design. After validating the
+/// request inputs and before calling into FFI, all resources on the device
+/// are forcibly unlocked, released, and deleted (`reason = "reprogram"`), and
+/// the device transitions to `Connected` (unprogrammed) so a mid-transfer FFI
+/// failure leaves the device unprogrammed with no stale resources (`q3a`).
+/// When `handle_pool` is `None` (Tier 3 tests without `libokFrontPanel`), the
+/// state transition and forced cleanup still run in memory (`q3b`).
 async fn configure_fpga(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
@@ -887,11 +884,6 @@ async fn configure_fpga(
     if !state.device_manager.registry().contains(&serial) {
         return Err(ProblemDetail::not_found(format!("device '{}' not found", serial)));
     }
-
-    let pool = state
-        .handle_pool
-        .as_ref()
-        .ok_or_else(|| ProblemDetail::not_implemented("FrontPanel DLL not loaded"))?;
 
     // Parse the multipart form fields. We iterate all fields and collect
     // the binary data and text metadata separately.
@@ -962,7 +954,10 @@ async fn configure_fpga(
     // (debugging / legacy unit tests, 44-E Q3b), anonymous programming is
     // permitted if neither `user_id` nor `X-User-Id` was supplied.
     let programmed_by = match super::resolve_user_id(user_id.as_deref(), &headers) {
-        Ok(uid) => uid,
+        Ok(uid) => {
+            state.user_sessions.touch(&uid);
+            uid
+        }
         Err(err)
             if state.enforcement() == crate::state::EndpointEnforcement::Off
                 && user_id.as_deref().is_none_or(str::is_empty) =>
@@ -973,10 +968,32 @@ async fn configure_fpga(
         Err(err) => return Err(err),
     };
 
-    // Program the FPGA from the received bytes.
-    pool.configure_from_memory(&serial, &data)
-        .await
-        .map_err(|e| ffi_error_to_problem(&e))?;
+    // D26 / 44-F q3a: Mark the device `Connected` (unprogrammed, bumping
+    // `config_generation`) and forcibly unlock, release, and delete all
+    // resources on the device BEFORE the FFI call so that if the bitfile
+    // transfer fails mid-way, the device remains unprogrammed (`Connected`)
+    // and no stale resources survive.
+    state
+        .device_manager
+        .registry()
+        .update_state(&serial, DeviceState::Connected);
+    let cleared = state.force_cleanup_device_resources(&serial, DeleteReason::Reprogram);
+    if cleared > 0 {
+        tracing::info!(
+            serial = %serial,
+            cleared,
+            "Force-deleted resources before re-programming device"
+        );
+    }
+
+    // Program the FPGA from the received bytes when a hardware handle pool is
+    // attached (44-F q3b: in Tier 3 tests without `handle_pool`, state and
+    // resource cleanup still complete in memory).
+    if let Some(pool) = state.handle_pool.as_ref() {
+        pool.configure_from_memory(&serial, &data)
+            .await
+            .map_err(|e| ffi_error_to_problem(&e))?;
+    }
 
     // Build the BitfileRecord for the response and device state.
     let record = BitfileRecord {
@@ -988,10 +1005,69 @@ async fn configure_fpga(
         md5_hash: Some(format!("{:x}", md5::compute(&data))),
     };
 
-    // Update state, broadcast events, clear stale resources.
+    // Update state to Programmed and broadcast events.
     let record = finalize_configure(&state, &serial, record);
 
     Ok(Json(record))
+}
+
+/// `DELETE /devices/{serial}/configure` — Clear FPGA configuration (`D26`).
+///
+/// Clears the loaded configuration on the FPGA, transitions the device state
+/// back to `Connected` (unprogrammed), and forcibly unlocks, releases, and
+/// deletes all resources registered on the device (`reason = "clear"`).
+async fn clear_fpga_configuration(
+    State(state): State<Arc<AppState>>,
+    Path(serial): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<DeviceStatusResponse>, ProblemDetail> {
+    // Verify device exists in registry.
+    if !state.device_manager.registry().contains(&serial) {
+        return Err(ProblemDetail::not_found(format!("device '{}' not found", serial)));
+    }
+
+    // Resolve user identity from `X-User-Id` when enforcement is active.
+    match super::resolve_user_id(None, &headers) {
+        Ok(uid) => {
+            state.user_sessions.touch(&uid);
+        }
+        Err(err) if state.enforcement() == crate::state::EndpointEnforcement::Off => {
+            let _ = err;
+        }
+        Err(err) => return Err(err),
+    }
+
+    // D26 / 44-F q3a & q3b: Transition the device to `Connected`
+    // (unprogrammed, bumping `config_generation`) and forcibly unlock, release,
+    // and delete all resources on the device (`reason = "clear"`).
+    state
+        .device_manager
+        .registry()
+        .update_state(&serial, DeviceState::Connected);
+    let cleared = state.force_cleanup_device_resources(&serial, DeleteReason::Clear);
+    if cleared > 0 {
+        tracing::info!(
+            serial = %serial,
+            cleared,
+            "Force-deleted resources on clear FPGA configuration"
+        );
+    }
+
+    if let Some(pool) = state.handle_pool.as_ref() {
+        pool.clear_configuration(&serial)
+            .await
+            .map_err(|e| ffi_error_to_problem(&e))?;
+    }
+
+    state.broadcast_event(&format!(
+        r#"{{"type":"device_cleared","device_serial":"{}"}}"#,
+        serial
+    ));
+
+    Ok(Json(DeviceStatusResponse {
+        success: true,
+        message: format!("FPGA configuration cleared on device '{}'", serial),
+    }))
 }
 
 /// `POST /devices/{serial}/configure_from_server_path` — Program FPGA from a server-side file.
@@ -1017,11 +1093,6 @@ async fn configure_fpga_from_server_path(
         return Err(ProblemDetail::not_found(format!("device '{}' not found", serial)));
     }
 
-    let pool = state
-        .handle_pool
-        .as_ref()
-        .ok_or_else(|| ProblemDetail::not_implemented("FrontPanel DLL not loaded"))?;
-
     // Verify the bitfile exists on the server's filesystem.
     let path = std::path::Path::new(&req.bitfile_path);
     if !path.exists() {
@@ -1035,7 +1106,10 @@ async fn configure_fpga_from_server_path(
     // (debugging / legacy unit tests, 44-E Q3b), anonymous programming is
     // permitted if neither `user_id` nor `X-User-Id` was supplied.
     let programmed_by = match super::resolve_user_id(req.user_id.as_deref(), &headers) {
-        Ok(uid) => uid,
+        Ok(uid) => {
+            state.user_sessions.touch(&uid);
+            uid
+        }
         Err(err)
             if state.enforcement() == crate::state::EndpointEnforcement::Off
                 && req.user_id.as_deref().is_none_or(str::is_empty) =>
@@ -1046,10 +1120,32 @@ async fn configure_fpga_from_server_path(
         Err(err) => return Err(err),
     };
 
-    // Program the FPGA from the file on disk.
-    pool.configure_from_path(&serial, path)
-        .await
-        .map_err(|e| ffi_error_to_problem(&e))?;
+    // D26 / 44-F q3a: Mark the device `Connected` (unprogrammed, bumping
+    // `config_generation`) and forcibly unlock, release, and delete all
+    // resources on the device BEFORE the FFI call so that if the bitfile
+    // transfer fails mid-way, the device remains unprogrammed (`Connected`)
+    // and no stale resources survive.
+    state
+        .device_manager
+        .registry()
+        .update_state(&serial, DeviceState::Connected);
+    let cleared = state.force_cleanup_device_resources(&serial, DeleteReason::Reprogram);
+    if cleared > 0 {
+        tracing::info!(
+            serial = %serial,
+            cleared,
+            "Force-deleted resources before re-programming device"
+        );
+    }
+
+    // Program the FPGA from the file on disk when a hardware handle pool is
+    // attached (44-F q3b: in Tier 3 tests without `handle_pool`, state and
+    // resource cleanup still complete in memory).
+    if let Some(pool) = state.handle_pool.as_ref() {
+        pool.configure_from_path(&serial, path)
+            .await
+            .map_err(|e| ffi_error_to_problem(&e))?;
+    }
 
     // Extract filename as the basename of the path.
     let filename = path
@@ -1072,7 +1168,7 @@ async fn configure_fpga_from_server_path(
         md5_hash,
     };
 
-    // Update state, broadcast events, clear stale resources.
+    // Update state to Programmed and broadcast events.
     let record = finalize_configure(&state, &serial, record);
 
     Ok(Json(record))
@@ -1127,4 +1223,314 @@ fn cstr_from_char_array(buf: &[::std::os::raw::c_char]) -> String {
         .map(|&c| c as u8)
         .collect();
     String::from_utf8_lossy(&bytes).to_string()
+}
+
+// ============================================================================
+// Tests (Tier 3: forced resource cleanup on configure & clear, D26 / 44-F)
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use ok_fpga_core::device::{
+        DataportType, DeviceInfo, DeviceInterface, FpgaDevice, FpgaVendor, UsbSpeed,
+    };
+    use ok_fpga_core::manager::DeviceManager;
+    use ok_fpga_core::resource::{AccessMode, Resource, ResourceRegistry};
+    use ok_fpga_core::service_manager::ServiceManager;
+    use ok_fpga_core::user::UserSessionRegistry;
+    use tower::ServiceExt;
+
+    const SERIAL: &str = "DEV44F01";
+
+    fn test_state() -> Arc<AppState> {
+        let device_manager = Arc::new(DeviceManager::new());
+        let info = DeviceInfo {
+            serial: SERIAL.to_string(),
+            product_name: "XEM7320-A75T".to_string(),
+            product_id: 43,
+            device_interface: DeviceInterface::Usb3,
+            usb_speed: UsbSpeed::Super,
+            device_major_version: 1,
+            device_minor_version: 0,
+            wire_width: 32,
+            trigger_width: 32,
+            pipe_width: 32,
+            register_address_width: 32,
+            register_data_width: 32,
+            fpga_vendor: FpgaVendor::Xilinx,
+            dataport: DataportType::Legacy,
+            device_id: "XEM7320".to_string(),
+        };
+        device_manager.registry().add(FpgaDevice {
+            info,
+            state: DeviceState::Programmed {
+                bitfile: BitfileRecord {
+                    filename: "initial.bit".to_string(),
+                    description: None,
+                    programmed_at: chrono::Utc::now(),
+                    programmed_by: "init".to_string(),
+                    file_path: None,
+                    md5_hash: None,
+                },
+            },
+            config_generation: 1,
+        });
+        let auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider> =
+            Arc::from(ok_fpga_core::auth::create_provider("none", vec![], None));
+        let (event_tx, _) = tokio::sync::broadcast::channel(64);
+        let mut app_state = AppState::new(
+            device_manager,
+            Arc::new(ResourceRegistry::new()),
+            Arc::new(ServiceManager::new()),
+            None,
+            auth_provider,
+            Arc::new(ok_fpga_core::auth::SessionManager::new(3600)),
+            Arc::new(UserSessionRegistry::new()),
+            crate::state::EndpointEnforcement::Enforce,
+            crate::config::ServerConfig::default(),
+            None,
+        );
+        app_state.event_tx = Some(event_tx);
+        Arc::new(app_state)
+    }
+
+    #[tokio::test]
+    async fn test_configure_fpga_held_resources_force_deleted() {
+        let state = test_state();
+
+        // Register a shared resource (locked by alice, also held read_only by bob)
+        // and an exclusive resource (held by charlie).
+        let mut r_shared = Resource::new(
+            format!("{SERIAL}:r_shared"),
+            "r_shared".to_string(),
+            None,
+            SERIAL.to_string(),
+            AccessMode::Shared,
+        );
+        r_shared.private = false;
+        state.resource_registry.register(r_shared);
+        state
+            .resource_registry
+            .acquire(&format!("{SERIAL}:r_shared"), &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        state
+            .resource_registry
+            .acquire(&format!("{SERIAL}:r_shared"), &"bob".to_string(), AccessMode::ReadOnly)
+            .unwrap();
+        state
+            .resource_registry
+            .lock(&format!("{SERIAL}:r_shared"), &"alice".to_string())
+            .unwrap();
+
+        let r_excl = Resource::new(
+            format!("{SERIAL}:r_excl"),
+            "r_excl".to_string(),
+            None,
+            SERIAL.to_string(),
+            AccessMode::Exclusive,
+        );
+        state.resource_registry.register(r_excl);
+        state
+            .resource_registry
+            .acquire(&format!("{SERIAL}:r_excl"), &"charlie".to_string(), AccessMode::Exclusive)
+            .unwrap();
+
+        // Write a temporary dummy bitfile on disk.
+        let tmp_path = std::env::temp_dir().join("test_44f_reprogram.bit");
+        std::fs::write(&tmp_path, b"dummy-bitstream-bytes").unwrap();
+
+        let mut events = state.device_manager.subscribe();
+        let req_body = serde_json::json!({
+            "bitfile_path": tmp_path.to_string_lossy(),
+            "description": "reprogrammed in test",
+            "user_id": "alice"
+        });
+
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/devices/{SERIAL}/configure_from_server_path"))
+            .header("content-type", "application/json")
+            .header("x-user-id", "alice")
+            .body(Body::from(req_body.to_string()))
+            .unwrap();
+
+        let resp = routes().with_state(state.clone()).oneshot(req).await.unwrap();
+        let _ = std::fs::remove_file(&tmp_path);
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Both resources must be gone from the registry, and all user holdings empty.
+        assert_eq!(state.resource_registry.count(), 0);
+        assert!(state.resource_registry.holdings_for("alice").is_empty());
+        assert!(state.resource_registry.holdings_for("bob").is_empty());
+        assert!(state.resource_registry.holdings_for("charlie").is_empty());
+
+        // Device must be Programmed with bumped config_generation.
+        let dev = state.device_manager.registry().get(SERIAL).unwrap();
+        assert!(dev.is_programmed());
+        assert!(dev.config_generation > 1);
+
+        // Collect emitted DeviceEvents and verify ordering:
+        // ResourceDeleted(r_excl, Reprogram), ResourceUnlocked(r_shared, alice) -> ResourceDeleted(r_shared, Reprogram), DeviceProgrammed
+        let mut collected = Vec::new();
+        while let Ok(evt) = events.try_recv() {
+            collected.push(evt);
+        }
+
+        let unlock_pos = collected
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    DeviceEvent::ResourceUnlocked { resource_id, user_id, .. }
+                        if resource_id == &format!("{SERIAL}:r_shared") && user_id == "alice"
+                )
+            })
+            .expect("ResourceUnlocked must be emitted for locked shared resource");
+        let delete_shared_pos = collected
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    DeviceEvent::ResourceDeleted { resource_id, reason: DeleteReason::Reprogram, .. }
+                        if resource_id == &format!("{SERIAL}:r_shared")
+                )
+            })
+            .expect("ResourceDeleted(Reprogram) must be emitted for r_shared");
+        assert!(
+            unlock_pos < delete_shared_pos,
+            "ResourceUnlocked must precede ResourceDeleted for r_shared"
+        );
+
+        assert!(
+            collected.iter().any(|e| matches!(
+                e,
+                DeviceEvent::ResourceDeleted { resource_id, reason: DeleteReason::Reprogram, .. }
+                    if resource_id == &format!("{SERIAL}:r_excl")
+            )),
+            "ResourceDeleted(Reprogram) must be emitted for r_excl"
+        );
+        assert!(
+            collected.iter().any(|e| matches!(
+                e,
+                DeviceEvent::DeviceProgrammed { serial, .. } if serial == SERIAL
+            )),
+            "DeviceProgrammed must be emitted after successful configure"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_clear_fpga_notifies_all_holders() {
+        let state = test_state();
+
+        let r_shared = Resource::new(
+            format!("{SERIAL}:r_shared"),
+            "r_shared".to_string(),
+            None,
+            SERIAL.to_string(),
+            AccessMode::Shared,
+        );
+        state.resource_registry.register(r_shared);
+        state
+            .resource_registry
+            .acquire(&format!("{SERIAL}:r_shared"), &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        state
+            .resource_registry
+            .acquire(&format!("{SERIAL}:r_shared"), &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+        state
+            .resource_registry
+            .lock(&format!("{SERIAL}:r_shared"), &"alice".to_string())
+            .unwrap();
+
+        let mut events = state.device_manager.subscribe();
+        let req = Request::builder()
+            .method("DELETE")
+            .uri(format!("/devices/{SERIAL}/configure"))
+            .header("x-user-id", "alice")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = routes().with_state(state.clone()).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["success"], true);
+
+        // Device is now Connected (unprogrammed) and all resources are deleted.
+        let dev = state.device_manager.registry().get(SERIAL).unwrap();
+        assert!(!dev.is_programmed());
+        assert_eq!(state.resource_registry.count(), 0);
+        assert!(state.resource_registry.holdings_for("alice").is_empty());
+        assert!(state.resource_registry.holdings_for("bob").is_empty());
+
+        let mut collected = Vec::new();
+        while let Ok(evt) = events.try_recv() {
+            collected.push(evt);
+        }
+
+        let unlock_pos = collected
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    DeviceEvent::ResourceUnlocked { resource_id, user_id, .. }
+                        if resource_id == &format!("{SERIAL}:r_shared") && user_id == "alice"
+                )
+            })
+            .expect("ResourceUnlocked must be emitted before ResourceDeleted on clear");
+        let delete_pos = collected
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    DeviceEvent::ResourceDeleted { resource_id, reason: DeleteReason::Clear, .. }
+                        if resource_id == &format!("{SERIAL}:r_shared")
+                )
+            })
+            .expect("ResourceDeleted(Clear) must be emitted on clear");
+        assert!(unlock_pos < delete_pos);
+    }
+
+    #[tokio::test]
+    async fn test_reset_fpga_resources_retained() {
+        // D27: ResetFPGA resets logic inside the running bitfile without
+        // changing the bitfile itself, so registered resources and holders
+        // are retained (unlike ConfigureFPGA / ClearFPGAConfiguration).
+        let state = test_state();
+        let r_shared = Resource::new(
+            format!("{SERIAL}:r_keep"),
+            "r_keep".to_string(),
+            None,
+            SERIAL.to_string(),
+            AccessMode::Shared,
+        );
+        state.resource_registry.register(r_shared);
+        state
+            .resource_registry
+            .acquire(&format!("{SERIAL}:r_keep"), &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // Attempt POST /devices/{serial}/classic/reset (returns 501 without DLL,
+        // and never touches resource_registry).
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/devices/{SERIAL}/classic/reset"))
+            .header("x-user-id", "alice")
+            .body(Body::empty())
+            .unwrap();
+        let _ = crate::rest::classic::routes()
+            .with_state(state.clone())
+            .oneshot(req)
+            .await
+            .unwrap();
+
+        assert_eq!(state.resource_registry.count(), 1);
+        assert_eq!(state.resource_registry.holdings_for("alice").len(), 1);
+    }
 }

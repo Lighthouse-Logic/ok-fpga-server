@@ -18,8 +18,8 @@ use std::time::Instant;
 
 use tokio::sync::broadcast;
 
-use ok_fpga_core::manager::DeviceManager;
-use ok_fpga_core::resource::ResourceRegistry;
+use ok_fpga_core::manager::{DeleteReason, DeviceEvent, DeviceManager};
+use ok_fpga_core::resource::{ForceDeletedResource, ResourceRegistry};
 use ok_fpga_core::service_manager::ServiceManager;
 use ok_fpga_core::user::UserSessionRegistry;
 
@@ -244,6 +244,76 @@ impl AppState {
     pub fn broadcast_event(&self, json: &str) {
         if let Some(ref tx) = self.event_tx {
             let _ = tx.send(json.to_string());
+        }
+    }
+
+    /// Forcibly unlock, release all holders, and delete all resources on
+    /// `serial`, emitting `ResourceUnlocked` (for any shared resource with an
+    /// active lock) followed by `ResourceDeleted { reason }` (ADR-034 §7 & §14,
+    /// D26, `resource-model.typ` §3.6).
+    ///
+    /// Returns the number of resources deleted.
+    pub fn force_cleanup_device_resources(&self, serial: &str, reason: DeleteReason) -> usize {
+        let deleted = self.resource_registry.force_delete_for_device(serial);
+        let count = deleted.len();
+        broadcast_force_deleted_resources(
+            &self.device_manager,
+            self.event_tx.as_ref(),
+            serial,
+            &deleted,
+            reason,
+        );
+        count
+    }
+}
+
+/// Broadcast `ResourceUnlocked` (if a shared resource had an active lock) and
+/// `ResourceDeleted` events for a slice of force-deleted resources, plus a
+/// dashboard WebSocket `resources_cleared` summary when non-empty (D26, §3.6).
+pub fn broadcast_force_deleted_resources(
+    device_manager: &DeviceManager,
+    event_tx: Option<&broadcast::Sender<String>>,
+    device_serial: &str,
+    deleted: &[ForceDeletedResource],
+    reason: DeleteReason,
+) {
+    for item in deleted {
+        if let Some(ref user_id) = item.unlocked_user {
+            let _ = device_manager.broadcast(DeviceEvent::ResourceUnlocked {
+                resource_id: item.resource_id.clone(),
+                user_id: user_id.clone(),
+                timestamp: chrono::Utc::now(),
+            });
+            if let Some(tx) = event_tx {
+                let _ = tx.send(format!(
+                    r#"{{"type":"resource_unlocked","resource_id":"{}","user_id":"{}"}}"#,
+                    item.resource_id, user_id
+                ));
+            }
+        }
+
+        let _ = device_manager.broadcast(DeviceEvent::ResourceDeleted {
+            resource_id: item.resource_id.clone(),
+            reason,
+            timestamp: chrono::Utc::now(),
+        });
+        if let Some(tx) = event_tx {
+            let _ = tx.send(format!(
+                r#"{{"type":"resource_deleted","resource_id":"{}","reason":"{}"}}"#,
+                item.resource_id,
+                reason.as_str()
+            ));
+        }
+    }
+
+    if !deleted.is_empty() {
+        if let Some(tx) = event_tx {
+            let _ = tx.send(format!(
+                r#"{{"type":"resources_cleared","device_serial":"{}","cleared_count":{},"reason":"{}"}}"#,
+                device_serial,
+                deleted.len(),
+                reason.as_str()
+            ));
         }
     }
 }

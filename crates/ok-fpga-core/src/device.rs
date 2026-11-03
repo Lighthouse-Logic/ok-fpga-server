@@ -398,6 +398,17 @@ pub struct FpgaDevice {
 
     /// Current device state (connected or programmed).
     pub state: DeviceState,
+
+    /// Monotonic configuration generation counter (44-B Q5, 44-F).
+    ///
+    /// Incremented every time the device state changes via
+    /// [`crate::manager::DeviceRegistry::update_state`] (`ConfigureFPGA*` or
+    /// `ClearFPGAConfiguration`). Resource registration captures this counter
+    /// at device lookup and re-verifies it under the resource registry write
+    /// lock so a concurrent reprogram or clear between lookup and insertion is
+    /// detected and rejected with `409 Conflict` / `FAILED_PRECONDITION`.
+    #[serde(default)]
+    pub config_generation: u64,
 }
 
 impl FpgaDevice {
@@ -406,6 +417,7 @@ impl FpgaDevice {
         FpgaDevice {
             info,
             state: DeviceState::Connected,
+            config_generation: 0,
         }
     }
 

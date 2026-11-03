@@ -31,3 +31,8 @@ logs/
 # any public release of this repository.
 *.bit
 !FrontPanel-6.1.0/ExampleBitfiles/**/*.bit
+
+# Opal Kelly FrontPanel shared libraries (keep local; full SDK cleanup in Later)
+FrontPanel-6.1.0/*.so
+FrontPanel-6.1.0/*.so.*
+FrontPanel-6.1.0/*.dylib

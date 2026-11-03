@@ -28,10 +28,55 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use ok_fpga_core::manager::{DeviceEvent, DeviceManager};
+use ok_fpga_core::manager::{DeleteReason, DeviceEvent, DeviceManager};
 use ok_fpga_core::resource::ResourceRegistry;
 use ok_fpga_core::user::UserSessionRegistry;
 use tracing::{debug, info, warn};
+
+/// Scan for and forcibly delete any orphan resources whose device is either
+/// absent from the `DeviceRegistry` (`reason = DeleteReason::DeviceRemoved`)
+/// or no longer programmed (`reason = DeleteReason::Clear`) (ADR-034 §14,
+/// 44-F `q2`).
+///
+/// Returns the number of orphan resources removed.
+pub fn sweep_orphan_resources(
+    resource_registry: &ResourceRegistry,
+    device_manager: &DeviceManager,
+    event_tx: Option<&tokio::sync::broadcast::Sender<String>>,
+) -> usize {
+    let mut resources = resource_registry.list();
+    resources.sort_by(|a, b| a.id.cmp(&b.id));
+
+    let mut removed = 0_usize;
+    for resource in resources {
+        let orphan_reason = match device_manager.registry().get(&resource.device_serial) {
+            None => Some(DeleteReason::DeviceRemoved),
+            Some(dev) if !dev.is_programmed() => Some(DeleteReason::Clear),
+            Some(_) => None,
+        };
+
+        if let Some(reason) = orphan_reason {
+            if let Some(deleted) = resource_registry.force_delete_resource(&resource.id) {
+                removed += 1;
+                warn!(
+                    resource_id = %deleted.resource_id,
+                    device_serial = %resource.device_serial,
+                    reason = reason.as_str(),
+                    "sweep deleted orphan resource"
+                );
+                crate::state::broadcast_force_deleted_resources(
+                    device_manager,
+                    event_tx,
+                    &resource.device_serial,
+                    std::slice::from_ref(&deleted),
+                    reason,
+                );
+            }
+        }
+    }
+
+    removed
+}
 
 /// Spawn the background sweep task.
 ///
@@ -76,6 +121,9 @@ pub fn spawn_sweep_task(
         let mut tick = tokio::time::interval(interval);
         loop {
             tick.tick().await;
+
+            // Sweep any orphan resources whose device was unplugged or cleared.
+            let _ = sweep_orphan_resources(&resource_registry, &device_manager, event_tx.as_ref());
 
             let expired = user_sessions.expired(timeout);
             if expired.is_empty() {
@@ -232,6 +280,165 @@ mod tests {
         // Verify alice exists in the session registry.
         assert!(user_sessions.get("alice").is_some());
         assert_eq!(user_sessions.count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_sweep_orphan_resource_device_absent_deleted() {
+        use ok_fpga_core::device::{
+            BitfileRecord, DataportType, DeviceInfo, DeviceInterface, DeviceState, FpgaDevice,
+            FpgaVendor, UsbSpeed,
+        };
+        use ok_fpga_core::resource::{AccessMode, Resource};
+
+        let resource_registry = ResourceRegistry::new();
+        let device_manager = DeviceManager::new();
+
+        let make_info = |serial: &str| DeviceInfo {
+            serial: serial.to_string(),
+            product_name: "XEM7320-A75T".to_string(),
+            product_id: 43,
+            device_interface: DeviceInterface::Usb3,
+            usb_speed: UsbSpeed::Super,
+            device_major_version: 1,
+            device_minor_version: 0,
+            wire_width: 32,
+            trigger_width: 32,
+            pipe_width: 32,
+            register_address_width: 32,
+            register_data_width: 32,
+            fpga_vendor: FpgaVendor::Xilinx,
+            dataport: DataportType::Legacy,
+            device_id: "XEM7320".to_string(),
+        };
+
+        // 1. Add an unprogrammed device ("unprog-dev") and a programmed device ("prog-dev").
+        //    Leave "absent-dev" completely absent from the DeviceRegistry.
+        device_manager
+            .registry()
+            .add(FpgaDevice::new(make_info("unprog-dev")));
+        let mut prog_dev = FpgaDevice::new(make_info("prog-dev"));
+        prog_dev.state = DeviceState::Programmed {
+            bitfile: BitfileRecord {
+                filename: "counters.bit".to_string(),
+                description: None,
+                programmed_at: chrono::Utc::now(),
+                programmed_by: "alice".to_string(),
+                file_path: None,
+                md5_hash: None,
+            },
+        };
+        device_manager.registry().add(prog_dev);
+
+        // 2. Register one resource on each of the three devices.
+        //    Lock the resource on "absent-dev" to verify ResourceUnlocked precedes ResourceDeleted(DeviceRemoved).
+        resource_registry.register(Resource::new(
+            "absent-dev:r_absent".to_string(),
+            "r_absent".to_string(),
+            None,
+            "absent-dev".to_string(),
+            AccessMode::Shared,
+        ));
+        resource_registry
+            .acquire(
+                "absent-dev:r_absent",
+                &"alice".to_string(),
+                AccessMode::Shared,
+            )
+            .unwrap();
+        resource_registry
+            .lock("absent-dev:r_absent", &"alice".to_string())
+            .unwrap();
+
+        resource_registry.register(Resource::new(
+            "unprog-dev:r_unprog".to_string(),
+            "r_unprog".to_string(),
+            None,
+            "unprog-dev".to_string(),
+            AccessMode::Exclusive,
+        ));
+        resource_registry
+            .acquire(
+                "unprog-dev:r_unprog",
+                &"bob".to_string(),
+                AccessMode::Exclusive,
+            )
+            .unwrap();
+
+        resource_registry.register(Resource::new(
+            "prog-dev:r_prog".to_string(),
+            "r_prog".to_string(),
+            None,
+            "prog-dev".to_string(),
+            AccessMode::Shared,
+        ));
+        resource_registry
+            .acquire(
+                "prog-dev:r_prog",
+                &"charlie".to_string(),
+                AccessMode::Shared,
+            )
+            .unwrap();
+
+        let mut events = device_manager.subscribe();
+        let (ws_tx, mut ws_rx) = tokio::sync::broadcast::channel(16);
+        let removed = sweep_orphan_resources(&resource_registry, &device_manager, Some(&ws_tx));
+        assert_eq!(removed, 2);
+
+        // Only "prog-dev:r_prog" remains.
+        assert!(resource_registry.get("absent-dev:r_absent").is_none());
+        assert!(resource_registry.get("unprog-dev:r_unprog").is_none());
+        assert!(resource_registry.get("prog-dev:r_prog").is_some());
+
+        let mut collected = Vec::new();
+        while let Ok(evt) = events.try_recv() {
+            collected.push(evt);
+        }
+
+        let unlock_pos = collected
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    DeviceEvent::ResourceUnlocked { resource_id, user_id, .. }
+                        if resource_id == "absent-dev:r_absent" && user_id == "alice"
+                )
+            })
+            .expect("ResourceUnlocked must be emitted for locked orphan resource");
+        let delete_absent_pos = collected
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    DeviceEvent::ResourceDeleted {
+                        resource_id,
+                        reason: DeleteReason::DeviceRemoved,
+                        ..
+                    } if resource_id == "absent-dev:r_absent"
+                )
+            })
+            .expect("ResourceDeleted(DeviceRemoved) must be emitted for absent-dev");
+        assert!(unlock_pos < delete_absent_pos);
+
+        assert!(
+            collected.iter().any(|e| matches!(
+                e,
+                DeviceEvent::ResourceDeleted {
+                    resource_id,
+                    reason: DeleteReason::Clear,
+                    ..
+                } if resource_id == "unprog-dev:r_unprog"
+            )),
+            "ResourceDeleted(Clear) must be emitted for unprog-dev"
+        );
+
+        let mut ws_messages = Vec::new();
+        while let Ok(msg) = ws_rx.try_recv() {
+            ws_messages.push(msg);
+        }
+        assert!(ws_messages
+            .iter()
+            .any(|m| m.contains(r#""reason":"device_removed""#)));
+        assert!(ws_messages.iter().any(|m| m.contains(r#""reason":"clear""#)));
     }
 }
 

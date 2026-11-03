@@ -1,13 +1,13 @@
 # ADR-034: Resource Model Consolidation
 
 **Status**: Accepted — 44-A implemented incl. post-44-A read semantics (0.3.0) and mask default (0.3.1);
-44-A, 44-B, 44-C, 44-D and 44-E archived; 44-B implemented (0.3.3); 44-C implemented (0.3.4); 44-D implemented (0.3.5); 44-E implemented (0.3.6); 44-F … 44-J pending
+44-A, 44-B, 44-C, 44-D, 44-E and 44-F archived; 44-B implemented (0.3.3); 44-C implemented (0.3.4); 44-D implemented (0.3.5); 44-E implemented (0.3.6); 44-F implemented (0.3.7); 44-G … 44-J pending
 **Date**: 2026-10-11 (amended 2026-11-03)
 **Commit hash**: 44-A `d3b19a6`; 0.3.0 read semantics (D75–D77) `dcb5e5a`;
 0.3.1 IsTriggered mask default (D78) `6e11f9b`; 0.3.2 heartbeat text and
 shipped enforcement `2e2f7a3`; 44-B registration rules (0.3.3) `1d95a6f`;
 44-C acquisition rules (0.3.4) `2167914`; 44-D locking, blocking & events (0.3.5) `e562705`;
-44-E enforcement pipeline (0.3.6) `7c39e74`
+44-E enforcement pipeline (0.3.6) `7c39e74`; 44-F reprogram & clear cleanup (0.3.7) (see git log)
 **Deciders**: Project owner, Architecture Team
 **Phase**: 44 ([development-roadmap.md](../../development-roadmap.md) §44)
 **Supersedes (in part)**: ADR-020 §7, §8 and the Validation Responses table
@@ -368,6 +368,75 @@ the resource declaration, overlap, and blocking model (`B2`, `S-12..S-20`,
   `(0..=31).contains(&req.bit)` before computing `1u32 << req.bit` and before
   enforcement, returning `422 Unprocessable Entity` / `INVALID_ARGUMENT`.
 
+### §14 Reprogram and clear forced resource cleanup (44-F, 0.3.7)
+
+- **Forced cleanup on `ConfigureFPGA*` and `ClearFPGAConfiguration` (`D26`, `Q44-14`, `D74`, `P11`, `P12`, owner decisions `q1`, `q3a`, `q3b`)**:
+  - `POST /devices/{serial}/configure`, `POST /devices/{serial}/configure_from_server_path`,
+    `DELETE /devices/{serial}/configure`, and gRPC `ConfigureFPGA`,
+    `ConfigureFPGAFromMemory`, and `ClearFPGAConfiguration` are unconditional
+    forced overrides at every enforcement level (`off`, `warn`, `enforce`).
+    The `409 Conflict` ("Device has resources in use") responses are removed
+    from `api/openapi.yaml` (`q1`).
+  - **Pre-FFI cleanup and failure state (`q3a`)**: after validating request
+    inputs (device exists, caller identity valid when `enforcement != Off`,
+    bitfile bytes/path present), the server transitions the device to
+    `DeviceState::Connected` (unprogrammed, bumping `config_generation`),
+    clears cached data port handles on `OpenDevice`, and runs
+    `AppState::force_cleanup_device_resources` **before** calling into FFI:
+    1. For every shared resource on the device with an active lock
+       (`access_mode == Some(Shared)` and `locked_by == Some(user)`), emit
+       `DeviceEvent::ResourceUnlocked` and dashboard WS `resource_unlocked`.
+    2. Release all holders and notify `ResourceAccessPolicy::on_resource_invalidated`.
+    3. Remove all resources on the device from `ResourceRegistry` and emit
+       `DeviceEvent::ResourceDeleted { reason }` (`DeleteReason::Reprogram` or
+       `DeleteReason::Clear`) and dashboard WS `resource_deleted` /
+       `resources_cleared`.
+    If the FFI bitfile transfer fails mid-way, the device remains in
+    `DeviceState::Connected` (unprogrammed) with no stale resources or data
+    ports (`q3a`).
+  - **Tier 3 in-memory fallback (`q3b`)**: when `AppState.handle_pool` is
+    `None` (Tier 3 tests without `libokFrontPanel`), `ConfigureFPGA*` and
+    `ClearFPGAConfiguration` still perform the full `D26` forced cleanup,
+    update `DeviceState` (`Programmed` / `Connected`), and broadcast events in
+    memory.
+  - **`ResetFPGA` retains resources (`D27`)**: `POST /devices/{serial}/classic/reset`
+    and `ClassicDataPortService.ResetFPGA` reset logic inside the running
+    bitfile without changing the loaded bitfile, so registered resources and
+    holders are retained.
+- **Hot-unplug & orphan resource sweep (`DeleteReason::DeviceRemoved`, owner decision `q2`)**:
+  - Added `"device_removed"` (`DELETE_REASON_DEVICE_REMOVED = 3` in
+    `okfpga.proto`, `DeleteReason::DeviceRemoved` in `ok-fpga-core`) to
+    `DeleteReason` in `api/openapi.yaml`, `okfpga.proto`, `ok-fpga-core`, and
+    `resource-model.typ` (`q2` Option A).
+  - Hot-unplug in `main.rs` calls `force_delete_for_device(serial)` and
+    `broadcast_force_deleted_resources(..., DeleteReason::DeviceRemoved)` so
+    holders receive `ResourceUnlocked` (if locked) + `ResourceDeleted { reason: "device_removed" }`.
+  - `sweep_orphan_resources` in `sweep.rs` runs on every sweep tick and
+    force-deletes any resource whose device is absent from `DeviceRegistry`
+    (`DeleteReason::DeviceRemoved`) or no longer programmed
+    (`DeleteReason::Clear`).
+- **Configuration generation check vs bitfile-hash/regex matching (`44-B Q5`, owner decision `q4`)**:
+  - **Rejected & dropped (not deferred to Later)**: the proposal from `44-B Q5`
+    to allow optional bitfile-matching regexes or hashes on resource
+    declarations was evaluated in `44-F q4` and **permanently dropped**.
+    Owner rationale: FPGA bitfile hashes (MD5/SHA) change even when a design
+    is rebuilt with zero RTL code changes (due to synthesis timestamps and
+    placement/routing seeds), and bitfile filenames are not authoritative.
+  - Instead, `FpgaDevice` carries a monotonic `config_generation: u64` counter
+    bumped on every `DeviceRegistry::update_state` call. `create_resource`
+    (REST and gRPC) captures `expected_gen = dev.config_generation` at device
+    lookup and re-verifies `dev.is_programmed() && dev.config_generation == expected_gen`
+    inside `ResourceRegistry::try_register_with_precondition` while holding
+    the `ResourceRegistry` write lock. Combined with `D26` forced cleanup on
+    every `ConfigureFPGA*` and `ClearFPGAConfiguration`, this guarantees that
+    resources only exist for the exact configuration session in which they
+    were registered.
+- **Proprietary FrontPanel SDK shared libraries (`q5`)**:
+  - Added `FrontPanel-6.1.0/*.so`, `*.so.*`, and `*.dylib` to `.gitignore` so
+    locally installed `libokFrontPanel.so` binaries are never committed, and
+    added a **🔵 Later** roadmap item to purge tracked proprietary Opal Kelly
+    FrontPanel SDK files from git.
+
 ### Rationale
 
 One schema shared by REST, gRPC and the dashboard removes the guessing that
@@ -529,6 +598,51 @@ test Q5):
 - Docs: this ADR, `docs/API-Specification/`, `docs/archive/roadmap-phases-44.md`,
   `docs/development-roadmap.md`.
 
+## Files changed (0.3.7, 44-F)
+
+Owner decisions 2026-11-03 (spec/proto permission `q1`, `DeleteReason::DeviceRemoved`
+`q2` Option A, pre-FFI forced cleanup & `Connected` state on FFI failure `q3a`,
+Tier 3 in-memory cleanup fallback `q3b`, rejection/dropping of bitfile
+regex/hash matching on resource declarations `q4`, `.gitignore` for
+`FrontPanel-6.1.0/*.so*` & Later SDK cleanup `q5`):
+
+- Gitignore: `.gitignore` (`FrontPanel-6.1.0/*.so`, `*.so.*`, `*.dylib`).
+- Spec: `api/openapi.yaml` (removed `409` from `POST /configure`,
+  `DELETE /configure`, and `POST /configure_from_server_path`; added
+  `device_removed` to `ResourceDeletedEvent.reason`),
+  `proto/okfpga/v1/okfpga.proto` (`DELETE_REASON_DEVICE_REMOVED = 3`, `P11`,
+  `P12`, `D26` comments).
+- Core: `crates/ok-fpga-core/src/device.rs` (`FpgaDevice.config_generation`),
+  `crates/ok-fpga-core/src/manager.rs` (`DeleteReason::DeviceRemoved`,
+  `DeviceRegistry::update_state` generation bump, unit test),
+  `crates/ok-fpga-core/src/resource.rs` (`ForceDeletedResource`,
+  `RegisterError::PreconditionFailed`, `try_register_with_precondition`,
+  `force_delete_for_device`, `force_delete_resource`),
+  `crates/ok-fpga-core/tests/device_resource_integration.rs`
+  (`test_emulated_reprogram_and_clear_force_delete_resources`, live hardware
+  `test_hardware_xem7320_counters_enforcement_pipeline` step 5).
+- Server: `crates/ok-fpga-server/src/state.rs`
+  (`AppState::force_cleanup_device_resources`,
+  `broadcast_force_deleted_resources`),
+  `crates/ok-fpga-server/src/handle_pool.rs` (`OpenDevice::clear_data_ports`,
+  `DeviceHandlePool::clear_configuration`),
+  `crates/ok-fpga-server/src/rest/devices.rs` (`DELETE /devices/{serial}/configure`
+  wired to `clear_fpga_configuration`, `D26`/`q3a`/`q3b` in `configure_fpga*`,
+  Tier 3 unit tests),
+  `crates/ok-fpga-server/src/rest/resources.rs` (`create_resource` generation
+  precondition check, Tier 3 unit test),
+  `crates/ok-fpga-server/src/grpc/device_service.rs` (`configure_fpga`,
+  `configure_fpga_from_memory`, `clear_fpga_configuration`, `create_resource`
+  generation precondition check, Tier 3 unit tests),
+  `crates/ok-fpga-server/src/grpc/resource_mapping.rs`
+  (`DeleteReason::DeviceRemoved` mapping),
+  `crates/ok-fpga-server/src/sweep.rs` (`sweep_orphan_resources`, Tier 3 unit
+  test),
+  `crates/ok-fpga-server/src/main.rs` (hot-unplug forced cleanup + events).
+- Version: `Cargo.toml`, `Cargo.lock` (0.3.7).
+- Docs: this ADR, `docs/API-Specification/`, `docs/archive/roadmap-phases-44.md`,
+  `docs/development-roadmap.md`.
+
 ## Open items
 
 - ~~**44-B**: R1 overlap rules, Rule A, interface/dataport check, `private`
@@ -547,20 +661,12 @@ test Q5):
   TriggerOut blocks `UpdateTriggerOuts` / `update=true`) enforcement;
   `warn_readonly_side_effects` setting and warning (F4).~~
   **Done in 0.3.6** (§13).
+- ~~**44-F**: forced cleanup on configure / clear; `reprogram` / `clear` /
+  `device_removed` delete reasons; registration vs device lifecycle (orphan
+  sweep on unplug, configuration-generation check; optional bitfile regex/hash
+  matching evaluated and rejected/dropped per `q4`).~~
+  **Done in 0.3.7** (§14).
 - **Later**: TriggerOut event log (D67 reopened, roadmap 🔵 Later).
-- REST `?update=abc` is rejected by axum's query extractor with a plain-text
-  400, not a 422 ProblemDetail (minor).
-- Pre-existing, found by the 0.3.0 Strata review (not changed in 0.3.0):
-  - ~~Spec discrepancy: proto `IsTriggeredRequest.mask` default 0 vs
-    OpenAPI `0xFFFFFFFF`.~~ **Resolved in 0.3.1 (D78): default 0 on both.**
-  - ~~`ActivateTriggerIn` computes `1u32 << bit` before validating `bit`
-    (`rest/classic.rs`, `grpc/classic_service.rs`); `bit` outside 0–31
-    panics in debug builds. Validate (422 / `INVALID_ARGUMENT`) in 44-E.~~
-    **Resolved in 0.3.6 (44-E).**
-- **44-F**: forced cleanup on configure / clear; `reprogram` / `clear`
-  delete reasons; registration vs device lifecycle (orphan sweep on unplug,
-  configuration-generation check, optional bitfile name pattern), see
-  roadmap 44-F.
 - **44-G**: example clients and `client/python-labview-client` are out of
   step with this contract until then.
 - **Spec ↔ implementation discrepancies (spec unchanged)**:

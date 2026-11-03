@@ -740,7 +740,142 @@ fn test_hardware_xem7320_counters_enforcement_pipeline() {
             ok_ErrorCode::ok_NoError as i32
         );
 
-        let _ = (dll.fp_clear_fpga_configuration)(fp_handle);
+        // 5. Phase 44-F (D26): Alice re-locks counter1, then ClearFPGAConfiguration
+        //    forcibly unlocks, releases, and deletes all resources on the device.
+        assert_eq!(
+            rr.lock(&c1_id, &"alice".to_string()).unwrap(),
+            LockOutcome::Locked
+        );
+        let deleted = rr.force_delete_for_device(&serial);
+        assert_eq!(deleted.len(), 2);
+        assert_eq!(deleted[0].resource_id, c1_id);
+        assert_eq!(deleted[0].unlocked_user.as_deref(), Some("alice"));
+        assert_eq!(deleted[0].released_holders, vec!["alice", "carol"]);
+        assert_eq!(deleted[1].resource_id, c2_id);
+        assert_eq!(deleted[1].unlocked_user, None);
+        assert_eq!(deleted[1].released_holders, vec!["bob"]);
+        assert_eq!(rr.count(), 0);
+
+        let clear_rc = (dll.fp_clear_fpga_configuration)(fp_handle);
+        assert_eq!(
+            clear_rc as i32,
+            ok_ErrorCode::ok_NoError as i32,
+            "fp_clear_fpga_configuration should succeed on live XEM7320"
+        );
         (dll.fp_destruct)(fp_handle);
     }
+}
+
+#[test]
+fn test_emulated_reprogram_and_clear_force_delete_resources() {
+    use ok_fpga_core::declaration::{build_resource, EndpointEntrySpec, EndpointSpec, ResourceSpec};
+    use ok_fpga_core::device::{BitfileRecord, DeviceState, FpgaDevice};
+    use ok_fpga_core::manager::{DeleteReason, DeviceEvent, DeviceManager};
+    use ok_fpga_core::resource::{AccessMode, EndpointType, LockOutcome, ResourceRegistry};
+
+    let serial = "REPROG44F01".to_string();
+    let dm = DeviceManager::new();
+    let mut fpga = FpgaDevice::new(test_info(&serial));
+    fpga.state = DeviceState::Programmed {
+        bitfile: BitfileRecord {
+            filename: "v1.bit".to_string(),
+            description: None,
+            programmed_at: chrono::Utc::now(),
+            programmed_by: "alice".to_string(),
+            file_path: None,
+            md5_hash: None,
+        },
+    };
+    dm.registry().add(fpga);
+
+    let rr = ResourceRegistry::new();
+    let r_shared = build_resource(ResourceSpec {
+        name: "shared_block".to_string(),
+        description: None,
+        device_serial: serial.clone(),
+        access_mode: Some(AccessMode::Shared),
+        private: false,
+        interfaces: vec!["classic".to_string()],
+        endpoints: Some(EndpointSpec {
+            default_access: Some(AccessMode::Shared),
+            entries: vec![EndpointEntrySpec {
+                address: 0x00,
+                ep_type: "wire_in".to_string(),
+                access: None,
+                private: false,
+                description: None,
+            }],
+        }),
+        address_ranges: vec![],
+        metadata: Default::default(),
+    })
+    .unwrap();
+    let r_id = r_shared.id.clone();
+    rr.register(r_shared);
+
+    rr.acquire(&r_id, &"alice".to_string(), AccessMode::Shared)
+        .unwrap();
+    rr.acquire(&r_id, &"bob".to_string(), AccessMode::ReadOnly)
+        .unwrap();
+    assert_eq!(rr.lock(&r_id, &"alice".to_string()).unwrap(), LockOutcome::Locked);
+
+    // Simulate reprogram cleanup (D26, 44-F q3a): transition to Connected (bumps
+    // config_generation) and force-delete all resources on the device.
+    let gen_before = dm.registry().get(&serial).unwrap().config_generation;
+    dm.registry().update_state(&serial, DeviceState::Connected);
+    let deleted = rr.force_delete_for_device(&serial);
+    assert_eq!(deleted.len(), 1);
+    assert_eq!(deleted[0].resource_id, r_id);
+    assert_eq!(deleted[0].unlocked_user.as_deref(), Some("alice"));
+    assert_eq!(deleted[0].released_holders, vec!["alice", "bob"]);
+    assert_eq!(rr.count(), 0);
+
+    let mut events = dm.subscribe();
+    if let Some(ref locker) = deleted[0].unlocked_user {
+        let _ = dm.broadcast(DeviceEvent::ResourceUnlocked {
+            resource_id: deleted[0].resource_id.clone(),
+            user_id: locker.clone(),
+            timestamp: chrono::Utc::now(),
+        });
+    }
+    let _ = dm.broadcast(DeviceEvent::ResourceDeleted {
+        resource_id: deleted[0].resource_id.clone(),
+        reason: DeleteReason::Reprogram,
+        timestamp: chrono::Utc::now(),
+    });
+
+    dm.registry().update_state(
+        &serial,
+        DeviceState::Programmed {
+            bitfile: BitfileRecord {
+                filename: "v2.bit".to_string(),
+                description: None,
+                programmed_at: chrono::Utc::now(),
+                programmed_by: "alice".to_string(),
+                file_path: None,
+                md5_hash: None,
+            },
+        },
+    );
+    let gen_after = dm.registry().get(&serial).unwrap().config_generation;
+    assert!(gen_after > gen_before);
+
+    // Verify Alice and Bob no longer pass endpoint enforcement after reprogram cleanup.
+    assert!(rr
+        .check_endpoint_access("alice", &serial, 0x00, &EndpointType::WireIn, Some(1))
+        .is_err());
+    assert!(rr
+        .check_endpoint_access("bob", &serial, 0x00, &EndpointType::WireIn, None)
+        .is_err());
+
+    let evt1 = events.try_recv().unwrap();
+    let evt2 = events.try_recv().unwrap();
+    assert!(matches!(evt1, DeviceEvent::ResourceUnlocked { .. }));
+    assert!(matches!(
+        evt2,
+        DeviceEvent::ResourceDeleted {
+            reason: DeleteReason::Reprogram,
+            ..
+        }
+    ));
 }

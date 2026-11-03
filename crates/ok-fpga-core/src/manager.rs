@@ -174,10 +174,10 @@ pub enum DeviceEvent {
     },
 }
 
-/// Why a resource was deleted (ADR-034, D58).
+/// Why a resource was deleted (ADR-034, D58, 44-F Q2).
 ///
-/// Serialised as `client`, `reprogram` or `clear`, the values of the OpenAPI
-/// `ResourceDeletedEvent.reason` enum.
+/// Serialised as `client`, `reprogram`, `clear`, or `device_removed`, matching
+/// the OpenAPI `ResourceDeletedEvent.reason` enum and proto `DeleteReason`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DeleteReason {
@@ -187,15 +187,18 @@ pub enum DeleteReason {
     Reprogram,
     /// The FPGA configuration was cleared (forced cleanup, 44-F).
     Clear,
+    /// The physical FPGA device disconnected or was swept as absent (44-F Q2).
+    DeviceRemoved,
 }
 
 impl DeleteReason {
-    /// The spec string: `"client"`, `"reprogram"` or `"clear"`.
+    /// The spec string: `"client"`, `"reprogram"`, `"clear"`, or `"device_removed"`.
     pub fn as_str(&self) -> &'static str {
         match self {
             DeleteReason::Client => "client",
             DeleteReason::Reprogram => "reprogram",
             DeleteReason::Clear => "clear",
+            DeleteReason::DeviceRemoved => "device_removed",
         }
     }
 }
@@ -284,13 +287,15 @@ impl DeviceRegistry {
         self.devices.read().unwrap().len()
     }
 
-    /// Update the state of a device by serial number.
+    /// Update the state of a device by serial number and bump its
+    /// `config_generation` counter (44-F).
     ///
     /// Returns `true` if the device was found and updated, `false` otherwise.
     pub fn update_state(&self, serial: &str, new_state: DeviceState) -> bool {
         let mut map = self.devices.write().unwrap();
         if let Some(device) = map.get_mut(serial) {
             device.state = new_state;
+            device.config_generation = device.config_generation.wrapping_add(1);
             true
         } else {
             false
@@ -634,6 +639,7 @@ mod tests {
             (DeleteReason::Client, "client"),
             (DeleteReason::Reprogram, "reprogram"),
             (DeleteReason::Clear, "clear"),
+            (DeleteReason::DeviceRemoved, "device_removed"),
         ] {
             assert_eq!(serde_json::to_string(&reason).unwrap(), format!("\"{}\"", text));
             assert_eq!(reason.as_str(), text);

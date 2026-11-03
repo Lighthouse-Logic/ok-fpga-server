@@ -402,3 +402,93 @@ adopted, 2 rejected as non-observable / redundant).
     `test_axi_lite_read_write_enforce_address_access`.
 - Commit: `feat: align endpoint enforcement with overlap and blocking (B2) (0.3.6)`.
   **Done:** `7c39e74`.
+
+---
+
+## 44-F — Reprogram and clear cleanup (D26) (0.3.7)
+
+**Owner decisions (2026-11-03):**
+- **Q1 (Spec & proto permission — `Q44-14`, `P11`, `P12`):** permission granted
+  to edit `api/openapi.yaml` and `proto/okfpga/v1/okfpga.proto`.
+- **Q2 (`DeleteReason` on device unplug / orphan sweep):** Option A — add
+  `"device_removed"` (`DELETE_REASON_DEVICE_REMOVED = 3` in proto,
+  `DeleteReason::DeviceRemoved` in Rust) to `DeleteReason` in OpenAPI, proto,
+  `ok-fpga-core`, and `resource-model.typ`.
+- **Q3a & Q3b (Forced cleanup ordering, FFI failure state, and Tier 3 fallback):**
+  - **Q3a:** After validating request inputs (device exists, caller identity
+    valid, bitfile data/path exists), transition the device to
+    `DeviceState::Connected` (unprogrammed, bumping `config_generation`) and
+    run `D26` forced cleanup (`ResourceUnlocked` if locked → release holders →
+    `ResourceDeleted` with `reprogram` / `clear`) **before** the FFI hardware
+    call, so that if the FFI transfer fails mid-transfer, the device remains in
+    `Connected` (unprogrammed) state with no stale resources or data ports.
+  - **Q3b:** When `state.handle_pool` is `None` (Tier 3 tests without
+    `libokFrontPanel`), `configure_fpga*` and `clear_fpga_configuration` /
+    `ClearFPGAConfiguration` still perform the full `D26` forced cleanup,
+    update `DeviceState` (`Programmed` / `Connected`), and broadcast events in
+    memory.
+- **Q4 (Optional bitfile-matching regex / hash on resource declarations from 44-B Q5):**
+  - **Rejected and dropped (NOT moved to Later).** A resource can never be
+    reliably validated against a bitfile hash because bitfile hashes change
+    even when rebuilt with zero code changes (timestamps/seeds), and filenames
+    are not authoritative. Instead, the monotonic per-device
+    `config_generation` counter (checked atomically during `create_resource`)
+    plus `D26` forced cleanup on every `ConfigureFPGA*` and
+    `ClearFPGAConfiguration` guarantees resources only live for the
+    configuration session in which they were registered.
+- **Q5 (`FrontPanel-6.1.0/libokFrontPanel.so` & proprietary SDK files in git):**
+  - Added `FrontPanel-6.1.0/*.so`, `*.so.*`, and `*.dylib` to `.gitignore`, and
+    added a **🔵 Later** roadmap task to remove tracked proprietary Opal Kelly
+    FrontPanel IP/SDK files from git and document external SDK installation.
+
+**44-F Reprogram and clear cleanup (D26)**
+- Files: `.gitignore`, `api/openapi.yaml`, `proto/okfpga/v1/okfpga.proto`,
+  `crates/ok-fpga-core/src/device.rs`, `crates/ok-fpga-core/src/manager.rs`,
+  `crates/ok-fpga-core/src/resource.rs`,
+  `crates/ok-fpga-core/tests/device_resource_integration.rs`,
+  `crates/ok-fpga-server/src/state.rs`,
+  `crates/ok-fpga-server/src/handle_pool.rs`,
+  `crates/ok-fpga-server/src/rest/devices.rs`,
+  `crates/ok-fpga-server/src/rest/resources.rs`,
+  `crates/ok-fpga-server/src/grpc/device_service.rs`,
+  `crates/ok-fpga-server/src/grpc/resource_mapping.rs`,
+  `crates/ok-fpga-server/src/sweep.rs`,
+  `crates/ok-fpga-server/src/main.rs`,
+  `docs/API-Specification/`, `Cargo.toml` / `Cargo.lock`.
+- Implemented:
+  - `FpgaDevice::config_generation` (`u64`) bumped on every
+    `DeviceRegistry::update_state` call.
+  - `ResourceRegistry::try_register_with_precondition` verifying inside the
+    resource-registry write lock that the target device still exists, is
+    programmed, and matches `expected_gen` (`RegisterError::PreconditionFailed`
+    → 409 / `FAILED_PRECONDITION`).
+  - `ResourceRegistry::force_delete_for_device`, `force_delete_resource`, and
+    `ForceDeletedResource` returning unlocked-user and released-holders info.
+  - `AppState::force_cleanup_device_resources` and
+    `broadcast_force_deleted_resources` emitting `ResourceUnlocked` (if a
+    shared resource was locked) before `ResourceDeleted { reason }` across SSE,
+    dashboard WebSocket, and `WatchDeviceEvents`.
+  - REST `DELETE /devices/{serial}/configure` (`clear_fpga_configuration`),
+    `POST /devices/{serial}/configure`,
+    `POST /devices/{serial}/configure_from_server_path`, and gRPC
+    `ConfigureFPGA`, `ConfigureFPGAFromMemory`, and `ClearFPGAConfiguration`
+    wired with `D26` forced cleanup before FFI (`Q3a`), Tier 3 fallback
+    (`Q3b`), `OpenDevice::clear_data_ports()`, and `DeviceHandlePool::clear_configuration`.
+  - `sweep_orphan_resources` in `sweep.rs` and hot-unplug in `main.rs` emitting
+    `DeleteReason::DeviceRemoved` (`"device_removed"`).
+- Tests:
+  - Core `manager.rs`: `test_delete_reason_serializes_snake_case` (incl. `device_removed`).
+  - Core `device_resource_integration.rs`:
+    `test_emulated_reprogram_and_clear_force_delete_resources` (Tier 1),
+    `test_hardware_xem7320_counters_enforcement_pipeline` step 5 (Tier 2 live
+    `XEM7320-A75T` hardware).
+  - Server `rest/devices.rs`: `test_configure_fpga_held_resources_force_deleted`,
+    `test_clear_fpga_notifies_all_holders`,
+    `test_reset_fpga_resources_retained`.
+  - Server `rest/resources.rs`:
+    `test_create_resource_configure_generation_changed_conflict`.
+  - Server `grpc/device_service.rs`:
+    `test_grpc_configure_fpga_force_deletes_resources`,
+    `test_grpc_clear_fpga_notifies_all_holders`.
+  - Server `sweep.rs`: `test_sweep_orphan_resource_device_absent_deleted`.
+- Commit: `fix: forced resource cleanup on configure and clear`.

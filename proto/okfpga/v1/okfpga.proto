@@ -143,14 +143,16 @@ enum ResourceAccessMode {
   RESOURCE_ACCESS_MODE_EXCLUSIVE = 1;
 }
 
-// Why a resource was deleted (ADR-034, D58).
+// Why a resource was deleted (ADR-034, D58, 44-F Q2).
 enum DeleteReason {
   // A client called DeleteResource (or REST DELETE /resources/{id}).
   DELETE_REASON_CLIENT = 0;
-  // The FPGA was reprogrammed (forced cleanup).
+  // The FPGA was reprogrammed (forced cleanup, D26).
   DELETE_REASON_REPROGRAM = 1;
-  // The FPGA configuration was cleared (forced cleanup).
+  // The FPGA configuration was cleared (forced cleanup, D26).
   DELETE_REASON_CLEAR = 2;
+  // The physical FPGA device disconnected or was swept as absent (44-F Q2).
+  DELETE_REASON_DEVICE_REMOVED = 3;
 }
 
 // ============================================================================
@@ -1271,12 +1273,23 @@ service DeviceService {
   // --- FPGA Configuration ---
 
   // Program the FPGA with a bitfile from the server's filesystem.
+  // Forced override (ADR-034, D26): unlocks all locked resources on the
+  // device (ResourceUnlocked), releases all holders, and deletes all
+  // existing resources (ResourceDeleted with DELETE_REASON_REPROGRAM)
+  // before programming. If the FFI transfer fails, the device state
+  // transitions to Connected (unprogrammed).
   rpc ConfigureFPGA(ConfigureFPGARequest) returns (ConfigureFPGAResponse);
 
   // Program the FPGA with a bitfile streamed from the client in chunks.
+  // Forced override (ADR-034, D26): same forced cleanup semantics as
+  // ConfigureFPGA (DELETE_REASON_REPROGRAM).
   rpc ConfigureFPGAFromMemory(stream ConfigureFPGAChunk) returns (ConfigureFPGAResponse);
 
   // Clear the current FPGA configuration (un-program the FPGA).
+  // Forced override (ADR-034, D26, P12): unlocks all locked resources on the
+  // device (ResourceUnlocked), releases all holders, and deletes all
+  // existing resources (ResourceDeleted with DELETE_REASON_CLEAR) before
+  // clearing the FPGA configuration.
   rpc ClearFPGAConfiguration(DeviceRequest) returns (StatusResponse);
 
   // Get information about the currently loaded bitfile (if any).
@@ -1338,8 +1351,12 @@ service DeviceService {
   // The client creates resources after programming a bitfile. See ADR-016.
   rpc CreateResource(CreateResourceRequest) returns (ResourceResponse);
 
-  // Delete a resource definition.
-  // Returns an error if the resource is currently held by any user.
+  // Delete a resource definition (client-initiated, DELETE_REASON_CLIENT).
+  // Returns FAILED_PRECONDITION if the resource is currently held by any
+  // user. By contrast, ConfigureFPGA*, ClearFPGAConfiguration, and device
+  // disconnect perform forced cleanup (D26, P11) regardless of holders,
+  // emitting ResourceDeleted with DELETE_REASON_REPROGRAM,
+  // DELETE_REASON_CLEAR, or DELETE_REASON_DEVICE_REMOVED.
   rpc DeleteResource(ResourceRequest) returns (StatusResponse);
 
   // Acquire a resource in shared, exclusive, or read-only mode (ADR-026).

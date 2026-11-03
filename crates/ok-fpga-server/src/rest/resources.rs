@@ -385,7 +385,7 @@ async fn create_resource(
 
     // 3. The device must exist; its data port must support the declared
     //    interfaces (422); only then must it be programmed (409).
-    match state.device_manager.registry().get(&resource.device_serial) {
+    let expected_gen = match state.device_manager.registry().get(&resource.device_serial) {
         Some(dev) => {
             check_interfaces_for_dataport(&resource.interfaces, dev.info.dataport)
                 .map_err(ProblemDetail::from_resource_error)?;
@@ -394,6 +394,7 @@ async fn create_resource(
                     "FPGA is not programmed -- program it first with POST /configure or /configure_from_server_path",
                 ));
             }
+            dev.config_generation
         }
         None => {
             return Err(ProblemDetail::not_found(format!(
@@ -401,7 +402,7 @@ async fn create_resource(
                 resource.device_serial
             )));
         }
-    }
+    };
 
     // Ranges of one declaration may overlap each other (owner decision Q1);
     // that is allowed, so it is only a warning, and only if enabled.
@@ -419,17 +420,33 @@ async fn create_resource(
         crate::warnings::warn_self_overlapping_ranges(&resource);
     }
 
-    // 4. Overlap check + insert, atomically.
+    // 4. Re-verify device configuration generation + overlap check + insert,
+    //    atomically under the ResourceRegistry write lock (44-B Q5 / 44-F q4).
     let resource_id = resource.id.clone();
     let device_serial = resource.device_serial.clone();
     let name = resource.name.clone();
-    match state.resource_registry.try_register(resource, check_overlap) {
+    let dm_registry = state.device_manager.registry();
+    let check_serial = device_serial.clone();
+    match state.resource_registry.try_register_with_precondition(
+        resource,
+        move || match dm_registry.get(&check_serial) {
+            Some(dev) if dev.is_programmed() && dev.config_generation == expected_gen => Ok(()),
+            _ => Err(
+                "Device configuration changed during resource registration — retry after programming completes"
+                    .to_string(),
+            ),
+        },
+        check_overlap,
+    ) {
         Ok(()) => {}
         Err(RegisterError::Duplicate) => {
             return Err(ProblemDetail::conflict(format!(
                 "Resource '{}' already exists for device '{}'",
                 name, device_serial
             )));
+        }
+        Err(RegisterError::PreconditionFailed(msg)) => {
+            return Err(ProblemDetail::conflict(msg));
         }
         Err(RegisterError::Rejected(err)) => {
             return Err(ProblemDetail::from_resource_error(err));
@@ -809,16 +826,19 @@ mod tests {
         device_manager.registry().add(FpgaDevice {
             info: test_info(SERIAL),
             state: DeviceState::Programmed { bitfile: test_bitfile() },
+            config_generation: 0,
         });
         let mut axi_info = test_info(AXI_SERIAL);
         axi_info.dataport = DataportType::Axi;
         device_manager.registry().add(FpgaDevice {
             info: axi_info,
             state: DeviceState::Programmed { bitfile: test_bitfile() },
+            config_generation: 0,
         });
         device_manager.registry().add(FpgaDevice {
             info: test_info(UNPROGRAMMED_SERIAL),
             state: DeviceState::Connected,
+            config_generation: 0,
         });
         let auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider> =
             Arc::from(ok_fpga_core::auth::create_provider("none", vec![], None));
@@ -1630,5 +1650,60 @@ mod tests {
             saw_implicit_unlocked,
             "ResourceUnlocked event must be broadcast when locker releases"
         );
+    }
+
+    #[tokio::test]
+    async fn test_create_resource_configure_generation_changed_conflict() {
+        let state = test_state();
+        let initial_gen = state
+            .device_manager
+            .registry()
+            .get(SERIAL)
+            .unwrap()
+            .config_generation;
+
+        // Simulate a concurrent ConfigureFPGA / ClearFPGAConfiguration bumping
+        // `config_generation` between the initial device lookup (`initial_gen`)
+        // and the registry write-lock check inside `try_register_with_precondition`.
+        state.device_manager.registry().update_state(
+            SERIAL,
+            DeviceState::Programmed {
+                bitfile: test_bitfile(),
+            },
+        );
+        let new_gen = state
+            .device_manager
+            .registry()
+            .get(SERIAL)
+            .unwrap()
+            .config_generation;
+        assert!(new_gen > initial_gen);
+
+        let resource = ok_fpga_core::resource::Resource::new(
+            format!("{SERIAL}:race_res"),
+            "race_res".to_string(),
+            None,
+            SERIAL.to_string(),
+            ok_fpga_core::resource::AccessMode::Shared,
+        );
+        let dm_registry = state.device_manager.registry();
+        let err = state
+            .resource_registry
+            .try_register_with_precondition(
+                resource,
+                move || match dm_registry.get(SERIAL) {
+                    Some(dev) if dev.is_programmed() && dev.config_generation == initial_gen => {
+                        Ok(())
+                    }
+                    _ => Err(
+                        "Device configuration changed during resource registration — retry after programming completes"
+                            .to_string(),
+                    ),
+                },
+                check_overlap,
+            )
+            .unwrap_err();
+        assert!(matches!(err, RegisterError::PreconditionFailed(_)));
+        assert_eq!(state.resource_registry.count(), 0);
     }
 }

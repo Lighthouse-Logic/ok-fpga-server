@@ -485,6 +485,7 @@ pub fn device_event_to_proto(event: &DeviceEvent) -> proto::DeviceEvent {
                 DeleteReason::Client => proto::DeleteReason::Client as i32,
                 DeleteReason::Reprogram => proto::DeleteReason::Reprogram as i32,
                 DeleteReason::Clear => proto::DeleteReason::Clear as i32,
+                DeleteReason::DeviceRemoved => proto::DeleteReason::DeviceRemoved as i32,
             };
             proto::DeviceEvent {
                 timestamp: timestamp.to_rfc3339(),
