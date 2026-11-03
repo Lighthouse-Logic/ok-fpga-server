@@ -405,11 +405,16 @@ async fn create_resource(
 
     // Ranges of one declaration may overlap each other (owner decision Q1);
     // that is allowed, so it is only a warning, and only if enabled.
-    let warn_self_overlap = state
+    let (warn_self_overlap, warn_readonly_side_effects) = state
         .config
         .read()
-        .map(|c| c.access_control.warn_range_self_overlap)
-        .unwrap_or(true);
+        .map(|c| {
+            (
+                c.access_control.warn_range_self_overlap,
+                c.access_control.warn_readonly_side_effects,
+            )
+        })
+        .unwrap_or((true, true));
     if warn_self_overlap {
         crate::warnings::warn_self_overlapping_ranges(&resource);
     }
@@ -435,6 +440,12 @@ async fn create_resource(
         .resource_registry
         .get(&resource_id)
         .ok_or_else(|| ProblemDetail::internal("resource vanished after registration"))?;
+
+    if warn_readonly_side_effects {
+        crate::warnings::warn_readonly_side_effects(&created);
+    }
+    let existing_on_device = state.resource_registry.list_for_device(&device_serial);
+    crate::warnings::warn_wildcard_endpoints(&existing_on_device, &created);
 
     // Broadcast DeviceEvent for SSE subscribers (Phase 39, ADR-030).
     let _ = state.device_manager.broadcast(DeviceEvent::ResourceCreated {

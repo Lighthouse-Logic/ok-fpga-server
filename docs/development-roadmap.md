@@ -272,59 +272,15 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
 - Commit `e562705`. ADR-034 §12. Carried forward: runtime write
   blocking enforcement (`B2`) → 44-E.
 
-**44-E Enforcement pipeline (B2)**
-- Files: `config.rs`, `config.toml`, `rest/mod.rs`, `rest/access_middleware.rs`,
-  `rest/classic.rs`, `rest/axi.rs`, `grpc/classic_service.rs`,
-  `grpc/axi_service.rs`, `grpc/mod.rs` (identity), `ok-fpga-core/src/resource.rs`.
-- Default `enforce` (S-12); identity required under `warn` / `enforce`
-  (S-18); every data-port route enforced incl. block pipes and `*/update`
-  (S-15); read/write classes (D42); candidate filtering
-  (ReadOnly, foreign lock, blocked; S-13); no lock requirement (D44, D46,
-  S-14); same-resource address check, empty ranges → deny (S-20);
-  `AllowAlways` skips only the address check (D51); ReadOnly denied ADR-025
-  mapped access (D29); private items readable only by holders (D16, D57);
-  ResetFPGA via the tier-3 data-port gate (D56, D66); AXI addresses
-  above 32 bits denied under `enforce` and noted in the proto (P14).
-- ReadOnly rule (D75): **F1** ReadOnly-only callers denied `ResetFPGA` and
-  AXI Lite / Full / Stream resets; **F2** `UpdateTriggerOuts` and trigger
-  reads with `update=true` denied to ReadOnly-only callers when any
-  resource on the device declares a private TriggerOut; snapshot reads
-  checked per EP. **F4** new setting `warn_readonly_side_effects`
-  (`[access_control]` in `config.toml`, default `true`, env override
-  `OKFPGA_WARN_READONLY_SIDE_EFFECTS`): `warn!` at registration when
-  ReadOnly holders could join a resource with a non-private PipeOut /
-  BTPipeOut / TriggerOut or a non-private range.
-- Coverage (D77): a resource without `endpoints` covers 0x00–0x7F only;
-  update `declaration.rs` docs and the overlap check accordingly.
-- Validate `ActivateTriggerIn` `bit` (0–31) before computing the mask:
-  422 / `INVALID_ARGUMENT` (today `1u32 << bit` panics in debug builds;
-  Strata 0.3.0 review). Test `test_activate_trigger_in_bit_out_of_range_returns_422`.
-- Tests (Tier 3): `test_enforce_write_usable_holder_allowed`,
-  `test_enforce_write_foreign_lock_denied`,
-  `test_enforce_write_blocked_denied`,
-  `test_enforce_read_during_foreign_lock_allowed`,
-  `test_enforce_private_read_non_holder_denied`,
-  `test_enforce_update_wire_outs_readonly_allowed`,
-  `test_enforce_update_trigger_outs_readonly_allowed`,
-  `test_enforce_update_trigger_outs_readonly_private_trigger_denied`,
-  `test_enforce_trigger_read_update_readonly_private_trigger_denied`,
-  `test_enforce_block_pipe_write_enforced`,
-  `test_enforce_mapped_address_other_resource_range_denied`,
-  `test_enforce_mapped_address_empty_ranges_denied`,
-  `test_enforce_mapped_address_readonly_denied`,
-  `test_enforce_allow_always_still_checks_blocking`,
-  `test_enforce_axi_address_above_32_bits_denied`,
-  `test_reset_fpga_readonly_only_denied`,
-  `test_reset_fpga_non_readonly_holder_allowed`,
-  `test_coverage_no_endpoints_excludes_pipes`,
-  `test_warn_readonly_side_effects_logs_on_registration`,
-  `test_warn_readonly_side_effects_disabled_no_log`,
-  `test_access_control_config_default_is_enforce`,
-  `test_resolve_user_id_missing_identity_rejected` (replaces the
-  `"Unknown"` assertion at `rest/mod.rs:191–194`),
-  `test_grpc_enforce_write_blocked_denied`. Tier 1: enforcement matrix on
-  `okREALM_TEST`. Tier 2 (approval): DualPort bridge with two users.
-- Commit: `feat: align endpoint enforcement with overlap and blocking (B2)`.
+**44-E Enforcement pipeline (B2) — ✅ Done (0.3.6)**
+- Archived: [archive/roadmap-phases-44.md](archive/roadmap-phases-44.md)
+  (owner decisions Q1–Q5, enforcement pipeline `B2`/`S-12..S-20`, `D75` F1/F2/F4,
+  `D77` wildcard coverage `0x00–0x7F`, `ClassicAddressBridgePolicy`, tests).
+- ADR-034 §13. Carried forward to 🔵 Later: explicit `warnings` list field on
+  `CreateResource` responses in OpenAPI/proto (Q1 Option B); explicit
+  "no-classic-endpoints" ergonomics beyond `"endpoints": {"entries": []}` (Q2);
+  migrating older Tier 3 route unit tests from `EndpointEnforcement::Off` to
+  `EndpointEnforcement::Enforce` (Q3b).
 
 **44-F Reprogram and clear cleanup (D26) 🔒**
 - Files: `rest/devices.rs`, `grpc/device_service.rs`,
@@ -763,6 +719,22 @@ Features in this section represent uncommitted research or long-term capabilitie
   designs (old S-21); WireIn shadow read-back (old Q44-6); atomic
   multi-resource acquire (old Q44-12). See
   [resource-management-recommendations.md](resource-management-recommendations.md) §5.
+
+* **Phase 44-E follow-ups (owner decisions Q1, Q2, Q3b)** —
+  1. **Explicit registration warnings in OpenAPI & Proto (Q1 Option B):** add a
+     documented `warnings: list[string]` field to `CreateResource` responses in
+     `api/openapi.yaml` and `proto/okfpga/v1/okfpga.proto` so clients receive
+     registration warnings (self-overlapping address ranges, `ReadOnly`
+     side-effect risks, omitted `endpoints` / Pipe coexistence) directly in the
+     response payload instead of relying only on server logs.
+  2. **Explicit zero-endpoint Classic declaration ergonomics (Q2):** evaluate
+     whether a dedicated declaration form is needed beyond `"endpoints": {"entries": []}` (`D59`) for Classic resources that use only `okRegisterBridge`
+     register-mapped I/O and zero Wire/Trigger/Pipe endpoints.
+  3. **Migrate legacy Tier 3 route unit tests to `EndpointEnforcement::Enforce` (Q3b):**
+     update older route-level validation unit tests (which currently use a
+     `test_state()` helper with `EndpointEnforcement::Off` to test query/body
+     parsing in isolation) so all unit tests run with
+     `EndpointEnforcement::Enforce` enabled.
 
 * **Rust egui demo unit tests** — egui does not provide a built-in test harness
   like iced's `iced_test`; implementing headless UI tests will require

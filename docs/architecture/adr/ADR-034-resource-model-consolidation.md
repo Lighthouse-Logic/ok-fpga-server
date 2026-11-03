@@ -306,6 +306,67 @@ REST and gRPC share the exact same logic:
   `DeviceManager::subscribe()`, converts all 11 `DeviceEvent` variants via
   `device_event_to_proto`, and streams them over `ReceiverStream`.
 
+#### 13. Enforcement pipeline, coverage, and registration warnings (0.3.6, 44-E)
+
+Phase 44-E aligns runtime data-port enforcement across REST and gRPC with
+the resource declaration, overlap, and blocking model (`B2`, `S-12..S-20`,
+`D42`, `D44`, `D51`, `D56`, `D61`, `D66`, `D75`, `D77`, `P14`):
+
+- **Default enforcement & identity (`S-12`, `S-18`, owner decision Q3a)**:
+  `AccessControlConfig::default().endpoint_enforcement` is now `"enforce"`,
+  and `resolve_user_id` rejects missing identity (`400 Bad Request`) instead
+  of falling back to `"Unknown"`. Anonymous `/configure` and
+  `/configure_from_server_path` requests are permitted only when
+  `endpoint_enforcement == "off"`.
+- **Wildcard endpoint coverage (`D77`, owner decision Q2)**:
+  `WILDCARD_EP_LAST` is narrowed from `0xBF` to `0x7F` so a Classic resource
+  that omits `endpoints` (`None`) claims only Wire and Trigger endpoints
+  (`0x00–0x7F`) and leaves Pipe/BTPipe (`0x80–0xBF`) available to other
+  resources on the same device. Registration logs `warn!` messages via
+  `warnings::warn_wildcard_endpoints` when `endpoints` is omitted or when an
+  `endpoints: None` resource and a Pipe-declaring resource coexist on the
+  same device.
+- **Candidate filtering & blocking (`B2`, `S-13`, `S-14`, `D44`, `D51`)**:
+  for write operations (`SetWireInValue`, `UpdateWireIns`,
+  `ActivateTriggerIn`, `PipeIn`/`BtPipeIn` writes, `WriteRegister(s)`, AXI
+  writes, `ResetFPGA`, AXI resets), candidate resources held only as
+  `ReadOnly`, locked by another user (`locked_by != Some(user_id)`), or
+  blocked by another user's lock on an overlapping resource (`B2`) are
+  filtered out before checking endpoint/address coverage. Exclusive address
+  ranges inside a `Shared` resource no longer require the caller to hold a
+  resource lock (`S-14`, `D44`), and `AccessRule::AllowAlways` skips only the
+  address-range check on the same candidate resource while still enforcing
+  holder mode, foreign lock, and blocking (`D51`).
+- **Same-resource address span checking & generic bridge policy (`S-20`, `P14`, owner decisions Q1, Q2, Q4)**:
+  `Resource::check_address_span` checks that the full requested byte span
+  `[start, start + byte_len - 1]` falls within at least one declared 32-bit
+  `AddressRange` on the **same** candidate resource (`byte_len = 1` for
+  Classic `okRegisterBridge` and `MapsToAddress`, `byte_len = 4` for AXI
+  Lite and 4-byte REST AXI Full, `byte_len = length` for gRPC AXI Full /
+  Bulk). When self-overlapping ranges in one resource disagree on `private`,
+  the private one wins (`44-B Q1`). AXI addresses `> 0xFFFF_FFFF` cannot
+  match any 32-bit `AddressRange` and are denied under `enforce` (`P14`).
+  `ClassicAddressBridgePolicy` provides a documented, generic
+  non-DualPort-specific `ResourceAccessPolicy` reference implementation for
+  Classic WireIn-bridged register spaces.
+- **ReadOnly hardware side-effect protections (`D56`, `D66`, `D75 F1, F2, F4`)**:
+  - **F1**: `ResetFPGA` and AXI Lite / Full / Stream resets use
+    `check_reset_access`, denying callers who hold only `ReadOnly` access on
+    the device (`AccessDenied::ReadOnlyHolder`) or whose held resources are
+    all foreign-locked or blocked.
+  - **F2**: `UpdateTriggerOuts` and trigger reads with `update=true` use
+    `check_trigger_out_update_access`, denying `ReadOnly`-only callers when
+    any registered resource on the device covers a `private: true`
+    `TriggerOut` (or is a `private: true` resource with omitted `endpoints`).
+  - **F4**: `access_control.warn_readonly_side_effects` (default `true`, env
+    `OKFPGA_WARN_READONLY_SIDE_EFFECTS`) logs a registration warning when
+    `ReadOnly` holders can join a resource (`resource.private == false`) that
+    exposes a non-private `TriggerOut`, `PipeOut`, `BtPipeOut`, or
+    `AddressRange`.
+- **`ActivateTriggerIn` bit validation**: both REST and gRPC validate
+  `(0..=31).contains(&req.bit)` before computing `1u32 << req.bit` and before
+  enforcement, returning `422 Unprocessable Entity` / `INVALID_ARGUMENT`.
+
 ### Rationale
 
 One schema shared by REST, gRPC and the dashboard removes the guessing that
@@ -426,6 +487,47 @@ lock Q2, implicit unlock events Q3):
 - Docs: this ADR, `docs/API-Specification/`, `docs/archive/roadmap-phases-44.md`,
   `docs/development-roadmap.md`.
 
+## Files changed (0.3.6, 44-E)
+
+Owner decisions 2026-11-03 (`P14` proto comment & Later warning schema Q1,
+omitted `endpoints` Pipe coexistence & generic `ClassicAddressBridgePolicy`
+Q2, default `"enforce"` & Later unit test migration Q3a/Q3b, full
+`[start, start + length - 1]` span checking Q4, Tier 2 `XEM7320` hardware
+test Q5):
+
+- Spec: `proto/okfpga/v1/okfpga.proto` (`P14` comment on AXI 64-bit request
+  addresses vs 32-bit `AddressRange`).
+- Core: `crates/ok-fpga-core/src/declaration.rs` (`WILDCARD_EP_LAST = 0x7F`,
+  `D77`, unit tests),
+  `crates/ok-fpga-core/src/resource.rs` (`AccessDenied::BlockedByOther`,
+  `Resource::check_endpoint_coverage`, `Resource::check_address_span`,
+  `ClassicAddressBridgePolicy`, `check_endpoint_access`,
+  `check_address_access`, `check_address_span_access`, `check_reset_access`,
+  `check_device_write_access`, `check_trigger_out_update_access`, 14 unit
+  tests),
+  `crates/ok-fpga-core/tests/device_resource_integration.rs`
+  (`test_two_users_classic_bridge_enforcement_and_blocking`,
+  `test_hardware_xem7320_counters_enforcement_pipeline`).
+- Server: `crates/ok-fpga-server/src/config.rs` (`endpoint_enforcement`
+  default `"enforce"`, `warn_readonly_side_effects`, env overrides, tests),
+  `crates/ok-fpga-server/src/warnings.rs` (`readonly_side_effects_messages`,
+  `wildcard_endpoint_messages`, unit tests),
+  `crates/ok-fpga-server/src/rest/mod.rs` (`resolve_user_id` rejects missing
+  identity, `S-18`),
+  `crates/ok-fpga-server/src/rest/devices.rs`,
+  `crates/ok-fpga-server/src/rest/resources.rs`,
+  `crates/ok-fpga-server/src/rest/classic.rs` (`enforce_with_user`, `bit`
+  validation, `update_wire_ins`/`outs`, `update_trigger_outs`,
+  `get_trigger_out`, block pipes, `reset_fpga`, Tier 3 tests),
+  `crates/ok-fpga-server/src/rest/axi.rs` (enforcement on all 11 AXI routes),
+  `crates/ok-fpga-server/src/grpc/device_service.rs`,
+  `crates/ok-fpga-server/src/grpc/classic_service.rs`,
+  `crates/ok-fpga-server/src/grpc/axi_service.rs`.
+- Config: `config.toml` (`warn_readonly_side_effects = true`).
+- Version: `Cargo.toml`, `Cargo.lock` (0.3.6).
+- Docs: this ADR, `docs/API-Specification/`, `docs/archive/roadmap-phases-44.md`,
+  `docs/development-roadmap.md`.
+
 ## Open items
 
 - ~~**44-B**: R1 overlap rules, Rule A, interface/dataport check, `private`
@@ -438,20 +540,22 @@ lock Q2, implicit unlock events Q3):
   **Done in 0.3.4** (§11).
 - ~~**44-D**: lock blocking B1–B4; gRPC `WatchDeviceEvents` fan-out.~~
   **Done in 0.3.5** (§12).
-- **44-E**: endpoint coverage per D61 and D77 (omitted `endpoints` =
+- ~~**44-E**: endpoint coverage per D61 and D77 (omitted `endpoints` =
   0x00–0x7F only), enforcement on all data-port routes, enforcement on by
   default; ReadOnly F1 (`ResetFPGA`, AXI resets) and F2 (private
   TriggerOut blocks `UpdateTriggerOuts` / `update=true`) enforcement;
-  `warn_readonly_side_effects` setting and warning (F4).
+  `warn_readonly_side_effects` setting and warning (F4).~~
+  **Done in 0.3.6** (§13).
 - **Later**: TriggerOut event log (D67 reopened, roadmap 🔵 Later).
 - REST `?update=abc` is rejected by axum's query extractor with a plain-text
   400, not a 422 ProblemDetail (minor).
 - Pre-existing, found by the 0.3.0 Strata review (not changed in 0.3.0):
   - ~~Spec discrepancy: proto `IsTriggeredRequest.mask` default 0 vs
     OpenAPI `0xFFFFFFFF`.~~ **Resolved in 0.3.1 (D78): default 0 on both.**
-  - `ActivateTriggerIn` computes `1u32 << bit` before validating `bit`
+  - ~~`ActivateTriggerIn` computes `1u32 << bit` before validating `bit`
     (`rest/classic.rs`, `grpc/classic_service.rs`); `bit` outside 0–31
-    panics in debug builds. Validate (422 / `INVALID_ARGUMENT`) in 44-E.
+    panics in debug builds. Validate (422 / `INVALID_ARGUMENT`) in 44-E.~~
+    **Resolved in 0.3.6 (44-E).**
 - **44-F**: forced cleanup on configure / clear; `reprogram` / `clear`
   delete reasons; registration vs device lifecycle (orphan sweep on unplug,
   configuration-generation check, optional bitfile name pattern), see

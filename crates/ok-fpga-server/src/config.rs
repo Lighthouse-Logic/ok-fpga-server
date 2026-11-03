@@ -448,13 +448,13 @@ pub struct LocalAuthConfig {
 pub struct AccessControlConfig {
     /// Enforcement level for endpoint access checks.
     ///
-    /// - `"off"`: No checks. Current v1 behavior. User ID not required.
+    /// - `"off"`: No checks. Debugging/troubleshooting aid only.
     /// - `"warn"`: Log violations at WARN level but allow operations.
     ///   User ID is required on all requests.
     /// - `"enforce"`: Reject unauthorized operations with 403 / PERMISSION_DENIED.
     ///   User ID is required on all requests.
     ///
-    /// Default: `"off"`.
+    /// Default: `"enforce"` (S-12, 44-E).
     pub endpoint_enforcement: String,
 
     /// Log a warning when one resource declaration lists address ranges
@@ -467,13 +467,21 @@ pub struct AccessControlConfig {
     ///
     /// Default: `true`. Env override: `OKFPGA_WARN_RANGE_SELF_OVERLAP`.
     pub warn_range_self_overlap: bool,
+
+    /// Log a warning at registration when `ReadOnly` holders could reach a
+    /// non-private `PipeOut`, `BTPipeOut`, `TriggerOut`, or `AddressRange`
+    /// where a read may cause hardware side effects (D75 F4, 44-E).
+    ///
+    /// Default: `true`. Env override: `OKFPGA_WARN_READONLY_SIDE_EFFECTS`.
+    pub warn_readonly_side_effects: bool,
 }
 
 impl Default for AccessControlConfig {
     fn default() -> Self {
         Self {
-            endpoint_enforcement: "off".to_string(),
+            endpoint_enforcement: "enforce".to_string(),
             warn_range_self_overlap: true,
+            warn_readonly_side_effects: true,
         }
     }
 }
@@ -716,6 +724,13 @@ fn apply_env_overrides(mut config: ServerConfig) -> ServerConfig {
         config.access_control.warn_range_self_overlap =
             parse_bool(&val, config.access_control.warn_range_self_overlap);
     }
+    if let Ok(val) = std::env::var("OKFPGA_WARN_READONLY_SIDE_EFFECTS") {
+        config.access_control.warn_readonly_side_effects =
+            parse_bool(&val, config.access_control.warn_readonly_side_effects);
+    }
+    if let Ok(val) = std::env::var("OKFPGA_ENDPOINT_ENFORCEMENT") {
+        config.access_control.endpoint_enforcement = val;
+    }
     config
 }
 
@@ -811,6 +826,27 @@ mod tests {
         let cfg: ServerConfig =
             toml::from_str("[access_control]\nwarn_range_self_overlap = false\n").unwrap();
         assert!(!cfg.access_control.warn_range_self_overlap);
+    }
+
+    #[test]
+    fn test_access_control_default_endpoint_enforcement_is_enforce() {
+        // S-12 (44-E): Shipped default is now "enforce".
+        assert_eq!(
+            ServerConfig::default().access_control.endpoint_enforcement,
+            "enforce"
+        );
+    }
+
+    #[test]
+    fn test_access_control_warn_readonly_side_effects_omitted_defaults_true() {
+        // D75 F4 (44-E): Default is true when omitted.
+        assert!(ServerConfig::default().access_control.warn_readonly_side_effects);
+        let cfg: ServerConfig =
+            toml::from_str("[access_control]\nendpoint_enforcement = \"enforce\"\n").unwrap();
+        assert!(cfg.access_control.warn_readonly_side_effects);
+        let cfg: ServerConfig =
+            toml::from_str("[access_control]\nwarn_readonly_side_effects = false\n").unwrap();
+        assert!(!cfg.access_control.warn_readonly_side_effects);
     }
 
     #[test]

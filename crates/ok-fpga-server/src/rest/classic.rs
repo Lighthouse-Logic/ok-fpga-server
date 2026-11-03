@@ -265,14 +265,17 @@ fn ffi_error_to_problem(e: &FfiError) -> ProblemDetail {
 /// ## Returns
 ///
 /// `Ok(())` if allowed, or `Err(ProblemDetail)` with 403 status if denied.
-fn enforce_endpoint(
+/// Run an access-control check closure against the caller's `X-User-Id`
+/// header, applying `EndpointEnforcement::{Off, Warn, Enforce}` (ADR-024, 44-E).
+pub(crate) fn enforce_with_user<F>(
     state: &AppState,
     headers: &axum::http::HeaderMap,
     serial: &str,
-    endpoint: i32,
-    ep_type: &ok_fpga_core::resource::EndpointType,
-    value: Option<u32>,
-) -> Result<(), ProblemDetail> {
+    check: F,
+) -> Result<(), ProblemDetail>
+where
+    F: FnOnce(&str) -> Result<(), ok_fpga_core::resource::AccessDenied>,
+{
     use crate::state::EndpointEnforcement;
 
     if !state.enforcement().is_active() {
@@ -286,42 +289,30 @@ fn enforce_endpoint(
 
     let uid = match user_id {
         Some(uid) => uid,
-        None => {
-            // The middleware should have already rejected this request if
-            // enforcement is Enforce. But for defense-in-depth:
-            match state.enforcement() {
-                EndpointEnforcement::Warn => {
-                    tracing::warn!(
-                        serial = %serial,
-                        endpoint = endpoint,
-                        "REST access enforcement (warn): X-User-Id header missing in handler"
-                    );
-                    return Ok(());
-                }
-                EndpointEnforcement::Enforce => {
-                    return Err(ProblemDetail::new(
-                        axum::http::StatusCode::FORBIDDEN,
-                        "User identity required: X-User-Id header must be present",
-                    ));
-                }
-                EndpointEnforcement::Off => return Ok(()),
+        None => match state.enforcement() {
+            EndpointEnforcement::Warn => {
+                tracing::warn!(
+                    serial = %serial,
+                    "REST access enforcement (warn): X-User-Id header missing in handler"
+                );
+                return Ok(());
             }
-        }
+            EndpointEnforcement::Enforce => {
+                return Err(ProblemDetail::new(
+                    axum::http::StatusCode::FORBIDDEN,
+                    "User identity required: X-User-Id header must be present",
+                ));
+            }
+            EndpointEnforcement::Off => return Ok(()),
+        },
     };
 
-    if let Err(denied) = state.resource_registry.check_endpoint_access(
-        uid,
-        serial,
-        endpoint as u8,
-        ep_type,
-        value,
-    ) {
+    if let Err(denied) = check(uid) {
         match state.enforcement() {
             EndpointEnforcement::Warn => {
                 tracing::warn!(
                     user_id = %uid,
                     serial = %serial,
-                    endpoint = endpoint,
                     "REST access enforcement (warn): {}",
                     denied
                 );
@@ -338,9 +329,30 @@ fn enforce_endpoint(
     }
 }
 
+/// Enforce endpoint access for a Classic operation (ADR-024 §4, handler-level).
+fn enforce_endpoint(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+    serial: &str,
+    endpoint: i32,
+    ep_type: &ok_fpga_core::resource::EndpointType,
+    value: Option<u32>,
+) -> Result<(), ProblemDetail> {
+    enforce_with_user(state, headers, serial, |uid| {
+        let Ok(ep_u8) = u8::try_from(endpoint) else {
+            return Err(ok_fpga_core::resource::AccessDenied::NoCoveringResource {
+                user_id: uid.to_string(),
+                device_serial: serial.to_string(),
+                detail: format!("endpoint {} ({})", endpoint, ep_type),
+            });
+        };
+        state
+            .resource_registry
+            .check_endpoint_access(uid, serial, ep_u8, ep_type, value)
+    })
+}
+
 /// Enforce address access for a register operation (ADR-024 §4, handler-level).
-///
-/// Same as [`enforce_endpoint`] but for address-based access (register bridge).
 fn enforce_address(
     state: &AppState,
     headers: &axum::http::HeaderMap,
@@ -348,66 +360,11 @@ fn enforce_address(
     address: u32,
     is_write: bool,
 ) -> Result<(), ProblemDetail> {
-    use crate::state::EndpointEnforcement;
-
-    if !state.enforcement().is_active() {
-        return Ok(());
-    }
-
-    let user_id = headers
-        .get(crate::rest::heartbeat_middleware::USER_ID_HEADER)
-        .and_then(|v| v.to_str().ok())
-        .filter(|s| !s.is_empty());
-
-    let uid = match user_id {
-        Some(uid) => uid,
-        None => {
-            match state.enforcement() {
-                EndpointEnforcement::Warn => {
-                    tracing::warn!(
-                        serial = %serial,
-                        address = address,
-                        "REST access enforcement (warn): X-User-Id header missing in handler"
-                    );
-                    return Ok(());
-                }
-                EndpointEnforcement::Enforce => {
-                    return Err(ProblemDetail::new(
-                        axum::http::StatusCode::FORBIDDEN,
-                        "User identity required: X-User-Id header must be present",
-                    ));
-                }
-                EndpointEnforcement::Off => return Ok(()),
-            }
-        }
-    };
-
-    if let Err(denied) = state.resource_registry.check_address_access(
-        uid,
-        serial,
-        address as u64,
-        is_write,
-    ) {
-        match state.enforcement() {
-            EndpointEnforcement::Warn => {
-                tracing::warn!(
-                    user_id = %uid,
-                    serial = %serial,
-                    address = address,
-                    "REST access enforcement (warn): {}",
-                    denied
-                );
-                Ok(())
-            }
-            EndpointEnforcement::Enforce => Err(ProblemDetail::new(
-                axum::http::StatusCode::FORBIDDEN,
-                denied.to_string(),
-            )),
-            EndpointEnforcement::Off => Ok(()),
-        }
-    } else {
-        Ok(())
-    }
+    enforce_with_user(state, headers, serial, |uid| {
+        state
+            .resource_registry
+            .check_address_access(uid, serial, u64::from(address), is_write)
+    })
 }
 
 /// Helper macro to get the handle pool and device, or return an error.
@@ -472,7 +429,13 @@ async fn set_wire_in(
 async fn update_wire_ins(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Json<StatusResponse>, ProblemDetail> {
+    enforce_with_user(&state, &headers, &serial, |uid| {
+        state
+            .resource_registry
+            .check_device_write_access(uid, &serial, "UpdateWireIns")
+    })?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -496,7 +459,11 @@ async fn update_wire_ins(
 async fn update_wire_outs(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Json<StatusResponse>, ProblemDetail> {
+    enforce_with_user(&state, &headers, &serial, |uid| {
+        state.resource_registry.check_device_access(uid, &serial)
+    })?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -561,6 +528,16 @@ async fn activate_trigger_in(
     headers: axum::http::HeaderMap,
     Json(req): Json<TriggerInRequest>,
 ) -> Result<Json<StatusResponse>, ProblemDetail> {
+    // Validate `req.bit` in `0..=31` BEFORE `1u32 << req.bit` (avoiding shift
+    // overflow panic in debug builds) and before enforcement (44-E).
+    if !(0..=31).contains(&req.bit) {
+        return Err(ProblemDetail::from_resource_error(
+            ok_fpga_core::resource::ResourceError::validation(format!(
+                "trigger bit {} is out of range (expected 0..=31)",
+                req.bit
+            )),
+        ));
+    }
     enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::TriggerIn, Some(1u32 << req.bit))?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
@@ -585,7 +562,13 @@ async fn activate_trigger_in(
 async fn update_trigger_outs(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Json<StatusResponse>, ProblemDetail> {
+    enforce_with_user(&state, &headers, &serial, |uid| {
+        state
+            .resource_registry
+            .check_trigger_out_update_access(uid, &serial)
+    })?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -626,6 +609,13 @@ async fn get_trigger_out(
         .endpoint
         .ok_or_else(|| missing_endpoint("TriggerOut", "0x60-0x7F"))?;
     enforce_endpoint(&state, &headers, &serial, endpoint, &ok_fpga_core::resource::EndpointType::TriggerOut, None)?;
+    if query.update {
+        enforce_with_user(&state, &headers, &serial, |uid| {
+            state
+                .resource_registry
+                .check_trigger_out_update_access(uid, &serial)
+        })?;
+    }
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -744,8 +734,17 @@ async fn read_from_pipe_out(
 async fn write_to_block_pipe_in(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<BlockPipeRequest>,
 ) -> Result<Json<PipeTransferResponse>, ProblemDetail> {
+    enforce_endpoint(
+        &state,
+        &headers,
+        &serial,
+        req.endpoint,
+        &ok_fpga_core::resource::EndpointType::BtPipeIn,
+        None,
+    )?;
     let data = req.data.as_deref().unwrap_or("");
     let bytes = base64_decode(data)?;
 
@@ -785,8 +784,17 @@ async fn write_to_block_pipe_in(
 async fn read_from_block_pipe_out(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<BlockPipeRequest>,
 ) -> Result<Json<PipeReadResponse>, ProblemDetail> {
+    enforce_endpoint(
+        &state,
+        &headers,
+        &serial,
+        req.endpoint,
+        &ok_fpga_core::resource::EndpointType::BtPipeOut,
+        None,
+    )?;
     let length = req.length;
 
     let device_arc = get_device!(state, &serial);
@@ -887,7 +895,13 @@ async fn write_register(
 async fn reset_fpga(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Json<StatusResponse>, ProblemDetail> {
+    enforce_with_user(&state, &headers, &serial, |uid| {
+        state
+            .resource_registry
+            .check_reset_access(uid, &serial, "ResetFPGA")
+    })?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -1017,5 +1031,446 @@ mod tests {
         let uri: axum::http::Uri = "http://h/x?endpoint=96&mask=5".parse().unwrap();
         let Query(q) = Query::<TriggerOutQuery>::try_from_uri(&uri).unwrap();
         assert_eq!(q.mask, 5);
+    }
+
+    // =========================================================================
+    // Phase 44-E: Enforcement Pipeline & Validation Tests (B2, S-12..S-20, D75)
+    // =========================================================================
+
+    fn test_enforced_state() -> Arc<AppState> {
+        let auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider> =
+            Arc::from(ok_fpga_core::auth::create_provider("none", vec![], None));
+        Arc::new(AppState::new(
+            Arc::new(DeviceManager::new()),
+            Arc::new(ResourceRegistry::new()),
+            Arc::new(ServiceManager::new()),
+            None,
+            auth_provider,
+            Arc::new(ok_fpga_core::auth::SessionManager::new(3600)),
+            Arc::new(UserSessionRegistry::new()),
+            crate::state::EndpointEnforcement::Enforce,
+            crate::config::ServerConfig::default(),
+            None,
+        ))
+    }
+
+    async fn call_app(
+        state: Arc<AppState>,
+        method: &str,
+        uri: &str,
+        user_id: Option<&str>,
+        body: Option<serde_json::Value>,
+    ) -> (StatusCode, serde_json::Value) {
+        let app = routes()
+            .merge(crate::rest::axi::routes())
+            .with_state(state);
+        let mut builder = Request::builder().method(method).uri(uri);
+        if let Some(uid) = user_id {
+            builder = builder.header("X-User-Id", uid);
+        }
+        let req_body = if let Some(b) = body {
+            builder = builder.header("Content-Type", "application/json");
+            axum::body::Body::from(b.to_string())
+        } else {
+            axum::body::Body::empty()
+        };
+        let request = builder.body(req_body).unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+        (status, json)
+    }
+
+    #[tokio::test]
+    async fn test_activate_trigger_in_invalid_bit_returns_422() {
+        let state = test_enforced_state();
+        // `bit: 32` and `bit: -1` must return 422 before `1u32 << req.bit` and
+        // before enforcement runs.
+        for bad_bit in [32, -1] {
+            let (status, json) = call_app(
+                state.clone(),
+                "POST",
+                "/devices/SN1/classic/triggers/in",
+                None,
+                Some(serde_json::json!({ "endpoint": 0x40, "bit": bad_bit })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(json["conflict"]["code"], "validation");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_reset_fpga_readonly_holder_returns_403() {
+        use ok_fpga_core::resource::{AccessMode, Resource};
+        let state = test_enforced_state();
+        let r = Resource::new(
+            "SN1:r1".into(),
+            "r1".into(),
+            None,
+            "SN1".into(),
+            AccessMode::Shared,
+        );
+        assert!(state.resource_registry.register(r));
+        state
+            .resource_registry
+            .acquire("SN1:r1", &"carol".to_string(), AccessMode::ReadOnly)
+            .unwrap();
+
+        let (status, _) = call_app(
+            state,
+            "POST",
+            "/devices/SN1/classic/reset",
+            Some("carol"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_reset_fpga_shared_holder_passes_enforcement() {
+        use ok_fpga_core::resource::{AccessMode, Resource};
+        let state = test_enforced_state();
+        let r = Resource::new(
+            "SN1:r1".into(),
+            "r1".into(),
+            None,
+            "SN1".into(),
+            AccessMode::Shared,
+        );
+        assert!(state.resource_registry.register(r));
+        state
+            .resource_registry
+            .acquire("SN1:r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // Passes enforcement -> reaches `get_device!` -> 501 because `handle_pool` is `None`.
+        let (status, _) = call_app(
+            state,
+            "POST",
+            "/devices/SN1/classic/reset",
+            Some("alice"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+    }
+
+    #[tokio::test]
+    async fn test_axi_reset_readonly_holder_returns_403() {
+        use ok_fpga_core::resource::{AccessMode, Resource};
+        let state = test_enforced_state();
+        let r = Resource::new(
+            "SN1:r1".into(),
+            "r1".into(),
+            None,
+            "SN1".into(),
+            AccessMode::Shared,
+        );
+        assert!(state.resource_registry.register(r));
+        state
+            .resource_registry
+            .acquire("SN1:r1", &"carol".to_string(), AccessMode::ReadOnly)
+            .unwrap();
+
+        for path in [
+            "/devices/SN1/axi/lite/reset",
+            "/devices/SN1/axi/full/reset",
+            "/devices/SN1/axi/stream/reset",
+        ] {
+            let (status, _) = call_app(state.clone(), "POST", path, Some("carol"), None).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "expected 403 on {}", path);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_update_trigger_outs_readonly_denied_when_device_has_private_trigger_out() {
+        use ok_fpga_core::resource::{
+            AccessMode, EndpointDeclaration, EndpointEntry, EndpointType, Resource,
+        };
+        let state = test_enforced_state();
+        let mut r = Resource::new(
+            "SN1:r1".into(),
+            "r1".into(),
+            None,
+            "SN1".into(),
+            AccessMode::Shared,
+        );
+        r.endpoints = Some(EndpointDeclaration {
+            default_access: Some(AccessMode::Shared),
+            entries: vec![
+                EndpointEntry {
+                    address: 0x60,
+                    ep_type: EndpointType::TriggerOut,
+                    access: AccessMode::Shared,
+                    description: None,
+                    private: false,
+                },
+                EndpointEntry {
+                    address: 0x61,
+                    ep_type: EndpointType::TriggerOut,
+                    access: AccessMode::Shared,
+                    description: None,
+                    private: true,
+                },
+            ],
+        });
+        assert!(state.resource_registry.register(r));
+        state
+            .resource_registry
+            .acquire("SN1:r1", &"carol".to_string(), AccessMode::ReadOnly)
+            .unwrap();
+
+        // Direct `POST /triggers/out/update` is denied for ReadOnly holder.
+        let (status, _) = call_app(
+            state.clone(),
+            "POST",
+            "/devices/SN1/classic/triggers/out/update",
+            Some("carol"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        // `GET /triggers/out?endpoint=96&update=true` on non-private 0x60 is
+        // also denied when `update=true` because UpdateTriggerOuts clears the
+        // private 0x61 latch too (D75 F2).
+        let (status, _) = call_app(
+            state.clone(),
+            "GET",
+            "/devices/SN1/classic/triggers/out?endpoint=96&update=true",
+            Some("carol"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        // Snapshot read without `update=true` on non-private 0x60 passes enforcement.
+        let (status, _) = call_app(
+            state,
+            "GET",
+            "/devices/SN1/classic/triggers/out?endpoint=96",
+            Some("carol"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+    }
+
+    #[tokio::test]
+    async fn test_update_trigger_outs_readonly_allowed_when_no_private_trigger_out() {
+        use ok_fpga_core::resource::{
+            AccessMode, EndpointDeclaration, EndpointEntry, EndpointType, Resource,
+        };
+        let state = test_enforced_state();
+        let mut r = Resource::new(
+            "SN1:r1".into(),
+            "r1".into(),
+            None,
+            "SN1".into(),
+            AccessMode::Shared,
+        );
+        r.endpoints = Some(EndpointDeclaration {
+            default_access: Some(AccessMode::Shared),
+            entries: vec![EndpointEntry {
+                address: 0x60,
+                ep_type: EndpointType::TriggerOut,
+                access: AccessMode::Shared,
+                description: None,
+                private: false,
+            }],
+        });
+        assert!(state.resource_registry.register(r));
+        state
+            .resource_registry
+            .acquire("SN1:r1", &"carol".to_string(), AccessMode::ReadOnly)
+            .unwrap();
+
+        let (status, _) = call_app(
+            state.clone(),
+            "POST",
+            "/devices/SN1/classic/triggers/out/update",
+            Some("carol"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+
+        let (status, _) = call_app(
+            state,
+            "GET",
+            "/devices/SN1/classic/triggers/out?endpoint=96&update=true",
+            Some("carol"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+    }
+
+    #[tokio::test]
+    async fn test_block_pipe_routes_enforce_endpoint_access() {
+        use ok_fpga_core::resource::{
+            AccessMode, EndpointDeclaration, EndpointEntry, EndpointType, Resource,
+        };
+        let state = test_enforced_state();
+        let mut r = Resource::new(
+            "SN1:r1".into(),
+            "r1".into(),
+            None,
+            "SN1".into(),
+            AccessMode::Shared,
+        );
+        r.endpoints = Some(EndpointDeclaration {
+            default_access: Some(AccessMode::Shared),
+            entries: vec![
+                EndpointEntry {
+                    address: 0x80,
+                    ep_type: EndpointType::BtPipeIn,
+                    access: AccessMode::Shared,
+                    description: None,
+                    private: false,
+                },
+                EndpointEntry {
+                    address: 0xA0,
+                    ep_type: EndpointType::BtPipeOut,
+                    access: AccessMode::Shared,
+                    description: None,
+                    private: false,
+                },
+            ],
+        });
+        assert!(state.resource_registry.register(r));
+        state
+            .resource_registry
+            .acquire("SN1:r1", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        state
+            .resource_registry
+            .acquire("SN1:r1", &"carol".to_string(), AccessMode::ReadOnly)
+            .unwrap();
+
+        // Unregistered user -> 403 on both block-in and block-out.
+        let (status, _) = call_app(
+            state.clone(),
+            "POST",
+            "/devices/SN1/classic/pipes/block-in",
+            Some("mallory"),
+            Some(serde_json::json!({ "endpoint": 0x80, "block_size": 16, "length": 16, "data": "AAAA" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        // ReadOnly holder -> 403 on block-in (write), 501 (passes enforcement) on block-out (read).
+        let (status, _) = call_app(
+            state.clone(),
+            "POST",
+            "/devices/SN1/classic/pipes/block-in",
+            Some("carol"),
+            Some(serde_json::json!({ "endpoint": 0x80, "block_size": 16, "length": 16, "data": "AAAA" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        let (status, _) = call_app(
+            state.clone(),
+            "POST",
+            "/devices/SN1/classic/pipes/block-out",
+            Some("carol"),
+            Some(serde_json::json!({ "endpoint": 0xA0, "block_size": 16, "length": 16 })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+
+        // Shared holder -> passes enforcement on block-in.
+        let (status, _) = call_app(
+            state,
+            "POST",
+            "/devices/SN1/classic/pipes/block-in",
+            Some("alice"),
+            Some(serde_json::json!({ "endpoint": 0x80, "block_size": 16, "length": 16, "data": "AAAA" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+    }
+
+    #[tokio::test]
+    async fn test_axi_lite_read_write_enforce_address_access() {
+        use ok_fpga_core::resource::{AccessMode, AddressRange, Resource};
+        let state = test_enforced_state();
+        let mut r = Resource::new(
+            "SN1:axi".into(),
+            "axi".into(),
+            None,
+            "SN1".into(),
+            AccessMode::Shared,
+        );
+        r.interfaces.classic = false;
+        r.interfaces.axi_lite = true;
+        r.address_ranges = vec![AddressRange {
+            name: None,
+            description: None,
+            start: 0x1000,
+            end: 0x100F,
+            access: AccessMode::Shared,
+            private: false,
+        }];
+        assert!(state.resource_registry.register(r));
+        state
+            .resource_registry
+            .acquire("SN1:axi", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        state
+            .resource_registry
+            .acquire("SN1:axi", &"carol".to_string(), AccessMode::ReadOnly)
+            .unwrap();
+
+        // Covered 4-byte read [0x1000..=0x1003] passes enforcement for alice and carol.
+        for uid in ["alice", "carol"] {
+            let (status, _) = call_app(
+                state.clone(),
+                "POST",
+                "/devices/SN1/axi/lite/read",
+                Some(uid),
+                Some(serde_json::json!({ "address": 0x1000 })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+        }
+
+        // 4-byte read at 0x100E [0x100E..=0x1011] crosses the end of 0x1000..=0x100F -> 403 (Q4).
+        let (status, _) = call_app(
+            state.clone(),
+            "POST",
+            "/devices/SN1/axi/lite/read",
+            Some("alice"),
+            Some(serde_json::json!({ "address": 0x100E })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        // Write is denied for ReadOnly holder carol -> 403, allowed for alice -> 501.
+        let (status, _) = call_app(
+            state.clone(),
+            "PUT",
+            "/devices/SN1/axi/lite/write",
+            Some("carol"),
+            Some(serde_json::json!({ "address": 0x1000, "value": 0xDEAD_BEEFu32 })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        let (status, _) = call_app(
+            state,
+            "PUT",
+            "/devices/SN1/axi/lite/write",
+            Some("alice"),
+            Some(serde_json::json!({ "address": 0x1000, "value": 0xDEAD_BEEFu32 })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
     }
 }

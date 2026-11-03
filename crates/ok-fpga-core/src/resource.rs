@@ -645,6 +645,114 @@ impl Resource {
             .iter()
             .any(|ra| other.address_ranges.iter().any(|rb| ra.overlaps(rb)))
     }
+
+    /// Check whether this resource covers the Classic endpoint `(endpoint, ep_type)`
+    /// (D61, D77, S-13).
+    ///
+    /// Returns `Some(entry_is_private)` if covered, or `None` if not covered:
+    /// - A resource without `interfaces.classic` covers no Classic endpoints.
+    /// - When `endpoints` is `None` (omitted), the resource claims only the
+    ///   128 Wire and Trigger endpoints (`0x00..=0x7F`, D77). Pipe and BTPipe
+    ///   endpoints (`0x80..=0xBF`) are never covered by an omitted `endpoints`
+    ///   field.
+    /// - When `endpoints` is `Some(ep_decl)`, **only** explicitly listed entries
+    ///   with matching `address` and `ep_type` are covered. `default_access`
+    ///   only fills a missing `access` at registration time — it never acts as
+    ///   a wildcard for unlisted endpoints (D61, S-13).
+    pub fn check_endpoint_coverage(&self, endpoint: u8, ep_type: &EndpointType) -> Option<bool> {
+        if !self.interfaces.classic {
+            return None;
+        }
+        match &self.endpoints {
+            None => {
+                if endpoint <= 0x7F && ep_type.is_valid_address(endpoint) {
+                    Some(false)
+                } else {
+                    None
+                }
+            }
+            Some(ep_decl) => ep_decl
+                .entries
+                .iter()
+                .find(|entry| entry.address == endpoint && entry.ep_type == *ep_type)
+                .map(|entry| entry.private),
+        }
+    }
+
+    /// Check whether this resource's declared 32-bit `address_ranges` completely
+    /// cover the inclusive address span `[address, address + byte_len - 1]`
+    /// (S-20, P14, 44-B Q1, 44-E Q4).
+    ///
+    /// ## Addressing Model & Assumptions (44-E Q2, Q4)
+    ///
+    /// - **Classic `okRegisterBridge` (`ReadRegister(s)`, `WriteRegister(s)`)
+    ///   and `MapsToAddress(a)`:** pass `byte_len = 1` (`[address, address]`),
+    ///   because Opal Kelly's `okRegisterBridge` uses a 32-bit word/register
+    ///   selector (`okRegisterAddress`) where individual HDL designs may step
+    ///   register addresses by 1 or by 4.
+    /// - **AXI Lite (`AXILiteRead`, `AXILiteWrite`):** pass `byte_len = 4`
+    ///   (`[address, address + 3]`), checking all 4 bytes of the 32-bit transfer.
+    /// - **AXI Full (`AXIFullRead`, `AXIFullWrite`):** pass `byte_len = length`
+    ///   (`[address, address + length - 1]`), checking the entire burst transfer.
+    /// - **Empty `address_ranges` (`S-20`):** a resource with no declared ranges
+    ///   covers **zero** addresses (`None`).
+    /// - **32-bit range ceiling (`P14`):** `AddressRange` bounds are 32-bit
+    ///   (`u32`). Any transfer whose start or end exceeds `0xFFFF_FFFF` cannot
+    ///   be covered (`None`).
+    /// - **Contiguous union & self-overlap privacy tie-break (44-B Q1):**
+    ///   Multiple adjacent or overlapping `AddressRange` entries on this same
+    ///   resource may together cover the span. If **any** range on this resource
+    ///   that overlaps `[start, end]` has `private: true`, the more restrictive
+    ///   flag (`private: true`) wins and is returned as `Some(Some((start, end)))`
+    ///   so `ReadOnly` reads are denied.
+    pub fn check_address_span(&self, address: u64, byte_len: u64) -> Option<Option<(u32, u32)>> {
+        if byte_len == 0 || self.address_ranges.is_empty() {
+            return None;
+        }
+        let end_u64 = address.checked_add(byte_len - 1)?;
+        let start_u32 = u32::try_from(address).ok()?;
+        let end_u32 = u32::try_from(end_u64).ok()?;
+
+        // Collect all ranges on this resource that overlap [start_u32, end_u32].
+        let mut overlapping: Vec<&AddressRange> = self
+            .address_ranges
+            .iter()
+            .filter(|r| r.start <= end_u32 && start_u32 <= r.end)
+            .collect();
+
+        if overlapping.is_empty() {
+            return None;
+        }
+
+        // Sort by (start, end) and sweep a coverage cursor across [start_u32, end_u32].
+        overlapping.sort_by_key(|r| (r.start, r.end));
+        if overlapping[0].start > start_u32 {
+            return None;
+        }
+        let mut covered_through = overlapping[0].end;
+        for r in &overlapping[1..] {
+            // If `r.start` leaves a gap after `covered_through`, the span is not
+            // contiguously covered.
+            if r.start > covered_through.saturating_add(1) {
+                return None;
+            }
+            if r.end > covered_through {
+                covered_through = r.end;
+            }
+        }
+        if covered_through < end_u32 {
+            return None;
+        }
+
+        // 44-B Q1 tie-break: if any overlapping range in this resource is marked
+        // `private`, the private restriction applies to the shared addresses.
+        let private_range = overlapping
+            .iter()
+            .find(|r| r.private)
+            .map(|r| (r.start, r.end));
+
+        Some(private_range)
+    }
 }
 
 
@@ -1137,17 +1245,17 @@ pub enum ClassicAddressResolution {
     NoMapping,
 
     /// This endpoint operation targets the given memory-mapped address.
-    /// The server will check whether this address falls within the
-    /// resource's declared `address_ranges`, and if the range's access mode
-    /// (Shared vs Exclusive) permits the operation.
-    ///
-    /// For Exclusive address ranges: the user must hold the resource's lock.
-    /// For Shared address ranges: any holder may access.
+    /// The server checks whether this address falls within the **same**
+    /// candidate resource's declared `address_ranges` (S-20, D29, D51).
+    /// A resource with empty `address_ranges` covers no addresses (S-20).
+    /// Both `Shared` and `Exclusive` address ranges are writable by any usable
+    /// non-`ReadOnly` holder of the resource without requiring a lock (S-14, D44).
     MapsToAddress(u64),
 
     /// This endpoint is infrastructure that any resource holder may use,
-    /// regardless of address ranges. Skip address enforcement entirely.
-    /// Use this for data registers, clock control, status readback, etc.
+    /// regardless of address ranges. Skips **only** the address-range check;
+    /// identity, holding, `ReadOnly`, lock, and blocking checks still run
+    /// upstream before this hook is called (D51).
     AllowAlways,
 }
 
@@ -1190,22 +1298,27 @@ pub enum AccessDenied {
 
     /// The resource covering this endpoint is locked by another user.
     ///
-    /// A locked resource can ONLY be used by the user who holds the lock.
-    /// Other holders remain in the holders list but their operations are
-    /// rejected until the resource is unlocked.
+    /// A locked resource can ONLY be written by the user who holds the lock.
+    /// Other holders remain in the holders list and may still read (D16, D21),
+    /// but their write operations are rejected until the resource is unlocked.
     LockedByOther {
         user_id: String,
         locked_by: String,
         resource_id: String,
     },
 
-    /// The operation targets an exclusive address range but the user does
-    /// not hold the lock on the resource (ADR-025).
-    ///
-    /// This happens when a developer's `resolve_classic_address()` hook
-    /// maps a Classic endpoint operation to a memory-mapped address that
-    /// falls within an Exclusive address range. Only the lock holder may
-    /// access exclusive ranges on a shared resource.
+    /// The resource covering this endpoint or address is blocked for writes
+    /// because another resource on the same device sharing at least one common
+    /// item is currently locked by another user (B1, B2, B4, D35).
+    BlockedByOther {
+        user_id: String,
+        resource_id: String,
+        blocker_id: String,
+        locked_by: String,
+    },
+
+    /// Legacy variant retained for source compatibility (superseded by S-14 / D44
+    /// in Phase 44-E: exclusive items no longer require holding a lock to write).
     ExclusiveAddressRange {
         user_id: String,
         resource_id: String,
@@ -1215,7 +1328,7 @@ pub enum AccessDenied {
     },
 
     /// The user acquired in ReadOnly mode but attempted a write operation
-    /// or a state-disturbing operation like UpdateWireOuts (ADR-026).
+    /// or a state-disturbing operation like ResetFPGA (ADR-026, D75 F1).
     ReadOnlyWriteAttempt {
         user_id: String,
         resource_id: String,
@@ -1223,7 +1336,7 @@ pub enum AccessDenied {
         detail: String,
     },
 
-    /// The data is marked Private and the user is a ReadOnly holder (ADR-026).
+    /// The data is marked Private and the user is a ReadOnly holder (ADR-026, D75 F2).
     ///
     /// Private endpoints, address ranges, or resources cannot be read by
     /// ReadOnly holders. This applies to Classic, AXI, and okRegisterBridge.
@@ -1271,6 +1384,18 @@ impl fmt::Display for AccessDenied {
                     f,
                     "Resource '{}' is locked by '{}' — user '{}' cannot access it",
                     resource_id, locked_by, user_id
+                )
+            }
+            AccessDenied::BlockedByOther {
+                user_id,
+                resource_id,
+                blocker_id,
+                locked_by,
+            } => {
+                write!(
+                    f,
+                    "Resource '{}' is blocked for user '{}' because overlapping resource '{}' is locked by '{}'",
+                    resource_id, user_id, blocker_id, locked_by
                 )
             }
             AccessDenied::ExclusiveAddressRange {
@@ -1688,6 +1813,151 @@ impl ResourceAccessPolicy for DefaultAccessPolicy {
                 })
             }
         }
+    }
+}
+
+/// Generic reference implementation of [`ResourceAccessPolicy`] (Strategy
+/// pattern) for HDL designs that use Classic `WireIn` endpoints as address
+/// registers into a 32-bit memory/register space (ADR-025, 44-E Q2).
+///
+/// ## Why this stub exists
+///
+/// Many Opal Kelly Classic FrontPanel designs (such as multi-port transceivers,
+/// custom Wishbone/AXI bridges, or DDR4 controllers) share a small set of
+/// Classic `WireIn` / `TriggerIn` / `Pipe` endpoints across multiple logical
+/// ports while partitioning the internal 32-bit memory map into per-port
+/// [`AddressRange`] declarations.
+///
+/// In those designs:
+/// 1. The client writes a 32-bit target address into a designated `WireIn`
+///    endpoint (for example `0x00` for an AXI write address `awaddr` and
+///    `0x01` for an AXI read address `araddr`).
+/// 2. The client writes control/data words to other shared `WireIn` or `PipeIn`
+///    endpoints and pulses `UpdateWireIns` / `ActivateTriggerIn`.
+/// 3. Because the bridge endpoints are shared between resources on the same
+///    device, a client performing a multi-step bridge sequence acquires its
+///    resource and calls `lock()` (`POST /resources/{id}/lock`). Locking
+///    blocks overlapping resources (`B1`/`B2`), preventing another client from
+///    overwriting the staged `WireIn` address mid-transaction.
+/// 4. When `SetWireInValue` is called on a configured address-carrier `WireIn`,
+///    [`ClassicAddressBridgePolicy::resolve_classic_address`] returns
+///    [`ClassicAddressResolution::MapsToAddress`], causing the enforcement
+///    pipeline (`check_endpoint_access`) to verify that the written 32-bit
+///    address falls within an [`AddressRange`] of **that same usable resource**
+///    (`S-20`).
+///
+/// ## Configuration (Compile-time or Resource Metadata)
+///
+/// `ClassicAddressBridgePolicy` can be configured in two ways:
+/// - **Struct fields (`write_addr_ep`, `read_addr_ep`):** fixed `WireIn`
+///   endpoint addresses (e.g. `Some(0x00)` and `Some(0x01)`).
+/// - **Per-resource `metadata` overrides:** if a resource's `metadata` map
+///   contains `"classic_write_addr_ep": "0x00"` or `"classic_read_addr_ep": "0x01"`,
+///   those endpoints are also treated as address carriers for that resource.
+///   This allows generic deployments to declare bridge endpoints in JSON
+///   without modifying Rust code.
+///
+/// ## Example
+///
+/// ```
+/// use ok_fpga_core::resource::{
+///     ClassicAddressBridgePolicy, ClassicAddressResolution, EndpointType,
+///     Resource, ResourceAccessPolicy, AccessMode,
+/// };
+///
+/// // Configure WireIn 0x00 as write-address register and WireIn 0x01 as
+/// // read-address register.
+/// let policy = ClassicAddressBridgePolicy::new(Some(0x00), Some(0x01));
+/// let resource = Resource::new(
+///     "SN1:port-a".into(),
+///     "port-a".into(),
+///     None,
+///     "SN1".into(),
+///     AccessMode::Shared,
+/// );
+///
+/// // Writing 0x44A6_0000 to WireIn 0x00 maps to address 0x44A6_0000:
+/// let res = policy.resolve_classic_address(
+///     &resource,
+///     &"alice".into(),
+///     0x00,
+///     &EndpointType::WireIn,
+///     Some(0x44A6_0000),
+/// );
+/// assert_eq!(res, ClassicAddressResolution::MapsToAddress(0x44A6_0000));
+///
+/// // Writing to a data/control WireIn (e.g. 0x02) does not carry an address:
+/// let res_data = policy.resolve_classic_address(
+///     &resource,
+///     &"alice".into(),
+///     0x02,
+///     &EndpointType::WireIn,
+///     Some(0x1234),
+/// );
+/// assert_eq!(res_data, ClassicAddressResolution::NoMapping);
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct ClassicAddressBridgePolicy {
+    /// Optional `WireIn` endpoint address (`0x00..=0x1F`) that carries a
+    /// 32-bit target write address (e.g. `Some(0x00)` for `m_axi_awaddr`).
+    pub write_addr_ep: Option<u8>,
+    /// Optional `WireIn` endpoint address (`0x00..=0x1F`) that carries a
+    /// 32-bit target read address (e.g. `Some(0x01)` for `m_axi_araddr`).
+    pub read_addr_ep: Option<u8>,
+}
+
+impl ClassicAddressBridgePolicy {
+    /// Create a bridge policy with optional `WireIn` write-address and
+    /// read-address endpoints.
+    pub const fn new(write_addr_ep: Option<u8>, read_addr_ep: Option<u8>) -> Self {
+        Self {
+            write_addr_ep,
+            read_addr_ep,
+        }
+    }
+
+    /// Parse a `"0xNN"` metadata value into a `u8` endpoint address.
+    fn parse_meta_ep(resource: &Resource, key: &str) -> Option<u8> {
+        let raw = resource.metadata.get(key)?.trim();
+        let hex = raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X"))?;
+        u8::from_str_radix(hex, 16).ok()
+    }
+
+    /// Returns `true` if `endpoint` is configured as an address-carrier
+    /// `WireIn` either on this policy struct or in `resource.metadata`.
+    fn is_address_wire_in(&self, resource: &Resource, endpoint: u8) -> bool {
+        if self.write_addr_ep == Some(endpoint) || self.read_addr_ep == Some(endpoint) {
+            return true;
+        }
+        Self::parse_meta_ep(resource, "classic_write_addr_ep") == Some(endpoint)
+            || Self::parse_meta_ep(resource, "classic_read_addr_ep") == Some(endpoint)
+    }
+}
+
+impl ResourceAccessPolicy for ClassicAddressBridgePolicy {
+    fn can_acquire(
+        &self,
+        resource: &Resource,
+        user: &UserId,
+        requested_mode: AccessMode,
+    ) -> Result<(), AcquisitionDenied> {
+        DefaultAccessPolicy.can_acquire(resource, user, requested_mode)
+    }
+
+    fn resolve_classic_address(
+        &self,
+        resource: &Resource,
+        _user: &UserId,
+        endpoint: u8,
+        ep_type: &EndpointType,
+        value: Option<u32>,
+    ) -> ClassicAddressResolution {
+        if *ep_type == EndpointType::WireIn && self.is_address_wire_in(resource, endpoint) {
+            if let Some(addr) = value {
+                return ClassicAddressResolution::MapsToAddress(u64::from(addr));
+            }
+        }
+        ClassicAddressResolution::NoMapping
     }
 }
 
@@ -2222,29 +2492,33 @@ impl ResourceRegistry {
         }
     }
 
-    /// Check if a user is authorized to access a specific Classic endpoint.
+    /// Check if a user is authorized to access a specific Classic endpoint
+    /// (ADR-024, ADR-025, ADR-026, ADR-034 §8 & §13, B2, S-13, S-14, S-20, D77).
     ///
-    /// This implements the **authorization rule** from ADR-024 §2:
+    /// ## Enforcement Pipeline (`enforcement.typ` §8)
     ///
-    /// 1. Find all resources on `device_serial` where `user_id ∈ holders`
-    /// 2. For each held resource:
-    ///    - If `InUseLocked` and `locked_by != user_id` → DENY (locked by other)
-    ///    - Check endpoint coverage:
-    ///      - No `endpoints` field (legacy resource) → ALLOW (covers all EPs)
-    ///      - Explicit entry with matching address → ALLOW
-    ///      - No matching entry, but `default_access` exists → ALLOW
-    ///      - `entries` is empty and `default_access` exists → ALLOW
-    /// 3. If endpoint is covered, call `policy.resolve_classic_address()`
-    ///    (ADR-025). If the hook returns `MapsToAddress(addr)`, check the
-    ///    resolved address against the resource's `address_ranges`.
-    /// 4. If no held resource covers the endpoint → DENY
-    ///
-    /// The `value` parameter is the wire value / trigger mask / pipe data being
-    /// written (if available). It is passed to the developer's
-    /// `resolve_classic_address()` hook. See ADR-025 §4 for which endpoint
-    /// types populate this field.
-    ///
-    /// Returns `Ok(())` if authorized, or `Err(AccessDenied)` with the reason.
+    /// 1. **Holding on device:** find all resources on `device_serial` held by
+    ///    `user_id` (sorted by ID for deterministic error reporting). None →
+    ///    `Err(AccessDenied::NoResourceOnDevice)`.
+    /// 2. **Endpoint coverage (`S-13`, `D61`, `D77`):** filter to held resources
+    ///    where [`Resource::check_endpoint_coverage`] returns `Some(entry_private)`.
+    ///    None → `Err(AccessDenied::NoCoveringResource)`.
+    /// 3. **Read vs. Write candidate filtering (`B2`, `D16`, `D21`, `D42`, `D75`):**
+    ///    - **Write (`ep_type.is_input()`):** drop candidates held as `ReadOnly`
+    ///      (`ReadOnlyWriteAttempt`), locked by another user (`LockedByOther`),
+    ///      or blocked for `user_id` by a foreign lock on an overlapping resource
+    ///      (`BlockedByOther`, `B1`/`B2`/`B4`/`D35`).
+    ///    - **Read (`!ep_type.is_input()`):** foreign locks and blocking never
+    ///      block reads (`D16`, `D21`). Drop `ReadOnly` candidates when the
+    ///      resource or endpoint entry is marked `private` (`PrivateDataDenied`).
+    /// 4. **Address mapping (`D29`, `D51`, `S-14`, `S-20`, `P14`):** for each
+    ///    remaining usable candidate `R`, call
+    ///    [`ResourceAccessPolicy::resolve_classic_address`]:
+    ///    - `NoMapping` or `AllowAlways` → `Ok(())` (`AllowAlways` skips only the
+    ///      address-range check, `D51`).
+    ///    - `MapsToAddress(addr)` → `addr` must fall within an `AddressRange` of
+    ///      **that same candidate `R`** (`S-20`; empty `address_ranges` covers no
+    ///      addresses, and no lock is required for `Exclusive` ranges, `S-14`).
     pub fn check_endpoint_access(
         &self,
         user_id: &str,
@@ -2255,14 +2529,12 @@ impl ResourceRegistry {
     ) -> Result<(), AccessDenied> {
         let map = self.resources.read().unwrap();
 
-        // Find all resources on this device held by this user.
-        let held_resources: Vec<&Resource> = map
+        // 1. Find all resources on this device held by `user_id` (sorted by ID).
+        let mut held_resources: Vec<&Resource> = map
             .values()
-            .filter(|r| {
-                r.device_serial == device_serial
-                    && r.has_holder(user_id)
-            })
+            .filter(|r| r.device_serial == device_serial && r.has_holder(user_id))
             .collect();
+        held_resources.sort_by(|a, b| a.id.cmp(&b.id));
 
         if held_resources.is_empty() {
             return Err(AccessDenied::NoResourceOnDevice {
@@ -2271,48 +2543,37 @@ impl ResourceRegistry {
             });
         }
 
-        // Check each held resource for endpoint coverage.
-        for resource in &held_resources {
-            // Check endpoint coverage (ADR-024 §2 + §3).
-            let endpoint_covered = match &resource.endpoints {
-                None => {
-                    // Legacy resource: no endpoint declarations at all.
-                    // Covers ALL endpoints on the device (ADR-024 §3).
-                    true
-                }
-                Some(ep_decl) => {
-                    // Check explicit entries first.
-                    let explicit_match = ep_decl.entries.iter().any(|entry| {
-                        entry.address == endpoint && entry.ep_type == *ep_type
-                    });
-                    if explicit_match {
-                        true
-                    } else {
-                        // No explicit match — default_access covers all
-                        // endpoints not explicitly listed.
-                        true
-                    }
-                }
-            };
+        // 2. Filter to candidates that cover `(endpoint, ep_type)`.
+        let covering: Vec<(&Resource, bool)> = held_resources
+            .into_iter()
+            .filter_map(|r| r.check_endpoint_coverage(endpoint, ep_type).map(|priv_ep| (r, priv_ep)))
+            .collect();
 
-            if !endpoint_covered {
-                continue;
-            }
+        if covering.is_empty() {
+            return Err(AccessDenied::NoCoveringResource {
+                user_id: user_id.to_string(),
+                device_serial: device_serial.to_string(),
+                detail: format!("endpoint 0x{:02X} ({})", endpoint, ep_type),
+            });
+        }
 
-            // Endpoint is covered by this resource. Check ADR-026 ReadOnly
-            // restrictions before lock enforcement so a ReadOnly holder
-            // attempting a write on an Exclusive or locked resource gets
-            // ReadOnlyWriteAttempt rather than LockedByOther.
-            let holder_entry = resource.holder_entry(user_id);
-            let is_readonly = holder_entry
+        let mut last_denial: Option<AccessDenied> = None;
+
+        // 3 + 4. Evaluate each covering candidate. If one candidate is unusable
+        // (e.g. ReadOnly, foreign-locked, blocked, or its address range does not
+        // cover MapsToAddress), continue to try any other held candidate that
+        // covers the endpoint (`enforcement.typ` §5: "A write is allowed if at
+        // least one such R allows it").
+        for (resource, entry_private) in covering {
+            let is_readonly = resource
+                .holder_entry(user_id)
                 .map(|h| h.mode == AccessMode::ReadOnly)
                 .unwrap_or(false);
 
-            if is_readonly {
-                // ADR-026 §5: ReadOnly holders cannot use input endpoints
-                // (WireIn, TriggerIn, PipeIn, BtPipeIn).
-                if ep_type.is_input() {
-                    return Err(AccessDenied::ReadOnlyWriteAttempt {
+            if ep_type.is_input() {
+                // Write operation: check ReadOnly first, then foreign lock, then blocking.
+                if is_readonly {
+                    last_denial.get_or_insert_with(|| AccessDenied::ReadOnlyWriteAttempt {
                         user_id: user_id.to_string(),
                         resource_id: resource.id.clone(),
                         detail: format!(
@@ -2320,86 +2581,67 @@ impl ResourceRegistry {
                             endpoint, ep_type
                         ),
                     });
+                    continue;
                 }
 
-                // ADR-026 §2: Private endpoints are hidden from ReadOnly.
-                if let Some(ep_decl) = &resource.endpoints {
-                    let entry = ep_decl.entries.iter().find(|e| {
-                        e.address == endpoint && e.ep_type == *ep_type
-                    });
-                    if let Some(entry) = entry {
-                        if entry.private {
-                            return Err(AccessDenied::PrivateDataDenied {
-                                user_id: user_id.to_string(),
-                                resource_id: resource.id.clone(),
-                                detail: format!(
-                                    "endpoint 0x{:02X} ({}) is private",
-                                    endpoint, ep_type
-                                ),
-                            });
-                        }
-                    }
-                }
-            }
-
-            // Lock enforcement (ADR-024 §6, amended by Phase 33):
-            // If the resource is locked by another user, WRITE operations
-            // (input endpoints) are blocked. READ operations (output
-            // endpoints) are still allowed for all holders, including
-            // ReadOnly observers (ADR-026 §5).
-            if resource.state == ResourceState::InUseLocked {
                 if let Some(ref locker) = resource.locked_by {
-                    if locker != user_id && ep_type.is_input() {
-                        // Write operation on a resource locked by another
-                        // user — skip it. We don't immediately deny because
-                        // the user might hold another resource that covers
-                        // this endpoint.
+                    if locker != user_id {
+                        last_denial = Some(AccessDenied::LockedByOther {
+                            user_id: user_id.to_string(),
+                            locked_by: locker.clone(),
+                            resource_id: resource.id.clone(),
+                        });
                         continue;
                     }
                 }
+
+                if let Some(blocker) =
+                    find_blocking_resource(map.values(), resource, user_id)
+                {
+                    last_denial = Some(AccessDenied::BlockedByOther {
+                        user_id: user_id.to_string(),
+                        resource_id: resource.id.clone(),
+                        blocker_id: blocker.id.clone(),
+                        locked_by: blocker
+                            .locked_by
+                            .clone()
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    });
+                    continue;
+                }
+            } else {
+                // Read operation: foreign locks and blocking never block reads (D16, D21).
+                if is_readonly && (resource.private || entry_private) {
+                    last_denial.get_or_insert_with(|| AccessDenied::PrivateDataDenied {
+                        user_id: user_id.to_string(),
+                        resource_id: resource.id.clone(),
+                        detail: format!("endpoint 0x{:02X} ({}) is private", endpoint, ep_type),
+                    });
+                    continue;
+                }
             }
 
-            // Call the developer's address resolution hook (ADR-025).
-            //
-            // At this point, upstream checks have passed:
-            //   ✅ User holds this resource
-            //   ✅ Lock check passed (writes blocked if locked by other)
-            //   ✅ Endpoint is covered by the resource's declarations
-            //   ✅ ReadOnly input/private checks passed (ADR-026)
-            //
-            // The hook's only job is to resolve endpoint + value → address.
+            // 4. Candidate is usable for this endpoint — run the developer-defined
+            // address mapping hook (ADR-025, D29, D51, S-14, S-20).
             let resolution = self.policy.resolve_classic_address(
-                resource, &user_id.to_string(), endpoint, ep_type, value,
+                resource,
+                &user_id.to_string(),
+                endpoint,
+                ep_type,
+                value,
             );
 
             match resolution {
-                ClassicAddressResolution::NoMapping => {
-                    // No address mapping — standard endpoint enforcement done.
-                    return Ok(());
-                }
-                ClassicAddressResolution::AllowAlways => {
-                    // Infrastructure endpoint — any holder may use.
+                ClassicAddressResolution::NoMapping | ClassicAddressResolution::AllowAlways => {
                     return Ok(());
                 }
                 ClassicAddressResolution::MapsToAddress(addr) => {
-                    // The endpoint operation targets a memory-mapped address.
-                    // Check whether the address falls within the resource's
-                    // declared address_ranges.
-                    if resource.address_ranges.is_empty() {
-                        // No address ranges declared — legacy resource covers
-                        // all addresses (same as ADR-024 §3 for endpoints).
-                        return Ok(());
-                    }
-
-                    // Find the matching address range.
-                    let matching_range = resource.address_ranges.iter().find(|range| {
-                        addr >= range.start as u64 && addr <= range.end as u64
-                    });
-
-                    match matching_range {
+                    // S-20: the mapped address must fall within an AddressRange of
+                    // THIS same candidate resource `resource` (empty `address_ranges`
+                    // covers no addresses).
+                    match resource.check_address_span(addr, 1) {
                         None => {
-                            // Address not in any declared range — deny.
-                            return Err(AccessDenied::NoCoveringResource {
+                            last_denial = Some(AccessDenied::NoCoveringResource {
                                 user_id: user_id.to_string(),
                                 device_serial: device_serial.to_string(),
                                 detail: format!(
@@ -2407,94 +2649,52 @@ impl ResourceRegistry {
                                     addr, endpoint, ep_type
                                 ),
                             });
+                            continue;
                         }
-                        Some(range) => {
-                            // ADR-026: Private address ranges deny ReadOnly.
-                            if is_readonly && range.private {
-                                return Err(AccessDenied::PrivateDataDenied {
-                                    user_id: user_id.to_string(),
-                                    resource_id: resource.id.clone(),
-                                    detail: format!(
-                                        "address range 0x{:08X}–0x{:08X} is private",
-                                        range.start, range.end
-                                    ),
-                                });
-                            }
-
-                            match range.access {
-                                AccessMode::Shared | AccessMode::ReadOnly => {
-                                    // Shared address range — any holder can access.
-                                    return Ok(());
+                        Some(private_range) => {
+                            if is_readonly {
+                                if let Some((start, end)) = private_range {
+                                    last_denial = Some(AccessDenied::PrivateDataDenied {
+                                        user_id: user_id.to_string(),
+                                        resource_id: resource.id.clone(),
+                                        detail: format!(
+                                            "address range 0x{:08X}–0x{:08X} is private",
+                                            start, end
+                                        ),
+                                    });
+                                } else {
+                                    last_denial = Some(AccessDenied::ReadOnlyWriteAttempt {
+                                        user_id: user_id.to_string(),
+                                        resource_id: resource.id.clone(),
+                                        detail: format!(
+                                            "address-mapped access to 0x{:08X} via endpoint 0x{:02X} ({})",
+                                            addr, endpoint, ep_type
+                                        ),
+                                    });
                                 }
-                                AccessMode::Exclusive => {
-                                    // Exclusive address range — user must hold
-                                    // the lock on this resource.
-                                    let user_holds_lock = resource
-                                        .locked_by
-                                        .as_deref()
-                                        == Some(user_id);
-
-                                    if user_holds_lock {
-                                        return Ok(());
-                                    } else {
-                                        return Err(AccessDenied::ExclusiveAddressRange {
-                                            user_id: user_id.to_string(),
-                                            resource_id: resource.id.clone(),
-                                            address: addr,
-                                            range_start: range.start,
-                                            range_end: range.end,
-                                        });
-                                    }
-                                }
+                                continue;
                             }
+                            // S-14 / D44 / D46: no lock is required to access an
+                            // Exclusive address range on a usable held resource.
+                            return Ok(());
                         }
                     }
                 }
             }
         }
 
-        // If we got here, every held resource was either:
-        //   - locked by someone else AND the operation is a write, or
-        //   - didn't cover the endpoint.
-        //
-        // Check if ALL held resources were locked-by-other for a write op.
-        let all_locked = held_resources.iter().all(|r| {
-            r.state == ResourceState::InUseLocked
-                && r.locked_by.as_deref() != Some(user_id)
-        });
-
-        if all_locked {
-            // Report the first locked resource for the error message.
-            let first = held_resources[0];
-            Err(AccessDenied::LockedByOther {
-                user_id: user_id.to_string(),
-                locked_by: first
-                    .locked_by
-                    .clone()
-                    .unwrap_or_else(|| "unknown".to_string()),
-                resource_id: first.id.clone(),
-            })
-        } else {
-            Err(AccessDenied::NoCoveringResource {
-                user_id: user_id.to_string(),
-                device_serial: device_serial.to_string(),
-                detail: format!("endpoint 0x{:02X} ({})", endpoint, ep_type),
-            })
-        }
+        Err(last_denial.unwrap_or_else(|| AccessDenied::NoCoveringResource {
+            user_id: user_id.to_string(),
+            device_serial: device_serial.to_string(),
+            detail: format!("endpoint 0x{:02X} ({})", endpoint, ep_type),
+        }))
     }
 
-    /// Check if a user is authorized to access a specific AXI address.
+    /// Check if a user is authorized to access a single 32-bit register or
+    /// address (`byte_len = 1`, e.g. `okRegisterBridge` `ReadRegister` /
+    /// `WriteRegister`).
     ///
-    /// Same logic as [`check_endpoint_access()`] but for AXI address ranges
-    /// instead of Classic endpoints. Uses the resource's `address_ranges`
-    /// field to determine coverage.
-    ///
-    /// The `is_write` parameter controls lock enforcement: write operations
-    /// are blocked when the resource is locked by another user, but read
-    /// operations are allowed (ADR-024 §6, amended by Phase 33).
-    ///
-    /// For resources without `address_ranges`, the resource is considered to
-    /// cover ALL addresses (legacy mode, same as §3 for endpoints).
+    /// Delegates to [`Self::check_address_span_access`] with `byte_len = 1`.
     pub fn check_address_access(
         &self,
         user_id: &str,
@@ -2502,15 +2702,37 @@ impl ResourceRegistry {
         address: u64,
         is_write: bool,
     ) -> Result<(), AccessDenied> {
+        self.check_address_span_access(user_id, device_serial, address, 1, is_write)
+    }
+
+    /// Check if a user is authorized to access an inclusive address span
+    /// `[address, address + byte_len - 1]` (`S-14`, `S-20`, `P14`, 44-B Q1,
+    /// 44-E Q4).
+    ///
+    /// - A resource with empty `address_ranges` covers **zero** addresses (`S-20`).
+    /// - Transfers exceeding the 32-bit `AddressRange` ceiling (`0xFFFF_FFFF`)
+    ///   are denied (`P14`).
+    /// - Writes require a usable candidate (not `ReadOnly`, not foreign-locked,
+    ///   not blocked, `B2`), but do **not** require holding a lock on `Exclusive`
+    ///   ranges (`S-14`).
+    /// - Reads ignore foreign locks and blocking (`D16`, `D21`), and for
+    ///   `ReadOnly` holders enforce that no overlapping range on the candidate
+    ///   resource has `private: true` (44-B Q1 tie-break).
+    pub fn check_address_span_access(
+        &self,
+        user_id: &str,
+        device_serial: &str,
+        address: u64,
+        byte_len: u64,
+        is_write: bool,
+    ) -> Result<(), AccessDenied> {
         let map = self.resources.read().unwrap();
 
-        let held_resources: Vec<&Resource> = map
+        let mut held_resources: Vec<&Resource> = map
             .values()
-            .filter(|r| {
-                r.device_serial == device_serial
-                    && r.has_holder(user_id)
-            })
+            .filter(|r| r.device_serial == device_serial && r.has_holder(user_id))
             .collect();
+        held_resources.sort_by(|a, b| a.id.cmp(&b.id));
 
         if held_resources.is_empty() {
             return Err(AccessDenied::NoResourceOnDevice {
@@ -2519,75 +2741,301 @@ impl ResourceRegistry {
             });
         }
 
-        for resource in &held_resources {
-            // Lock enforcement (ADR-024 §6, amended by Phase 33):
-            // Write operations are blocked when locked by another user.
-            // Read operations are allowed for all holders.
-            if resource.state == ResourceState::InUseLocked {
-                if let Some(ref locker) = resource.locked_by {
-                    if locker != user_id && is_write {
-                        continue;
-                    }
-                }
-            }
+        let span_detail = if byte_len <= 1 {
+            format!("AXI address 0x{:08X}", address)
+        } else {
+            let end = address.saturating_add(byte_len - 1);
+            format!("AXI address range 0x{:08X}–0x{:08X}", address, end)
+        };
 
-            // Address coverage check.
-            if resource.address_ranges.is_empty() {
-                // No address ranges declared — legacy resource covers all
-                // addresses (same logic as §3 for endpoints).
-                return Ok(());
-            }
+        // Filter to held resources whose declared `address_ranges` cover the full span.
+        let covering: Vec<(&Resource, Option<(u32, u32)>)> = held_resources
+            .into_iter()
+            .filter_map(|r| {
+                r.check_address_span(address, byte_len)
+                    .map(|priv_range| (r, priv_range))
+            })
+            .collect();
 
-            // ADR-026: Check ReadOnly status for this holder.
-            let holder_entry = resource.holder_entry(user_id);
-            let is_readonly = holder_entry
+        if covering.is_empty() {
+            return Err(AccessDenied::NoCoveringResource {
+                user_id: user_id.to_string(),
+                device_serial: device_serial.to_string(),
+                detail: span_detail,
+            });
+        }
+
+        let mut last_denial: Option<AccessDenied> = None;
+
+        for (resource, private_range) in covering {
+            let is_readonly = resource
+                .holder_entry(user_id)
                 .map(|h| h.mode == AccessMode::ReadOnly)
                 .unwrap_or(false);
 
-            // Check if the requested address falls within any declared range.
-            let matching_range = resource.address_ranges.iter().find(|range| {
-                address >= range.start as u64 && address <= range.end as u64
-            });
-
-            if let Some(range) = matching_range {
-                // ADR-026: Private address ranges deny ReadOnly holders.
-                if is_readonly && range.private {
-                    return Err(AccessDenied::PrivateDataDenied {
+            if is_write {
+                if is_readonly {
+                    last_denial.get_or_insert_with(|| AccessDenied::ReadOnlyWriteAttempt {
                         user_id: user_id.to_string(),
                         resource_id: resource.id.clone(),
-                        detail: format!(
-                            "address range 0x{:08X}–0x{:08X} is private",
-                            range.start, range.end
-                        ),
+                        detail: span_detail.clone(),
                     });
+                    continue;
+                }
+
+                if let Some(ref locker) = resource.locked_by {
+                    if locker != user_id {
+                        last_denial = Some(AccessDenied::LockedByOther {
+                            user_id: user_id.to_string(),
+                            locked_by: locker.clone(),
+                            resource_id: resource.id.clone(),
+                        });
+                        continue;
+                    }
+                }
+
+                if let Some(blocker) =
+                    find_blocking_resource(map.values(), resource, user_id)
+                {
+                    last_denial = Some(AccessDenied::BlockedByOther {
+                        user_id: user_id.to_string(),
+                        resource_id: resource.id.clone(),
+                        blocker_id: blocker.id.clone(),
+                        locked_by: blocker
+                            .locked_by
+                            .clone()
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    });
+                    continue;
+                }
+
+                // S-14 / D44: no lock is required to write an Exclusive range.
+                return Ok(());
+            } else {
+                // Read operation: foreign locks and blocking never block reads.
+                if is_readonly {
+                    if let Some((start, end)) = private_range {
+                        last_denial.get_or_insert_with(|| AccessDenied::PrivateDataDenied {
+                            user_id: user_id.to_string(),
+                            resource_id: resource.id.clone(),
+                            detail: format!("address range 0x{:08X}–0x{:08X} is private", start, end),
+                        });
+                        continue;
+                    }
+                    if resource.private {
+                        last_denial.get_or_insert_with(|| AccessDenied::PrivateDataDenied {
+                            user_id: user_id.to_string(),
+                            resource_id: resource.id.clone(),
+                            detail: format!("resource '{}' is private", resource.id),
+                        });
+                        continue;
+                    }
                 }
                 return Ok(());
             }
         }
 
-        // Same locked-by-other vs not-covering distinction.
-        let all_locked = held_resources.iter().all(|r| {
-            r.state == ResourceState::InUseLocked
-                && r.locked_by.as_deref() != Some(user_id)
-        });
+        Err(last_denial.unwrap_or(AccessDenied::NoCoveringResource {
+            user_id: user_id.to_string(),
+            device_serial: device_serial.to_string(),
+            detail: span_detail,
+        }))
+    }
 
-        if all_locked {
-            let first = held_resources[0];
-            Err(AccessDenied::LockedByOther {
-                user_id: user_id.to_string(),
-                locked_by: first
-                    .locked_by
-                    .clone()
-                    .unwrap_or_else(|| "unknown".to_string()),
-                resource_id: first.id.clone(),
-            })
-        } else {
-            Err(AccessDenied::NoCoveringResource {
+    /// Check if `user_id` is authorized to run a device-wide reset (`ResetFPGA`,
+    /// `AXILiteReset`, `AXIFullReset`, `AXIStreamReset`) on `device_serial`
+    /// (`D56`, `D66`, `D75 F1`, `enforcement.typ` §8 step 7 & §9).
+    ///
+    /// A reset is not tied to a single item, so the caller must hold at least
+    /// one resource on `device_serial` with a mode other than `ReadOnly`.
+    pub fn check_reset_access(
+        &self,
+        user_id: &str,
+        device_serial: &str,
+        operation: &str,
+    ) -> Result<(), AccessDenied> {
+        let map = self.resources.read().unwrap();
+
+        let mut held: Vec<&Resource> = map
+            .values()
+            .filter(|r| r.device_serial == device_serial && r.has_holder(user_id))
+            .collect();
+        held.sort_by(|a, b| a.id.cmp(&b.id));
+
+        if held.is_empty() {
+            return Err(AccessDenied::NoResourceOnDevice {
                 user_id: user_id.to_string(),
                 device_serial: device_serial.to_string(),
-                detail: format!("AXI address 0x{:08X}", address),
+            });
+        }
+
+        if held.iter().any(|r| {
+            r.holder_entry(user_id)
+                .map(|h| h.mode != AccessMode::ReadOnly)
+                .unwrap_or(false)
+        }) {
+            Ok(())
+        } else {
+            Err(AccessDenied::ReadOnlyWriteAttempt {
+                user_id: user_id.to_string(),
+                resource_id: held[0].id.clone(),
+                detail: operation.to_string(),
             })
         }
+    }
+
+    /// Check if `user_id` is authorized to run a device-wide write that has no
+    /// single endpoint parameter (`UpdateWireIns` or `AXIStreamWrite`) on
+    /// `device_serial` (`D42`, `S-08`, `S-15`).
+    ///
+    /// Requires at least one held resource on `device_serial` that is not
+    /// `ReadOnly`, not locked by another user, and not blocked for `user_id`.
+    pub fn check_device_write_access(
+        &self,
+        user_id: &str,
+        device_serial: &str,
+        operation: &str,
+    ) -> Result<(), AccessDenied> {
+        let map = self.resources.read().unwrap();
+
+        let mut held: Vec<&Resource> = map
+            .values()
+            .filter(|r| r.device_serial == device_serial && r.has_holder(user_id))
+            .collect();
+        held.sort_by(|a, b| a.id.cmp(&b.id));
+
+        if held.is_empty() {
+            return Err(AccessDenied::NoResourceOnDevice {
+                user_id: user_id.to_string(),
+                device_serial: device_serial.to_string(),
+            });
+        }
+
+        let mut last_denial: Option<AccessDenied> = None;
+
+        for resource in held {
+            let is_readonly = resource
+                .holder_entry(user_id)
+                .map(|h| h.mode == AccessMode::ReadOnly)
+                .unwrap_or(false);
+
+            if is_readonly {
+                last_denial.get_or_insert_with(|| AccessDenied::ReadOnlyWriteAttempt {
+                    user_id: user_id.to_string(),
+                    resource_id: resource.id.clone(),
+                    detail: operation.to_string(),
+                });
+                continue;
+            }
+
+            if let Some(ref locker) = resource.locked_by {
+                if locker != user_id {
+                    last_denial = Some(AccessDenied::LockedByOther {
+                        user_id: user_id.to_string(),
+                        locked_by: locker.clone(),
+                        resource_id: resource.id.clone(),
+                    });
+                    continue;
+                }
+            }
+
+            if let Some(blocker) =
+                find_blocking_resource(map.values(), resource, user_id)
+            {
+                last_denial = Some(AccessDenied::BlockedByOther {
+                    user_id: user_id.to_string(),
+                    resource_id: resource.id.clone(),
+                    blocker_id: blocker.id.clone(),
+                    locked_by: blocker
+                        .locked_by
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string()),
+                });
+                continue;
+            }
+
+            return Ok(());
+        }
+
+        Err(last_denial.unwrap_or_else(|| AccessDenied::NoResourceOnDevice {
+            user_id: user_id.to_string(),
+            device_serial: device_serial.to_string(),
+        }))
+    }
+
+    /// Check if `user_id` is authorized to run `UpdateTriggerOuts` (standalone
+    /// or via `update=true` on a `TriggerOut` read) on `device_serial`
+    /// (`D42`, `D75 F2`, `enforcement.typ` §6.1 & §8 step 4).
+    ///
+    /// - Caller must hold at least one resource on `device_serial`.
+    /// - If caller holds at least one non-`ReadOnly` resource on `device_serial`,
+    ///   allowed (`D42`).
+    /// - If all of the caller's holds on `device_serial` are `ReadOnly`, denied
+    ///   (`PrivateDataDenied`) when **any** registered resource on `device_serial`
+    ///   declares a private `TriggerOut` (either an explicit `TriggerOut` entry
+    ///   with `private: true`, or a resource with `private: true` that covers
+    ///   `TriggerOut` endpoints).
+    pub fn check_trigger_out_update_access(
+        &self,
+        user_id: &str,
+        device_serial: &str,
+    ) -> Result<(), AccessDenied> {
+        let map = self.resources.read().unwrap();
+
+        let mut held: Vec<&Resource> = map
+            .values()
+            .filter(|r| r.device_serial == device_serial && r.has_holder(user_id))
+            .collect();
+        held.sort_by(|a, b| a.id.cmp(&b.id));
+
+        if held.is_empty() {
+            return Err(AccessDenied::NoResourceOnDevice {
+                user_id: user_id.to_string(),
+                device_serial: device_serial.to_string(),
+            });
+        }
+
+        // Shared or Exclusive holders are unrestricted by D75 F2.
+        let has_non_readonly_hold = held.iter().any(|r| {
+            r.holder_entry(user_id)
+                .map(|h| h.mode != AccessMode::ReadOnly)
+                .unwrap_or(false)
+        });
+        if has_non_readonly_hold {
+            return Ok(());
+        }
+
+        // All of `user_id`'s holds on `device_serial` are `ReadOnly`: check if
+        // ANY registered resource on `device_serial` declares a private TriggerOut.
+        let mut device_resources: Vec<&Resource> = map
+            .values()
+            .filter(|r| r.device_serial == device_serial)
+            .collect();
+        device_resources.sort_by(|a, b| a.id.cmp(&b.id));
+
+        for r in device_resources {
+            if !r.interfaces.classic {
+                continue;
+            }
+            let has_private_trigger_out = match &r.endpoints {
+                None => r.private,
+                Some(ep_decl) => ep_decl.entries.iter().any(|e| {
+                    e.ep_type == EndpointType::TriggerOut && (e.private || r.private)
+                }),
+            };
+            if has_private_trigger_out {
+                return Err(AccessDenied::PrivateDataDenied {
+                    user_id: user_id.to_string(),
+                    resource_id: held[0].id.clone(),
+                    detail: format!(
+                        "UpdateTriggerOuts denied to ReadOnly holder because resource '{}' on device '{}' declares a private TriggerOut (D75 F2)",
+                        r.id, device_serial
+                    ),
+                });
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -3012,21 +3460,27 @@ mod tests {
 
     #[test]
     fn check_endpoint_access_legacy_resource_covers_all() {
-        // Legacy resource: no endpoints field → covers ALL endpoints.
+        // Omitted `endpoints` field (D77, 44-E): covers all Wire and Trigger
+        // endpoints (0x00..=0x7F), and never covers Pipe / BTPipe (0x80..=0xBF).
         let registry = ResourceRegistry::new();
         registry.register(test_resource_for_device("r1", "DEV_A"));
         registry
             .acquire("r1", &"alice".to_string(), AccessMode::Shared)
             .unwrap();
 
-        // Any endpoint should be allowed because the resource has no
-        // endpoint declarations (legacy mode, ADR-024 §3).
         assert!(registry
             .check_endpoint_access("alice", "DEV_A", 0x00, &EndpointType::WireIn, None)
             .is_ok());
         assert!(registry
-            .check_endpoint_access("alice", "DEV_A", 0xA0, &EndpointType::PipeOut, None)
+            .check_endpoint_access("alice", "DEV_A", 0x7F, &EndpointType::TriggerOut, None)
             .is_ok());
+        // Pipe / BTPipe endpoints (0x80..=0xBF) must be declared explicitly (D77).
+        assert!(matches!(
+            registry
+                .check_endpoint_access("alice", "DEV_A", 0xA0, &EndpointType::PipeOut, None)
+                .unwrap_err(),
+            AccessDenied::NoCoveringResource { .. }
+        ));
     }
 
     #[test]
@@ -3080,10 +3534,13 @@ mod tests {
         assert!(registry
             .check_endpoint_access("alice", "DEV_A", 0xA0, &EndpointType::PipeOut, None)
             .is_ok());
-        // Not declared, but EndpointDeclaration has default_access → allowed.
-        assert!(registry
-            .check_endpoint_access("alice", "DEV_A", 0x01, &EndpointType::WireIn, None)
-            .is_ok());
+        // D61 / S-13: unlisted endpoint is DENIED even when `default_access` is present.
+        assert!(matches!(
+            registry
+                .check_endpoint_access("alice", "DEV_A", 0x01, &EndpointType::WireIn, None)
+                .unwrap_err(),
+            AccessDenied::NoCoveringResource { .. }
+        ));
     }
 
     #[test]
@@ -3144,16 +3601,20 @@ mod tests {
 
     #[test]
     fn check_address_access_legacy_covers_all() {
-        // Legacy resource: no address_ranges → covers ALL addresses.
+        // S-20 (44-E): a resource with empty `address_ranges` covers NO
+        // addresses (the legacy allow-all bypass is removed).
         let registry = ResourceRegistry::new();
         registry.register(test_resource_for_device("r1", "DEV_A"));
         registry
             .acquire("r1", &"alice".to_string(), AccessMode::Shared)
             .unwrap();
 
-        assert!(registry
-            .check_address_access("alice", "DEV_A", 0x44A6_0000, false)
-            .is_ok());
+        assert!(matches!(
+            registry
+                .check_address_access("alice", "DEV_A", 0x44A6_0000, false)
+                .unwrap_err(),
+            AccessDenied::NoCoveringResource { .. }
+        ));
     }
 
     #[test]
@@ -3327,6 +3788,13 @@ mod tests {
                     description: Some("Data register".to_string()),
                     private: false,
                 },
+                EndpointEntry {
+                    address: 0x80,
+                    ep_type: EndpointType::PipeIn,
+                    access: AccessMode::Shared,
+                    description: Some("Pipe in".to_string()),
+                    private: false,
+                },
             ],
         });
         resource.address_ranges = vec![
@@ -3335,7 +3803,7 @@ mod tests {
                 description: None,
                 start: 0x0000,
                 end: 0x00FF,
-                access: AccessMode::Exclusive, // DAC control — requires lock
+                access: AccessMode::Exclusive, // DAC control (S-14: no lock required for usable holder)
                 private: false,
             },
             AddressRange {
@@ -3406,9 +3874,9 @@ mod tests {
 
     #[test]
     fn adr025_maps_to_exclusive_address_without_lock_denies() {
-        // Address 0x0042 is in the Exclusive range 0x0000–0x00FF.
-        // When the resource is locked by Alice, Bob gets LockedByOther (upstream).
-        // When the resource is NOT locked, Bob gets ExclusiveAddressRange (ADR-025).
+        // S-14 / D44 (44-E): when the resource is UNLOCKED and unblocked, a
+        // holder can write an Exclusive range without holding a lock. When the
+        // resource is LOCKED by Alice, Bob gets LockedByOther.
         let policy = Box::new(TestAddressMappingPolicy);
         let registry = ResourceRegistry::with_policy(policy);
         registry.register(test_resource_with_address_ranges("r1", "DEV_A"));
@@ -3419,14 +3887,12 @@ mod tests {
             .acquire("r1", &"bob".to_string(), AccessMode::Shared)
             .unwrap();
 
-        // --- Scenario 1: Resource is UNLOCKED ---
-        // Bob tries to access exclusive range without holding a lock.
-        let err = registry
+        // --- Scenario 1: Resource is UNLOCKED (S-14: allowed without lock) ---
+        assert!(registry
             .check_endpoint_access(
                 "bob", "DEV_A", 0x01, &EndpointType::WireIn, Some(0x0042)
             )
-            .unwrap_err();
-        assert!(matches!(err, AccessDenied::ExclusiveAddressRange { .. }));
+            .is_ok());
 
         // --- Scenario 2: Resource is LOCKED by Alice ---
         registry.lock("r1", &"alice".to_string()).unwrap();
@@ -3485,23 +3951,25 @@ mod tests {
 
     #[test]
     fn adr025_no_address_ranges_legacy_allows_all() {
-        // Resource with NO address_ranges → legacy mode, covers all addresses.
+        // S-20 (44-E): a resource with NO address_ranges covers NO addresses,
+        // so MapsToAddress is denied.
         let policy = Box::new(TestAddressMappingPolicy);
         let registry = ResourceRegistry::with_policy(policy);
         let mut resource = test_resource_for_device("r1", "DEV_A");
-        // Ensure no address ranges (legacy).
         resource.address_ranges.clear();
         registry.register(resource);
         registry
             .acquire("r1", &"alice".to_string(), AccessMode::Shared)
             .unwrap();
 
-        // Even though MapsToAddress returns an address, no address_ranges = allow.
-        assert!(registry
-            .check_endpoint_access(
-                "alice", "DEV_A", 0x01, &EndpointType::WireIn, Some(0xFFFF)
-            )
-            .is_ok());
+        assert!(matches!(
+            registry
+                .check_endpoint_access(
+                    "alice", "DEV_A", 0x01, &EndpointType::WireIn, Some(0xFFFF)
+                )
+                .unwrap_err(),
+            AccessDenied::NoCoveringResource { .. }
+        ));
     }
 
     #[test]
@@ -4502,6 +4970,506 @@ mod tests {
         let r = registry.get("DEV_A:r").unwrap();
         assert_eq!(r.state, ResourceState::InUseLocked);
         assert_eq!(r.locked_by.as_deref(), Some("alice"));
+    }
+
+    // =========================================================================
+    // Phase 44-E: Enforcement Pipeline (B2, S-13, S-14, S-20, D44, D51, D75, D77, Q2, Q4)
+    // =========================================================================
+
+    #[test]
+    fn test_check_endpoint_access_unlisted_with_default_access_denied() {
+        // S-13 / D61: `default_access` only fills a missing `access` on listed
+        // entries at registration time — it never covers unlisted endpoints.
+        let registry = ResourceRegistry::new();
+        let mut r = test_resource_for_device("DEV_A:r", "DEV_A");
+        r.endpoints = Some(EndpointDeclaration {
+            default_access: Some(AccessMode::Shared),
+            entries: vec![EndpointEntry {
+                address: 0x00,
+                ep_type: EndpointType::WireIn,
+                access: AccessMode::Shared,
+                description: None,
+                private: false,
+            }],
+        });
+        registry.register(r);
+        registry
+            .acquire("DEV_A:r", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        assert!(registry
+            .check_endpoint_access("alice", "DEV_A", 0x00, &EndpointType::WireIn, None)
+            .is_ok());
+        assert!(matches!(
+            registry
+                .check_endpoint_access("alice", "DEV_A", 0x01, &EndpointType::WireIn, None)
+                .unwrap_err(),
+            AccessDenied::NoCoveringResource { .. }
+        ));
+    }
+
+    #[test]
+    fn test_check_endpoint_access_empty_entries_denied() {
+        // D59 / S-13: `"endpoints": {"entries": []}` covers zero Classic endpoints.
+        let registry = ResourceRegistry::new();
+        let mut r = test_resource_for_device("DEV_A:r", "DEV_A");
+        r.endpoints = Some(EndpointDeclaration {
+            default_access: Some(AccessMode::Shared),
+            entries: vec![],
+        });
+        registry.register(r);
+        registry
+            .acquire("DEV_A:r", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        assert!(matches!(
+            registry
+                .check_endpoint_access("alice", "DEV_A", 0x00, &EndpointType::WireIn, None)
+                .unwrap_err(),
+            AccessDenied::NoCoveringResource { .. }
+        ));
+        assert!(matches!(
+            registry
+                .check_endpoint_access("alice", "DEV_A", 0x20, &EndpointType::WireOut, None)
+                .unwrap_err(),
+            AccessDenied::NoCoveringResource { .. }
+        ));
+    }
+
+    #[test]
+    fn test_check_endpoint_access_no_endpoints_wire_trigger_allowed_pipe_denied() {
+        // D77: Omitted `endpoints` covers Wire and Trigger endpoints (0x00..=0x7F)
+        // and denies Pipe / BTPipe endpoints (0x80..=0xBF).
+        let registry = ResourceRegistry::new();
+        let r = test_exclusive_resource_for_device("DEV_A:r", "DEV_A");
+        registry.register(r);
+        registry
+            .acquire("DEV_A:r", &"alice".to_string(), AccessMode::Exclusive)
+            .unwrap();
+
+        assert!(registry
+            .check_endpoint_access("alice", "DEV_A", 0x00, &EndpointType::WireIn, None)
+            .is_ok());
+        assert!(registry
+            .check_endpoint_access("alice", "DEV_A", 0x20, &EndpointType::WireOut, None)
+            .is_ok());
+        assert!(registry
+            .check_endpoint_access("alice", "DEV_A", 0x40, &EndpointType::TriggerIn, None)
+            .is_ok());
+        assert!(registry
+            .check_endpoint_access("alice", "DEV_A", 0x60, &EndpointType::TriggerOut, None)
+            .is_ok());
+        assert!(matches!(
+            registry
+                .check_endpoint_access("alice", "DEV_A", 0x80, &EndpointType::PipeIn, None)
+                .unwrap_err(),
+            AccessDenied::NoCoveringResource { .. }
+        ));
+        assert!(matches!(
+            registry
+                .check_endpoint_access("alice", "DEV_A", 0xA0, &EndpointType::PipeOut, None)
+                .unwrap_err(),
+            AccessDenied::NoCoveringResource { .. }
+        ));
+    }
+
+    #[test]
+    fn test_check_endpoint_access_exclusive_ep_no_lock_allowed() {
+        // D44: Writing an exclusive endpoint on a shared resource does NOT
+        // require the caller to lock the resource.
+        let registry = ResourceRegistry::new();
+        let mut r = test_resource_for_device("DEV_A:r", "DEV_A");
+        r.endpoints = Some(EndpointDeclaration {
+            default_access: None,
+            entries: vec![EndpointEntry {
+                address: 0x05,
+                ep_type: EndpointType::WireIn,
+                access: AccessMode::Exclusive,
+                description: None,
+                private: false,
+            }],
+        });
+        registry.register(r);
+        registry
+            .acquire("DEV_A:r", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        assert!(registry
+            .check_endpoint_access("alice", "DEV_A", 0x05, &EndpointType::WireIn, Some(1))
+            .is_ok());
+    }
+
+    #[test]
+    fn test_check_endpoint_access_exclusive_range_no_lock_allowed() {
+        // S-14 / D44: Writing a mapped address in an Exclusive AddressRange on
+        // a shared resource does NOT require holding the lock.
+        let policy = Box::new(TestAddressMappingPolicy);
+        let registry = ResourceRegistry::with_policy(policy);
+        registry.register(test_resource_with_address_ranges("DEV_A:r", "DEV_A"));
+        registry
+            .acquire("DEV_A:r", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // 0x0042 lies in the Exclusive range 0x0000..=0x00FF; Alice has not locked.
+        assert!(registry
+            .check_endpoint_access("alice", "DEV_A", 0x01, &EndpointType::WireIn, Some(0x0042))
+            .is_ok());
+    }
+
+    #[test]
+    fn test_check_endpoint_access_maps_to_address_empty_ranges_denied() {
+        // S-20: When `resolve_classic_address` returns `MapsToAddress(a)` and
+        // the candidate resource has empty `address_ranges`, access is denied.
+        let policy = Box::new(TestAddressMappingPolicy);
+        let registry = ResourceRegistry::with_policy(policy);
+        let mut r = test_resource_for_device("DEV_A:r", "DEV_A");
+        r.endpoints = Some(EndpointDeclaration {
+            default_access: Some(AccessMode::Shared),
+            entries: vec![EndpointEntry {
+                address: 0x01,
+                ep_type: EndpointType::WireIn,
+                access: AccessMode::Shared,
+                description: None,
+                private: false,
+            }],
+        });
+        r.address_ranges.clear();
+        registry.register(r);
+        registry
+            .acquire("DEV_A:r", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        assert!(matches!(
+            registry
+                .check_endpoint_access(
+                    "alice",
+                    "DEV_A",
+                    0x01,
+                    &EndpointType::WireIn,
+                    Some(0x1000)
+                )
+                .unwrap_err(),
+            AccessDenied::NoCoveringResource { .. }
+        ));
+    }
+
+    #[test]
+    fn test_check_address_access_empty_ranges_denied() {
+        // S-20: Direct register / AXI access on a resource with empty
+        // `address_ranges` is denied.
+        let registry = ResourceRegistry::new();
+        let mut r = test_resource_for_device("DEV_A:r", "DEV_A");
+        r.address_ranges.clear();
+        registry.register(r);
+        registry
+            .acquire("DEV_A:r", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        assert!(matches!(
+            registry
+                .check_address_access("alice", "DEV_A", 0x1000, false)
+                .unwrap_err(),
+            AccessDenied::NoCoveringResource { .. }
+        ));
+        assert!(matches!(
+            registry
+                .check_address_access("alice", "DEV_A", 0x1000, true)
+                .unwrap_err(),
+            AccessDenied::NoCoveringResource { .. }
+        ));
+    }
+
+    #[test]
+    fn test_check_endpoint_access_blocked_write_denied() {
+        // B2: R = {0x00, 0x01} locked by Alice, S = {0x01, 0x02} held by Bob.
+        // Bob's write to 0x02 (covered by S) is denied because S is blocked by R.
+        let registry = ResourceRegistry::new();
+        registry.register(shared_ep_resource("DEV_A:r", "r", "DEV_A", &[0x00, 0x01]));
+        registry.register(shared_ep_resource("DEV_A:s", "s", "DEV_A", &[0x01, 0x02]));
+
+        registry
+            .acquire("DEV_A:r", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("DEV_A:s", &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry.lock("DEV_A:r", &"alice".to_string()).unwrap();
+
+        let err = registry
+            .check_endpoint_access("bob", "DEV_A", 0x02, &EndpointType::WireIn, Some(1))
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            AccessDenied::BlockedByOther {
+                ref resource_id,
+                ref blocker_id,
+                ref locked_by,
+                ..
+            } if resource_id == "DEV_A:s" && blocker_id == "DEV_A:r" && locked_by == "alice"
+        ));
+    }
+
+    #[test]
+    fn test_check_endpoint_access_blocked_read_allowed() {
+        // B2 / D16 / D21: Blocking never blocks reads.
+        let registry = ResourceRegistry::new();
+        let mut r = shared_ep_resource("DEV_A:r", "r", "DEV_A", &[0x00, 0x01]);
+        r.endpoints.as_mut().unwrap().entries.push(EndpointEntry {
+            address: 0x20,
+            ep_type: EndpointType::WireOut,
+            access: AccessMode::Shared,
+            description: None,
+            private: false,
+        });
+        let mut s = shared_ep_resource("DEV_A:s", "s", "DEV_A", &[0x01]);
+        s.endpoints.as_mut().unwrap().entries.push(EndpointEntry {
+            address: 0x21,
+            ep_type: EndpointType::WireOut,
+            access: AccessMode::Shared,
+            description: None,
+            private: false,
+        });
+        registry.register(r);
+        registry.register(s);
+
+        registry
+            .acquire("DEV_A:r", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("DEV_A:s", &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry.lock("DEV_A:r", &"alice".to_string()).unwrap();
+
+        // Bob's resource S is blocked by R, but Bob can still read WireOut 0x21.
+        assert!(registry
+            .check_endpoint_access("bob", "DEV_A", 0x21, &EndpointType::WireOut, None)
+            .is_ok());
+    }
+
+    #[test]
+    fn test_check_endpoint_access_blocked_has_unblocked_alt_allowed() {
+        // B2: Bob holds S (blocked by Alice's lock on R via 0x01) AND T
+        // (unblocked, disjoint from R, also covers 0x02). Bob's write to 0x02
+        // succeeds through T.
+        let registry = ResourceRegistry::new();
+        registry.register(shared_ep_resource("DEV_A:r", "r", "DEV_A", &[0x00, 0x01]));
+        registry.register(shared_ep_resource("DEV_A:s", "s", "DEV_A", &[0x01, 0x02]));
+        registry.register(shared_ep_resource("DEV_A:t", "t", "DEV_A", &[0x02, 0x03]));
+
+        registry
+            .acquire("DEV_A:r", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("DEV_A:s", &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("DEV_A:t", &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry.lock("DEV_A:r", &"alice".to_string()).unwrap();
+
+        assert!(registry
+            .check_endpoint_access("bob", "DEV_A", 0x02, &EndpointType::WireIn, Some(42))
+            .is_ok());
+    }
+
+    #[test]
+    fn test_check_endpoint_access_allow_always_respects_lock_and_readonly() {
+        // D51: `AllowAlways` skips ONLY the address-range check — it must never
+        // bypass ReadOnly, foreign lock, or blocking checks.
+        let policy = Box::new(TestAddressMappingPolicy);
+        let registry = ResourceRegistry::with_policy(policy);
+        registry.register(test_resource_with_address_ranges("DEV_A:r", "DEV_A"));
+
+        registry
+            .acquire("DEV_A:r", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("DEV_A:r", &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("DEV_A:r", &"carol".to_string(), AccessMode::ReadOnly)
+            .unwrap();
+
+        // WireIn 0x02 returns AllowAlways in TestAddressMappingPolicy.
+        // 1. ReadOnly holder Carol is denied before AllowAlways runs:
+        assert!(matches!(
+            registry
+                .check_endpoint_access("carol", "DEV_A", 0x02, &EndpointType::WireIn, Some(1))
+                .unwrap_err(),
+            AccessDenied::ReadOnlyWriteAttempt { .. }
+        ));
+
+        // 2. When Alice locks DEV_A:r, Bob is denied on WireIn 0x02:
+        registry.lock("DEV_A:r", &"alice".to_string()).unwrap();
+        assert!(matches!(
+            registry
+                .check_endpoint_access("bob", "DEV_A", 0x02, &EndpointType::WireIn, Some(1))
+                .unwrap_err(),
+            AccessDenied::LockedByOther { .. }
+        ));
+    }
+
+    #[test]
+    fn test_check_endpoint_access_maps_to_address_same_resource() {
+        // S-20: When `MapsToAddress(a)` fires on a candidate resource R, `a`
+        // must lie in a range of THAT SAME usable candidate R — not a range on
+        // a different resource S that is unusable (locked by someone else) or
+        // does not cover the endpoint.
+        let policy = Box::new(ClassicAddressBridgePolicy::new(Some(0x00), Some(0x01)));
+        let registry = ResourceRegistry::with_policy(policy);
+
+        // Port A: covers WireIn 0x00 and range 0x44A6_0000..=0x44A6_0FFF.
+        let mut port_a = shared_ep_resource("DEV_A:port-a", "port-a", "DEV_A", &[0x00]);
+        port_a.address_ranges.push(AddressRange {
+            name: None,
+            description: None,
+            start: 0x44A6_0000,
+            end: 0x44A6_0FFF,
+            access: AccessMode::Exclusive,
+            private: false,
+        });
+
+        // Aux: does NOT cover WireIn 0x00 (only covers WireIn 0x05), but holds
+        // range 0x44B6_0000..=0x44B6_0FFF.
+        let mut aux = shared_ep_resource("DEV_A:aux", "aux", "DEV_A", &[0x05]);
+        aux.address_ranges.push(AddressRange {
+            name: None,
+            description: None,
+            start: 0x44B6_0000,
+            end: 0x44B6_0FFF,
+            access: AccessMode::Exclusive,
+            private: false,
+        });
+
+        registry.register(port_a);
+        registry.register(aux);
+        registry
+            .acquire("DEV_A:port-a", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        registry
+            .acquire("DEV_A:aux", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // Alice can map WireIn 0x00 to Port A's range (0x44A6_0100):
+        assert!(registry
+            .check_endpoint_access(
+                "alice",
+                "DEV_A",
+                0x00,
+                &EndpointType::WireIn,
+                Some(0x44A6_0100)
+            )
+            .is_ok());
+
+        // Alice CANNOT map WireIn 0x00 to Aux's range (0x44B6_0100), because
+        // Aux does not cover WireIn 0x00 and Port A does not cover 0x44B6_0100!
+        assert!(matches!(
+            registry
+                .check_endpoint_access(
+                    "alice",
+                    "DEV_A",
+                    0x00,
+                    &EndpointType::WireIn,
+                    Some(0x44B6_0100)
+                )
+                .unwrap_err(),
+            AccessDenied::NoCoveringResource { .. }
+        ));
+    }
+
+    #[test]
+    fn test_check_address_access_self_overlapping_ranges_private_wins() {
+        // 44-B Q1 tie-break: when two ranges in the SAME resource overlap and
+        // disagree on `private`, the private one wins on the shared addresses.
+        let registry = ResourceRegistry::new();
+        let mut r = test_resource_for_device("DEV_A:r", "DEV_A");
+        r.address_ranges = vec![
+            AddressRange {
+                name: None,
+                description: None,
+                start: 0x1000,
+                end: 0x1FFF,
+                access: AccessMode::Shared,
+                private: false,
+            },
+            AddressRange {
+                name: None,
+                description: None,
+                start: 0x1000,
+                end: 0x10FF,
+                access: AccessMode::Shared,
+                private: true,
+            },
+        ];
+        registry.register(r);
+        registry
+            .acquire("DEV_A:r", &"bob".to_string(), AccessMode::ReadOnly)
+            .unwrap();
+
+        // ReadOnly denied in the overlapping private sub-range 0x1000..=0x10FF:
+        assert!(matches!(
+            registry
+                .check_address_access("bob", "DEV_A", 0x1050, false)
+                .unwrap_err(),
+            AccessDenied::PrivateDataDenied { .. }
+        ));
+        // ReadOnly allowed in the non-overlapping non-private portion 0x1100..=0x1FFF:
+        assert!(registry
+            .check_address_access("bob", "DEV_A", 0x1100, false)
+            .is_ok());
+    }
+
+    #[test]
+    fn test_check_address_span_access_checks_full_start_and_length() {
+        // 44-E Q4: multi-byte transfers (AXI Lite 4B, AXI Full length) must
+        // fall completely within the resource's covered address range(s).
+        let registry = ResourceRegistry::new();
+        let mut r = test_resource_for_device("DEV_A:r", "DEV_A");
+        r.address_ranges = vec![
+            AddressRange {
+                name: None,
+                description: None,
+                start: 0x1000,
+                end: 0x1FFF,
+                access: AccessMode::Shared,
+                private: false,
+            },
+            AddressRange {
+                name: None,
+                description: None,
+                start: 0x2000,
+                end: 0x2FFF,
+                access: AccessMode::Shared,
+                private: false,
+            },
+        ];
+        registry.register(r);
+        registry
+            .acquire("DEV_A:r", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // 4-byte transfer ending right at 0x1FFF is allowed:
+        assert!(registry
+            .check_address_span_access("alice", "DEV_A", 0x1FFC, 4, true)
+            .is_ok());
+        // Burst crossing the contiguous boundary 0x1FF0..=0x200F is allowed:
+        assert!(registry
+            .check_address_span_access("alice", "DEV_A", 0x1FF0, 32, true)
+            .is_ok());
+        // 4-byte transfer at 0x2FFE (0x2FFE..=0x3001) overflows past 0x2FFF → denied!
+        assert!(matches!(
+            registry
+                .check_address_span_access("alice", "DEV_A", 0x2FFE, 4, true)
+                .unwrap_err(),
+            AccessDenied::NoCoveringResource { .. }
+        ));
+        // P14: 64-bit address above 0xFFFF_FFFF is denied!
+        assert!(matches!(
+            registry
+                .check_address_span_access("alice", "DEV_A", 0x1_0000_1000, 4, false)
+                .unwrap_err(),
+            AccessDenied::NoCoveringResource { .. }
+        ));
     }
 }
 

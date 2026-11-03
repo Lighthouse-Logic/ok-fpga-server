@@ -310,3 +310,94 @@ adopted, 2 rejected as non-observable / redundant).
     `test_grpc_watch_device_events_streams_resource_events`.
 - Commit: `feat: resource lock blocking and lock events (B1-B4) (0.3.5)`.
   **Done:** `e562705`.
+
+---
+
+## 44-E — Enforcement pipeline (B2) (0.3.6)
+
+**Owner decisions (2026-11-03):**
+- **Q1 (`P14` proto comment & surfacing registration warnings):**
+  - Permission granted to add the `P14` comment to `proto/okfpga/v1/okfpga.proto`
+    explaining that AXI RPCs use `uint64 address` to match the FrontPanel C API,
+    whereas `AddressRange` declarations are 32-bit (`uint32`), so addresses
+    `> 0xFFFF_FFFF` cannot match any declared range under `enforce`.
+  - Option B selected for surfacing registration warnings to callers: do not
+    stuff warnings into an undocumented HTTP header; log them via
+    `tracing::warn!` in 44-E and add a **Later** roadmap item to define an
+    explicit `warnings: list[string]` field on `CreateResource` responses in
+    `api/openapi.yaml` and `proto/okfpga/v1/okfpga.proto`.
+- **Q2 (Omitted `endpoints: None` vs. Pipe-only resources & generic bridge policy):**
+  - Narrow `WILDCARD_EP_LAST` to `0x7F` (`D77`): omitted `endpoints` claims
+    `0x00..=0x7F` (Wire & Trigger endpoints only) and allows a second resource
+    on the same device if that second resource declares only Pipe/BTPipe
+    endpoints (`0x80..=0xBF`).
+  - Log `tracing::warn!` messages when a Classic resource omits `endpoints`
+    (explaining the `0x00–0x7F` assumption, Pipe/BTPipe availability, and
+    `"endpoints": {"entries": []}` for zero endpoints, `D59`) and when an
+    `endpoints: None` resource and a Pipe-declaring resource coexist on the
+    same device.
+  - Provide and document a generic, non-DualPort-specific
+    `ClassicAddressBridgePolicy` reference implementation in
+    `crates/ok-fpga-core/src/resource.rs`.
+- **Q3a & Q3b (`endpoint_enforcement` default & unit test migration):**
+  - Default `access_control.endpoint_enforcement` to `"enforce"` (`S-12`) and
+    reject missing identity in `resolve_user_id` (`S-18`); allow anonymous
+    `/configure` and `/configure_from_server_path` only when
+    `endpoint_enforcement == "off"`.
+  - Add a **Later** roadmap item to migrate older Tier 3 route unit tests from
+    `EndpointEnforcement::Off` to `EndpointEnforcement::Enforce`.
+- **Q4 (Full address span `[start, start + length - 1]` checking):**
+  - Check the full byte span `[start, start + byte_len - 1]` against a single
+    declared `AddressRange` on the candidate resource (`byte_len = 1` for
+    Classic `okRegisterBridge` and `MapsToAddress`, `byte_len = 4` for AXI Lite
+    and 4-byte REST AXI Full, `byte_len = length` for gRPC AXI Full / Bulk).
+- **Q5 (Tier 2 Hardware Testing on the hardware test host):**
+  - Add `test_hardware_xem7320_counters_enforcement_pipeline` (`#[ignore]`) in
+    `crates/ok-fpga-core/tests/device_resource_integration.rs` targeting the
+    connected `XEM7320-A75T` boards with `Counters.bit`.
+
+**44-E Enforcement pipeline (B2)**
+- Files: `proto/okfpga/v1/okfpga.proto`,
+  `crates/ok-fpga-core/src/declaration.rs`,
+  `crates/ok-fpga-core/src/resource.rs`,
+  `crates/ok-fpga-core/tests/device_resource_integration.rs`,
+  `crates/ok-fpga-server/src/config.rs`,
+  `crates/ok-fpga-server/src/warnings.rs`,
+  `crates/ok-fpga-server/src/rest/mod.rs`,
+  `crates/ok-fpga-server/src/rest/devices.rs`,
+  `crates/ok-fpga-server/src/rest/resources.rs`,
+  `crates/ok-fpga-server/src/rest/classic.rs`,
+  `crates/ok-fpga-server/src/rest/axi.rs`,
+  `crates/ok-fpga-server/src/grpc/device_service.rs`,
+  `crates/ok-fpga-server/src/grpc/classic_service.rs`,
+  `crates/ok-fpga-server/src/grpc/axi_service.rs`,
+  `config.toml`, `docs/API-Specification/`, `Cargo.toml` / `Cargo.lock`.
+- Tests:
+  - Core `declaration.rs`: `test_check_overlap_wildcard_allows_pipe_only_resource`,
+    `test_check_overlap_wildcard_blocks_trigger_denied`.
+  - Core `resource.rs`: 14 Phase 44-E unit tests covering write candidate
+    filtering, foreign lock, blocking (`B2`), read during foreign lock,
+    private endpoint/range reads, same-resource address checking (`S-20`),
+    self-overlap `private` tie-breaking, `AllowAlways` with blocking (`D51`),
+    `ReadOnly` mapped-address denial (`D29`), `ResetFPGA` (`D56`, `D66`,
+    `D75 F1`), `UpdateTriggerOuts` private TriggerOut denial (`D75 F2`),
+    full-span AXI & 64-bit address checking (`Q4`, `P14`), and
+    `ClassicAddressBridgePolicy` (`Q2`).
+  - Core `device_resource_integration.rs`:
+    `test_two_users_classic_bridge_enforcement_and_blocking`,
+    `test_hardware_xem7320_counters_enforcement_pipeline` (`#[ignore]`).
+  - Server `config.rs`, `warnings.rs`, `rest/mod.rs`, `rest/classic.rs`:
+    `test_access_control_default_endpoint_enforcement_is_enforce`,
+    `test_access_control_warn_readonly_side_effects_omitted_defaults_true`,
+    `test_readonly_side_effects_messages_*`,
+    `test_wildcard_endpoint_messages_warns_on_omitted_endpoints_and_pipe_coexistence`,
+    `test_resolve_user_id_missing_identity_rejected`,
+    `test_activate_trigger_in_invalid_bit_returns_422`,
+    `test_reset_fpga_readonly_holder_returns_403`,
+    `test_reset_fpga_shared_holder_passes_enforcement`,
+    `test_axi_reset_readonly_holder_returns_403`,
+    `test_update_trigger_outs_readonly_denied_when_device_has_private_trigger_out`,
+    `test_update_trigger_outs_readonly_allowed_when_no_private_trigger_out`,
+    `test_block_pipe_routes_enforce_endpoint_access`,
+    `test_axi_lite_read_write_enforce_address_access`.
+- Commit: `feat: align endpoint enforcement with overlap and blocking (B2) (0.3.6)`.

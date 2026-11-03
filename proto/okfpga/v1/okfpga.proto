@@ -915,6 +915,14 @@ message WriteRegistersRequest {
 // ============================================================================
 // Request/Response Messages — AXI Data Port
 // ============================================================================
+//
+// Note on address widths (ADR-034 P14): AXI request messages carry `uint64
+// address` to match the Opal Kelly FrontPanel C API (`okAXILite_Read` /
+// `okAXIFull_Read`), whereas resource `AddressRange` declarations are 32-bit
+// (`uint32 start` / `uint32 end`, matching Classic `okRegisterBridge` and
+// current 32-bit AXI designs). Under `endpoint_enforcement = "enforce"`, any
+// AXI request whose `[address, address + length - 1]` span exceeds
+// `0xFFFF_FFFF` cannot match a declared 32-bit `AddressRange` and is denied.
 
 // --- AXI Lite ---
 

@@ -1151,12 +1151,17 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
 
         // Overlapping ranges inside one declaration are allowed (owner
         // decision Q1); log a warning if the setting is on.
-        let warn_self_overlap = self
+        let (warn_self_overlap, warn_readonly_side_effects) = self
             .state
             .config
             .read()
-            .map(|c| c.access_control.warn_range_self_overlap)
-            .unwrap_or(true);
+            .map(|c| {
+                (
+                    c.access_control.warn_range_self_overlap,
+                    c.access_control.warn_readonly_side_effects,
+                )
+            })
+            .unwrap_or((true, true));
         if warn_self_overlap {
             crate::warnings::warn_self_overlapping_ranges(&resource);
         }
@@ -1180,6 +1185,12 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             .resource_registry
             .get(&resource_id)
             .ok_or_else(|| Status::internal("Resource vanished after registration"))?;
+
+        if warn_readonly_side_effects {
+            crate::warnings::warn_readonly_side_effects(&created);
+        }
+        let existing_on_device = self.state.resource_registry.list_for_device(&device_serial);
+        crate::warnings::warn_wildcard_endpoints(&existing_on_device, &created);
 
         let _ = self.state.device_manager.broadcast(DeviceEvent::ResourceCreated {
             resource_id: resource_id.clone(),

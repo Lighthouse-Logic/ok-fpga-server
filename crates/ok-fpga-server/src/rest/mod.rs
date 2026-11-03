@@ -89,7 +89,9 @@ pub fn resolve_user_id(
         }
     }
 
-    Ok(body.or(header).unwrap_or("Unknown").to_string())
+    body.or(header)
+        .map(str::to_string)
+        .ok_or_else(|| ProblemDetail::bad_request("user_id is required (in request body or X-User-Id header)"))
 }
 
 /// Build the complete REST API router.
@@ -187,11 +189,13 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_user_id_neither_returns_unknown() {
-        // Neither body nor header → returns "Unknown".
+    fn test_resolve_user_id_missing_identity_rejected() {
+        // S-18 (44-E): Neither body nor header → rejected with 400 Bad Request
+        // (the "Unknown" fallback is removed).
         let headers = headers_with_user(None);
-        let result = resolve_user_id(None, &headers).unwrap();
-        assert_eq!(result, "Unknown");
+        let err = resolve_user_id(None, &headers).unwrap_err();
+        assert_eq!(err.status, axum::http::StatusCode::BAD_REQUEST.as_u16());
+        assert!(err.detail.contains("user_id is required"));
     }
 
     #[test]

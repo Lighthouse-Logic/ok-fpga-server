@@ -494,12 +494,13 @@ pub fn check_interfaces_for_dataport(
 // check_overlap (R1)
 // ============================================================================
 
-/// Last endpoint address claimed by a resource without `endpoints`.
+/// Last endpoint address claimed by a resource without `endpoints` (D77).
 ///
-/// Today that is every classic endpoint including the pipes (0x00–0xBF,
-/// registration row 12). D77 narrows it to the Wire and Trigger endpoints
-/// (0x7F) in 44-E.
-const WILDCARD_EP_LAST: u8 = 0xBF;
+/// Omitting `endpoints` claims every Wire and Trigger endpoint (`0x00..=0x7F`,
+/// 128 endpoints). Pipe and BTPipe endpoints (`0x80..=0xBF`) must be declared
+/// explicitly, because the server cannot distinguish a Pipe from a BTPipe at
+/// the same address (D77, 44-E).
+pub const WILDCARD_EP_LAST: u8 = 0x7F;
 
 /// One endpoint as one resource claims it.
 ///
@@ -1292,19 +1293,29 @@ mod tests {
         let existing = build_resource(spec_wildcard("a")).unwrap();
         let new = build_resource(spec_wildcard("b")).unwrap();
         let err = check_overlap(&[existing], &new).unwrap_err();
-        assert_eq!(err.conflict.items.len(), 192);
+        assert_eq!(err.conflict.items.len(), 128);
         assert_eq!(err.conflict.items[0], "0x00");
-        assert_eq!(err.conflict.items[191], "0xBF");
+        assert_eq!(err.conflict.items[127], "0x7F");
         assert_eq!(err.conflict.item.as_deref(), Some("0x00"));
-        assert!(err.detail.contains("(192 conflicting items in total)"));
+        assert!(err.detail.contains("(128 conflicting items in total)"));
     }
 
     #[test]
-    fn test_check_overlap_wildcard_blocks_pipe_denied() {
+    fn test_check_overlap_wildcard_allows_pipe_only_resource() {
+        // D77 + owner decision 44-E Q2: omitted `endpoints` claims 0x00..=0x7F
+        // only, so a second resource declaring only Pipe/BTPipe (0x80..=0xBF)
+        // does not overlap and is allowed (with a server warning).
         let existing = build_resource(spec_wildcard("all")).unwrap();
         let new = build_resource(spec_with("adc", vec![entry(0x80, "pipe_in", Some(AccessMode::Shared))])).unwrap();
+        assert!(check_overlap(&[existing], &new).is_ok());
+    }
+
+    #[test]
+    fn test_check_overlap_wildcard_blocks_trigger_denied() {
+        let existing = build_resource(spec_wildcard("all")).unwrap();
+        let new = build_resource(spec_with("adc", vec![entry(0x7F, "trigger_out", Some(AccessMode::Shared))])).unwrap();
         let err = check_overlap(&[existing], &new).unwrap_err();
-        assert_eq!(err.conflict.item.as_deref(), Some("0x80"));
+        assert_eq!(err.conflict.item.as_deref(), Some("0x7F"));
     }
 
     #[test]
@@ -1459,10 +1470,10 @@ mod tests {
         b.address_ranges = vec![range(0x1800, 0x2FFF, Some(AccessMode::Exclusive))];
         let new = build_resource(b).unwrap();
         let err = check_overlap(&[existing], &new).unwrap_err();
-        assert_eq!(err.conflict.items.len(), 193);
-        assert_eq!(err.conflict.items[191], "0xBF");
-        assert_eq!(err.conflict.items[192], "0x00001000-0x00001FFF");
+        assert_eq!(err.conflict.items.len(), 129);
+        assert_eq!(err.conflict.items[127], "0x7F");
+        assert_eq!(err.conflict.items[128], "0x00001000-0x00001FFF");
         assert_eq!(err.conflict.item_type, Some(ConflictItemType::Endpoint));
-        assert!(err.detail.contains("(193 conflicting items in total)"));
+        assert!(err.detail.contains("(129 conflicting items in total)"));
     }
 }

@@ -161,8 +161,14 @@ macro_rules! get_device {
 async fn axi_lite_read(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<AXILiteReadRequest>,
 ) -> Result<Json<AXILiteReadResponse>, ProblemDetail> {
+    super::classic::enforce_with_user(&state, &headers, &serial, |uid| {
+        state
+            .resource_registry
+            .check_address_span_access(uid, &serial, req.address, 4, false)
+    })?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -195,8 +201,14 @@ async fn axi_lite_read(
 async fn axi_lite_write(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<AXILiteWriteRequest>,
 ) -> Result<Json<StatusResponse>, ProblemDetail> {
+    super::classic::enforce_with_user(&state, &headers, &serial, |uid| {
+        state
+            .resource_registry
+            .check_address_span_access(uid, &serial, req.address, 4, true)
+    })?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -227,7 +239,13 @@ async fn axi_lite_write(
 async fn axi_lite_reset(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Json<StatusResponse>, ProblemDetail> {
+    super::classic::enforce_with_user(&state, &headers, &serial, |uid| {
+        state
+            .resource_registry
+            .check_reset_access(uid, &serial, "AXILiteReset")
+    })?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -257,7 +275,11 @@ async fn axi_lite_reset(
 async fn axi_full_widths(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Json<DatapathWidthResponse>, ProblemDetail> {
+    super::classic::enforce_with_user(&state, &headers, &serial, |uid| {
+        state.resource_registry.check_device_access(uid, &serial)
+    })?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -275,8 +297,14 @@ async fn axi_full_widths(
 async fn axi_full_read(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<AXILiteReadRequest>,
 ) -> Result<Json<AXILiteReadResponse>, ProblemDetail> {
+    super::classic::enforce_with_user(&state, &headers, &serial, |uid| {
+        state
+            .resource_registry
+            .check_address_span_access(uid, &serial, req.address, 4, false)
+    })?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -308,8 +336,14 @@ async fn axi_full_read(
 async fn axi_full_write(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<AXILiteWriteRequest>,
 ) -> Result<Json<StatusResponse>, ProblemDetail> {
+    super::classic::enforce_with_user(&state, &headers, &serial, |uid| {
+        state
+            .resource_registry
+            .check_address_span_access(uid, &serial, req.address, 4, true)
+    })?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -341,7 +375,13 @@ async fn axi_full_write(
 async fn axi_full_reset(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Json<StatusResponse>, ProblemDetail> {
+    super::classic::enforce_with_user(&state, &headers, &serial, |uid| {
+        state
+            .resource_registry
+            .check_reset_access(uid, &serial, "AXIFullReset")
+    })?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -389,7 +429,11 @@ struct AXIStreamWriteRequest {
 async fn axi_stream_widths(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Json<StreamWidthsResponse>, ProblemDetail> {
+    super::classic::enforce_with_user(&state, &headers, &serial, |uid| {
+        state.resource_registry.check_device_access(uid, &serial)
+    })?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -418,8 +462,12 @@ async fn axi_stream_widths(
 async fn axi_stream_read(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<AXIStreamReadRequest>,
 ) -> Result<Json<AXIStreamReadResponse>, ProblemDetail> {
+    super::classic::enforce_with_user(&state, &headers, &serial, |uid| {
+        state.resource_registry.check_device_access(uid, &serial)
+    })?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -464,8 +512,14 @@ async fn axi_stream_read(
 async fn axi_stream_write(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<AXIStreamWriteRequest>,
 ) -> Result<Json<AXIStreamWriteResponse>, ProblemDetail> {
+    super::classic::enforce_with_user(&state, &headers, &serial, |uid| {
+        state
+            .resource_registry
+            .check_device_write_access(uid, &serial, "AXIStreamWrite")
+    })?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -503,7 +557,13 @@ async fn axi_stream_write(
 async fn axi_stream_reset(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Json<StatusResponse>, ProblemDetail> {
+    super::classic::enforce_with_user(&state, &headers, &serial, |uid| {
+        state
+            .resource_registry
+            .check_reset_access(uid, &serial, "AXIStreamReset")
+    })?;
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 

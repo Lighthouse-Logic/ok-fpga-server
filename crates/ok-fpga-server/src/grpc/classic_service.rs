@@ -9,10 +9,11 @@ use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use tracing::{debug, warn};
 
-use ok_fpga_core::resource::EndpointType;
+use ok_fpga_core::resource::{AccessDenied, EndpointType, ResourceError};
 use ok_fpga_ffi::error::FfiError;
 
 use crate::grpc::proto;
+use crate::grpc::resource_mapping::resource_error_status;
 use crate::state::{AppState, EndpointEnforcement};
 
 /// gRPC implementation of the `ClassicDataPortService`.
@@ -74,7 +75,7 @@ impl ClassicDataPortServiceImpl {
     /// gRPC clients should set the `x-user-id` metadata key (lowercase,
     /// matching gRPC conventions). This is the gRPC equivalent of the
     /// REST `X-User-Id` header.
-    fn extract_user_id<T>(request: &Request<T>) -> Option<String> {
+    pub(crate) fn extract_user_id<T>(request: &Request<T>) -> Option<String> {
         request
             .metadata()
             .get("x-user-id")
@@ -137,14 +138,20 @@ impl ClassicDataPortServiceImpl {
             }
         };
 
-        // Check endpoint access in the resource registry.
-        if let Err(denied) = self.state.resource_registry.check_endpoint_access(
-            uid,
-            serial,
-            endpoint as u8,
-            ep_type,
-            value,
-        ) {
+        // Check endpoint access in the resource registry. Reject out-of-u8
+        // endpoint values instead of wrapping `endpoint as u8` (e.g. 0x100 -> 0x00).
+        let check_res = match u8::try_from(endpoint) {
+            Ok(ep_u8) => self
+                .state
+                .resource_registry
+                .check_endpoint_access(uid, serial, ep_u8, ep_type, value),
+            Err(_) => Err(AccessDenied::NoCoveringResource {
+                user_id: uid.to_string(),
+                device_serial: serial.to_string(),
+                detail: format!("endpoint {} ({})", endpoint, ep_type),
+            }),
+        };
+        if let Err(denied) = check_res {
             match self.state.enforcement() {
                 EndpointEnforcement::Warn => {
                     warn!(
@@ -229,6 +236,66 @@ impl ClassicDataPortServiceImpl {
             Ok(())
         }
     }
+
+    /// Run a device-level enforcement check (`check_device_access`,
+    /// `check_device_write_access`, `check_reset_access`,
+    /// `check_trigger_out_update_access`) against the extracted gRPC caller
+    /// identity (ADR-034 §7, S-15).
+    pub(crate) fn check_with_user<F>(
+        state: &AppState,
+        user_id: Option<&str>,
+        serial: &str,
+        op: &str,
+        check: F,
+    ) -> Result<(), Status>
+    where
+        F: FnOnce(&str) -> Result<(), AccessDenied>,
+    {
+        if !state.enforcement().is_active() {
+            return Ok(());
+        }
+
+        let uid = match user_id {
+            Some(uid) => uid,
+            None => match state.enforcement() {
+                EndpointEnforcement::Warn => {
+                    warn!(
+                        serial = %serial,
+                        op = %op,
+                        "gRPC access enforcement (warn): x-user-id metadata missing"
+                    );
+                    return Ok(());
+                }
+                EndpointEnforcement::Enforce => {
+                    return Err(Status::permission_denied(
+                        "User identity required: x-user-id metadata must be present when endpoint enforcement is active",
+                    ));
+                }
+                EndpointEnforcement::Off => unreachable!(),
+            },
+        };
+
+        if let Err(denied) = check(uid) {
+            match state.enforcement() {
+                EndpointEnforcement::Warn => {
+                    warn!(
+                        user_id = %uid,
+                        serial = %serial,
+                        op = %op,
+                        "gRPC access enforcement (warn): {}",
+                        denied
+                    );
+                    Ok(())
+                }
+                EndpointEnforcement::Enforce => {
+                    Err(Status::permission_denied(denied.to_string()))
+                }
+                EndpointEnforcement::Off => unreachable!(),
+            }
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -239,7 +306,13 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::DeviceRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        Self::check_with_user(&self.state, user_id.as_deref(), &req.serial, "ResetFPGA", |uid| {
+            self.state
+                .resource_registry
+                .check_reset_access(uid, &req.serial, "ResetFPGA")
+        })?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -345,7 +418,13 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::DeviceRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        Self::check_with_user(&self.state, user_id.as_deref(), &req.serial, "UpdateWireIns", |uid| {
+            self.state
+                .resource_registry
+                .check_device_write_access(uid, &req.serial, "UpdateWireIns")
+        })?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -410,7 +489,13 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::DeviceRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        Self::check_with_user(&self.state, user_id.as_deref(), &req.serial, "UpdateWireOuts", |uid| {
+            self.state
+                .resource_registry
+                .check_device_access(uid, &req.serial)
+        })?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -438,6 +523,15 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::StatusResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        // Validate `bit` in 0..=31 before computing `1u32 << req.bit` and
+        // before running enforcement so invalid bit indices never panic in
+        // debug builds or silently wrap in release builds.
+        if !(0..=31).contains(&req.bit) {
+            return Err(resource_error_status(&ResourceError::validation(format!(
+                "TriggerIn bit index must be in 0..=31 (got {})",
+                req.bit
+            ))));
+        }
         self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::TriggerIn, Some(1u32 << req.bit))?;
         let pool = self.pool()?;
         let device_arc = pool
@@ -464,7 +558,15 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::DeviceRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        // D75 F2: UpdateTriggerOuts clears latches device-wide; ReadOnly
+        // holders are denied when any TriggerOut on the device is private.
+        Self::check_with_user(&self.state, user_id.as_deref(), &req.serial, "UpdateTriggerOuts", |uid| {
+            self.state
+                .resource_registry
+                .check_trigger_out_update_access(uid, &req.serial)
+        })?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -492,7 +594,15 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::IsTriggeredResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        let do_update = req.update.unwrap_or(false);
         self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::TriggerOut, None)?;
+        if do_update {
+            Self::check_with_user(&self.state, user_id.as_deref(), &req.serial, "IsTriggered(update=true)", |uid| {
+                self.state
+                    .resource_registry
+                    .check_trigger_out_update_access(uid, &req.serial)
+            })?;
+        }
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -508,7 +618,7 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         // Snapshot read (D76). With `update`, UpdateTriggerOuts clears every
         // TriggerOut latch on the device for all clients.
         let triggered = crate::snapshot::read_snapshot(
-            req.update.unwrap_or(false),
+            do_update,
             || FfiError::from_code(unsafe { (dll.classic_update_trigger_outs)(classic) })
                 .map_err(|e| Self::ffi_to_status(&e)),
             || unsafe {
@@ -533,7 +643,15 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::TriggerOutVectorResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        let do_update = req.update.unwrap_or(false);
         self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::TriggerOut, None)?;
+        if do_update {
+            Self::check_with_user(&self.state, user_id.as_deref(), &req.serial, "GetTriggerOutVector(update=true)", |uid| {
+                self.state
+                    .resource_registry
+                    .check_trigger_out_update_access(uid, &req.serial)
+            })?;
+        }
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -548,7 +666,7 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
 
         // Snapshot read (D76), same rules as `is_triggered`.
         let vector = crate::snapshot::read_snapshot(
-            req.update.unwrap_or(false),
+            do_update,
             || FfiError::from_code(unsafe { (dll.classic_update_trigger_outs)(classic) })
                 .map_err(|e| Self::ffi_to_status(&e)),
             || unsafe { (dll.classic_get_trigger_out_vector)(classic, req.endpoint) },
@@ -760,7 +878,19 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
         &self,
         request: Request<proto::SetBtPipePollingIntervalRequest>,
     ) -> Result<Response<proto::StatusResponse>, Status> {
+        let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        Self::check_with_user(
+            &self.state,
+            user_id.as_deref(),
+            &req.serial,
+            "SetBTPipePollingInterval",
+            |uid| {
+                self.state
+                    .resource_registry
+                    .check_device_write_access(uid, &req.serial, "SetBTPipePollingInterval")
+            },
+        )?;
         let pool = self.pool()?;
         let device_arc = pool
             .get(&req.serial)
@@ -852,10 +982,10 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::RegisterEntriesResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
-        // Batch check: verify access on the first address as a representative.
-        // Full per-address enforcement could be added in a future iteration.
-        if let Some(first_addr) = req.addresses.first() {
-            self.check_address(user_id.as_deref(), &req.serial, *first_addr, false)?;
+        // Verify access on every requested register address before touching
+        // hardware.
+        for addr in &req.addresses {
+            self.check_address(user_id.as_deref(), &req.serial, *addr, false)?;
         }
         let pool = self.pool()?;
         let device_arc = pool
@@ -898,9 +1028,10 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::StatusResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
-        // Batch check: verify access on the first entry's address.
-        if let Some(first_entry) = req.entries.first() {
-            self.check_address(user_id.as_deref(), &req.serial, first_entry.address, true)?;
+        // Verify write access on every entry's address before touching
+        // hardware.
+        for entry in &req.entries {
+            self.check_address(user_id.as_deref(), &req.serial, entry.address, true)?;
         }
         let pool = self.pool()?;
         let device_arc = pool

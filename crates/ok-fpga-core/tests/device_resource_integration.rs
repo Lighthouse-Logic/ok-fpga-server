@@ -309,3 +309,396 @@ fn test_two_users_two_overlapping_shared_resources_lock_blocking() {
         ResourceState::InUseLocked
     );
 }
+
+#[test]
+fn test_two_users_classic_bridge_enforcement_and_blocking() {
+    use ok_fpga_core::declaration::{
+        build_resource, check_overlap, AddressRangeSpec, EndpointEntrySpec, EndpointSpec,
+        ResourceSpec,
+    };
+    use ok_fpga_core::resource::{
+        AccessDenied, ClassicAddressBridgePolicy, EndpointType, LockOutcome,
+    };
+    use std::collections::HashMap;
+
+    let policy = Box::new(ClassicAddressBridgePolicy::new(Some(0x00), Some(0x01)));
+    let rr = ResourceRegistry::with_policy(policy);
+
+    let make_port = |name: &str, core_start: u32, core_end: u32| -> Resource {
+        let spec = ResourceSpec {
+            name: name.to_string(),
+            description: None,
+            device_serial: "DEV_BP".to_string(),
+            access_mode: Some(AccessMode::Shared),
+            private: false,
+            interfaces: vec!["classic".to_string()],
+            endpoints: Some(EndpointSpec {
+                default_access: Some(AccessMode::Shared),
+                entries: vec![
+                    EndpointEntrySpec {
+                        address: 0x00,
+                        ep_type: "wire_in".to_string(),
+                        access: Some(AccessMode::Shared),
+                        private: false,
+                        description: Some("m_axi_awaddr".to_string()),
+                    },
+                    EndpointEntrySpec {
+                        address: 0x01,
+                        ep_type: "wire_in".to_string(),
+                        access: Some(AccessMode::Shared),
+                        private: false,
+                        description: Some("m_axi_araddr".to_string()),
+                    },
+                    EndpointEntrySpec {
+                        address: 0x20,
+                        ep_type: "wire_out".to_string(),
+                        access: Some(AccessMode::Shared),
+                        private: false,
+                        description: Some("m_axi_rdata".to_string()),
+                    },
+                ],
+            }),
+            address_ranges: vec![AddressRangeSpec {
+                name: Some(format!("{}_core", name)),
+                start: core_start,
+                end: core_end,
+                access: Some(AccessMode::Exclusive),
+                private: false,
+                description: None,
+            }],
+            metadata: HashMap::new(),
+        };
+        build_resource(spec).unwrap()
+    };
+
+    let port_a = make_port("port_a", 0x44A6_0000, 0x44A6_0FFF);
+    let port_b = make_port("port_b", 0x44B6_0000, 0x44B6_0FFF);
+    rr.try_register(port_a, check_overlap).unwrap();
+    rr.try_register(port_b, check_overlap).unwrap();
+
+    rr.acquire("DEV_BP:port_a", &"alice".to_string(), AccessMode::Shared)
+        .unwrap();
+    rr.acquire("DEV_BP:port_b", &"bob".to_string(), AccessMode::Shared)
+        .unwrap();
+
+    // 1. S-14: Alice can write Port A's exclusive range without locking Port A,
+    //    and Bob can write Port B's exclusive range without locking Port B.
+    assert!(rr
+        .check_endpoint_access(
+            "alice",
+            "DEV_BP",
+            0x00,
+            &EndpointType::WireIn,
+            Some(0x44A6_0100)
+        )
+        .is_ok());
+    assert!(rr
+        .check_endpoint_access(
+            "bob",
+            "DEV_BP",
+            0x00,
+            &EndpointType::WireIn,
+            Some(0x44B6_0100)
+        )
+        .is_ok());
+
+    // 2. S-20: Alice cannot address Port B's range (0x44B6_0100), and Bob cannot
+    //    address Port A's range (0x44A6_0100).
+    assert!(matches!(
+        rr.check_endpoint_access(
+            "alice",
+            "DEV_BP",
+            0x00,
+            &EndpointType::WireIn,
+            Some(0x44B6_0100)
+        )
+        .unwrap_err(),
+        AccessDenied::NoCoveringResource { .. }
+    ));
+    assert!(matches!(
+        rr.check_endpoint_access(
+            "bob",
+            "DEV_BP",
+            0x00,
+            &EndpointType::WireIn,
+            Some(0x44A6_0100)
+        )
+        .unwrap_err(),
+        AccessDenied::NoCoveringResource { .. }
+    ));
+
+    // 3. B2: Alice locks Port A for a multi-step bridge sequence -> Port B is
+    //    blocked for Bob's writes, while Bob's reads still succeed.
+    assert_eq!(
+        rr.lock("DEV_BP:port_a", &"alice".to_string()).unwrap(),
+        LockOutcome::Locked
+    );
+    assert!(matches!(
+        rr.check_endpoint_access(
+            "bob",
+            "DEV_BP",
+            0x00,
+            &EndpointType::WireIn,
+            Some(0x44B6_0100)
+        )
+        .unwrap_err(),
+        AccessDenied::BlockedByOther { .. }
+    ));
+    assert!(rr
+        .check_endpoint_access("bob", "DEV_BP", 0x20, &EndpointType::WireOut, None)
+        .is_ok());
+
+    // 4. Alice unlocks Port A -> Bob's writes to Port B succeed again.
+    rr.unlock("DEV_BP:port_a", &"alice".to_string()).unwrap();
+    assert!(rr
+        .check_endpoint_access(
+            "bob",
+            "DEV_BP",
+            0x00,
+            &EndpointType::WireIn,
+            Some(0x44B6_0100)
+        )
+        .is_ok());
+}
+
+// ============================================================================
+// Tier 2 Hardware Integration Test: XEM7320 + Counters.bit Enforcement (44-E)
+// ============================================================================
+
+/// Tier 2 hardware test for Phase 44-E (`B2`, `S-12..S-20`, `D75 F1 & F2`):
+/// opens a connected `XEM7320` via `FrontPanelDll`, programs `Counters.bit`,
+/// registers two overlapping shared resources (`counter1` and `counter2`) on
+/// the live serial number, and verifies two-user enforcement, locking/blocking,
+/// `ReadOnly` restrictions, and live FrontPanel WireIn/WireOut/Trigger
+/// operations on hardware.
+///
+/// Run with:
+/// ```bash
+/// cargo test -p ok-fpga-core --test device_resource_integration test_hardware_xem7320_counters_enforcement_pipeline -- --ignored --test-threads=1 --nocapture
+/// ```
+#[test]
+#[ignore]
+fn test_hardware_xem7320_counters_enforcement_pipeline() {
+    use ok_fpga_core::declaration::{
+        build_resource, check_overlap, EndpointEntrySpec, EndpointSpec, ResourceSpec,
+    };
+    use ok_fpga_core::resource::{AccessDenied, EndpointType, LockOutcome};
+    use ok_fpga_ffi::api::FrontPanelDll;
+    use ok_fpga_ffi::*;
+    use std::collections::HashMap;
+    use std::ffi::{CStr, CString};
+    use std::path::{Path, PathBuf};
+
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let workspace_root = Path::new(manifest_dir)
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap_or(Path::new(manifest_dir));
+
+    let dll_path = std::env::var("OKFPGA_DLL_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            #[cfg(target_os = "windows")]
+            let lib_name = "okFrontPanel.dll";
+            #[cfg(not(target_os = "windows"))]
+            let lib_name = "libokFrontPanel.so";
+            workspace_root.join("FrontPanel-6.1.0").join(lib_name)
+        });
+
+    let dll = FrontPanelDll::load(&dll_path).unwrap_or_else(|e| {
+        panic!(
+            "Could not load FrontPanel 6.1.0 shared library at {:?}: {}",
+            dll_path, e
+        )
+    });
+
+    let counters_bit = workspace_root
+        .join("FrontPanel-6.1.0")
+        .join("ExampleBitfiles")
+        .join("20190501-FP50-XEM7320-A75")
+        .join("XEM7320-A75")
+        .join("Counters.bit");
+    assert!(
+        counters_bit.exists(),
+        "Counters.bit not found at {:?}",
+        counters_bit
+    );
+
+    unsafe {
+        let mut err_ptr: *mut okError = std::ptr::null_mut();
+        let realm = CString::new("").unwrap();
+        let devices_handle = (dll.devices_construct)(realm.as_ptr(), &mut err_ptr);
+        assert!(
+            !devices_handle.is_null(),
+            "Failed to construct FrontPanelDevices handle"
+        );
+
+        let count = (dll.devices_get_count)(devices_handle);
+        assert!(count > 0, "Expected at least one connected FPGA device");
+
+        let mut serial_buf = [0i8; 11];
+        (dll.devices_get_serial)(devices_handle, 0, serial_buf.as_mut_ptr());
+        let serial = CStr::from_ptr(serial_buf.as_ptr())
+            .to_string_lossy()
+            .to_string();
+        eprintln!("  Opening connected device[0] serial={}", serial);
+
+        let serial_c = CString::new(serial.clone()).unwrap();
+        let fp_handle = (dll.devices_open)(devices_handle, serial_c.as_ptr());
+        (dll.devices_destruct)(devices_handle);
+        assert!(!fp_handle.is_null(), "Failed to open device {}", serial);
+
+        // Program Counters.bit on the connected XEM7320.
+        let bit_c = CString::new(counters_bit.to_string_lossy().as_ref()).unwrap();
+        let rc = (dll.fp_configure_fpga)(fp_handle, bit_c.as_ptr());
+        assert_eq!(
+            rc as i32,
+            ok_ErrorCode::ok_NoError as i32,
+            "ConfigureFPGA(Counters.bit) failed: {:?}",
+            rc
+        );
+        assert_ne!(
+            (dll.fp_is_front_panel_enabled)(fp_handle),
+            0,
+            "FrontPanel must be enabled after programming Counters.bit"
+        );
+
+        let mut classic: okFPGADataPortClassic_HANDLE = std::ptr::null_mut();
+        let rc = (dll.fp_get_fpga_data_port_classic)(fp_handle, &mut classic);
+        assert_eq!(rc as i32, ok_ErrorCode::ok_NoError as i32);
+        assert!(!classic.is_null());
+
+        // Register two overlapping shared resources on this device (`counter1`
+        // and `counter2`, sharing control WireIn 0x00 and TriggerIn 0x40).
+        let rr = ResourceRegistry::new();
+        let make_counter_res = |name: &str, wire_out: u32| {
+            let spec = ResourceSpec {
+                name: name.to_string(),
+                description: Some(format!("Counters.bit {} on {}", name, serial)),
+                device_serial: serial.clone(),
+                access_mode: Some(AccessMode::Shared),
+                private: false,
+                interfaces: vec!["classic".to_string()],
+                endpoints: Some(EndpointSpec {
+                    default_access: Some(AccessMode::Shared),
+                    entries: vec![
+                        EndpointEntrySpec {
+                            address: 0x00,
+                            ep_type: "wire_in".to_string(),
+                            access: Some(AccessMode::Shared),
+                            private: false,
+                            description: Some("Counter control WireIn".to_string()),
+                        },
+                        EndpointEntrySpec {
+                            address: wire_out,
+                            ep_type: "wire_out".to_string(),
+                            access: Some(AccessMode::Exclusive),
+                            private: false,
+                            description: Some("Counter value WireOut".to_string()),
+                        },
+                        EndpointEntrySpec {
+                            address: 0x40,
+                            ep_type: "trigger_in".to_string(),
+                            access: Some(AccessMode::Shared),
+                            private: false,
+                            description: Some("Counter trigger in".to_string()),
+                        },
+                        EndpointEntrySpec {
+                            address: 0x60,
+                            ep_type: "trigger_out".to_string(),
+                            access: Some(AccessMode::Shared),
+                            private: false,
+                            description: Some("Counter trigger out".to_string()),
+                        },
+                    ],
+                }),
+                address_ranges: vec![],
+                metadata: HashMap::new(),
+            };
+            build_resource(spec).unwrap()
+        };
+
+        let c1_id = format!("{}:counter1", serial);
+        let c2_id = format!("{}:counter2", serial);
+        rr.try_register(make_counter_res("counter1", 0x20), check_overlap)
+            .unwrap();
+        rr.try_register(make_counter_res("counter2", 0x21), check_overlap)
+            .unwrap();
+
+        rr.acquire(&c1_id, &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        rr.acquire(&c2_id, &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+        rr.acquire(&c1_id, &"carol".to_string(), AccessMode::ReadOnly)
+            .unwrap();
+
+        // 1. Alice and Carol can read counter1 (0x20); Bob is denied 0x20 (not in counter2).
+        assert!(rr
+            .check_endpoint_access("alice", &serial, 0x20, &EndpointType::WireOut, None)
+            .is_ok());
+        assert!(rr
+            .check_endpoint_access("carol", &serial, 0x20, &EndpointType::WireOut, None)
+            .is_ok());
+        assert!(matches!(
+            rr.check_endpoint_access("bob", &serial, 0x20, &EndpointType::WireOut, None)
+                .unwrap_err(),
+            AccessDenied::NoCoveringResource { .. }
+        ));
+
+        // 2. Read live free-running counter1 on hardware before and after 30ms.
+        assert!(rr.check_device_access("alice", &serial).is_ok());
+        assert_eq!(
+            (dll.classic_update_wire_outs)(classic) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+        let v1 = (dll.classic_get_wire_out_value)(classic, 0x20);
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        assert_eq!(
+            (dll.classic_update_wire_outs)(classic) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+        let v2 = (dll.classic_get_wire_out_value)(classic, 0x20);
+        eprintln!("  Hardware COUNT1 (0x20): {} -> {}", v1, v2);
+
+        // 3. Alice locks counter1 -> Bob is blocked on counter2 writes (0x00),
+        //    while Carol (ReadOnly) can still read 0x20 on hardware but is
+        //    denied writes and ResetFPGA.
+        assert_eq!(
+            rr.lock(&c1_id, &"alice".to_string()).unwrap(),
+            LockOutcome::Locked
+        );
+        assert!(matches!(
+            rr.check_endpoint_access("bob", &serial, 0x00, &EndpointType::WireIn, Some(1))
+                .unwrap_err(),
+            AccessDenied::BlockedByOther { .. }
+        ));
+        assert!(rr
+            .check_endpoint_access("carol", &serial, 0x20, &EndpointType::WireOut, None)
+            .is_ok());
+        assert!(matches!(
+            rr.check_reset_access("carol", &serial, "ResetFPGA")
+                .unwrap_err(),
+            AccessDenied::ReadOnlyWriteAttempt { .. }
+        ));
+
+        // 4. Alice unlocks counter1 -> Bob's write to 0x00 succeeds again.
+        rr.unlock(&c1_id, &"alice".to_string()).unwrap();
+        assert!(rr
+            .check_endpoint_access("bob", &serial, 0x00, &EndpointType::WireIn, Some(0))
+            .is_ok());
+        assert!(rr
+            .check_device_write_access("bob", &serial, "UpdateWireIns")
+            .is_ok());
+        assert_eq!(
+            (dll.classic_set_wire_in_value)(classic, 0x00, 0, 0xFFFF_FFFF) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+        assert_eq!(
+            (dll.classic_update_wire_ins)(classic) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+
+        let _ = (dll.fp_clear_fpga_configuration)(fp_handle);
+        (dll.fp_destruct)(fp_handle);
+    }
+}

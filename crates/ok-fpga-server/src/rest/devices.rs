@@ -958,13 +958,27 @@ async fn configure_fpga(
         ProblemDetail::bad_request("missing required 'bitfile' field in multipart form data")
     })?;
 
+    // Resolve user identity before touching hardware. When enforcement is "off"
+    // (debugging / legacy unit tests, 44-E Q3b), anonymous programming is
+    // permitted if neither `user_id` nor `X-User-Id` was supplied.
+    let programmed_by = match super::resolve_user_id(user_id.as_deref(), &headers) {
+        Ok(uid) => uid,
+        Err(err)
+            if state.enforcement() == crate::state::EndpointEnforcement::Off
+                && user_id.as_deref().is_none_or(str::is_empty) =>
+        {
+            let _ = err;
+            "Unknown".to_string()
+        }
+        Err(err) => return Err(err),
+    };
+
     // Program the FPGA from the received bytes.
     pool.configure_from_memory(&serial, &data)
         .await
         .map_err(|e| ffi_error_to_problem(&e))?;
 
     // Build the BitfileRecord for the response and device state.
-    let programmed_by = super::resolve_user_id(user_id.as_deref(), &headers)?;
     let record = BitfileRecord {
         filename: filename.unwrap_or_else(|| "uploaded".to_string()),
         description,
@@ -1017,6 +1031,21 @@ async fn configure_fpga_from_server_path(
         )));
     }
 
+    // Resolve user identity before touching hardware. When enforcement is "off"
+    // (debugging / legacy unit tests, 44-E Q3b), anonymous programming is
+    // permitted if neither `user_id` nor `X-User-Id` was supplied.
+    let programmed_by = match super::resolve_user_id(req.user_id.as_deref(), &headers) {
+        Ok(uid) => uid,
+        Err(err)
+            if state.enforcement() == crate::state::EndpointEnforcement::Off
+                && req.user_id.as_deref().is_none_or(str::is_empty) =>
+        {
+            let _ = err;
+            "Unknown".to_string()
+        }
+        Err(err) => return Err(err),
+    };
+
     // Program the FPGA from the file on disk.
     pool.configure_from_path(&serial, path)
         .await
@@ -1033,9 +1062,6 @@ async fn configure_fpga_from_server_path(
         Ok(data) => Some(format!("{:x}", md5::compute(&data))),
         Err(_) => None,
     };
-
-    // Resolve user identity: body field first, then X-User-Id header.
-    let programmed_by = super::resolve_user_id(req.user_id.as_deref(), &headers)?;
 
     let record = BitfileRecord {
         filename,
