@@ -287,7 +287,7 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
   (owner decisions Q1–Q5, `D26` forced cleanup on configure/clear,
   `DeleteReason::DeviceRemoved`, `config_generation` precondition check,
   `sweep_orphan_resources`, tests).
-- ADR-034 §14. **Rejected & dropped (Q4):** optional bitfile-matching regex/hash
+- Commit `5a1f025`. ADR-034 §14. **Rejected & dropped (Q4):** optional bitfile-matching regex/hash
   on resource declarations (from 44-B Q5) was rejected and dropped because
   bitfile hashes change on rebuilds even with zero code changes; `config_generation`
   + `D26` forced cleanup covers configuration lifecycle boundaries. Carried

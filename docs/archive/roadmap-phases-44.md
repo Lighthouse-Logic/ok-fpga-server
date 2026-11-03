@@ -491,4 +491,5 @@ adopted, 2 rejected as non-observable / redundant).
     `test_grpc_configure_fpga_force_deletes_resources`,
     `test_grpc_clear_fpga_notifies_all_holders`.
   - Server `sweep.rs`: `test_sweep_orphan_resource_device_absent_deleted`.
-- Commit: `fix: forced resource cleanup on configure and clear`.
+- Commit: `fix: forced resource cleanup on configure and clear (0.3.7)`.
+  **Done:** `5a1f025`.
