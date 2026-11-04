@@ -879,3 +879,260 @@ fn test_emulated_reprogram_and_clear_force_delete_resources() {
         }
     ));
 }
+
+// ============================================================================
+// Phase 44-G: Classic Data-Path Spec Alignment (S-05, S-06, S-07)
+// ============================================================================
+
+#[test]
+fn test_emulated_pipe_and_register_round_trip_with_ok_realm_test() {
+    use ok_fpga_core::declaration::{
+        build_resource, AddressRangeSpec, EndpointEntrySpec, EndpointSpec, ResourceSpec,
+    };
+    use ok_fpga_core::resource::{AccessMode, EndpointType, ResourceRegistry};
+    use ok_fpga_ffi::api::FrontPanelDll;
+    use ok_fpga_ffi::*;
+    use std::ffi::{CStr, CString};
+    use std::path::{Path, PathBuf};
+
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let workspace_root = Path::new(manifest_dir)
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap_or(Path::new(manifest_dir));
+
+    let dll_path = std::env::var("OKFPGA_DLL_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            #[cfg(target_os = "windows")]
+            let lib_name = "okFrontPanel.dll";
+            #[cfg(not(target_os = "windows"))]
+            let lib_name = "libokFrontPanel.so";
+            workspace_root.join("FrontPanel-6.1.0").join(lib_name)
+        });
+    if !dll_path.exists() {
+        eprintln!("Skipping okREALM_TEST FFI portion: {:?} not found", dll_path);
+        return;
+    }
+
+    let dll = FrontPanelDll::load(&dll_path).expect("load libokFrontPanel.so");
+    let realm = CString::new("test").unwrap();
+
+    unsafe {
+        let mut err_ptr: *mut okError = std::ptr::null_mut();
+        let devices_handle = (dll.devices_construct)(realm.as_ptr(), &mut err_ptr);
+        assert!(
+            !devices_handle.is_null(),
+            "okFrontPanelDevices_Construct(okREALM_TEST) failed"
+        );
+
+        let count = (dll.devices_get_count)(devices_handle);
+        assert!(count >= 1, "okREALM_TEST should expose at least 1 test device");
+
+        let mut serial_buf = [0i8; 64];
+        (dll.devices_get_serial)(devices_handle, 0, serial_buf.as_mut_ptr());
+        let serial = CStr::from_ptr(serial_buf.as_ptr())
+            .to_string_lossy()
+            .into_owned();
+
+        let rr = ResourceRegistry::new();
+        let r = build_resource(ResourceSpec {
+            name: "pipe_and_reg".to_string(),
+            description: None,
+            device_serial: serial.clone(),
+            access_mode: Some(AccessMode::Shared),
+            private: false,
+            interfaces: vec!["classic".to_string()],
+            endpoints: Some(EndpointSpec {
+                default_access: Some(AccessMode::Shared),
+                entries: vec![
+                    EndpointEntrySpec {
+                        address: 0x80,
+                        ep_type: "pipe_in".to_string(),
+                        access: None,
+                        private: false,
+                        description: None,
+                    },
+                    EndpointEntrySpec {
+                        address: 0xA0,
+                        ep_type: "pipe_out".to_string(),
+                        access: None,
+                        private: false,
+                        description: None,
+                    },
+                ],
+            }),
+            address_ranges: vec![AddressRangeSpec {
+                name: Some("reg_bank".to_string()),
+                description: None,
+                start: 0x0000,
+                end: 0x000F,
+                access: Some(AccessMode::Shared),
+                private: false,
+            }],
+            metadata: Default::default(),
+        })
+        .unwrap();
+        let r_id = r.id.clone();
+        assert!(rr.register(r));
+        rr.acquire(&r_id, &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // Enforcement checks for PipeIn (0x80), PipeOut (0xA0), and bulk register batch.
+        assert!(rr
+            .check_endpoint_access("alice", &serial, 0x80, &EndpointType::PipeIn, None)
+            .is_ok());
+        assert!(rr
+            .check_endpoint_access("alice", &serial, 0xA0, &EndpointType::PipeOut, None)
+            .is_ok());
+        for addr in [0x0000u64, 0x0004, 0x000F] {
+            assert!(rr.check_address_access("alice", &serial, addr, true).is_ok());
+            assert!(rr.check_address_access("alice", &serial, addr, false).is_ok());
+        }
+        assert!(rr
+            .check_address_access("alice", &serial, 0x0010, true)
+            .is_err());
+
+        (dll.devices_destruct)(devices_handle);
+    }
+}
+
+#[test]
+#[ignore = "Requires live XEM7320 hardware on the hardware test host and libokFrontPanel.so"]
+fn test_hardware_xem7320_wire_in_auto_update_semantics() {
+    use ok_fpga_ffi::api::FrontPanelDll;
+    use ok_fpga_ffi::*;
+    use std::ffi::{CStr, CString};
+    use std::path::{Path, PathBuf};
+
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let workspace_root = Path::new(manifest_dir)
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap_or(Path::new(manifest_dir));
+
+    let dll_path = std::env::var("OKFPGA_DLL_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            #[cfg(target_os = "windows")]
+            let lib_name = "okFrontPanel.dll";
+            #[cfg(not(target_os = "windows"))]
+            let lib_name = "libokFrontPanel.so";
+            workspace_root.join("FrontPanel-6.1.0").join(lib_name)
+        });
+    let dll = FrontPanelDll::load(&dll_path).expect("load libokFrontPanel.so");
+    let counters_bit = workspace_root
+        .join("FrontPanel-6.1.0")
+        .join("ExampleBitfiles")
+        .join("20190501-FP50-XEM7320-A75")
+        .join("XEM7320-A75")
+        .join("Counters.bit");
+    assert!(counters_bit.exists(), "Counters.bit must exist");
+
+    unsafe {
+        let mut err_ptr: *mut okError = std::ptr::null_mut();
+        let realm = CString::new("").unwrap();
+        let devices_handle = (dll.devices_construct)(realm.as_ptr(), &mut err_ptr);
+        assert!(!devices_handle.is_null());
+
+        let count = (dll.devices_get_count)(devices_handle);
+        assert!(count > 0, "Expected at least one connected FPGA device");
+
+        let mut opened: Option<okFrontPanel_HANDLE> = None;
+        for idx in 0..count {
+            let mut serial_buf = [0i8; 11];
+            (dll.devices_get_serial)(devices_handle, idx, serial_buf.as_mut_ptr());
+            let serial = CStr::from_ptr(serial_buf.as_ptr())
+                .to_string_lossy()
+                .to_string();
+            let serial_c = CString::new(serial).unwrap();
+            let fp_handle = (dll.devices_open)(devices_handle, serial_c.as_ptr());
+            if fp_handle.is_null() {
+                continue;
+            }
+            let mut info = okTDeviceInfo::default();
+            let size = std::mem::size_of::<okTDeviceInfo>() as u32;
+            let rc = (dll.fp_get_device_info_with_size)(fp_handle, &mut info, size);
+            let product_name = if rc as i32 == ok_ErrorCode::ok_NoError as i32 {
+                CStr::from_ptr(info.productName.as_ptr())
+                    .to_string_lossy()
+                    .to_string()
+            } else {
+                String::new()
+            };
+            if product_name.starts_with("XEM7320") {
+                opened = Some(fp_handle);
+                break;
+            } else {
+                (dll.fp_destruct)(fp_handle);
+            }
+        }
+        (dll.devices_destruct)(devices_handle);
+
+        let fp_handle = opened.expect("At least one XEM7320 must be connected");
+        let bit_c = CString::new(counters_bit.to_string_lossy().as_ref()).unwrap();
+        assert_eq!(
+            (dll.fp_configure_fpga)(fp_handle, bit_c.as_ptr()) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+
+        let mut classic: okFPGADataPortClassic_HANDLE = std::ptr::null_mut();
+        assert_eq!(
+            (dll.fp_get_fpga_data_port_classic)(fp_handle, &mut classic) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+        assert!(!classic.is_null());
+
+        // 1. De-assert RESET1 (auto_update = true): SetWireInValue(0x00, 0x00) + UpdateWireIns.
+        assert_eq!(
+            (dll.classic_set_wire_in_value)(classic, 0x00, 0x00, 0xFFFF_FFFF) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+        assert_eq!(
+            (dll.classic_update_wire_ins)(classic) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        assert_eq!(
+            (dll.classic_update_wire_outs)(classic) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+        let c1_running = (dll.classic_get_wire_out_value)(classic, 0x20) as u32;
+        assert!(c1_running > 0, "Counter #1 should be free-running");
+
+        // 2. Stage RESET1=1 with `auto_update = false` (SetWireInValue without UpdateWireIns):
+        //    Counter #1 on the FPGA is NOT held in reset and continues counting!
+        assert_eq!(
+            (dll.classic_set_wire_in_value)(classic, 0x00, 0x01, 0xFFFF_FFFF) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        assert_eq!(
+            (dll.classic_update_wire_outs)(classic) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+        let c1_still_running = (dll.classic_get_wire_out_value)(classic, 0x20) as u32;
+        assert!(
+            c1_still_running > c1_running,
+            "Without UpdateWireIns (auto_update=false), Counter #1 must keep incrementing ({} -> {})",
+            c1_running,
+            c1_still_running
+        );
+
+        // 3. Flush with UpdateWireIns now and wait one divided clock period (~20ms)
+        //    -> Counter #1 synchronous reset takes effect and holds at 0!
+        assert_eq!(
+            (dll.classic_update_wire_ins)(classic) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        assert_eq!(
+            (dll.classic_update_wire_outs)(classic) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+        let c1_reset = (dll.classic_get_wire_out_value)(classic, 0x20) as u32;
+        assert_eq!(c1_reset, 0, "Counter #1 must be 0 once UpdateWireIns flushes RESET1=1");
+
+        (dll.fp_destruct)(fp_handle);
+    }
+}

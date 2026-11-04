@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-10-12 (44-B archived, 0.3.3; 44-C next for planning)
+> **Last Updated:** 2026-11-03 (44-G archived, 0.3.8; 44-H next for planning)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -51,7 +51,7 @@
 | **Phase 41** | Singleton Instance Guard & Startup Safety | ADR-033 | ✅ [Archived](archive/roadmap-phases-40-43.md) |
 | **Phase 42** | mDNS Hostname Identity Alignment | — | ✅ [Archived](archive/roadmap-phases-40-43.md) |
 | **Phase 43** | mDNS Stale Registration Cleanup & Hostname Sanitization | — | ✅ [Archived](archive/roadmap-phases-40-43.md) |
-| **Phase 44** | Resource Model Consolidation & Enforcement Alignment | ADR-034 (supersedes parts of ADR-003/006/020/024/025/026) | 🚧 Now — 44-A, 44-B ✅ [Archived](archive/roadmap-phases-44.md); 44-C next |
+| **Phase 44** | Resource Model Consolidation & Enforcement Alignment | ADR-034 (supersedes parts of ADR-003/006/020/024/025/026) | 🚧 Now — 44-A through 44-G ✅ [Archived](archive/roadmap-phases-44.md); 44-H next |
 
 ---
 
@@ -294,26 +294,13 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
   forward to 🔵 Later (Q5): remove tracked proprietary Opal Kelly FrontPanel
   IP/SDK files from git and document external SDK installation.
 
-**44-G Classic data-path spec alignment**
-- Files: `rest/classic.rs`; `client-examples/` (Rust and Python REST
-  clients); `client/python-labview-client/` and the LabVIEW VIs that call
-  pipes / registers.
-- S-05 pipes and block pipes to `application/octet-stream` (Q44-3); S-06
-  register `addresses[]` / `entries[]`; S-07 `auto_update`. gRPC already
-  matches (bytes, bulk register RPCs, `auto_update`): parity tests only.
-- Client update for the 44-A resource contract (scope note in 44-A):
-  `client-examples/` and `client/python-labview-client/` move to the new
-  `CreateResourceRequest` / `Resource` shapes, holder objects, spec
-  state strings and the optional acquire `mode`. Own commit:
-  `fix: update example clients to the ADR-034 resource contract`.
-- Tests: Tier 3 `test_pipe_in_octet_stream_body_accepted`,
-  `test_pipe_out_returns_octet_stream`,
-  `test_registers_read_bulk_addresses`, `test_registers_write_bulk_entries`,
-  `test_set_wire_in_auto_update_false_skips_update`,
-  `test_grpc_classic_pipe_register_parity`; Tier 1 pipe and register
-  round-trips; Tier 2 (approval) pipe throughput.
-- Commits: one per item (`fix: align classic pipe routes with OpenAPI`, …),
-  each with the client updates it requires.
+**44-G Classic data-path spec alignment & example clients — ✅ Done (0.3.8)**
+- Archived: [archive/roadmap-phases-44.md](archive/roadmap-phases-44.md)
+  (`S-05` `application/octet-stream` pipes & block pipes, `S-06` bulk
+  registers `addresses[]` / `entries[]`, `S-07` `WireInRequest.auto_update`,
+  ADR-034 client updates across `client/python-labview-client/` and all 8
+  `client-examples/` packages, Tier 1 `okREALM_TEST` + Tier 2 `XEM7320`
+  hardware tests).
 
 **44-H Dataport normalisation 🔒 (D63; permission granted)**
 - Files: `api/openapi.yaml` (`:593`, `:1780`), `proto/okfpga/v1/okfpga.proto`

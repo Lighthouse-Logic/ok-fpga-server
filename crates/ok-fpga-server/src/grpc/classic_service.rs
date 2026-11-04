@@ -733,6 +733,12 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::PipeDataResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        if req.length < 0 {
+            return Err(Status::invalid_argument(format!(
+                "length must be >= 0 (got {})",
+                req.length
+            )));
+        }
         self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::PipeOut, None)?;
         let pool = self.pool()?;
         let device_arc = pool
@@ -783,6 +789,12 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::PipeTransferResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        if req.block_size <= 0 {
+            return Err(Status::invalid_argument(format!(
+                "block_size must be > 0 (got {})",
+                req.block_size
+            )));
+        }
         self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::BtPipeIn, None)?;
         let pool = self.pool()?;
         let device_arc = pool
@@ -829,6 +841,18 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
     ) -> Result<Response<proto::PipeDataResponse>, Status> {
         let user_id = Self::extract_user_id(&request);
         let req = request.into_inner();
+        if req.block_size <= 0 {
+            return Err(Status::invalid_argument(format!(
+                "block_size must be > 0 (got {})",
+                req.block_size
+            )));
+        }
+        if req.length < 0 {
+            return Err(Status::invalid_argument(format!(
+                "length must be >= 0 (got {})",
+                req.length
+            )));
+        }
         self.check_access(user_id.as_deref(), &req.serial, req.endpoint, &EndpointType::BtPipeOut, None)?;
         let pool = self.pool()?;
         let device_arc = pool
@@ -1054,5 +1078,177 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
 
         debug!(serial = %req.serial, count = req.entries.len(), "gRPC: WriteRegisters OK");
         Ok(Response::new(Self::ok_status()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::grpc::proto::ok_classic_service_server::OkClassicService;
+    use ok_fpga_core::manager::DeviceManager;
+    use ok_fpga_core::resource::{
+        AccessMode, AddressRange, EndpointDeclaration, EndpointEntry, Resource, ResourceRegistry,
+    };
+    use ok_fpga_core::service_manager::ServiceManager;
+    use ok_fpga_core::user::UserSessionRegistry;
+    use tonic::Code;
+
+    fn test_service() -> ClassicServiceImpl {
+        let auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider> =
+            Arc::from(ok_fpga_core::auth::create_provider("none", vec![], None));
+        let state = Arc::new(AppState::new(
+            Arc::new(DeviceManager::new()),
+            Arc::new(ResourceRegistry::new()),
+            Arc::new(ServiceManager::new()),
+            None,
+            auth_provider,
+            Arc::new(ok_fpga_core::auth::SessionManager::new(3600)),
+            Arc::new(UserSessionRegistry::new()),
+            crate::state::EndpointEnforcement::Enforce,
+            crate::config::ServerConfig::default(),
+            None,
+        ));
+        ClassicServiceImpl::new(state)
+    }
+
+    fn req_with_user<T>(inner: T, user_id: &str) -> Request<T> {
+        let mut req = Request::new(inner);
+        req.metadata_mut()
+            .insert("x-user-id", user_id.parse().unwrap());
+        req
+    }
+
+    #[tokio::test]
+    async fn test_grpc_classic_pipe_register_parity() {
+        let svc = test_service();
+        let mut r = Resource::new(
+            "SN1:pipe-reg".into(),
+            "pipe-reg".into(),
+            None,
+            "SN1".into(),
+            AccessMode::Shared,
+        );
+        r.endpoints = Some(EndpointDeclaration {
+            default_access: Some(AccessMode::Shared),
+            entries: vec![
+                EndpointEntry {
+                    address: 0x80,
+                    ep_type: EndpointType::PipeIn,
+                    access: AccessMode::Shared,
+                    description: None,
+                    private: false,
+                },
+                EndpointEntry {
+                    address: 0xA0,
+                    ep_type: EndpointType::PipeOut,
+                    access: AccessMode::Shared,
+                    description: None,
+                    private: false,
+                },
+            ],
+        });
+        r.address_ranges = vec![AddressRange {
+            name: None,
+            description: None,
+            start: 0x0000,
+            end: 0x000F,
+            access: AccessMode::Shared,
+            private: false,
+        }];
+        assert!(svc.state.resource_registry.register(r));
+        svc.state
+            .resource_registry
+            .acquire("SN1:pipe-reg", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // 1. Negative pipe length / non-positive block_size -> InvalidArgument.
+        let err = svc
+            .read_from_pipe_out(req_with_user(
+                proto::ReadFromPipeOutRequest {
+                    serial: "SN1".into(),
+                    endpoint: 0xA0,
+                    length: -1,
+                },
+                "alice",
+            ))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), Code::InvalidArgument);
+
+        let err = svc
+            .write_to_block_pipe_in(req_with_user(
+                proto::WriteToBlockPipeInRequest {
+                    serial: "SN1".into(),
+                    endpoint: 0x80,
+                    block_size: 0,
+                    data: vec![1, 2, 3, 4],
+                },
+                "alice",
+            ))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), Code::InvalidArgument);
+
+        // 2. Covered PipeIn / PipeOut passes enforcement -> Unavailable (no DLL pool).
+        let err = svc
+            .write_to_pipe_in(req_with_user(
+                proto::WriteToPipeInRequest {
+                    serial: "SN1".into(),
+                    endpoint: 0x80,
+                    data: vec![1, 2, 3, 4],
+                },
+                "alice",
+            ))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), Code::Unavailable);
+
+        let err = svc
+            .read_from_pipe_out(req_with_user(
+                proto::ReadFromPipeOutRequest {
+                    serial: "SN1".into(),
+                    endpoint: 0xA0,
+                    length: 16,
+                },
+                "alice",
+            ))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), Code::Unavailable);
+
+        // 3. Bulk registers: covered batch passes enforcement -> Unavailable;
+        // batch containing an uncovered address fails BEFORE pool() -> PermissionDenied.
+        let err = svc
+            .read_registers(req_with_user(
+                proto::ReadRegistersRequest {
+                    serial: "SN1".into(),
+                    addresses: vec![0x0000, 0x0004],
+                },
+                "alice",
+            ))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), Code::Unavailable);
+
+        let err = svc
+            .write_registers(req_with_user(
+                proto::WriteRegistersRequest {
+                    serial: "SN1".into(),
+                    entries: vec![
+                        proto::RegisterEntry {
+                            address: 0x0000,
+                            data: 1,
+                        },
+                        proto::RegisterEntry {
+                            address: 0x0020,
+                            data: 2,
+                        },
+                    ],
+                },
+                "alice",
+            ))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), Code::PermissionDenied);
     }
 }

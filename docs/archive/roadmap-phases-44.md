@@ -493,3 +493,78 @@ adopted, 2 rejected as non-observable / redundant).
   - Server `sweep.rs`: `test_sweep_orphan_resource_device_absent_deleted`.
 - Commit: `fix: forced resource cleanup on configure and clear (0.3.7)`.
   **Done:** `5a1f025`.
+
+---
+
+## 44-G — Classic data-path spec alignment & example clients (0.3.8)
+
+**44-G Classic data-path spec alignment (`S-05`, `S-06`, `S-07`) & example clients**
+- Files:
+  - Server: `crates/ok-fpga-server/src/rest/classic.rs`,
+    `crates/ok-fpga-server/src/grpc/classic_service.rs`,
+    `crates/ok-fpga-core/tests/device_resource_integration.rs`,
+    `Cargo.toml` / `Cargo.lock`.
+  - Clients: `client/python-labview-client/` (`0.2.0` → `0.2.1`),
+    `client-examples/rust-rest-client/`,
+    `client-examples/python-rest-client/` (`0.1.0` → `0.1.1`),
+    `client-examples/rust-grpc-client/`,
+    `client-examples/python-grpc-client/` (`0.1.0` → `0.1.1`, regenerated protobuf stubs),
+    `client-examples/rust-rest-gui-common/`,
+    `client-examples/rust-grpc-gui-common/`,
+    `client-examples/python_rest_gui_common/` (`0.1.0` → `0.1.1`),
+    `client-examples/python_grpc_gui_common/` (`0.1.0` → `0.1.1`, regenerated protobuf stubs).
+  - Docs: `docs/API-Specification/`, `docs/architecture/adr/ADR-034-resource-model-consolidation.md`,
+    `docs/architecture/overview.md`, `docs/development-roadmap.md`.
+- Implemented:
+  - **S-05 (`application/octet-stream` Pipes & Block Pipes):**
+    - Changed `POST /devices/{serial}/classic/pipes/out` and
+      `POST /devices/{serial}/classic/pipes/block-out` to `GET` per
+      `api/openapi.yaml`.
+    - Implemented `PipeInQuery`, `PipeOutQuery`, `BlockPipeInQuery`, and
+      `BlockPipeOutQuery` with RFC 7807 `422` validation when `endpoint`,
+      `length`, or `block_size` is missing, `length < 0`, or `block_size <= 0`.
+    - Accepted `axum::body::Bytes` (`application/octet-stream`) on
+      `write_to_pipe_in` and `write_to_block_pipe_in`, and returned raw
+      `application/octet-stream` bytes on `read_from_pipe_out` and
+      `read_from_block_pipe_out`.
+    - Added matching `length >= 0` and `block_size > 0` validation in gRPC
+      `ClassicDataPortServiceImpl`.
+  - **S-06 (Bulk Registers):**
+    - Replaced single-register REST structs with `RegisterReadRequest { addresses: Vec<u32> }`,
+      `RegisterEntry { address: u32, data: u32 }`,
+      `RegisterReadResponse { entries: Vec<RegisterEntry> }`, and
+      `RegisterWriteRequest { entries: Vec<RegisterEntry> }`.
+    - Enforced `enforce_address` across every address in the batch before
+      acquiring the device lock or touching hardware (matching gRPC
+      `read_registers` / `write_registers`).
+  - **S-07 (`WireInRequest.auto_update`):**
+    - Added `#[serde(default = "default_auto_update")] auto_update: bool`
+      (default `true`) to `WireInRequest`; `set_wire_in` only calls
+      `classic_update_wire_ins` when `req.auto_update` is `true`.
+  - **ADR-034 Client Alignment:**
+    - Updated `client/python-labview-client/` (`Holder`, `Resource`, optional
+      `acquire_resource` `mode`, `read_registers` / `write_registers`,
+      `write_pipe_in` / `read_pipe_out` `application/octet-stream`,
+      `set_wire_in(auto_update=...)`) and all 8 `client-examples/` packages
+      (Rust/Python REST, gRPC, and GUI common libraries) to the ADR-034
+      resource contract (`CreateResourceRequest`, `Holder` objects,
+      `ResourceState` strings, single-endpoint `WireOut`/`TriggerOut` reads,
+      and regenerated Python protobuf stubs).
+- Tests:
+  - Server `rest/classic.rs`: `test_pipe_in_octet_stream_and_missing_endpoint_422`,
+    `test_pipe_out_get_octet_stream_and_negative_length_422`,
+    `test_block_pipe_in_out_octet_stream_and_validation_422`,
+    `test_register_bulk_read_and_write_enforcement_atomicity`,
+    `test_wire_in_auto_update_default_true_and_explicit_false`,
+    `test_block_pipe_routes_enforce_endpoint_access`.
+  - Server `grpc/classic_service.rs`: `test_grpc_classic_pipe_register_parity`.
+  - Core `device_resource_integration.rs`:
+    `test_emulated_pipe_and_register_round_trip_with_ok_realm_test` (Tier 1),
+    `test_hardware_xem7320_wire_in_auto_update_semantics` (Tier 2 live
+    `XEM7320-A75T` hardware on the hardware test host).
+  - Clients: `rust-rest-client`, `rust-grpc-client`, `rust-rest-gui-common`,
+    `rust-grpc-gui-common` (`cargo test`), `python-labview-client` (149 passed),
+    `python_rest_gui_common` (36 passed), `python_grpc_gui_common` (15 passed).
+- Commits:
+  - `fix: align classic pipe, register, and wire_in routes with OpenAPI (0.3.8)`
+  - `fix: update example clients to the ADR-034 resource contract`

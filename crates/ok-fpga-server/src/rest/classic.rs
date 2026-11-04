@@ -57,7 +57,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/devices/{serial}/classic/pipes/in", post(write_to_pipe_in))
         .route(
             "/devices/{serial}/classic/pipes/out",
-            post(read_from_pipe_out),
+            get(read_from_pipe_out),
         )
         .route(
             "/devices/{serial}/classic/pipes/block-in",
@@ -65,7 +65,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         )
         .route(
             "/devices/{serial}/classic/pipes/block-out",
-            post(read_from_block_pipe_out),
+            get(read_from_block_pipe_out),
         )
         // Registers
         .route(
@@ -90,10 +90,18 @@ struct WireInRequest {
     value: u32,
     #[serde(default = "default_mask")]
     mask: u32,
+    /// When `true` (the OpenAPI default, S-07), `UpdateWireIns` is called
+    /// immediately after `SetWireInValue` under the same device lock.
+    #[serde(default = "default_auto_update")]
+    auto_update: bool,
 }
 
 fn default_mask() -> u32 {
     0xFFFF_FFFF
+}
+
+fn default_auto_update() -> bool {
+    true
 }
 
 #[derive(Deserialize)]
@@ -150,36 +158,64 @@ fn missing_endpoint(kind: &str, range: &str) -> ProblemDetail {
     ))
 }
 
+/// 422 for a required query parameter or invalid numeric bound on pipe routes.
+fn validation_422(msg: impl Into<String>) -> ProblemDetail {
+    ProblemDetail::from_resource_error(ok_fpga_core::resource::ResourceError::validation(
+        msg.into(),
+    ))
+}
+
+/// Query parameters for `POST /devices/{serial}/classic/pipes/in` (S-05).
 #[derive(Deserialize)]
-struct RegisterRequest {
+struct PipeInQuery {
+    endpoint: Option<i32>,
+}
+
+/// Query parameters for `GET /devices/{serial}/classic/pipes/out` (S-05).
+#[derive(Deserialize)]
+struct PipeOutQuery {
+    endpoint: Option<i32>,
+    length: Option<i32>,
+}
+
+/// Query parameters for `POST /devices/{serial}/classic/pipes/block-in` (S-05).
+#[derive(Deserialize)]
+struct BlockPipeInQuery {
+    endpoint: Option<i32>,
+    block_size: Option<i32>,
+}
+
+/// Query parameters for `GET /devices/{serial}/classic/pipes/block-out` (S-05).
+#[derive(Deserialize)]
+struct BlockPipeOutQuery {
+    endpoint: Option<i32>,
+    block_size: Option<i32>,
+    length: Option<i32>,
+}
+
+/// Bulk register read request — matches OpenAPI `POST /classic/registers/read` (S-06).
+#[derive(Deserialize)]
+struct RegisterReadRequest {
+    addresses: Vec<u32>,
+}
+
+/// Single register address + data entry — matches OpenAPI `RegisterEntry` (S-06).
+#[derive(Serialize, Deserialize)]
+struct RegisterEntry {
     address: u32,
-    #[serde(default)]
-    value: u32,
+    data: u32,
 }
 
+/// Bulk register read response — matches OpenAPI `POST /classic/registers/read` (S-06).
+#[derive(Serialize)]
+struct RegisterReadResponse {
+    entries: Vec<RegisterEntry>,
+}
+
+/// Bulk register write request — matches OpenAPI `PUT /classic/registers/write` (S-06).
 #[derive(Deserialize)]
-struct PipeRequest {
-    endpoint: i32,
-    #[serde(default = "default_pipe_length")]
-    length: i32,
-    /// Base64-encoded data for pipe-in operations.
-    #[serde(default)]
-    data: Option<String>,
-}
-
-fn default_pipe_length() -> i32 {
-    1024
-}
-
-#[derive(Deserialize)]
-struct BlockPipeRequest {
-    endpoint: i32,
-    block_size: i32,
-    #[serde(default = "default_pipe_length")]
-    length: i32,
-    /// Base64-encoded data for block pipe-in operations.
-    #[serde(default)]
-    data: Option<String>,
+struct RegisterWriteRequest {
+    entries: Vec<RegisterEntry>,
 }
 
 /// Response for a single wire-out read — matches OpenAPI `WireOutResponse` (Phase 37).
@@ -198,13 +234,6 @@ struct TriggerOutResponse {
     vector: u32,
 }
 
-/// Register read response — matches OpenAPI `RegisterEntry` (Phase 37).
-#[derive(Serialize)]
-struct RegisterResponse {
-    address: u32,
-    value: u32,
-}
-
 /// StatusResponse for operations that don't return data — matches OpenAPI `StatusResponse`.
 #[derive(Serialize)]
 struct StatusResponse {
@@ -216,13 +245,6 @@ struct StatusResponse {
 #[derive(Serialize)]
 struct PipeTransferResponse {
     bytes_transferred: i32,
-}
-
-/// Pipe read response — extends `PipeTransferResponse` with base64 data.
-#[derive(Serialize)]
-struct PipeReadResponse {
-    bytes_transferred: i32,
-    data: String,
 }
 
 // ============================================================================
@@ -415,8 +437,10 @@ async fn set_wire_in(
         );
         FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
 
-        let rc = (dll.classic_update_wire_ins)(classic);
-        FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
+        if req.auto_update {
+            let rc = (dll.classic_update_wire_ins)(classic);
+            FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
+        }
     }
 
     Ok(Json(StatusResponse {
@@ -640,16 +664,25 @@ async fn get_trigger_out(
     Ok(Json(TriggerOutResponse { endpoint, triggered, vector }))
 }
 
-/// `POST /devices/{serial}/classic/pipes/in` — Write data to a pipe-in endpoint.
+/// `POST /devices/{serial}/classic/pipes/in?endpoint={endpoint}` — Write raw binary data to a pipe-in endpoint (S-05).
 async fn write_to_pipe_in(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
     headers: axum::http::HeaderMap,
-    Json(req): Json<PipeRequest>,
+    Query(query): Query<PipeInQuery>,
+    bytes: axum::body::Bytes,
 ) -> Result<Json<PipeTransferResponse>, ProblemDetail> {
-    enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::PipeIn, None)?;
-    let data = req.data.as_deref().unwrap_or("");
-    let bytes = base64_decode(data)?;
+    let endpoint = query
+        .endpoint
+        .ok_or_else(|| validation_422("query parameter 'endpoint' is required (PipeIn address 0x80-0x9F)"))?;
+    enforce_endpoint(
+        &state,
+        &headers,
+        &serial,
+        endpoint,
+        &ok_fpga_core::resource::EndpointType::PipeIn,
+        None,
+    )?;
 
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
@@ -662,7 +695,7 @@ async fn write_to_pipe_in(
     let transferred = unsafe {
         (dll.classic_write_to_pipe_in)(
             classic,
-            req.endpoint,
+            endpoint,
             bytes.len() as std::os::raw::c_long,
             bytes.as_ptr(),
         )
@@ -682,15 +715,34 @@ async fn write_to_pipe_in(
     }))
 }
 
-/// `POST /devices/{serial}/classic/pipes/out` — Read data from a pipe-out endpoint.
+/// `GET /devices/{serial}/classic/pipes/out?endpoint={endpoint}&length={length}` — Read raw binary data from a pipe-out endpoint (S-05).
 async fn read_from_pipe_out(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
     headers: axum::http::HeaderMap,
-    Json(req): Json<PipeRequest>,
-) -> Result<Json<PipeReadResponse>, ProblemDetail> {
-    enforce_endpoint(&state, &headers, &serial, req.endpoint, &ok_fpga_core::resource::EndpointType::PipeOut, None)?;
-    let length = req.length;
+    Query(query): Query<PipeOutQuery>,
+) -> Result<([(axum::http::header::HeaderName, &'static str); 1], axum::body::Bytes), ProblemDetail> {
+    let endpoint = query
+        .endpoint
+        .ok_or_else(|| validation_422("query parameter 'endpoint' is required (PipeOut address 0xA0-0xBF)"))?;
+    let length = query
+        .length
+        .ok_or_else(|| validation_422("query parameter 'length' is required"))?;
+    if length < 0 {
+        return Err(validation_422(format!(
+            "query parameter 'length' must be >= 0 (got {})",
+            length
+        )));
+    }
+
+    enforce_endpoint(
+        &state,
+        &headers,
+        &serial,
+        endpoint,
+        &ok_fpga_core::resource::EndpointType::PipeOut,
+        None,
+    )?;
 
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
@@ -705,7 +757,7 @@ async fn read_from_pipe_out(
     let transferred = unsafe {
         (dll.classic_read_from_pipe_out)(
             classic,
-            req.endpoint,
+            endpoint,
             length as std::os::raw::c_long,
             buffer.as_mut_ptr(),
         )
@@ -719,34 +771,42 @@ async fn read_from_pipe_out(
     }
 
     buffer.truncate(transferred as usize);
-    use base64::Engine;
-    let encoded = base64::engine::general_purpose::STANDARD.encode(&buffer);
 
-    Ok(Json(PipeReadResponse {
-        // `c_long` is 32-bit on Windows but 64-bit on Linux; the count is
-        // bounded by the request size, so narrowing to the spec i32 is safe.
-        bytes_transferred: transferred as i32,
-        data: encoded,
-    }))
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
+        axum::body::Bytes::from(buffer),
+    ))
 }
 
-/// `POST /devices/{serial}/classic/pipes/block-in` — Write to a block pipe-in.
+/// `POST /devices/{serial}/classic/pipes/block-in?endpoint={endpoint}&block_size={block_size}` — Write raw binary data to a block pipe-in (S-05).
 async fn write_to_block_pipe_in(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
     headers: axum::http::HeaderMap,
-    Json(req): Json<BlockPipeRequest>,
+    Query(query): Query<BlockPipeInQuery>,
+    bytes: axum::body::Bytes,
 ) -> Result<Json<PipeTransferResponse>, ProblemDetail> {
+    let endpoint = query
+        .endpoint
+        .ok_or_else(|| validation_422("query parameter 'endpoint' is required (BTPipeIn address 0x80-0x9F)"))?;
+    let block_size = query
+        .block_size
+        .ok_or_else(|| validation_422("query parameter 'block_size' is required"))?;
+    if block_size <= 0 {
+        return Err(validation_422(format!(
+            "query parameter 'block_size' must be > 0 (got {})",
+            block_size
+        )));
+    }
+
     enforce_endpoint(
         &state,
         &headers,
         &serial,
-        req.endpoint,
+        endpoint,
         &ok_fpga_core::resource::EndpointType::BtPipeIn,
         None,
     )?;
-    let data = req.data.as_deref().unwrap_or("");
-    let bytes = base64_decode(data)?;
 
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
@@ -759,8 +819,8 @@ async fn write_to_block_pipe_in(
     let transferred = unsafe {
         (dll.classic_write_to_block_pipe_in)(
             classic,
-            req.endpoint,
-            req.block_size,
+            endpoint,
+            block_size,
             bytes.len() as std::os::raw::c_long,
             bytes.as_ptr(),
         )
@@ -780,22 +840,43 @@ async fn write_to_block_pipe_in(
     }))
 }
 
-/// `POST /devices/{serial}/classic/pipes/block-out` — Read from a block pipe-out.
+/// `GET /devices/{serial}/classic/pipes/block-out?endpoint={endpoint}&block_size={block_size}&length={length}` — Read raw binary data from a block pipe-out (S-05).
 async fn read_from_block_pipe_out(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
     headers: axum::http::HeaderMap,
-    Json(req): Json<BlockPipeRequest>,
-) -> Result<Json<PipeReadResponse>, ProblemDetail> {
+    Query(query): Query<BlockPipeOutQuery>,
+) -> Result<([(axum::http::header::HeaderName, &'static str); 1], axum::body::Bytes), ProblemDetail> {
+    let endpoint = query
+        .endpoint
+        .ok_or_else(|| validation_422("query parameter 'endpoint' is required (BTPipeOut address 0xA0-0xBF)"))?;
+    let block_size = query
+        .block_size
+        .ok_or_else(|| validation_422("query parameter 'block_size' is required"))?;
+    let length = query
+        .length
+        .ok_or_else(|| validation_422("query parameter 'length' is required"))?;
+    if block_size <= 0 {
+        return Err(validation_422(format!(
+            "query parameter 'block_size' must be > 0 (got {})",
+            block_size
+        )));
+    }
+    if length < 0 {
+        return Err(validation_422(format!(
+            "query parameter 'length' must be >= 0 (got {})",
+            length
+        )));
+    }
+
     enforce_endpoint(
         &state,
         &headers,
         &serial,
-        req.endpoint,
+        endpoint,
         &ok_fpga_core::resource::EndpointType::BtPipeOut,
         None,
     )?;
-    let length = req.length;
 
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
@@ -810,8 +891,8 @@ async fn read_from_block_pipe_out(
     let transferred = unsafe {
         (dll.classic_read_from_block_pipe_out)(
             classic,
-            req.endpoint,
-            req.block_size,
+            endpoint,
+            block_size,
             length as std::os::raw::c_long,
             buffer.as_mut_ptr(),
         )
@@ -825,25 +906,27 @@ async fn read_from_block_pipe_out(
     }
 
     buffer.truncate(transferred as usize);
-    use base64::Engine;
-    let encoded = base64::engine::general_purpose::STANDARD.encode(&buffer);
 
-    Ok(Json(PipeReadResponse {
-        // `c_long` is 32-bit on Windows but 64-bit on Linux; the count is
-        // bounded by the request size, so narrowing to the spec i32 is safe.
-        bytes_transferred: transferred as i32,
-        data: encoded,
-    }))
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
+        axum::body::Bytes::from(buffer),
+    ))
 }
 
-/// `POST /devices/{serial}/classic/registers/read` — Read a register.
+/// `POST /devices/{serial}/classic/registers/read` — Read one or more registers (S-06).
+///
+/// Checks `enforce_address` for every address in `req.addresses` BEFORE
+/// acquiring the device lock or reading from hardware.
 async fn read_register(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
     headers: axum::http::HeaderMap,
-    Json(req): Json<RegisterRequest>,
-) -> Result<Json<RegisterResponse>, ProblemDetail> {
-    enforce_address(&state, &headers, &serial, req.address, false)?;
+    Json(req): Json<RegisterReadRequest>,
+) -> Result<Json<RegisterReadResponse>, ProblemDetail> {
+    for &addr in &req.addresses {
+        enforce_address(&state, &headers, &serial, addr, false)?;
+    }
+
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -852,26 +935,37 @@ async fn read_register(
         .ok_or_else(|| ProblemDetail::conflict("FPGA not programmed or Classic port not available"))?;
     let dll = device.dll();
 
-    let mut value: u32 = 0;
-    unsafe {
-        let rc = (dll.classic_read_register)(classic, req.address, &mut value);
-        FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
+    let mut entries = Vec::with_capacity(req.addresses.len());
+    for &addr in &req.addresses {
+        let mut data: u32 = 0;
+        unsafe {
+            let rc = (dll.classic_read_register)(classic, addr, &mut data);
+            FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
+        }
+        entries.push(RegisterEntry {
+            address: addr,
+            data,
+        });
     }
 
-    Ok(Json(RegisterResponse {
-        address: req.address,
-        value,
-    }))
+    Ok(Json(RegisterReadResponse { entries }))
 }
 
-/// `PUT /devices/{serial}/classic/registers/write` — Write a register.
+/// `PUT /devices/{serial}/classic/registers/write` — Write one or more registers (S-06).
+///
+/// Checks `enforce_address` for every entry in `req.entries` BEFORE
+/// acquiring the device lock or writing to hardware, so an access violation on
+/// a later entry never leaves earlier entries partially written.
 async fn write_register(
     State(state): State<Arc<AppState>>,
     Path(serial): Path<String>,
     headers: axum::http::HeaderMap,
-    Json(req): Json<RegisterRequest>,
+    Json(req): Json<RegisterWriteRequest>,
 ) -> Result<Json<StatusResponse>, ProblemDetail> {
-    enforce_address(&state, &headers, &serial, req.address, true)?;
+    for entry in &req.entries {
+        enforce_address(&state, &headers, &serial, entry.address, true)?;
+    }
+
     let device_arc = get_device!(state, &serial);
     let device = device_arc.lock().await;
 
@@ -880,14 +974,16 @@ async fn write_register(
         .ok_or_else(|| ProblemDetail::conflict("FPGA not programmed or Classic port not available"))?;
     let dll = device.dll();
 
-    unsafe {
-        let rc = (dll.classic_write_register)(classic, req.address, req.value);
-        FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
+    for entry in &req.entries {
+        unsafe {
+            let rc = (dll.classic_write_register)(classic, entry.address, entry.data);
+            FfiError::from_code(rc).map_err(|e| ffi_error_to_problem(&e))?;
+        }
     }
 
     Ok(Json(StatusResponse {
         success: true,
-        message: format!("Register 0x{:08x} written with 0x{:08x}", req.address, req.value),
+        message: format!("{} register(s) written", req.entries.len()),
     }))
 }
 
@@ -919,17 +1015,6 @@ async fn reset_fpga(
         success: true,
         message: "FPGA reset".to_string(),
     }))
-}
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-fn base64_decode(data: &str) -> Result<Vec<u8>, ProblemDetail> {
-    use base64::Engine;
-    base64::engine::general_purpose::STANDARD
-        .decode(data)
-        .map_err(|e| ProblemDetail::bad_request(format!("invalid base64 data: {}", e)))
 }
 
 #[cfg(test)]
@@ -1311,6 +1396,33 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
     }
 
+    async fn call_app_raw(
+        state: Arc<AppState>,
+        method: &str,
+        uri: &str,
+        user_id: Option<&str>,
+        body: Vec<u8>,
+    ) -> (StatusCode, serde_json::Value) {
+        let app = routes()
+            .merge(crate::rest::axi::routes())
+            .with_state(state);
+        let mut builder = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("Content-Type", "application/octet-stream");
+        if let Some(uid) = user_id {
+            builder = builder.header("X-User-Id", uid);
+        }
+        let request = builder.body(axum::body::Body::from(body)).unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+        (status, json)
+    }
+
     #[tokio::test]
     async fn test_block_pipe_routes_enforce_endpoint_access() {
         use ok_fpga_core::resource::{
@@ -1354,47 +1466,265 @@ mod tests {
             .unwrap();
 
         // Unregistered user -> 403 on both block-in and block-out.
-        let (status, _) = call_app(
+        let (status, _) = call_app_raw(
             state.clone(),
             "POST",
-            "/devices/SN1/classic/pipes/block-in",
+            "/devices/SN1/classic/pipes/block-in?endpoint=128&block_size=16",
             Some("mallory"),
-            Some(serde_json::json!({ "endpoint": 0x80, "block_size": 16, "length": 16, "data": "AAAA" })),
+            vec![0u8; 16],
         )
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
 
-        // ReadOnly holder -> 403 on block-in (write), 501 (passes enforcement) on block-out (read).
-        let (status, _) = call_app(
+        // ReadOnly holder -> 403 on block-in (write), 501 (passes enforcement) on block-out (GET read).
+        let (status, _) = call_app_raw(
             state.clone(),
             "POST",
-            "/devices/SN1/classic/pipes/block-in",
+            "/devices/SN1/classic/pipes/block-in?endpoint=128&block_size=16",
             Some("carol"),
-            Some(serde_json::json!({ "endpoint": 0x80, "block_size": 16, "length": 16, "data": "AAAA" })),
+            vec![0u8; 16],
         )
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
 
         let (status, _) = call_app(
             state.clone(),
-            "POST",
-            "/devices/SN1/classic/pipes/block-out",
+            "GET",
+            "/devices/SN1/classic/pipes/block-out?endpoint=160&block_size=16&length=16",
             Some("carol"),
-            Some(serde_json::json!({ "endpoint": 0xA0, "block_size": 16, "length": 16 })),
+            None,
         )
         .await;
         assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
 
         // Shared holder -> passes enforcement on block-in.
-        let (status, _) = call_app(
+        let (status, _) = call_app_raw(
             state,
             "POST",
-            "/devices/SN1/classic/pipes/block-in",
+            "/devices/SN1/classic/pipes/block-in?endpoint=128&block_size=16",
             Some("alice"),
-            Some(serde_json::json!({ "endpoint": 0x80, "block_size": 16, "length": 16, "data": "AAAA" })),
+            vec![0u8; 16],
         )
         .await;
         assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+    }
+
+    #[tokio::test]
+    async fn test_pipe_in_octet_stream_and_missing_endpoint_422() {
+        let state = test_state();
+
+        // Missing endpoint -> 422 ProblemDetail.
+        let (status, json) = call_app_raw(
+            state.clone(),
+            "POST",
+            "/devices/SN1/classic/pipes/in",
+            None,
+            vec![1, 2, 3, 4],
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(json["conflict"]["code"], "validation");
+
+        // Valid endpoint + binary body passes validation -> 501 (no DLL loaded).
+        let (status, _) = call_app_raw(
+            state,
+            "POST",
+            "/devices/SN1/classic/pipes/in?endpoint=128",
+            None,
+            vec![1, 2, 3, 4],
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+    }
+
+    #[tokio::test]
+    async fn test_pipe_out_get_octet_stream_and_negative_length_422() {
+        let state = test_state();
+
+        // POST to /pipes/out is now 405 Method Not Allowed (S-05).
+        let (status, _) = call_app(
+            state.clone(),
+            "POST",
+            "/devices/SN1/classic/pipes/out?endpoint=160&length=16",
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+
+        // Missing endpoint or length -> 422.
+        let (status, _) = call_app(
+            state.clone(),
+            "GET",
+            "/devices/SN1/classic/pipes/out?length=16",
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+        let (status, _) = call_app(
+            state.clone(),
+            "GET",
+            "/devices/SN1/classic/pipes/out?endpoint=160",
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+        // Negative length -> 422 (prevents huge usize wrap panic).
+        let (status, json) = call_app(
+            state.clone(),
+            "GET",
+            "/devices/SN1/classic/pipes/out?endpoint=160&length=-1",
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(json["conflict"]["code"], "validation");
+
+        // Valid GET query passes validation -> 501.
+        let (status, _) = call_app(
+            state,
+            "GET",
+            "/devices/SN1/classic/pipes/out?endpoint=160&length=16",
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+    }
+
+    #[tokio::test]
+    async fn test_block_pipe_in_out_octet_stream_and_validation_422() {
+        let state = test_state();
+
+        // block_size <= 0 -> 422 on block-in and block-out.
+        let (status, _) = call_app_raw(
+            state.clone(),
+            "POST",
+            "/devices/SN1/classic/pipes/block-in?endpoint=128&block_size=0",
+            None,
+            vec![0u8; 16],
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+        let (status, _) = call_app(
+            state.clone(),
+            "GET",
+            "/devices/SN1/classic/pipes/block-out?endpoint=160&block_size=-4&length=16",
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+        let (status, _) = call_app(
+            state,
+            "GET",
+            "/devices/SN1/classic/pipes/block-out?endpoint=160&block_size=16&length=-16",
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn test_register_bulk_read_and_write_enforcement_atomicity() {
+        use ok_fpga_core::resource::{AccessMode, AddressRange, Resource};
+        let state = test_enforced_state();
+        let mut r = Resource::new(
+            "SN1:reg".into(),
+            "reg".into(),
+            None,
+            "SN1".into(),
+            AccessMode::Shared,
+        );
+        r.address_ranges = vec![AddressRange {
+            name: None,
+            description: None,
+            start: 0x0000,
+            end: 0x000F,
+            access: AccessMode::Shared,
+            private: false,
+        }];
+        assert!(state.resource_registry.register(r));
+        state
+            .resource_registry
+            .acquire("SN1:reg", &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // Bulk read where all addresses are covered -> passes enforcement (501).
+        let (status, _) = call_app(
+            state.clone(),
+            "POST",
+            "/devices/SN1/classic/registers/read",
+            Some("alice"),
+            Some(serde_json::json!({ "addresses": [0x0000, 0x0004, 0x000F] })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+
+        // Bulk read where the second address is out of range -> 403 BEFORE get_device!.
+        let (status, _) = call_app(
+            state.clone(),
+            "POST",
+            "/devices/SN1/classic/registers/read",
+            Some("alice"),
+            Some(serde_json::json!({ "addresses": [0x0000, 0x0020] })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        // Bulk write where all entries are covered -> passes enforcement (501).
+        let (status, _) = call_app(
+            state.clone(),
+            "PUT",
+            "/devices/SN1/classic/registers/write",
+            Some("alice"),
+            Some(serde_json::json!({
+                "entries": [
+                    { "address": 0x0000, "data": 0x1111_2222u32 },
+                    { "address": 0x0004, "data": 0x3333_4444u32 }
+                ]
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+
+        // Bulk write where the second entry is out of range -> 403 BEFORE get_device!.
+        let (status, _) = call_app(
+            state,
+            "PUT",
+            "/devices/SN1/classic/registers/write",
+            Some("alice"),
+            Some(serde_json::json!({
+                "entries": [
+                    { "address": 0x0000, "data": 0x1111_2222u32 },
+                    { "address": 0x0020, "data": 0x3333_4444u32 }
+                ]
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn test_wire_in_auto_update_default_true_and_explicit_false() {
+        let omitted: WireInRequest =
+            serde_json::from_value(serde_json::json!({ "endpoint": 0, "value": 1 })).unwrap();
+        assert!(omitted.auto_update);
+        assert_eq!(omitted.mask, 0xFFFF_FFFF);
+
+        let explicit_false: WireInRequest = serde_json::from_value(
+            serde_json::json!({ "endpoint": 0, "value": 1, "auto_update": false }),
+        )
+        .unwrap();
+        assert!(!explicit_false.auto_update);
     }
 
     #[tokio::test]

@@ -1,7 +1,7 @@
 # ADR-034: Resource Model Consolidation
 
 **Status**: Accepted — 44-A implemented incl. post-44-A read semantics (0.3.0) and mask default (0.3.1);
-44-A, 44-B, 44-C, 44-D, 44-E and 44-F archived; 44-B implemented (0.3.3); 44-C implemented (0.3.4); 44-D implemented (0.3.5); 44-E implemented (0.3.6); 44-F implemented (0.3.7); 44-G … 44-J pending
+44-A through 44-G archived; 44-B implemented (0.3.3); 44-C implemented (0.3.4); 44-D implemented (0.3.5); 44-E implemented (0.3.6); 44-F implemented (0.3.7); 44-G implemented (0.3.8); 44-H … 44-J pending
 **Date**: 2026-10-11 (amended 2026-11-03)
 **Commit hash**: 44-A `d3b19a6`; 0.3.0 read semantics (D75–D77) `dcb5e5a`;
 0.3.1 IsTriggered mask default (D78) `6e11f9b`; 0.3.2 heartbeat text and
@@ -643,6 +643,33 @@ regex/hash matching on resource declarations `q4`, `.gitignore` for
 - Docs: this ADR, `docs/API-Specification/`, `docs/archive/roadmap-phases-44.md`,
   `docs/development-roadmap.md`.
 
+## Files changed (0.3.8, 44-G)
+
+- Server:
+  - `crates/ok-fpga-server/src/rest/classic.rs` (`S-05` `application/octet-stream`
+    pipe and block-pipe routes with `GET /pipes/out` and `GET /pipes/block-out`,
+    `S-06` bulk register `addresses[]` / `entries[]` with pre-FFI batch address
+    enforcement, `S-07` `WireInRequest.auto_update`, Tier 3 unit tests),
+  - `crates/ok-fpga-server/src/grpc/classic_service.rs` (`length >= 0` and
+    `block_size > 0` validation, `test_grpc_classic_pipe_register_parity`),
+  - `crates/ok-fpga-core/tests/device_resource_integration.rs`
+    (`test_emulated_pipe_and_register_round_trip_with_ok_realm_test`,
+    `test_hardware_xem7320_wire_in_auto_update_semantics`).
+- Clients:
+  - `client/python-labview-client/` (`0.2.0` → `0.2.1`; `Holder` and updated
+    `Resource` models, optional `acquire_resource` `mode`, unit tests),
+  - `client-examples/rust-rest-client/`, `client-examples/python-rest-client/`
+    (`0.1.0` → `0.1.1`), `client-examples/rust-grpc-client/`,
+    `client-examples/python-grpc-client/` (`0.1.0` → `0.1.1`, regenerated
+    protobuf stubs), `client-examples/rust-rest-gui-common/`,
+    `client-examples/rust-grpc-gui-common/`,
+    `client-examples/python_rest_gui_common/` (`0.1.0` → `0.1.1`),
+    `client-examples/python_grpc_gui_common/` (`0.1.0` → `0.1.1`, regenerated
+    protobuf stubs).
+- Version: `Cargo.toml`, `Cargo.lock` (0.3.8).
+- Docs: this ADR, `docs/API-Specification/`, `docs/archive/roadmap-phases-44.md`,
+  `docs/development-roadmap.md`, `docs/architecture/overview.md`.
+
 ## Open items
 
 - ~~**44-B**: R1 overlap rules, Rule A, interface/dataport check, `private`
@@ -667,8 +694,8 @@ regex/hash matching on resource declarations `q4`, `.gitignore` for
   matching evaluated and rejected/dropped per `q4`).~~
   **Done in 0.3.7** (§14).
 - **Later**: TriggerOut event log (D67 reopened, roadmap 🔵 Later).
-- **44-G**: example clients and `client/python-labview-client` are out of
-  step with this contract until then.
+- ~~**44-G**: example clients and `client/python-labview-client` are out of
+  step with this contract until then.~~ **Done in 0.3.8**.
 - **Spec ↔ implementation discrepancies (spec unchanged)**:
   - Acquire `user_id` is `required` in the spec; the server still accepts
     the ADR-029 `X-User-Id` fallback. gRPC acquire requires `user_id`.
