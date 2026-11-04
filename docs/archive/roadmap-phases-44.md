@@ -566,5 +566,5 @@ adopted, 2 rejected as non-observable / redundant).
     `rust-grpc-gui-common` (`cargo test`), `python-labview-client` (149 passed),
     `python_rest_gui_common` (36 passed), `python_grpc_gui_common` (15 passed).
 - Commits:
-  - `fix: align classic pipe, register, and wire_in routes with OpenAPI (0.3.8)`
-  - `fix: update example clients to the ADR-034 resource contract`
+  - `fix: align classic pipe, register, and wire_in routes with OpenAPI (0.3.8)` — **Done:** `d59921e`.
+  - `fix: update example clients to the ADR-034 resource contract` — **Done:** `96c0ed7`.

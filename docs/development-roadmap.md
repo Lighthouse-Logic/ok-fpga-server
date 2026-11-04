@@ -301,6 +301,7 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
   ADR-034 client updates across `client/python-labview-client/` and all 8
   `client-examples/` packages, Tier 1 `okREALM_TEST` + Tier 2 `XEM7320`
   hardware tests).
+- Commits `d59921e`, `96c0ed7`. ADR-034 (0.3.8).
 
 **44-H Dataport normalisation 🔒 (D63; permission granted)**
 - Files: `api/openapi.yaml` (`:593`, `:1780`), `proto/okfpga/v1/okfpga.proto`
