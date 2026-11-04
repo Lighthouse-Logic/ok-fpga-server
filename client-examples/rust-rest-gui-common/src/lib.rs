@@ -172,10 +172,33 @@ pub struct ResourceInfo {
     pub name: String,
     pub device_serial: String,
     pub access_mode: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_holders")]
     pub holders: Vec<String>,
     #[serde(default)]
     pub locked_by: Option<String>,
+}
+
+/// Deserializes `holders` from either ADR-034 `[{"user_id": "...", "mode": "..."}]`
+/// objects (OpenAPI `Holder`) or legacy `["..."]` strings.
+fn deserialize_holders<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum HolderItem {
+        Object { user_id: String },
+        UserId(String),
+    }
+
+    let items: Vec<HolderItem> = Vec::deserialize(deserializer)?;
+    Ok(items
+        .into_iter()
+        .map(|item| match item {
+            HolderItem::Object { user_id } => user_id,
+            HolderItem::UserId(uid) => uid,
+        })
+        .collect())
 }
 
 // ============================================================================
@@ -539,6 +562,7 @@ impl CountersClient {
             "name": name,
             "device_serial": device_serial,
             "access_mode": resource_type,
+            "interfaces": ["classic"],
             "description": "Counters.bit hardware test resource",
         });
         let val = self.post("/resources", Some(body)).await?;
@@ -1032,11 +1056,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_resources_parses_response() {
-        // F4: list_resources() should parse the {count, resources: [...]} envelope.
+        // F4 / ADR-034: list_resources() should parse the {count, resources: [...]} envelope
+        // with ADR-034 Holder objects [{"user_id": "...", "mode": "..."}].
         let mut server = mockito::Server::new_async().await;
         let mock = server.mock("GET", "/api/v1/resources")
             .with_status(200)
-            .with_body(r#"{"count":2,"resources":[{"id":"r1","name":"Resource 1","device_serial":"SN001","access_mode":"shared","holders":["alice"],"locked_by":null},{"id":"r2","name":"Resource 2","device_serial":"SN002","access_mode":"exclusive","holders":[],"locked_by":null}]}"#)
+            .with_body(r#"{"count":2,"resources":[{"id":"r1","name":"Resource 1","device_serial":"SN001","access_mode":"shared","holders":[{"user_id":"alice","mode":"shared"}],"locked_by":null},{"id":"r2","name":"Resource 2","device_serial":"SN002","access_mode":"exclusive","holders":[],"locked_by":null}]}"#)
             .create_async().await;
 
         let client = CountersClient::new(&server.url(), "test-user");
@@ -1046,6 +1071,7 @@ mod tests {
         assert_eq!(resources.len(), 2);
         assert_eq!(resources[0].id, "r1");
         assert_eq!(resources[0].device_serial, "SN001");
+        assert_eq!(resources[0].holders, vec!["alice"]);
         assert_eq!(resources[1].id, "r2");
         assert_eq!(resources[1].access_mode, "exclusive");
     }

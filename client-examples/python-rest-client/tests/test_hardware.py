@@ -564,13 +564,13 @@ async def test_22a_lock_unlock_resource(
 
     # Lock it.
     locked = await client.lock_resource(resource_id, user_id)
-    assert locked["state"] == "In Use (Locked)"
+    assert locked["state"] == "in_use_locked"
     assert locked.get("locked_by") == user_id
     logger.info(f"Locked: {resource_id}")
 
     # Unlock it.
     unlocked = await client.unlock_resource(resource_id, user_id)
-    assert unlocked["state"] == "In Use (Shared)"
+    assert unlocked["state"] == "in_use_shared"
     logger.info(f"Unlocked: {resource_id}")
 
     # Release it.

@@ -56,11 +56,17 @@ class OkFpgaRestClient:
         """Close the underlying HTTP client."""
         await self._client.aclose()
 
-    async def _get(self, path: str) -> Any:
+    async def _get(self, path: str, **kwargs: Any) -> Any:
         """GET request, return parsed JSON."""
-        resp = await self._client.get(path)
+        resp = await self._client.get(path, **kwargs)
         resp.raise_for_status()
         return resp.json()
+
+    async def _get_bytes(self, path: str, **kwargs: Any) -> bytes:
+        """GET request returning raw binary bytes (S-05)."""
+        resp = await self._client.get(path, **kwargs)
+        resp.raise_for_status()
+        return resp.content
 
     async def _post(self, path: str, json: Any = None, **kwargs: Any) -> Any:
         """POST request with optional JSON body, return parsed JSON."""
@@ -185,19 +191,26 @@ class OkFpgaRestClient:
     # ========================================================================
 
     async def set_wire_in(self, serial: str, endpoint: int, value: int,
-                          mask: Optional[int] = None) -> dict:
-        """PUT /devices/{serial}/classic/wires/in — Set WireIn value.
-
-        This is a PUT (idempotent state assignment per ADR-015).
-        """
-        body: dict[str, Any] = {"endpoint": endpoint, "value": value}
+                          mask: Optional[int] = None,
+                          auto_update: bool = True) -> dict:
+        """PUT /devices/{serial}/classic/wires/in — Set WireIn value (S-07)."""
+        body: dict[str, Any] = {
+            "endpoint": endpoint,
+            "value": value,
+            "auto_update": auto_update,
+        }
         if mask is not None:
             body["mask"] = mask
         return await self._put(f"/devices/{serial}/classic/wires/in", json=body)
 
-    async def get_wire_out(self, serial: str) -> dict:
-        """GET /devices/{serial}/classic/wires/out — Read WireOut values."""
-        return await self._get(f"/devices/{serial}/classic/wires/out")
+    async def get_wire_out(
+        self, serial: str, endpoint: int = 0x20, update: bool = True
+    ) -> dict:
+        """GET /devices/{serial}/classic/wires/out?endpoint=N — Read single WireOut value."""
+        return await self._get(
+            f"/devices/{serial}/classic/wires/out",
+            params={"endpoint": endpoint, "update": str(update).lower()},
+        )
 
     async def activate_trigger_in(self, serial: str, endpoint: int, bit: int) -> dict:
         """POST /devices/{serial}/classic/triggers/in — Activate TriggerIn."""
@@ -206,55 +219,69 @@ class OkFpgaRestClient:
             json={"endpoint": endpoint, "bit": bit},
         )
 
-    async def get_trigger_out(self, serial: str) -> dict:
-        """GET /devices/{serial}/classic/triggers/out — Read TriggerOut."""
-        return await self._get(f"/devices/{serial}/classic/triggers/out")
-
-    async def write_pipe_in(self, serial: str, endpoint: int, data: bytes) -> dict:
-        """POST /devices/{serial}/classic/pipes/in — Write to PipeIn."""
-        return await self._post(
-            f"/devices/{serial}/classic/pipes/in",
-            json={"endpoint": endpoint, "data": list(data)},
+    async def get_trigger_out(
+        self, serial: str, endpoint: int = 0x60, mask: int = 0, update: bool = True
+    ) -> dict:
+        """GET /devices/{serial}/classic/triggers/out?endpoint=N — Read single TriggerOut."""
+        return await self._get(
+            f"/devices/{serial}/classic/triggers/out",
+            params={"endpoint": endpoint, "mask": mask, "update": str(update).lower()},
         )
 
-    async def read_pipe_out(self, serial: str, endpoint: int, length: int) -> dict:
-        """POST /devices/{serial}/classic/pipes/out — Read from PipeOut."""
+    async def write_pipe_in(self, serial: str, endpoint: int, data: bytes) -> dict:
+        """POST /devices/{serial}/classic/pipes/in?endpoint=N — Write raw binary bytes to PipeIn (S-05)."""
         return await self._post(
+            f"/devices/{serial}/classic/pipes/in",
+            params={"endpoint": endpoint},
+            content=data,
+            headers={"Content-Type": "application/octet-stream"},
+        )
+
+    async def read_pipe_out(self, serial: str, endpoint: int, length: int) -> bytes:
+        """GET /devices/{serial}/classic/pipes/out?endpoint=N&length=L — Read raw binary bytes from PipeOut (S-05)."""
+        return await self._get_bytes(
             f"/devices/{serial}/classic/pipes/out",
-            json={"endpoint": endpoint, "length": length},
+            params={"endpoint": endpoint, "length": length},
         )
 
     async def write_block_pipe_in(self, serial: str, endpoint: int,
                                    data: bytes, block_size: int) -> dict:
-        """POST /devices/{serial}/classic/pipes/block-in — Write to BlockPipeIn."""
+        """POST /devices/{serial}/classic/pipes/block-in?endpoint=N&block_size=B — Write to BlockPipeIn (S-05)."""
         return await self._post(
             f"/devices/{serial}/classic/pipes/block-in",
-            json={"endpoint": endpoint, "data": list(data), "block_size": block_size},
+            params={"endpoint": endpoint, "block_size": block_size},
+            content=data,
+            headers={"Content-Type": "application/octet-stream"},
         )
 
     async def read_block_pipe_out(self, serial: str, endpoint: int,
-                                   length: int, block_size: int) -> dict:
-        """POST /devices/{serial}/classic/pipes/block-out — Read from BlockPipeOut."""
-        return await self._post(
+                                   length: int, block_size: int) -> bytes:
+        """GET /devices/{serial}/classic/pipes/block-out?endpoint=N&block_size=B&length=L — Read from BlockPipeOut (S-05)."""
+        return await self._get_bytes(
             f"/devices/{serial}/classic/pipes/block-out",
-            json={"endpoint": endpoint, "length": length, "block_size": block_size},
+            params={"endpoint": endpoint, "block_size": block_size, "length": length},
         )
 
     async def read_register(self, serial: str, address: int) -> dict:
-        """POST /devices/{serial}/classic/registers/read — Read register."""
+        """POST /devices/{serial}/classic/registers/read — Read register (delegates to bulk endpoint, S-06)."""
+        return await self.read_registers(serial, [address])
+
+    async def read_registers(self, serial: str, addresses: list[int]) -> dict:
+        """POST /devices/{serial}/classic/registers/read — Bulk read registers (S-06)."""
         return await self._post(
             f"/devices/{serial}/classic/registers/read",
-            json={"address": address},
+            json={"addresses": addresses},
         )
 
     async def write_register(self, serial: str, address: int, value: int) -> dict:
-        """PUT /devices/{serial}/classic/registers/write — Write register.
+        """PUT /devices/{serial}/classic/registers/write — Write register (delegates to bulk endpoint, S-06)."""
+        return await self.write_registers(serial, [{"address": address, "data": value}])
 
-        This is a PUT (idempotent state assignment per ADR-015).
-        """
+    async def write_registers(self, serial: str, entries: list[dict[str, int]]) -> dict:
+        """PUT /devices/{serial}/classic/registers/write — Bulk write registers (S-06)."""
         return await self._put(
             f"/devices/{serial}/classic/registers/write",
-            json={"address": address, "value": value},
+            json={"entries": entries},
         )
 
     async def classic_reset(self, serial: str) -> dict:
@@ -333,12 +360,17 @@ class OkFpgaRestClient:
         """GET /resources/{resource_id} — Get resource details."""
         return await self._get(f"/resources/{resource_id}")
 
-    async def acquire_resource(self, resource_id: str, mode: str, user_id: str) -> dict:
-        """POST /resources/{resource_id}/acquire — Acquire a resource."""
+    async def acquire_resource(
+        self, resource_id: str, mode: Optional[str], user_id: str
+    ) -> dict:
+        """POST /resources/{resource_id}/acquire — Acquire a resource (S-03)."""
+        body: dict[str, Any] = {}
+        if mode is not None:
+            body["mode"] = mode
         return await self._post_with_user(
             f"/resources/{resource_id}/acquire",
             user_id,
-            json={"mode": mode},
+            json=body,
         )
 
     async def release_resource(self, resource_id: str, user_id: str) -> dict:
@@ -353,19 +385,22 @@ class OkFpgaRestClient:
         device_serial: str,
         access_mode: str = "shared",
         description: Optional[str] = None,
+        interfaces: Optional[list[str]] = None,
     ) -> dict:
-        """POST /resources — Create a new resource (ADR-020).
+        """POST /resources — Create a new resource (ADR-020 / ADR-034).
 
         Args:
             name: Human-readable resource name (e.g., "xem7320-classic-counters").
             device_serial: Serial of the FPGA providing this resource.
             access_mode: "shared" or "exclusive" (design-level constraint).
             description: Optional description of the resource.
+            interfaces: Data-path interfaces (defaults to ``["classic"]``).
         """
         body: dict[str, Any] = {
             "name": name,
             "device_serial": device_serial,
             "access_mode": access_mode,
+            "interfaces": interfaces if interfaces is not None else ["classic"],
         }
         if description is not None:
             body["description"] = description

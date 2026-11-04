@@ -243,6 +243,7 @@ impl OkFpgaGrpcClient {
             .get_wire_out_value(okfpga::v1::GetWireValueRequest {
                 serial: serial.to_string(),
                 endpoint,
+                update: Some(true),
             })
             .await
     }
@@ -269,6 +270,7 @@ impl OkFpgaGrpcClient {
             .get_trigger_out_vector(okfpga::v1::TriggerOutVectorRequest {
                 serial: serial.to_string(),
                 endpoint,
+                update: Some(true),
             })
             .await
     }
@@ -355,7 +357,7 @@ impl OkFpgaGrpcClient {
     // Resource Management (ADR-020)
     // ========================================================================
 
-    /// Create a new resource for a programmed FPGA.
+    /// Create a new resource for a programmed FPGA (ADR-020 / ADR-034).
     pub async fn create_resource(
         &mut self,
         name: &str,
@@ -363,13 +365,21 @@ impl OkFpgaGrpcClient {
         description: &str,
         access_mode: &str,
     ) -> Result<tonic::Response<okfpga::v1::ResourceResponse>, tonic::Status> {
+        let mode_enum = match access_mode {
+            "exclusive" => okfpga::v1::ResourceAccessMode::Exclusive as i32,
+            _ => okfpga::v1::ResourceAccessMode::Shared as i32,
+        };
         self.device
             .create_resource(okfpga::v1::CreateResourceRequest {
                 name: name.to_string(),
                 device_serial: device_serial.to_string(),
                 description: description.to_string(),
-                resource_type: access_mode.to_string(),
-                capabilities: vec![],
+                access_mode: Some(mode_enum),
+                interfaces: vec!["classic".to_string()],
+                endpoints: None,
+                address_ranges: vec![],
+                metadata: std::collections::HashMap::new(),
+                private: false,
             })
             .await
     }

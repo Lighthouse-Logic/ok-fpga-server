@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "okfpga-grpc-client"
-version = "0.1.0"
+version = "0.1.1"
 description = "Example Python gRPC client for ok-FPGA-Server"
 authors = [{ name = "Lighthouse Logic" }]
 license = { text = "MIT" }

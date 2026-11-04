@@ -243,9 +243,10 @@ class CountersClient:
                           {"endpoint": endpoint, "bit": bit})
 
     def get_trigger_out_vector(self, serial: str, endpoint: int) -> int:
-        """GET /devices/{serial}/classic/triggers/out?endpoint={ep} — server calls UpdateTriggerOuts implicitly."""
+        """GET /devices/{serial}/classic/triggers/out?endpoint={ep}."""
         data = self._get(f"/devices/{serial}/classic/triggers/out?endpoint={endpoint}")
-        return (data or {}).get("value", 0)
+        d = data or {}
+        return d.get("vector", d.get("value", 0))
 
     # --- Combined Poll ---
 
@@ -279,6 +280,14 @@ class CountersClient:
         """
         return self._get(f"/devices/{serial}")
 
+    @staticmethod
+    def _normalize_holders(holders_raw: list) -> list[str]:
+        """Extract user_id strings from ADR-034 Holder objects or legacy strings."""
+        return [
+            h.get("user_id", "") if isinstance(h, dict) else str(h)
+            for h in (holders_raw or [])
+        ]
+
     def list_resources(self) -> list:
         """``GET /resources`` — list all resources across all devices.
 
@@ -292,17 +301,18 @@ class CountersClient:
             name=r.get("name", ""),
             device_serial=r.get("device_serial", ""),
             access_mode=r.get("access_mode", ""),
-            holders=r.get("holders", []),
+            holders=self._normalize_holders(r.get("holders", [])),
             locked_by=r.get("locked_by"),
         ) for r in resources_list]
 
 
     def create_resource(self, name: str, device_serial: str, resource_type: str = "shared") -> ResourceInfo:
-        """Phase 34-E: resource_type can be 'shared' or 'exclusive'."""
+        """Phase 34-E / ADR-034: resource_type can be 'shared' or 'exclusive'."""
         data = self._post("/resources", {
             "name": name,
             "device_serial": device_serial,
             "access_mode": resource_type,
+            "interfaces": ["classic"],
             "description": "Counters.bit hardware test resource",
         })
         return ResourceInfo(
@@ -310,7 +320,7 @@ class CountersClient:
             name=data.get("name", name),
             device_serial=data.get("device_serial", device_serial),
             access_mode=data.get("access_mode", resource_type),
-            holders=data.get("holders", []),
+            holders=self._normalize_holders(data.get("holders", [])),
             locked_by=data.get("locked_by"),
         )
 
@@ -338,7 +348,7 @@ class CountersClient:
             name=data.get("name", ""),
             device_serial=data.get("device_serial", ""),
             access_mode=data.get("access_mode", ""),
-            holders=data.get("holders", []),
+            holders=self._normalize_holders(data.get("holders", [])),
             locked_by=data.get("locked_by"),
         )
 

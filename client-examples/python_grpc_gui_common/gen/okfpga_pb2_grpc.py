@@ -5,7 +5,7 @@ import warnings
 
 import okfpga_pb2 as okfpga__pb2
 
-GRPC_GENERATED_VERSION = '1.83.0'
+GRPC_GENERATED_VERSION = '1.85.1'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -32,6 +32,19 @@ class DeviceServiceStub:
 
     DeviceService handles device discovery, configuration, and monitoring.
     It corresponds to the FrontPanel device-level operations (not data port ops).
+
+    Caller identity (ADR-029, ADR-034 P8): every resource RPC requires the
+    `x-user-id` metadata header (or the request's `user_id` field where one
+    exists).
+
+    Status mapping for resource RPCs (ADR-034 P7), matching REST:
+    REST 404 -> NOT_FOUND            (unknown resource / device)
+    REST 409 -> FAILED_PRECONDITION  (overlap, locked, blocked,
+    mode_mismatch, private, duplicate name,
+    device not programmed, held on delete)
+    REST 422 -> INVALID_ARGUMENT     (invalid declaration or mode)
+    When a D73 code applies, the error details carry a
+    ResourceConflictDetail (see that message).
     --- Enumeration ---
     """
 
@@ -220,6 +233,19 @@ class DeviceServiceServicer:
 
     DeviceService handles device discovery, configuration, and monitoring.
     It corresponds to the FrontPanel device-level operations (not data port ops).
+
+    Caller identity (ADR-029, ADR-034 P8): every resource RPC requires the
+    `x-user-id` metadata header (or the request's `user_id` field where one
+    exists).
+
+    Status mapping for resource RPCs (ADR-034 P7), matching REST:
+    REST 404 -> NOT_FOUND            (unknown resource / device)
+    REST 409 -> FAILED_PRECONDITION  (overlap, locked, blocked,
+    mode_mismatch, private, duplicate name,
+    device not programmed, held on delete)
+    REST 422 -> INVALID_ARGUMENT     (invalid declaration or mode)
+    When a D73 code applies, the error details carry a
+    ResourceConflictDetail (see that message).
     --- Enumeration ---
     """
 
@@ -280,6 +306,11 @@ class DeviceServiceServicer:
         """--- FPGA Configuration ---
 
         Program the FPGA with a bitfile from the server's filesystem.
+        Forced override (ADR-034, D26): unlocks all locked resources on the
+        device (ResourceUnlocked), releases all holders, and deletes all
+        existing resources (ResourceDeleted with DELETE_REASON_REPROGRAM)
+        before programming. If the FFI transfer fails, the device state
+        transitions to Connected (unprogrammed).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -287,6 +318,8 @@ class DeviceServiceServicer:
 
     def ConfigureFPGAFromMemory(self, request_iterator, context):
         """Program the FPGA with a bitfile streamed from the client in chunks.
+        Forced override (ADR-034, D26): same forced cleanup semantics as
+        ConfigureFPGA (DELETE_REASON_REPROGRAM).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -294,6 +327,10 @@ class DeviceServiceServicer:
 
     def ClearFPGAConfiguration(self, request, context):
         """Clear the current FPGA configuration (un-program the FPGA).
+        Forced override (ADR-034, D26, P12): unlocks all locked resources on the
+        device (ResourceUnlocked), releases all holders, and deletes all
+        existing resources (ResourceDeleted with DELETE_REASON_CLEAR) before
+        clearing the FPGA configuration.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -419,15 +456,19 @@ class DeviceServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def DeleteResource(self, request, context):
-        """Delete a resource definition.
-        Returns an error if the resource is currently held by any user.
+        """Delete a resource definition (client-initiated, DELETE_REASON_CLIENT).
+        Returns FAILED_PRECONDITION if the resource is currently held by any
+        user. By contrast, ConfigureFPGA*, ClearFPGAConfiguration, and device
+        disconnect perform forced cleanup (D26, P11) regardless of holders,
+        emitting ResourceDeleted with DELETE_REASON_REPROGRAM,
+        DELETE_REASON_CLEAR, or DELETE_REASON_DEVICE_REMOVED.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def AcquireResource(self, request, context):
-        """Acquire a resource in shared or exclusive mode.
+        """Acquire a resource in shared, exclusive, or read-only mode (ADR-026).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -442,6 +483,7 @@ class DeviceServiceServicer:
 
     def LockResource(self, request, context):
         """Lock a shared resource for exclusive use by a holder (ADR-020 §3).
+        Returns the updated resource (ADR-034 P10).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -449,6 +491,7 @@ class DeviceServiceServicer:
 
     def UnlockResource(self, request, context):
         """Unlock a previously locked shared resource (ADR-020 §3).
+        Returns the updated resource (ADR-034 P10).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -474,7 +517,8 @@ class DeviceServiceServicer:
         """--- Heartbeat ---
 
         Heartbeat / liveness ping (ADR-020 §5).
-        Clients should call this periodically to keep their session alive.
+        Clients should call this at least every 24 seconds while idle to keep
+        their session alive (default timeout 60 s, `user_timeout_secs`).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -678,6 +722,19 @@ class DeviceService:
 
     DeviceService handles device discovery, configuration, and monitoring.
     It corresponds to the FrontPanel device-level operations (not data port ops).
+
+    Caller identity (ADR-029, ADR-034 P8): every resource RPC requires the
+    `x-user-id` metadata header (or the request's `user_id` field where one
+    exists).
+
+    Status mapping for resource RPCs (ADR-034 P7), matching REST:
+    REST 404 -> NOT_FOUND            (unknown resource / device)
+    REST 409 -> FAILED_PRECONDITION  (overlap, locked, blocked,
+    mode_mismatch, private, duplicate name,
+    device not programmed, held on delete)
+    REST 422 -> INVALID_ARGUMENT     (invalid declaration or mode)
+    When a D73 code applies, the error details carry a
+    ResourceConflictDetail (see that message).
     --- Enumeration ---
     """
 
@@ -1720,7 +1777,9 @@ class ClassicDataPortServiceServicer:
     """
 
     def ResetFPGA(self, request, context):
-        """Reset the FPGA (equivalent to pressing the reset button).
+        """Reset the FPGA (equivalent to pressing the reset button). Changes
+        user-logic state, so it counts as a write: the caller must hold a
+        resource on the device in a mode other than ReadOnly (D66, D75).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -1750,14 +1809,19 @@ class ClassicDataPortServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def GetWireOutValue(self, request, context):
-        """Get the current value of a WireOut endpoint (from last UpdateWireOuts).
+        """Get the value of a WireOut endpoint from the snapshot taken by the last
+        UpdateWireOuts (by any client; one snapshot per device). Set
+        `update = true` to refresh the snapshot first under the same device
+        lock (ADR-034 §9, D76).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def UpdateWireOuts(self, request, context):
-        """Read all WireOut values from the FPGA into the local cache.
+        """Read all WireOut values from the FPGA into the device snapshot.
+        Allowed for ReadOnly holders: it only samples the WireOut inputs and is
+        invisible to user logic (D75).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -1773,21 +1837,32 @@ class ClassicDataPortServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def UpdateTriggerOuts(self, request, context):
-        """Read all TriggerOut values from the FPGA.
+        """Read every TriggerOut latch from the FPGA into the device snapshot
+        (Opal Kelly: "determine if any TriggerOuts have been activated since the
+        last call"). This clears the latches of EVERY TriggerOut on the device,
+        so a trigger another client has not read yet is lost to it. Coordinate
+        trigger reads between clients (lock, exclusive resource) or mark
+        TriggerOuts private. Denied to ReadOnly holders when any resource on
+        the device declares a private TriggerOut (D75). A future server-side
+        TriggerOut event log may improve this (roadmap, Later).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def IsTriggered(self, request, context):
-        """Check if specific trigger bits have fired on a TriggerOut endpoint.
+        """Check trigger bits on one TriggerOut endpoint in the snapshot taken by
+        the last UpdateTriggerOuts (by any client). Set `update = true` to
+        refresh first (ADR-034 §9, D76). A client cannot tell from this call
+        how many updates happened since its own previous read.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def GetTriggerOutVector(self, request, context):
-        """Get the full trigger vector for a TriggerOut endpoint.
+        """Get the full trigger vector of one TriggerOut endpoint from the
+        snapshot (same snapshot rules as IsTriggered).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')

@@ -122,6 +122,36 @@ impl OkFpgaRestClient {
         Ok(resp.json().await?)
     }
 
+    /// Internal helper: perform a GET request returning raw binary bytes (S-05).
+    async fn get_bytes(&self, path: &str) -> Result<Vec<u8>, ClientError> {
+        let url = format!("{}{}", self.base_url, path);
+        let resp = self.client.get(&url).send().await?;
+        let status = resp.status().as_u16();
+        if status >= 400 {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ClientError::Server { status, body });
+        }
+        Ok(resp.bytes().await?.to_vec())
+    }
+
+    /// Internal helper: perform a POST request with an `application/octet-stream` body (S-05).
+    async fn post_bytes(&self, path: &str, data: &[u8]) -> Result<Value, ClientError> {
+        let url = format!("{}{}", self.base_url, path);
+        let resp = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/octet-stream")
+            .body(data.to_vec())
+            .send()
+            .await?;
+        let status = resp.status().as_u16();
+        if status >= 400 {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ClientError::Server { status, body });
+        }
+        Ok(resp.json().await?)
+    }
+
     /// Internal helper: perform a DELETE request.
     async fn delete_req(&self, path: &str) -> Result<(), ClientError> {
         let url = format!("{}{}", self.base_url, path);
@@ -274,9 +304,13 @@ impl OkFpgaRestClient {
         self.put(&format!("/devices/{}/classic/wires/in", serial), body).await
     }
 
-    /// `GET /devices/{serial}/classic/wires/out` — Read WireOut values.
-    pub async fn get_wire_out(&self, serial: &str) -> Result<Value, ClientError> {
-        self.get(&format!("/devices/{}/classic/wires/out", serial)).await
+    /// `GET /devices/{serial}/classic/wires/out?endpoint={endpoint}&update=true` — Read a single WireOut value.
+    pub async fn get_wire_out(&self, serial: &str, endpoint: u8) -> Result<Value, ClientError> {
+        self.get(&format!(
+            "/devices/{}/classic/wires/out?endpoint={}&update=true",
+            serial, endpoint
+        ))
+        .await
     }
 
     /// `POST /devices/{serial}/classic/triggers/in` — Activate a TriggerIn.
@@ -290,40 +324,44 @@ impl OkFpgaRestClient {
         self.post(&format!("/devices/{}/classic/triggers/in", serial), Some(body)).await
     }
 
-    /// `GET /devices/{serial}/classic/triggers/out` — Read TriggerOut values.
-    pub async fn get_trigger_out(&self, serial: &str) -> Result<Value, ClientError> {
-        self.get(&format!("/devices/{}/classic/triggers/out", serial)).await
+    /// `GET /devices/{serial}/classic/triggers/out?endpoint={endpoint}&update=true` — Read a single TriggerOut value.
+    pub async fn get_trigger_out(&self, serial: &str, endpoint: u8) -> Result<Value, ClientError> {
+        self.get(&format!(
+            "/devices/{}/classic/triggers/out?endpoint={}&update=true",
+            serial, endpoint
+        ))
+        .await
     }
 
-    /// `POST /devices/{serial}/classic/pipes/in` — Write data to PipeIn.
+    /// `POST /devices/{serial}/classic/pipes/in?endpoint={endpoint}` — Write raw binary data to PipeIn (S-05).
     pub async fn write_pipe_in(
         &self,
         serial: &str,
         endpoint: u8,
         data: &[u8],
     ) -> Result<Value, ClientError> {
-        let body = serde_json::json!({
-            "endpoint": endpoint,
-            "data": data,
-        });
-        self.post(&format!("/devices/{}/classic/pipes/in", serial), Some(body)).await
+        self.post_bytes(
+            &format!("/devices/{}/classic/pipes/in?endpoint={}", serial, endpoint),
+            data,
+        )
+        .await
     }
 
-    /// `POST /devices/{serial}/classic/pipes/out` — Read data from PipeOut.
+    /// `GET /devices/{serial}/classic/pipes/out?endpoint={endpoint}&length={length}` — Read raw binary data from PipeOut (S-05).
     pub async fn read_pipe_out(
         &self,
         serial: &str,
         endpoint: u8,
         length: u32,
-    ) -> Result<Value, ClientError> {
-        let body = serde_json::json!({
-            "endpoint": endpoint,
-            "length": length,
-        });
-        self.post(&format!("/devices/{}/classic/pipes/out", serial), Some(body)).await
+    ) -> Result<Vec<u8>, ClientError> {
+        self.get_bytes(&format!(
+            "/devices/{}/classic/pipes/out?endpoint={}&length={}",
+            serial, endpoint, length
+        ))
+        .await
     }
 
-    /// `POST /devices/{serial}/classic/pipes/block-in` — Write to BlockPipeIn.
+    /// `POST /devices/{serial}/classic/pipes/block-in?endpoint={endpoint}&block_size={block_size}` — Write raw binary data to BlockPipeIn (S-05).
     pub async fn write_block_pipe_in(
         &self,
         serial: &str,
@@ -331,50 +369,71 @@ impl OkFpgaRestClient {
         data: &[u8],
         block_size: u32,
     ) -> Result<Value, ClientError> {
-        let body = serde_json::json!({
-            "endpoint": endpoint,
-            "data": data,
-            "block_size": block_size,
-        });
-        self.post(&format!("/devices/{}/classic/pipes/block-in", serial), Some(body)).await
+        self.post_bytes(
+            &format!(
+                "/devices/{}/classic/pipes/block-in?endpoint={}&block_size={}",
+                serial, endpoint, block_size
+            ),
+            data,
+        )
+        .await
     }
 
-    /// `POST /devices/{serial}/classic/pipes/block-out` — Read from BlockPipeOut.
+    /// `GET /devices/{serial}/classic/pipes/block-out?endpoint={endpoint}&block_size={block_size}&length={length}` — Read raw binary data from BlockPipeOut (S-05).
     pub async fn read_block_pipe_out(
         &self,
         serial: &str,
         endpoint: u8,
         length: u32,
         block_size: u32,
-    ) -> Result<Value, ClientError> {
-        let body = serde_json::json!({
-            "endpoint": endpoint,
-            "length": length,
-            "block_size": block_size,
-        });
-        self.post(&format!("/devices/{}/classic/pipes/block-out", serial), Some(body)).await
+    ) -> Result<Vec<u8>, ClientError> {
+        self.get_bytes(&format!(
+            "/devices/{}/classic/pipes/block-out?endpoint={}&block_size={}&length={}",
+            serial, endpoint, block_size, length
+        ))
+        .await
     }
 
-    /// `POST /devices/{serial}/classic/registers/read` — Read registers.
+    /// `POST /devices/{serial}/classic/registers/read` — Read a single register (delegates to bulk endpoint, S-06).
     pub async fn read_register(
         &self,
         serial: &str,
         address: u32,
     ) -> Result<Value, ClientError> {
-        let body = serde_json::json!({ "address": address });
+        self.read_registers(serial, &[address]).await
+    }
+
+    /// `POST /devices/{serial}/classic/registers/read` — Bulk read registers (S-06).
+    pub async fn read_registers(
+        &self,
+        serial: &str,
+        addresses: &[u32],
+    ) -> Result<Value, ClientError> {
+        let body = serde_json::json!({ "addresses": addresses });
         self.post(&format!("/devices/{}/classic/registers/read", serial), Some(body)).await
     }
 
-    /// `PUT /devices/{serial}/classic/registers/write` — Write registers.
-    ///
-    /// This is a PUT (idempotent state assignment per ADR-015).
+    /// `PUT /devices/{serial}/classic/registers/write` — Write a single register (delegates to bulk endpoint, S-06).
     pub async fn write_register(
         &self,
         serial: &str,
         address: u32,
-        value: u32,
+        data: u32,
     ) -> Result<Value, ClientError> {
-        let body = serde_json::json!({ "address": address, "value": value });
+        self.write_registers(serial, &[(address, data)]).await
+    }
+
+    /// `PUT /devices/{serial}/classic/registers/write` — Bulk write registers (S-06).
+    pub async fn write_registers(
+        &self,
+        serial: &str,
+        entries: &[(u32, u32)],
+    ) -> Result<Value, ClientError> {
+        let entry_objs: Vec<Value> = entries
+            .iter()
+            .map(|&(address, data)| serde_json::json!({ "address": address, "data": data }))
+            .collect();
+        let body = serde_json::json!({ "entries": entry_objs });
         self.put(&format!("/devices/{}/classic/registers/write", serial), body).await
     }
 
@@ -516,7 +575,7 @@ impl OkFpgaRestClient {
         self.post(&format!("/resources/{}/release", resource_id), Some(body)).await
     }
 
-    /// `POST /resources` — Create a new resource (ADR-020).
+    /// `POST /resources` — Create a new resource (ADR-020 / ADR-034).
     ///
     /// # Arguments
     /// * `name` — Human-readable resource name
@@ -534,6 +593,7 @@ impl OkFpgaRestClient {
             "name": name,
             "device_serial": device_serial,
             "access_mode": access_mode,
+            "interfaces": ["classic"],
         });
         if let Some(desc) = description {
             body["description"] = serde_json::json!(desc);

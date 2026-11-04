@@ -189,7 +189,7 @@ async fn test_07_classic_reset_counter1() {
     }
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let result = client.get_wire_out(&serial).await.expect("wire out");
+    let result = client.get_wire_out(&serial, 0x20).await.expect("wire out");
     println!("WireOut after reset: {}", result);
 }
 
@@ -206,9 +206,9 @@ async fn test_08_classic_disable_counter1() {
     }
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let val1 = client.get_wire_out(&serial).await.expect("wire out 1");
+    let val1 = client.get_wire_out(&serial, 0x20).await.expect("wire out 1");
     tokio::time::sleep(Duration::from_millis(100)).await;
-    let val2 = client.get_wire_out(&serial).await.expect("wire out 2");
+    let val2 = client.get_wire_out(&serial, 0x20).await.expect("wire out 2");
     println!("Disabled: val1={}, val2={}", val1, val2);
 }
 
@@ -225,9 +225,9 @@ async fn test_09_classic_free_running_counter1() {
     }
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    let val1 = client.get_wire_out(&serial).await.expect("wire out 1");
+    let val1 = client.get_wire_out(&serial, 0x20).await.expect("wire out 1");
     tokio::time::sleep(Duration::from_millis(200)).await;
-    let val2 = client.get_wire_out(&serial).await.expect("wire out 2");
+    let val2 = client.get_wire_out(&serial, 0x20).await.expect("wire out 2");
     println!("Free-running: val1={}, val2={}", val1, val2);
 }
 
@@ -268,7 +268,7 @@ async fn test_11_classic_trigger_count_up() {
     }
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let result = client.get_wire_out(&serial).await.expect("wire out");
+    let result = client.get_wire_out(&serial, 0x21).await.expect("wire out");
     println!("After 5 count-ups: {}", result);
 }
 
@@ -291,7 +291,7 @@ async fn test_12_classic_trigger_count_down() {
     }
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let result = client.get_wire_out(&serial).await.expect("wire out");
+    let result = client.get_wire_out(&serial, 0x21).await.expect("wire out");
     println!("After 10 up + 3 down: {}", result);
 }
 
@@ -300,7 +300,7 @@ async fn test_12_classic_trigger_count_down() {
 async fn test_13_classic_trigger_out() {
     let (client, serial) = setup_programmed_device().await;
 
-    match client.get_trigger_out(&serial).await {
+    match client.get_trigger_out(&serial, 0x60).await {
         Ok(result) => println!("TriggerOut: {}", result),
         Err(e) if is_expected_skip(&e) => println!("SKIP"),
         Err(e) => panic!("{}", e),
@@ -428,7 +428,7 @@ async fn test_20a_lock_unlock_resource() {
     let user_id = "integration-test-user";
 
     // Acquire the resource first.
-    match client.acquire_resource(&resource_id, user_id, "shared").await {
+    match client.acquire_resource(&resource_id, "shared", user_id).await {
         Ok(r) => println!("Acquired: {}", r),
         Err(e) if is_expected_skip(&e) => { println!("SKIP"); return; },
         Err(e) => { println!("Acquire failed (may be already held): {}", e); }
@@ -438,7 +438,7 @@ async fn test_20a_lock_unlock_resource() {
     match client.lock_resource(&resource_id, user_id).await {
         Ok(r) => {
             println!("Locked: {}", r);
-            assert_eq!(r["state"].as_str(), Some("In Use (Locked)"));
+            assert_eq!(r["state"].as_str(), Some("in_use_locked"));
             assert_eq!(r["locked_by"].as_str(), Some(user_id));
         }
         Err(e) if is_expected_skip(&e) => { println!("SKIP"); return; },
@@ -449,7 +449,7 @@ async fn test_20a_lock_unlock_resource() {
     match client.unlock_resource(&resource_id, user_id).await {
         Ok(r) => {
             println!("Unlocked: {}", r);
-            assert_eq!(r["state"].as_str(), Some("In Use (Shared)"));
+            assert_eq!(r["state"].as_str(), Some("in_use_shared"));
         }
         Err(e) if is_expected_skip(&e) => println!("SKIP"),
         Err(e) => panic!("Unlock failed: {}", e),

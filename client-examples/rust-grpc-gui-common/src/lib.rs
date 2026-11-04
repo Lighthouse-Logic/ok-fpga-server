@@ -247,14 +247,7 @@ impl CountersGrpcClient {
             .into_inner()
             .resources
             .into_iter()
-            .map(|r| ResourceInfo {
-                id: r.id,
-                name: r.name,
-                device_serial: r.device_serial,
-                access_mode: "shared".to_string(),
-                holders: r.holders,
-                locked_by: None,
-            })
+            .map(Self::resource_from_proto)
             .collect();
         Ok(resources)
     }
@@ -357,6 +350,7 @@ impl CountersGrpcClient {
             .get_wire_out_value(self.req(okfpga::v1::GetWireValueRequest {
                 serial: serial.to_string(),
                 endpoint,
+                update: None,
             }))
             .await?;
         Ok(resp.into_inner().value)
@@ -384,6 +378,7 @@ impl CountersGrpcClient {
             .get_trigger_out_vector(self.req(okfpga::v1::TriggerOutVectorRequest {
                 serial: serial.to_string(),
                 endpoint,
+                update: None,
             }))
             .await?;
         // Field is `vector` in the proto, not `value`.
@@ -422,18 +417,27 @@ impl CountersGrpcClient {
     // Resource Management
     // ========================================================================
 
+    /// Helper to convert a proto `Resource` into `ResourceInfo` (ADR-034).
+    fn resource_from_proto(r: okfpga::v1::Resource) -> ResourceInfo {
+        let access_mode = if r.access_mode == Some(okfpga::v1::ResourceAccessMode::Exclusive as i32) {
+            "exclusive".to_string()
+        } else {
+            "shared".to_string()
+        };
+        ResourceInfo {
+            id: r.id,
+            name: r.name,
+            device_serial: r.device_serial,
+            access_mode,
+            holders: r.holders.into_iter().map(|h| h.user_id).collect(),
+            locked_by: if r.locked_by.is_empty() { None } else { Some(r.locked_by) },
+        }
+    }
+
     /// Helper to extract ResourceInfo from a ResourceResponse.
     fn resource_from_response(resp: okfpga::v1::ResourceResponse) -> ResourceInfo {
         if let Some(r) = resp.resource {
-            ResourceInfo {
-                id: r.id,
-                name: r.name,
-                device_serial: r.device_serial,
-                access_mode: "shared".to_string(), // Not in proto; inferred.
-                holders: r.holders,
-                // Phase 34-A: Read locked_by from proto (empty string → None).
-                locked_by: if r.locked_by.is_empty() { None } else { Some(r.locked_by) },
-            }
+            Self::resource_from_proto(r)
         } else {
             ResourceInfo {
                 id: String::new(),
@@ -446,17 +450,26 @@ impl CountersGrpcClient {
         }
     }
 
-    /// Phase 34-E: `resource_type` parameter allows the caller to choose
+    /// Phase 34-E / ADR-034: `resource_type` parameter allows the caller to choose
     /// "shared" or "exclusive" when creating a resource.
     pub async fn create_resource(&mut self, name: &str, device_serial: &str, resource_type: &str) -> Result<ResourceInfo, ClientError> {
+        let mode_enum = if resource_type == "exclusive" {
+            okfpga::v1::ResourceAccessMode::Exclusive as i32
+        } else {
+            okfpga::v1::ResourceAccessMode::Shared as i32
+        };
         let resp = self
             .device
             .create_resource(self.req(okfpga::v1::CreateResourceRequest {
                 name: name.to_string(),
                 device_serial: device_serial.to_string(),
                 description: "Counters.bit hardware test resource".to_string(),
-                resource_type: resource_type.to_string(),
-                capabilities: vec![],
+                access_mode: Some(mode_enum),
+                interfaces: vec!["classic".to_string()],
+                endpoints: None,
+                address_ranges: vec![],
+                metadata: std::collections::HashMap::new(),
+                private: false,
             }))
             .await?;
         Ok(Self::resource_from_response(resp.into_inner()))
@@ -467,7 +480,7 @@ impl CountersGrpcClient {
             .acquire_resource(self.req(okfpga::v1::AcquireResourceRequest {
                 resource_id: resource_id.to_string(),
                 user_id: self.user_id.clone(),
-                mode: 0, // ACCESS_MODE_SHARED
+                mode: Some(okfpga::v1::AccessMode::Shared as i32),
             }))
             .await?;
         Ok(())
@@ -482,7 +495,7 @@ impl CountersGrpcClient {
             .acquire_resource(self.req(okfpga::v1::AcquireResourceRequest {
                 resource_id: resource_id.to_string(),
                 user_id: self.user_id.clone(),
-                mode: 2, // ACCESS_MODE_READ_ONLY
+                mode: Some(okfpga::v1::AccessMode::ReadOnly as i32),
             }))
             .await?;
         Ok(())
@@ -700,7 +713,16 @@ mod tests {
             id: "res-abc".to_string(),
             name: "Counter Resource".to_string(),
             device_serial: "SN001".to_string(),
-            holders: vec!["user1".to_string(), "user2".to_string()],
+            holders: vec![
+                okfpga::v1::Holder {
+                    user_id: "user1".to_string(),
+                    mode: okfpga::v1::AccessMode::Shared as i32,
+                },
+                okfpga::v1::Holder {
+                    user_id: "user2".to_string(),
+                    mode: okfpga::v1::AccessMode::Shared as i32,
+                },
+            ],
             ..Default::default()
         };
         let resp = okfpga::v1::ResourceResponse {
@@ -762,23 +784,18 @@ mod tests {
     #[test]
     fn test_resource_info_from_proto_resource_matches_list_resources_pattern() {
         // Verify the conversion pattern used in list_resources() produces
-        // correct ResourceInfo from a proto Resource message.
+        // correct ResourceInfo from a proto Resource message (ADR-034 Holder).
         let proto_resource = okfpga::v1::Resource {
             id: "res-abc".to_string(),
             name: "Counter Resource".to_string(),
             device_serial: "SN001".to_string(),
-            holders: vec!["user1".to_string()],
+            holders: vec![okfpga::v1::Holder {
+                user_id: "user1".to_string(),
+                mode: okfpga::v1::AccessMode::Shared as i32,
+            }],
             ..Default::default()
         };
-        // Simulate the conversion from list_resources().
-        let info = ResourceInfo {
-            id: proto_resource.id.clone(),
-            name: proto_resource.name.clone(),
-            device_serial: proto_resource.device_serial.clone(),
-            access_mode: "shared".to_string(),
-            holders: proto_resource.holders.clone(),
-            locked_by: None,
-        };
+        let info = CountersGrpcClient::resource_from_proto(proto_resource);
         assert_eq!(info.id, "res-abc");
         assert_eq!(info.device_serial, "SN001");
         assert_eq!(info.holders, vec!["user1"]);

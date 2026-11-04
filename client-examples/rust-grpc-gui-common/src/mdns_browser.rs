@@ -7,7 +7,7 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use rust_rest_gui_common::mdns_browser::{MdnsBrowser, DiscoveredServer};
+//! use rust_grpc_gui_common::mdns_browser::{MdnsBrowser, DiscoveredServer};
 //!
 //! #[tokio::main]
 //! async fn main() {

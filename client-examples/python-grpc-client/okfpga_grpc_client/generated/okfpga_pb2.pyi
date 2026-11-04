@@ -61,6 +61,19 @@ class AccessMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     ACCESS_MODE_SHARED: _ClassVar[AccessMode]
     ACCESS_MODE_EXCLUSIVE: _ClassVar[AccessMode]
+    ACCESS_MODE_READ_ONLY: _ClassVar[AccessMode]
+
+class ResourceAccessMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    RESOURCE_ACCESS_MODE_SHARED: _ClassVar[ResourceAccessMode]
+    RESOURCE_ACCESS_MODE_EXCLUSIVE: _ClassVar[ResourceAccessMode]
+
+class DeleteReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    DELETE_REASON_CLIENT: _ClassVar[DeleteReason]
+    DELETE_REASON_REPROGRAM: _ClassVar[DeleteReason]
+    DELETE_REASON_CLEAR: _ClassVar[DeleteReason]
+    DELETE_REASON_DEVICE_REMOVED: _ClassVar[DeleteReason]
 DEVICE_INTERFACE_UNKNOWN: DeviceInterface
 DEVICE_INTERFACE_USB2: DeviceInterface
 DEVICE_INTERFACE_PCIE: DeviceInterface
@@ -95,6 +108,13 @@ SENSOR_TYPE_FAN_RPM: SensorType
 SENSOR_TYPE_POWER: SensorType
 ACCESS_MODE_SHARED: AccessMode
 ACCESS_MODE_EXCLUSIVE: AccessMode
+ACCESS_MODE_READ_ONLY: AccessMode
+RESOURCE_ACCESS_MODE_SHARED: ResourceAccessMode
+RESOURCE_ACCESS_MODE_EXCLUSIVE: ResourceAccessMode
+DELETE_REASON_CLIENT: DeleteReason
+DELETE_REASON_REPROGRAM: DeleteReason
+DELETE_REASON_CLEAR: DeleteReason
+DELETE_REASON_DEVICE_REMOVED: DeleteReason
 
 class ErrorCluster(_message.Message):
     __slots__ = ("status", "code", "source")
@@ -157,16 +177,20 @@ class DeviceInfo(_message.Message):
     def __init__(self, serial: _Optional[str] = ..., device_id: _Optional[str] = ..., product_name: _Optional[str] = ..., product_id: _Optional[int] = ..., device_interface: _Optional[_Union[DeviceInterface, str]] = ..., usb_speed: _Optional[_Union[USBSpeed, str]] = ..., device_major_version: _Optional[int] = ..., device_minor_version: _Optional[int] = ..., wire_width: _Optional[int] = ..., trigger_width: _Optional[int] = ..., pipe_width: _Optional[int] = ..., register_address_width: _Optional[int] = ..., register_data_width: _Optional[int] = ..., fpga_vendor: _Optional[_Union[FPGAVendor, str]] = ..., dataport: _Optional[_Union[DataportType, str]] = ..., is_front_panel_enabled: _Optional[bool] = ..., bitfile: _Optional[_Union[BitfileInfo, _Mapping]] = ...) -> None: ...
 
 class BitfileInfo(_message.Message):
-    __slots__ = ("filename", "description", "programmed_at", "programmed_by")
+    __slots__ = ("filename", "description", "programmed_at", "programmed_by", "file_path", "md5_hash")
     FILENAME_FIELD_NUMBER: _ClassVar[int]
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     PROGRAMMED_AT_FIELD_NUMBER: _ClassVar[int]
     PROGRAMMED_BY_FIELD_NUMBER: _ClassVar[int]
+    FILE_PATH_FIELD_NUMBER: _ClassVar[int]
+    MD5_HASH_FIELD_NUMBER: _ClassVar[int]
     filename: str
     description: str
     programmed_at: str
     programmed_by: str
-    def __init__(self, filename: _Optional[str] = ..., description: _Optional[str] = ..., programmed_at: _Optional[str] = ..., programmed_by: _Optional[str] = ...) -> None: ...
+    file_path: str
+    md5_hash: str
+    def __init__(self, filename: _Optional[str] = ..., description: _Optional[str] = ..., programmed_at: _Optional[str] = ..., programmed_by: _Optional[str] = ..., file_path: _Optional[str] = ..., md5_hash: _Optional[str] = ...) -> None: ...
 
 class DeviceSensor(_message.Message):
     __slots__ = ("id", "sensor_type", "name", "description", "min", "max", "step", "value")
@@ -219,30 +243,125 @@ class SyzygyPort(_message.Message):
     def __init__(self, index: _Optional[int] = ..., port_status_mv: _Optional[int] = ..., is_populated: _Optional[bool] = ..., manufacturer_name: _Optional[str] = ..., product_name: _Optional[str] = ..., product_model: _Optional[str] = ..., product_version: _Optional[str] = ..., serial_number: _Optional[str] = ...) -> None: ...
 
 class Resource(_message.Message):
-    __slots__ = ("id", "name", "description", "device_serial", "state", "holders")
+    __slots__ = ("id", "name", "description", "device_serial", "state", "private", "locked_by", "holders", "access_mode", "interfaces", "endpoints", "address_ranges", "metadata")
+    class MetadataEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     ID_FIELD_NUMBER: _ClassVar[int]
     NAME_FIELD_NUMBER: _ClassVar[int]
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     DEVICE_SERIAL_FIELD_NUMBER: _ClassVar[int]
     STATE_FIELD_NUMBER: _ClassVar[int]
+    PRIVATE_FIELD_NUMBER: _ClassVar[int]
+    LOCKED_BY_FIELD_NUMBER: _ClassVar[int]
     HOLDERS_FIELD_NUMBER: _ClassVar[int]
+    ACCESS_MODE_FIELD_NUMBER: _ClassVar[int]
+    INTERFACES_FIELD_NUMBER: _ClassVar[int]
+    ENDPOINTS_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_RANGES_FIELD_NUMBER: _ClassVar[int]
+    METADATA_FIELD_NUMBER: _ClassVar[int]
     id: str
     name: str
     description: str
     device_serial: str
     state: ResourceState
-    holders: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, id: _Optional[str] = ..., name: _Optional[str] = ..., description: _Optional[str] = ..., device_serial: _Optional[str] = ..., state: _Optional[_Union[ResourceState, str]] = ..., holders: _Optional[_Iterable[str]] = ...) -> None: ...
+    private: bool
+    locked_by: str
+    holders: _containers.RepeatedCompositeFieldContainer[Holder]
+    access_mode: ResourceAccessMode
+    interfaces: _containers.RepeatedScalarFieldContainer[str]
+    endpoints: EndpointDeclaration
+    address_ranges: _containers.RepeatedCompositeFieldContainer[AddressRange]
+    metadata: _containers.ScalarMap[str, str]
+    def __init__(self, id: _Optional[str] = ..., name: _Optional[str] = ..., description: _Optional[str] = ..., device_serial: _Optional[str] = ..., state: _Optional[_Union[ResourceState, str]] = ..., private: _Optional[bool] = ..., locked_by: _Optional[str] = ..., holders: _Optional[_Iterable[_Union[Holder, _Mapping]]] = ..., access_mode: _Optional[_Union[ResourceAccessMode, str]] = ..., interfaces: _Optional[_Iterable[str]] = ..., endpoints: _Optional[_Union[EndpointDeclaration, _Mapping]] = ..., address_ranges: _Optional[_Iterable[_Union[AddressRange, _Mapping]]] = ..., metadata: _Optional[_Mapping[str, str]] = ...) -> None: ...
+
+class Holder(_message.Message):
+    __slots__ = ("user_id", "mode")
+    USER_ID_FIELD_NUMBER: _ClassVar[int]
+    MODE_FIELD_NUMBER: _ClassVar[int]
+    user_id: str
+    mode: AccessMode
+    def __init__(self, user_id: _Optional[str] = ..., mode: _Optional[_Union[AccessMode, str]] = ...) -> None: ...
+
+class EndpointDeclaration(_message.Message):
+    __slots__ = ("default_access", "entries")
+    DEFAULT_ACCESS_FIELD_NUMBER: _ClassVar[int]
+    ENTRIES_FIELD_NUMBER: _ClassVar[int]
+    default_access: ResourceAccessMode
+    entries: _containers.RepeatedCompositeFieldContainer[EndpointEntry]
+    def __init__(self, default_access: _Optional[_Union[ResourceAccessMode, str]] = ..., entries: _Optional[_Iterable[_Union[EndpointEntry, _Mapping]]] = ...) -> None: ...
+
+class EndpointEntry(_message.Message):
+    __slots__ = ("address", "type", "access", "private", "description")
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    TYPE_FIELD_NUMBER: _ClassVar[int]
+    ACCESS_FIELD_NUMBER: _ClassVar[int]
+    PRIVATE_FIELD_NUMBER: _ClassVar[int]
+    DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
+    address: int
+    type: str
+    access: ResourceAccessMode
+    private: bool
+    description: str
+    def __init__(self, address: _Optional[int] = ..., type: _Optional[str] = ..., access: _Optional[_Union[ResourceAccessMode, str]] = ..., private: _Optional[bool] = ..., description: _Optional[str] = ...) -> None: ...
+
+class AddressRange(_message.Message):
+    __slots__ = ("name", "start", "end", "access", "private", "description")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    START_FIELD_NUMBER: _ClassVar[int]
+    END_FIELD_NUMBER: _ClassVar[int]
+    ACCESS_FIELD_NUMBER: _ClassVar[int]
+    PRIVATE_FIELD_NUMBER: _ClassVar[int]
+    DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    start: int
+    end: int
+    access: ResourceAccessMode
+    private: bool
+    description: str
+    def __init__(self, name: _Optional[str] = ..., start: _Optional[int] = ..., end: _Optional[int] = ..., access: _Optional[_Union[ResourceAccessMode, str]] = ..., private: _Optional[bool] = ..., description: _Optional[str] = ...) -> None: ...
+
+class Holding(_message.Message):
+    __slots__ = ("resource_id", "mode", "locked")
+    RESOURCE_ID_FIELD_NUMBER: _ClassVar[int]
+    MODE_FIELD_NUMBER: _ClassVar[int]
+    LOCKED_FIELD_NUMBER: _ClassVar[int]
+    resource_id: str
+    mode: AccessMode
+    locked: bool
+    def __init__(self, resource_id: _Optional[str] = ..., mode: _Optional[_Union[AccessMode, str]] = ..., locked: _Optional[bool] = ...) -> None: ...
 
 class UserSession(_message.Message):
-    __slots__ = ("user_id", "connected_at", "held_resource_ids")
+    __slots__ = ("user_id", "connected_at", "held_resource_ids", "holdings")
     USER_ID_FIELD_NUMBER: _ClassVar[int]
     CONNECTED_AT_FIELD_NUMBER: _ClassVar[int]
     HELD_RESOURCE_IDS_FIELD_NUMBER: _ClassVar[int]
+    HOLDINGS_FIELD_NUMBER: _ClassVar[int]
     user_id: str
     connected_at: str
     held_resource_ids: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, user_id: _Optional[str] = ..., connected_at: _Optional[str] = ..., held_resource_ids: _Optional[_Iterable[str]] = ...) -> None: ...
+    holdings: _containers.RepeatedCompositeFieldContainer[Holding]
+    def __init__(self, user_id: _Optional[str] = ..., connected_at: _Optional[str] = ..., held_resource_ids: _Optional[_Iterable[str]] = ..., holdings: _Optional[_Iterable[_Union[Holding, _Mapping]]] = ...) -> None: ...
+
+class ResourceConflictDetail(_message.Message):
+    __slots__ = ("code", "resource_id", "resource_name", "item_type", "item", "items")
+    CODE_FIELD_NUMBER: _ClassVar[int]
+    RESOURCE_ID_FIELD_NUMBER: _ClassVar[int]
+    RESOURCE_NAME_FIELD_NUMBER: _ClassVar[int]
+    ITEM_TYPE_FIELD_NUMBER: _ClassVar[int]
+    ITEM_FIELD_NUMBER: _ClassVar[int]
+    ITEMS_FIELD_NUMBER: _ClassVar[int]
+    code: str
+    resource_id: str
+    resource_name: str
+    item_type: str
+    item: str
+    items: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, code: _Optional[str] = ..., resource_id: _Optional[str] = ..., resource_name: _Optional[str] = ..., item_type: _Optional[str] = ..., item: _Optional[str] = ..., items: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class ServerStatus(_message.Message):
     __slots__ = ("version", "frontpanel_version", "platform", "uptime", "uptime_seconds", "connected_devices", "active_resources")
@@ -263,18 +382,86 @@ class ServerStatus(_message.Message):
     def __init__(self, version: _Optional[str] = ..., frontpanel_version: _Optional[str] = ..., platform: _Optional[str] = ..., uptime: _Optional[str] = ..., uptime_seconds: _Optional[int] = ..., connected_devices: _Optional[int] = ..., active_resources: _Optional[int] = ...) -> None: ...
 
 class DeviceEvent(_message.Message):
-    __slots__ = ("timestamp", "device_added", "device_removed", "bitfile_programmed", "resource_state_changed")
+    __slots__ = ("timestamp", "device_added", "device_removed", "bitfile_programmed", "resource_state_changed", "resource_created", "resource_deleted", "resource_locked", "resource_unlocked", "user_connected", "user_disconnected", "server_shutdown")
     TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
     DEVICE_ADDED_FIELD_NUMBER: _ClassVar[int]
     DEVICE_REMOVED_FIELD_NUMBER: _ClassVar[int]
     BITFILE_PROGRAMMED_FIELD_NUMBER: _ClassVar[int]
     RESOURCE_STATE_CHANGED_FIELD_NUMBER: _ClassVar[int]
+    RESOURCE_CREATED_FIELD_NUMBER: _ClassVar[int]
+    RESOURCE_DELETED_FIELD_NUMBER: _ClassVar[int]
+    RESOURCE_LOCKED_FIELD_NUMBER: _ClassVar[int]
+    RESOURCE_UNLOCKED_FIELD_NUMBER: _ClassVar[int]
+    USER_CONNECTED_FIELD_NUMBER: _ClassVar[int]
+    USER_DISCONNECTED_FIELD_NUMBER: _ClassVar[int]
+    SERVER_SHUTDOWN_FIELD_NUMBER: _ClassVar[int]
     timestamp: str
     device_added: DeviceAdded
     device_removed: DeviceRemoved
     bitfile_programmed: BitfileProgrammed
     resource_state_changed: ResourceStateChanged
-    def __init__(self, timestamp: _Optional[str] = ..., device_added: _Optional[_Union[DeviceAdded, _Mapping]] = ..., device_removed: _Optional[_Union[DeviceRemoved, _Mapping]] = ..., bitfile_programmed: _Optional[_Union[BitfileProgrammed, _Mapping]] = ..., resource_state_changed: _Optional[_Union[ResourceStateChanged, _Mapping]] = ...) -> None: ...
+    resource_created: ResourceCreatedEvent
+    resource_deleted: ResourceDeletedEvent
+    resource_locked: ResourceLockedEvent
+    resource_unlocked: ResourceUnlockedEvent
+    user_connected: UserConnectedEvent
+    user_disconnected: UserDisconnectedEvent
+    server_shutdown: ServerShutdownEvent
+    def __init__(self, timestamp: _Optional[str] = ..., device_added: _Optional[_Union[DeviceAdded, _Mapping]] = ..., device_removed: _Optional[_Union[DeviceRemoved, _Mapping]] = ..., bitfile_programmed: _Optional[_Union[BitfileProgrammed, _Mapping]] = ..., resource_state_changed: _Optional[_Union[ResourceStateChanged, _Mapping]] = ..., resource_created: _Optional[_Union[ResourceCreatedEvent, _Mapping]] = ..., resource_deleted: _Optional[_Union[ResourceDeletedEvent, _Mapping]] = ..., resource_locked: _Optional[_Union[ResourceLockedEvent, _Mapping]] = ..., resource_unlocked: _Optional[_Union[ResourceUnlockedEvent, _Mapping]] = ..., user_connected: _Optional[_Union[UserConnectedEvent, _Mapping]] = ..., user_disconnected: _Optional[_Union[UserDisconnectedEvent, _Mapping]] = ..., server_shutdown: _Optional[_Union[ServerShutdownEvent, _Mapping]] = ...) -> None: ...
+
+class ResourceCreatedEvent(_message.Message):
+    __slots__ = ("resource_id", "device_serial", "name")
+    RESOURCE_ID_FIELD_NUMBER: _ClassVar[int]
+    DEVICE_SERIAL_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    resource_id: str
+    device_serial: str
+    name: str
+    def __init__(self, resource_id: _Optional[str] = ..., device_serial: _Optional[str] = ..., name: _Optional[str] = ...) -> None: ...
+
+class ResourceDeletedEvent(_message.Message):
+    __slots__ = ("resource_id", "reason")
+    RESOURCE_ID_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    resource_id: str
+    reason: DeleteReason
+    def __init__(self, resource_id: _Optional[str] = ..., reason: _Optional[_Union[DeleteReason, str]] = ...) -> None: ...
+
+class ResourceLockedEvent(_message.Message):
+    __slots__ = ("resource_id", "user_id")
+    RESOURCE_ID_FIELD_NUMBER: _ClassVar[int]
+    USER_ID_FIELD_NUMBER: _ClassVar[int]
+    resource_id: str
+    user_id: str
+    def __init__(self, resource_id: _Optional[str] = ..., user_id: _Optional[str] = ...) -> None: ...
+
+class ResourceUnlockedEvent(_message.Message):
+    __slots__ = ("resource_id", "user_id")
+    RESOURCE_ID_FIELD_NUMBER: _ClassVar[int]
+    USER_ID_FIELD_NUMBER: _ClassVar[int]
+    resource_id: str
+    user_id: str
+    def __init__(self, resource_id: _Optional[str] = ..., user_id: _Optional[str] = ...) -> None: ...
+
+class UserConnectedEvent(_message.Message):
+    __slots__ = ("user_id",)
+    USER_ID_FIELD_NUMBER: _ClassVar[int]
+    user_id: str
+    def __init__(self, user_id: _Optional[str] = ...) -> None: ...
+
+class UserDisconnectedEvent(_message.Message):
+    __slots__ = ("user_id", "reason")
+    USER_ID_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    user_id: str
+    reason: str
+    def __init__(self, user_id: _Optional[str] = ..., reason: _Optional[str] = ...) -> None: ...
+
+class ServerShutdownEvent(_message.Message):
+    __slots__ = ("reason",)
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    reason: str
+    def __init__(self, reason: _Optional[str] = ...) -> None: ...
 
 class DeviceAdded(_message.Message):
     __slots__ = ("serial", "product_name", "device_interface")
@@ -393,16 +580,18 @@ class ConfigureFPGARequest(_message.Message):
     def __init__(self, serial: _Optional[str] = ..., bitfile_path: _Optional[str] = ..., user_id: _Optional[str] = ...) -> None: ...
 
 class ConfigureFPGAChunk(_message.Message):
-    __slots__ = ("serial", "data", "is_last", "user_id")
+    __slots__ = ("serial", "data", "is_last", "user_id", "filename")
     SERIAL_FIELD_NUMBER: _ClassVar[int]
     DATA_FIELD_NUMBER: _ClassVar[int]
     IS_LAST_FIELD_NUMBER: _ClassVar[int]
     USER_ID_FIELD_NUMBER: _ClassVar[int]
+    FILENAME_FIELD_NUMBER: _ClassVar[int]
     serial: str
     data: bytes
     is_last: bool
     user_id: str
-    def __init__(self, serial: _Optional[str] = ..., data: _Optional[bytes] = ..., is_last: _Optional[bool] = ..., user_id: _Optional[str] = ...) -> None: ...
+    filename: str
+    def __init__(self, serial: _Optional[str] = ..., data: _Optional[bytes] = ..., is_last: _Optional[bool] = ..., user_id: _Optional[str] = ..., filename: _Optional[str] = ...) -> None: ...
 
 class ConfigureFPGAResponse(_message.Message):
     __slots__ = ("bitfile", "error")
@@ -543,12 +732,14 @@ class SetWireInValueRequest(_message.Message):
     def __init__(self, serial: _Optional[str] = ..., endpoint: _Optional[int] = ..., value: _Optional[int] = ..., mask: _Optional[int] = ..., auto_update: _Optional[bool] = ...) -> None: ...
 
 class GetWireValueRequest(_message.Message):
-    __slots__ = ("serial", "endpoint")
+    __slots__ = ("serial", "endpoint", "update")
     SERIAL_FIELD_NUMBER: _ClassVar[int]
     ENDPOINT_FIELD_NUMBER: _ClassVar[int]
+    UPDATE_FIELD_NUMBER: _ClassVar[int]
     serial: str
     endpoint: int
-    def __init__(self, serial: _Optional[str] = ..., endpoint: _Optional[int] = ...) -> None: ...
+    update: bool
+    def __init__(self, serial: _Optional[str] = ..., endpoint: _Optional[int] = ..., update: _Optional[bool] = ...) -> None: ...
 
 class WireValueResponse(_message.Message):
     __slots__ = ("value", "error")
@@ -569,14 +760,16 @@ class ActivateTriggerInRequest(_message.Message):
     def __init__(self, serial: _Optional[str] = ..., endpoint: _Optional[int] = ..., bit: _Optional[int] = ...) -> None: ...
 
 class IsTriggeredRequest(_message.Message):
-    __slots__ = ("serial", "endpoint", "mask")
+    __slots__ = ("serial", "endpoint", "mask", "update")
     SERIAL_FIELD_NUMBER: _ClassVar[int]
     ENDPOINT_FIELD_NUMBER: _ClassVar[int]
     MASK_FIELD_NUMBER: _ClassVar[int]
+    UPDATE_FIELD_NUMBER: _ClassVar[int]
     serial: str
     endpoint: int
     mask: int
-    def __init__(self, serial: _Optional[str] = ..., endpoint: _Optional[int] = ..., mask: _Optional[int] = ...) -> None: ...
+    update: bool
+    def __init__(self, serial: _Optional[str] = ..., endpoint: _Optional[int] = ..., mask: _Optional[int] = ..., update: _Optional[bool] = ...) -> None: ...
 
 class IsTriggeredResponse(_message.Message):
     __slots__ = ("triggered", "error")
@@ -587,12 +780,14 @@ class IsTriggeredResponse(_message.Message):
     def __init__(self, triggered: _Optional[bool] = ..., error: _Optional[_Union[ErrorCluster, _Mapping]] = ...) -> None: ...
 
 class TriggerOutVectorRequest(_message.Message):
-    __slots__ = ("serial", "endpoint")
+    __slots__ = ("serial", "endpoint", "update")
     SERIAL_FIELD_NUMBER: _ClassVar[int]
     ENDPOINT_FIELD_NUMBER: _ClassVar[int]
+    UPDATE_FIELD_NUMBER: _ClassVar[int]
     serial: str
     endpoint: int
-    def __init__(self, serial: _Optional[str] = ..., endpoint: _Optional[int] = ...) -> None: ...
+    update: bool
+    def __init__(self, serial: _Optional[str] = ..., endpoint: _Optional[int] = ..., update: _Optional[bool] = ...) -> None: ...
 
 class TriggerOutVectorResponse(_message.Message):
     __slots__ = ("vector", "error")
@@ -943,18 +1138,33 @@ class ReleaseResourceRequest(_message.Message):
     def __init__(self, resource_id: _Optional[str] = ..., user_id: _Optional[str] = ...) -> None: ...
 
 class CreateResourceRequest(_message.Message):
-    __slots__ = ("name", "description", "device_serial", "resource_type", "capabilities")
+    __slots__ = ("name", "description", "device_serial", "access_mode", "interfaces", "endpoints", "address_ranges", "metadata", "private")
+    class MetadataEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     NAME_FIELD_NUMBER: _ClassVar[int]
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     DEVICE_SERIAL_FIELD_NUMBER: _ClassVar[int]
-    RESOURCE_TYPE_FIELD_NUMBER: _ClassVar[int]
-    CAPABILITIES_FIELD_NUMBER: _ClassVar[int]
+    ACCESS_MODE_FIELD_NUMBER: _ClassVar[int]
+    INTERFACES_FIELD_NUMBER: _ClassVar[int]
+    ENDPOINTS_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_RANGES_FIELD_NUMBER: _ClassVar[int]
+    METADATA_FIELD_NUMBER: _ClassVar[int]
+    PRIVATE_FIELD_NUMBER: _ClassVar[int]
     name: str
     description: str
     device_serial: str
-    resource_type: str
-    capabilities: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, name: _Optional[str] = ..., description: _Optional[str] = ..., device_serial: _Optional[str] = ..., resource_type: _Optional[str] = ..., capabilities: _Optional[_Iterable[str]] = ...) -> None: ...
+    access_mode: ResourceAccessMode
+    interfaces: _containers.RepeatedScalarFieldContainer[str]
+    endpoints: EndpointDeclaration
+    address_ranges: _containers.RepeatedCompositeFieldContainer[AddressRange]
+    metadata: _containers.ScalarMap[str, str]
+    private: bool
+    def __init__(self, name: _Optional[str] = ..., description: _Optional[str] = ..., device_serial: _Optional[str] = ..., access_mode: _Optional[_Union[ResourceAccessMode, str]] = ..., interfaces: _Optional[_Iterable[str]] = ..., endpoints: _Optional[_Union[EndpointDeclaration, _Mapping]] = ..., address_ranges: _Optional[_Iterable[_Union[AddressRange, _Mapping]]] = ..., metadata: _Optional[_Mapping[str, str]] = ..., private: _Optional[bool] = ...) -> None: ...
 
 class ListUsersRequest(_message.Message):
     __slots__ = ()
@@ -995,6 +1205,22 @@ class PingResponse(_message.Message):
     server_time: str
     error: ErrorCluster
     def __init__(self, server_time: _Optional[str] = ..., error: _Optional[_Union[ErrorCluster, _Mapping]] = ...) -> None: ...
+
+class DisconnectRequest(_message.Message):
+    __slots__ = ("user_id",)
+    USER_ID_FIELD_NUMBER: _ClassVar[int]
+    user_id: str
+    def __init__(self, user_id: _Optional[str] = ...) -> None: ...
+
+class DisconnectResponse(_message.Message):
+    __slots__ = ("user_id", "released_resources", "message")
+    USER_ID_FIELD_NUMBER: _ClassVar[int]
+    RELEASED_RESOURCES_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    user_id: str
+    released_resources: int
+    message: str
+    def __init__(self, user_id: _Optional[str] = ..., released_resources: _Optional[int] = ..., message: _Optional[str] = ...) -> None: ...
 
 class LockResourceRequest(_message.Message):
     __slots__ = ("resource_id", "user_id")

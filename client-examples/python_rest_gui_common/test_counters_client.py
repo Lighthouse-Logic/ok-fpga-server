@@ -266,7 +266,9 @@ class TestCountersClientHTTP:
             responses.POST, "http://localhost:8088/api/v1/resources",
             json={"id": "res-abc", "name": "Counter Resource",
                   "device_serial": "SN001", "access_mode": "shared",
-                  "holders": [], "locked_by": None},
+                  "interfaces": ["classic"],
+                  "holders": [{"user_id": "test-user", "mode": "shared"}],
+                  "locked_by": None},
             status=200,
         )
         client = CountersClient("http://localhost:8088", "test-user")
@@ -274,7 +276,11 @@ class TestCountersClientHTTP:
         assert info.id == "res-abc"
         assert info.name == "Counter Resource"
         assert info.access_mode == "shared"
+        assert info.holders == ["test-user"]
         assert info.locked_by is None
+        import json
+        body = json.loads(responses.calls[0].request.body)
+        assert body["interfaces"] == ["classic"]
 
 
 # ============================================================================
@@ -330,9 +336,11 @@ class TestListResources:
             responses.GET, "http://localhost:8088/api/v1/resources",
             json={"resources": [
                 {"id": "res-1", "name": "Counter Resource", "device_serial": "SN001",
-                 "access_mode": "shared", "holders": ["user1"], "locked_by": None},
+                 "access_mode": "shared", "interfaces": ["classic"],
+                 "holders": [{"user_id": "user1", "mode": "shared"}], "locked_by": None},
                 {"id": "res-2", "name": "Other Resource", "device_serial": "SN002",
-                 "access_mode": "exclusive", "holders": [], "locked_by": None},
+                 "access_mode": "exclusive", "interfaces": ["classic"],
+                 "holders": [], "locked_by": None},
             ]},
             status=200,
         )
@@ -341,6 +349,7 @@ class TestListResources:
         assert len(resources) == 2
         assert resources[0].id == "res-1"
         assert resources[0].device_serial == "SN001"
+        assert resources[0].holders == ["user1"]
         assert resources[1].id == "res-2"
 
     @responses.activate

@@ -232,21 +232,29 @@ class OkFpgaGrpcClient:
         device_serial: str,
         description: str = "",
         access_mode: str = "shared",
+        interfaces: list[str] | None = None,
     ):
-        """Create a new resource (ADR-020).
+        """Create a new resource (ADR-020 / ADR-034).
 
         Args:
             name: Human-readable resource name.
             device_serial: Serial of the FPGA providing this resource.
             description: Optional description.
             access_mode: "shared" or "exclusive" (design-level constraint).
+            interfaces: Data-path interfaces (defaults to ``["classic"]``).
         """
+        mode_enum = (
+            okfpga_pb2.RESOURCE_ACCESS_MODE_EXCLUSIVE
+            if access_mode == "exclusive"
+            else okfpga_pb2.RESOURCE_ACCESS_MODE_SHARED
+        )
         return await self._device.CreateResource(
             okfpga_pb2.CreateResourceRequest(
                 name=name,
                 device_serial=device_serial,
                 description=description,
-                resource_type=access_mode,
+                access_mode=mode_enum,
+                interfaces=interfaces if interfaces is not None else ["classic"],
             )
         )
 
@@ -256,13 +264,21 @@ class OkFpgaGrpcClient:
             okfpga_pb2.ResourceRequest(resource_id=resource_id)
         )
 
-    async def acquire_resource(self, resource_id: str, user_id: str, mode: str = "exclusive"):
-        """Acquire a resource."""
-        return await self._device.AcquireResource(
-            okfpga_pb2.AcquireResourceRequest(
-                resource_id=resource_id, user_id=user_id, mode=mode
-            )
+    async def acquire_resource(
+        self, resource_id: str, user_id: str, mode: str | None = None
+    ):
+        """Acquire a resource (ADR-034 P3)."""
+        req = okfpga_pb2.AcquireResourceRequest(
+            resource_id=resource_id, user_id=user_id
         )
+        if mode is not None:
+            mode_map = {
+                "shared": okfpga_pb2.ACCESS_MODE_SHARED,
+                "exclusive": okfpga_pb2.ACCESS_MODE_EXCLUSIVE,
+                "read_only": okfpga_pb2.ACCESS_MODE_READ_ONLY,
+            }
+            req.mode = mode_map.get(mode, okfpga_pb2.ACCESS_MODE_SHARED)
+        return await self._device.AcquireResource(req)
 
     async def release_resource(self, resource_id: str, user_id: str):
         """Release a resource."""

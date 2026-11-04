@@ -168,17 +168,9 @@ class CountersGrpcClient:
 
         Used by F3 (409 conflict recovery) and F4 (smart-skip).
         """
-        from python_rest_gui_common.counters_client import ResourceInfo
         resp = self.device_stub.ListResources(
             okfpga_pb2.ListResourcesRequest(), metadata=self._metadata)
-        return [ResourceInfo(
-            id=r.id,
-            name=r.name,
-            device_serial=r.device_serial,
-            access_mode="shared",
-            holders=list(r.holders),
-            locked_by=None,
-        ) for r in resp.resources]
+        return [self._resource_from_response(r) for r in resp.resources]
 
     def configure_fpga(self, serial: str, bitfile_path: str):
         """Configure FPGA from a server-side bitfile path."""
@@ -259,19 +251,32 @@ class CountersGrpcClient:
 
     def _resource_from_response(self, resp) -> ResourceInfo:
         r = resp.resource if hasattr(resp, 'resource') else resp
-        # Phase 34-A: Read locked_by from proto (empty string → None).
         locked_by = r.locked_by if r.locked_by else None
+        access_mode = (
+            "exclusive"
+            if getattr(r, "access_mode", 0) == okfpga_pb2.RESOURCE_ACCESS_MODE_EXCLUSIVE
+            else "shared"
+        )
+        holders = [
+            h.user_id if hasattr(h, "user_id") else str(h)
+            for h in r.holders
+        ]
         return ResourceInfo(
             id=r.id, name=r.name, device_serial=r.device_serial,
-            access_mode="shared", holders=list(r.holders), locked_by=locked_by,
+            access_mode=access_mode, holders=holders, locked_by=locked_by,
         )
 
     def create_resource(self, name: str, device_serial: str, resource_type: str = "shared") -> ResourceInfo:
-        """Phase 34-E: resource_type can be 'shared' or 'exclusive'."""
+        """Phase 34-E / ADR-034: resource_type can be 'shared' or 'exclusive'."""
+        mode_enum = (
+            okfpga_pb2.RESOURCE_ACCESS_MODE_EXCLUSIVE
+            if resource_type == "exclusive"
+            else okfpga_pb2.RESOURCE_ACCESS_MODE_SHARED
+        )
         resp = self.device_stub.CreateResource(okfpga_pb2.CreateResourceRequest(
             name=name, device_serial=device_serial,
             description="Counters.bit hardware test resource",
-            resource_type=resource_type, capabilities=[]),
+            access_mode=mode_enum, interfaces=["classic"]),
             metadata=self._metadata)
         return self._resource_from_response(resp)
 
