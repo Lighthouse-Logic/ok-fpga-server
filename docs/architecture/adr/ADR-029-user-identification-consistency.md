@@ -1,8 +1,8 @@
 # ADR-029: User Identification Consistency
 
 **Date:** 2026-08-23  
-**Status:** Proposed (Phase 38)  
-**Phase:** [Phase 38 — User Identification Consistency](../../development-roadmap.md)  
+**Status:** Accepted — Implemented (Phase 38, commit `ba7f9fa`; amended in [ADR-034](ADR-034-resource-model-consolidation.md) §13 `S-18` to reject missing identity instead of falling back to `"Unknown"`)  
+**Phase:** [Phase 38 — User Identification Consistency](../../archive/roadmap-phases-38.md)  
 
 ---
 

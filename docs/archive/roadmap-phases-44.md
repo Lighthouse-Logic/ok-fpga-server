@@ -1,13 +1,121 @@
 # Archive — Phase 44: Resource Model Consolidation & Enforcement Alignment
 
-> **Archived:** 2026-10-11 (sub-phases are appended here as they complete)
+> **Status:** ✅ Completed (2026-10-11 – 2026-11-05)
 > **Source:** [development-roadmap.md](../development-roadmap.md) §44
-> **ADR:** [ADR-034](../architecture/adr/ADR-034-resource-model-consolidation.md)
-> **Decisions:** [resource-management-recommendations.md](../resource-management-recommendations.md) (D1–D78)
+> **ADR:** [ADR-034](../architecture/adr/ADR-034-resource-model-consolidation.md) (supersedes parts of [ADR-003](../architecture/adr/ADR-003-data-port-abstraction.md), [ADR-006](../architecture/adr/ADR-006-resource-management.md), [ADR-020](../architecture/adr/ADR-020-client-side-resource-registration.md), [ADR-024](../architecture/adr/ADR-024-endpoint-access-enforcement.md), [ADR-025](../architecture/adr/ADR-025-classic-address-mapping.md), [ADR-026](../architecture/adr/ADR-026-readonly-acquisition.md))
+> **Decisions:** [resource-management-recommendations.md](../resource-management-recommendations.md) (`D1–D78`)
+> **Pointer Guide:** [resource-management-developer-guide.md](../resource-management-developer-guide.md)
+> **API Specification:** [API-Specification/](../API-Specification/main.typ) (`ok-fpga-server-api-specification.pdf`)
 
-Phase 44 is still 🚧 Now. Each completed sub-phase is moved here from the
-roadmap; the S-, SD-, P- item tables and the open sub-phases stay in the
-roadmap until the whole phase completes.
+## Phase 44 Overview & Acceptance Criteria
+
+### 44.0 The Model Implemented (Summary)
+
+- **Overlap (`R1`, `D1`, `D8`, `D48`):** several resources on one device **may**
+  declare the same EP or overlapping ranges when every overlap is a
+  **shared item in a shared resource on both sides**, with the same type
+  and item-level `private` flag. Every other overlap is denied to the later
+  registration (first wins), with a structured 409.
+- **Exclusive resources contain only exclusive items (`Rule A`, `D6`).** An
+  exclusive item belongs to one resource and is writable by any non-ReadOnly
+  holder of it (`D44`, `E1`).
+- **Locks** cover the whole resource. A lock on `R` **blocks** every other
+  resource that shares an item with `R`, for every user except the locker
+  (`B1`, `D5`, `D19`). Blocking is non-transitive (`B4`, `D18`).
+- **The server never requires a lock to write (`D46`).** A write is allowed
+  through any held, non-ReadOnly, usable (not foreign-locked, not blocked)
+  resource that covers the item, then the address check runs against **that**
+  resource's ranges (`B2`, `D9`). Multi-step operations are locked by the client
+  (`L1`).
+- **Reads** of non-private items are allowed to every holder, also during
+  a foreign lock. `UpdateWireOuts` / `UpdateTriggerOuts` are reads (`D16`,
+  `D21`, `D42`). They behave exactly as Opal Kelly FrontPanel: Get/Is calls
+  read the shared device snapshot, only Update calls touch the FPGA, an
+  optional `update` flag combines both, and every read names one EP (`D76`).
+- **ReadOnly** holders read every non-private item, never write, are
+  denied `ResetFPGA`, and are denied `UpdateTriggerOuts` when any resource
+  on the device declares a private TriggerOut. Items whose read has a
+  side-effect should be marked `private` (`D75`).
+- **Registration fields:** `access_mode` is required (422 if missing),
+  except for a resource with no `endpoints` field, which is an exclusive
+  resource claiming every Wire and Trigger EP, `0x00–0x7F` (`access_mode` may
+  be omitted; `shared` → 422) (`D62`, `D68`, `D77`). `{"entries": []}` claims no
+  EPs (`D55`). `default_access` only fills in a missing `access` on listed
+  entries (`D61`). Metadata is text only (`D69`).
+- **Errors:** 422 for anything wrong in the request itself; 409 only for a
+  clash with existing state (overlap, lock, blocking, different-mode
+  acquire) (`D72`).
+- **Reprogram / clear** is a forced override: unlock, release, delete,
+  notify everyone, then program (`D15b`, `D26`). `ResetFPGA` keeps resources
+  (`D56`) and needs only the tier-3 data-port gate (`D66`).
+- **Terminology (`T1`, `D49`, `D50`, `D64`):** "legacy" is only the dataport
+  `OK_DATAPORT_LEGACY`. A resource is never "legacy". A Classic resource may
+  use `okRegisterBridge`, never direct AXI. Direct AXI needs
+  `OK_DATAPORT_AXI`.
+- **Dataport (`D63`, `D70`):** public values `legacy` / `axi` only. A device
+  reporting `OK_DATAPORT_UNKNOWN` is unsupported: not listed, 404 /
+  `NOT_FOUND` on single-device calls.
+- **Enforcement default `enforce` (`D27`);** a user id is required.
+
+### 44.2 Resolved Spec, Resource Model, Enforcement, and Documentation Items
+
+| ID | Category | Resolution | Sub-phase |
+|----|----------|------------|-----------|
+| `S-01` 🔒 | Spec ↔ impl | `CreateResourceRequest` declaration schema (`access_mode`, `interfaces`, `endpoints`, `address_ranges`, `metadata`, `private`); `resource_type`/`capabilities` removed | 44-A |
+| `S-02` 🔒 | Spec ↔ impl | `Resource` response includes `access_mode` (`shared`/`exclusive`), `holders[] = {user_id, mode}`, `locked_by`, declarations, `metadata`, `private` | 44-A |
+| `S-03` 🔒 | Spec ↔ impl | Acquire `mode` optional (omitted = declared mode); `A1` same mode → 200, different mode → 409 | 44-A, 44-C |
+| `S-04` 🔒 | Spec ↔ impl | Proto `CreateResourceRequest` parity (`P1`, `D65`, `D71`) and shared registration validator | 44-A, 44-B |
+| `S-05` | Spec ↔ impl | Classic Pipe and BlockPipe routes use `application/octet-stream` (`GET` for out, `POST` for in) | 44-G |
+| `S-06` | Spec ↔ impl | Classic Register routes use bulk `addresses[]` / `entries[]` with `data` | 44-G |
+| `S-07` | Spec ↔ impl | `WireInRequest.auto_update` (default `true`) implemented on REST matching gRPC | 44-G |
+| `S-08` 🔒 | Spec ↔ impl | Documented `wires/in/update`, `wires/out/update`, `triggers/out/update`; removed whole-bank reads (`D76`) | 44-A, 0.3.0, 44-E |
+| `S-09` | Spec ↔ impl | Spec snake_case enum strings serialised everywhere (REST, SSE, dashboard, gRPC) | 44-A |
+| `S-10` 🔒 | Spec ↔ impl | `dataport` enum normalised to `legacy` / `axi` (`DATAPORT_LEGACY = 0, DATAPORT_AXI = 1`); `OK_DATAPORT_UNKNOWN` filtered (`D63`, `D70`) | 44-H |
+| `S-19` | Resource model | `R1` overlap enforcement, `Rule A`, strict hex EP format, interface vs dataport check | 44-B |
+| `S-11` | Resource model | Lock blocking `B1–B4` (`D5`, `D18`, `D19`, `D35`) | 44-D |
+| `S-13` | Enforcement | Coverage = listed entries (`D61`) or `0x00–0x7F` when `endpoints` omitted (`D77`); candidate loop checks `ReadOnly`, foreign lock, and blocking (`B2`) | 44-E |
+| `S-14` | Enforcement | Unified address-range enforcement on Classic and AXI (`D44`, `D46`, `B2`) | 44-E |
+| `S-12` | Enforcement | `endpoint_enforcement` defaults to `"enforce"` in code and `config.toml` (`D27`) | 44-E |
+| `S-15` | Enforcement | All data-port routes enforced (including block pipes, `classic/reset`, `*/update`) | 44-E |
+| `S-18` | Enforcement | Missing caller identity rejected under `warn` / `enforce` (`D27`, `P8`) | 44-E |
+| `S-20` | Enforcement | `MapsToAddress` checks ranges of the same usable covering resource; empty ranges → deny (`D9`, `B2`) | 44-E |
+| `S-22` | Acquisition | Exclusive acquire sets `locked_by = Some(user_id)` | 44-C |
+| `S-23` | Registration | `private` accepted and stored on resource, EP entries, and address ranges (`D11`) | 44-B |
+| `S-24` | Registration | Range `name`/`description` stored; text-only `metadata` (`D69`); missing `access` without `default_access` → 422 (`D61`) | 44-B |
+| `S-17` | Lifecycle | Forced resource cleanup (`D26`) on configure, clear, and device removal | 44-F |
+| `SD-01` 🔒 | Docs | `api/openapi.yaml` default port updated to `8088` | 44-A |
+| `SD-02` | Docs | [overview.md](../architecture/overview.md) ADR table deduplicated and updated | 44-A, 44-J |
+| `SD-03` | Docs | [ADR-024](../architecture/adr/ADR-024-endpoint-access-enforcement.md) marked superseded; Read/Write permission matrices and `B2` pipeline moved into [ADR-034 §13](../architecture/adr/ADR-034-resource-model-consolidation.md) | 44-J |
+| `SD-04` | Docs | WireIn read-back limitation and host-side shadow caching documented in [ADR-034 §16](../architecture/adr/ADR-034-resource-model-consolidation.md) | 44-J |
+| `SD-05` | Docs | `dataport` descriptions updated in OpenAPI, proto, and [ADR-034 §15](../architecture/adr/ADR-034-resource-model-consolidation.md) | 44-H |
+| `SD-06` | Docs | [python-rest-client-guide.md](../guides/python-rest-client-guide.md) §5–§9 updated to ADR-028 two-route configure contract and ADR-034 resource model | 44-J |
+| `SD-07` | Docs | [ADR-020](../architecture/adr/ADR-020-client-side-resource-registration.md) marked superseded by ADR-034 | 44-A, 44-J |
+| `SD-08` | Docs | [hdl-resource-mapping-guide.md](../client/hdl-resource-mapping-guide.md) updated to ADR-034 (`R1`, `Rule A`, `D55`, `D61`, `D68`, `D77`, `B1`, 32-bit wire width) | 44-J |
+| `SD-09` | Docs | `rest/resources.rs` `create_resource` doc comment updated for interface validation (`D54`) | 44-B |
+
+### 44.4 Acceptance Criteria (All Verified ✅)
+
+1. Shared items in shared resources may overlap; every other overlap → 409 naming the existing resource and item.
+2. Exclusive resources with shared items are rejected (422).
+3. `default_access` only fills in a missing `access` on listed entries; it never claims unlisted EPs.
+4. Omitted `endpoints` = exclusive resource claiming Wire/Trigger EPs `0x00–0x7F` (`D77`; `access_mode` optional there, `shared` → 422); `{"entries": []}` = no EPs (`D55`).
+5. Resources claim only the ranges they declare.
+6. `axi_*` interfaces are rejected on `OK_DATAPORT_LEGACY` devices; classic and AXI may be combined on `OK_DATAPORT_AXI` devices.
+7. Missing `access_mode` → 422 (except item 4); acquire `mode` optional; no `UNSPECIFIED` value in either spec.
+8. Acquire: same mode 200, different mode 409.
+9. A lock blocks every overlapping resource for everyone but the locker; blocking is non-transitive.
+10. No write requires a lock; foreign-locked or blocked resources give no write rights; reads of non-private items stay allowed.
+11. `UpdateWireOuts` / `UpdateTriggerOuts` are reads.
+12. `ReadOnly` cannot use ADR-025 mapped access.
+13. Address checks use the same covering resource's ranges; empty → deny.
+14. `AllowAlways` skips only the address check.
+15. Configure / clear force-delete all resources and notify all holders; reset does not.
+16. Default enforcement is `enforce`; identity is required.
+17. Lock / unlock / delete-reason events exist in REST and gRPC.
+18. Dataport enum is `legacy` / `axi` only; `UNKNOWN` devices are not listed.
+19. OpenAPI, proto and implementation agree; REST and gRPC behave the same.
+20. Pipes use `application/octet-stream`; register routes use `addresses[]` / `entries[]`; the example and LabVIEW clients work against them.
+21. ADR-034 is committed with the code it documents and listed in [overview.md](../architecture/overview.md).
 
 ---
 
@@ -616,3 +724,58 @@ adopted, 2 rejected as non-observable / redundant).
   - Server `grpc/device_service.rs`: `test_grpc_dataport_legacy_and_axi_mapping`,
     `test_grpc_get_device_unknown_dataport_not_found`.
 - Commit: `fix: normalise dataport enum to legacy and axi (0.3.9)` — **Done:** `f1961c6`.
+
+---
+
+## 44-J — Documentation Consolidation
+
+**44-J Documentation (`SD-03`, `SD-04`, `SD-06`, `SD-08`)**
+- Files:
+  - ADRs & Architecture:
+    - [ADR-034](../architecture/adr/ADR-034-resource-model-consolidation.md)
+    - [ADR-003](../architecture/adr/ADR-003-data-port-abstraction.md)
+    - [ADR-006](../architecture/adr/ADR-006-resource-management.md)
+    - [ADR-020](../architecture/adr/ADR-020-client-side-resource-registration.md)
+    - [ADR-024](../architecture/adr/ADR-024-endpoint-access-enforcement.md)
+    - [ADR-025](../architecture/adr/ADR-025-classic-address-mapping.md)
+    - [ADR-026](../architecture/adr/ADR-026-readonly-acquisition.md)
+    - [ADR-028](../architecture/adr/ADR-028-configure-fpga-api-alignment.md)
+    - [ADR-029](../architecture/adr/ADR-029-user-identification-consistency.md)
+    - [ADR-030](../architecture/adr/ADR-030-sse-event-expansion.md)
+    - [overview.md](../architecture/overview.md)
+  - Guides & Resource Docs:
+    - [python-rest-client-guide.md](../guides/python-rest-client-guide.md) (`SD-06`)
+    - [hdl-resource-mapping-guide.md](../client/hdl-resource-mapping-guide.md) (`SD-08`)
+    - [resource-management-developer-guide.md](../resource-management-developer-guide.md)
+    - [resource-management-recommendations.md](../resource-management-recommendations.md)
+  - API Specification & Roadmap:
+    - [main.typ](../API-Specification/main.typ) + [ok-fpga-server-api-specification.pdf](../API-Specification/ok-fpga-server-api-specification.pdf) (`0.3.9`)
+    - [development-roadmap.md](../development-roadmap.md)
+    - [roadmap-phases-44.md](roadmap-phases-44.md)
+- Implemented:
+  - **ADR-034 Finalisation (`SD-03`, `SD-04`):** Updated status to
+    `Accepted — Implemented`, cleaned up transitional/future-tense notes,
+    consolidated the normative Write and Read Permission Matrices and the
+    ordered 7-step `B2` Data-Port Enforcement Pipeline into `§13` (`SD-03`),
+    and added `§16` on `WireIn` read-back limitations and host-side shadow
+    caching (`SD-04`).
+  - **Supersession Markers:** Added top banners and section-level
+    *Superseded by ADR-034* markers to `ADR-003`, `ADR-006`, `ADR-020`,
+    `ADR-024`, `ADR-025`, and `ADR-026`; updated `ADR-029` and `ADR-030`
+    from `Proposed` to `Accepted — Implemented`; synchronised the ADR index
+    table in `docs/architecture/overview.md`.
+  - **Client Guides (`SD-06`, `SD-08`):** Updated
+    `docs/guides/python-rest-client-guide.md` (`§5–§10`) for ADR-028's two
+    configure routes and ADR-034's resource/enforcement model; updated
+    `docs/client/hdl-resource-mapping-guide.md` (`§2`, `§4–§10`) for 32-bit
+    wire widths, `interfaces: ["classic"]`, `Rule A`, `R1`, `D55`/`D61`/`D68`/`D77`,
+    and `B1–B4`.
+  - **Resource Management Doc Consolidation:** Reduced
+    `docs/resource-management-developer-guide.md` to a concise pointer table into
+    `ADR-034` and `docs/API-Specification/`, and reduced
+    `docs/resource-management-recommendations.md` to the `D1–D78` owner decision
+    log plus `§5` (`D12`, `D40` server-side sequences).
+  - **Link & Build Verification:** Verified 100% of relative Markdown links in
+    all modified documentation files resolve on disk; bumped `main.typ`
+    `spec-version` to `"0.3.9"` and rebuilt `ok-fpga-server-api-specification.pdf`.
+- Commit: `docs: consolidate resource model documentation`.

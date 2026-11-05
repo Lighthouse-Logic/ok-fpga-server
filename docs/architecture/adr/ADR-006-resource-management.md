@@ -1,8 +1,11 @@
 # ADR-006: Multi-User Resource Management
 
-**Status**: Implemented  
+**Status**: Implemented (resource model, acquisition, and lifecycle superseded by [ADR-034](ADR-034-resource-model-consolidation.md))  
 **Date**: 2026-08-16  
 **Deciders**: Architecture Team  
+
+> **Superseded in part by [ADR-034](ADR-034-resource-model-consolidation.md)**:
+> The resource model, wire formats, registration schema, acquisition protocol, locking/blocking rules, and device/reprogram lifecycle are consolidated in [ADR-034](ADR-034-resource-model-consolidation.md) (§1–§6, §10–§14). Historical text below is retained for context.
 
 ## Context
 
@@ -17,6 +20,8 @@ The ok-FPGA-Server must support multiple users accessing one or more connected F
 ## Decision
 
 ### Resource Model
+
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §1–§3 & §10.*
 
 A **resource** is a named, addressable unit of functionality exposed by a programmed FPGA. Resources are:
 - Defined by the developer/integrator (not auto-discovered from hardware)
@@ -42,6 +47,8 @@ A **resource** is a named, addressable unit of functionality exposed by a progra
 
 ### Resource State Model
 
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §2, §11 & §12 (states serialize as `unavailable`, `initializing`, `available`, `in_use_shared`, `in_use_locked`; resources are deleted rather than marked `Unavailable` on reprogram/clear/unplug).*
+
 Resources have five possible states. There is no rigid state machine — transitions are governed by the resource lifecycle and access control logic. The typical flow is:
 
 ```
@@ -63,6 +70,8 @@ Unavailable ──► Initializing ──► Available ──► In Use (Shared)
 | `InUseLocked` | Exactly one user has exclusive access. No other users may acquire it until released. |
 
 ### Resource Registry
+
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §1–§3 (`holders` are `{user_id, mode}` objects; `access_mode` is the declared mode `shared | exclusive`).*
 
 ```rust
 pub struct Resource {
@@ -104,6 +113,8 @@ pub enum AccessMode {
 
 ### Acquisition Protocol
 
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §1, §11 (`A1` holder-mode rules, idempotent repeat acquire, `mode_mismatch` and `private` structured conflicts, `ReadOnly` + `Exclusive` transitions).*
+
 ```
 POST /api/v1/resources/{resource_id}/acquire
 {
@@ -144,6 +155,8 @@ This policy is a **stub** that developers can replace with HDL-specific logic.
 
 ### FPGA ↔ Resource Lifecycle
 
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §11, §12 & §14 (`D26` forced cleanup on reprogram/clear/unplug deletes all resources on the device with `DeleteReason::Reprogram`, `Clear`, or `DeviceRemoved`).*
+
 1. **FPGA connected but not programmed**: No resources. Device appears in device list but resource list is empty for this device.
 2. **FPGA programmed with bitfile**: Developer-defined resources transition from `Unavailable` → `Initializing` → `Available`.
 3. **User acquires resource**: `Available` → `InUseShared` or `InUseLocked`.
@@ -153,6 +166,8 @@ This policy is a **stub** that developers can replace with HDL-specific logic.
 7. **FPGA reprogrammed with same bitfile**: Resources may be re-initialized rather than destroyed (policy-dependent).
 
 ### User Tracking
+
+> *Superseded in part by [ADR-034](ADR-034-resource-model-consolidation.md) §6 (`holdings: [{resource_id, mode, locked}]`).*
 
 Users are identified by a `UserId` (string). For the initial version (no auth), users are self-identified via a header or parameter. The auth stubs (ADR-008) will provide authenticated user identity.
 
@@ -166,6 +181,8 @@ pub struct UserSession {
 ```
 
 ### Bitfile Tracking
+
+> *Superseded in part by [ADR-034](ADR-034-resource-model-consolidation.md) §14 (`D26`: reprogramming or clearing is an unconditional forced override that unlocks, releases, and deletes existing resources).*
 
 For every FPGA, the server tracks the current bitfile:
 
@@ -229,6 +246,7 @@ not specify the creation mechanism. ADR-020 resolves this:
 
 ## References
 
-- [Project Goals — Resource Model](../../ok-FPGA-Server_Project-goals.txt) — lines 3-4
+- [Project Goals — Resource Model](../../../ok-FPGA-Server_Project-goals.txt) — lines 3-4
 - [ADR-020 — Client-Side Resource Registration](ADR-020-client-side-resource-registration.md)
+- [ADR-034 — Resource Model Consolidation](ADR-034-resource-model-consolidation.md)
 

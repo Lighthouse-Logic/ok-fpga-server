@@ -1,7 +1,6 @@
 # ADR-034: Resource Model Consolidation
 
-**Status**: Accepted — 44-A implemented incl. post-44-A read semantics (0.3.0) and mask default (0.3.1);
-44-A through 44-H archived; 44-B implemented (0.3.3); 44-C implemented (0.3.4); 44-D implemented (0.3.5); 44-E implemented (0.3.6); 44-F implemented (0.3.7); 44-G implemented (0.3.8); 44-H implemented (0.3.9); 44-J pending
+**Status**: Accepted — Implemented (Phase 44: 44-A through 44-J archived)
 **Date**: 2026-10-11 (amended 2026-11-05)
 **Commit hash**: 44-A `d3b19a6`; 0.3.0 read semantics (D75–D77) `dcb5e5a`;
 0.3.1 IsTriggered mask default (D78) `6e11f9b`; 0.3.2 heartbeat text and
@@ -9,11 +8,17 @@ shipped enforcement `2e2f7a3`; 44-B registration rules (0.3.3) `1d95a6f`;
 44-C acquisition rules (0.3.4) `2167914`; 44-D locking, blocking & events (0.3.5) `e562705`;
 44-E enforcement pipeline (0.3.6) `7c39e74`; 44-F reprogram & clear cleanup (0.3.7) `5a1f025`;
 44-G classic data-path alignment & example clients (0.3.8) `d59921e`, `96c0ed7`;
-44-H dataport normalisation (0.3.9) `f1961c6`
+44-H dataport normalisation (0.3.9) `f1961c6`;
+44-J documentation consolidation (pending commit)
 **Deciders**: Project owner, Architecture Team
-**Phase**: 44 ([development-roadmap.md](../../development-roadmap.md) §44)
-**Supersedes (in part)**: ADR-020 §7, §8 and the Validation Responses table
-(more sections are superseded by later sub-phases, see roadmap §44.1)
+**Phase**: 44 ([archive/roadmap-phases-44.md](../../archive/roadmap-phases-44.md))
+**Supersedes (in part)**:
+- [ADR-003](ADR-003-data-port-abstraction.md) (wording calling `okRegisterBridge` "the AXI path" and `OK_DATAPORT_UNKNOWN` exposure; see §13, §15)
+- [ADR-006](ADR-006-resource-management.md) (Resource Model, Resource State Model, Resource Registry, Acquisition Protocol, and FPGA ↔ Resource Lifecycle; see §1–§6, §10–§14)
+- [ADR-020](ADR-020-client-side-resource-registration.md) (§1–§3 and §6–§11; see §1–§6, §10–§14)
+- [ADR-024](ADR-024-endpoint-access-enforcement.md) (§1–§7, §9, §10; see §8, §11, §13)
+- [ADR-025](ADR-025-classic-address-mapping.md) (§2, §3, §5, and Future Work; see §13)
+- [ADR-026](ADR-026-readonly-acquisition.md) (§1–§5, §7, §8; see §1, §8, §11, §13)
 
 ## Context
 
@@ -28,11 +33,11 @@ The resource contract had drifted apart in three places:
   (S-04). Conflicts came back as free text, so clients could not tell which
   resource or item blocked them.
 
-The design is recorded in
-[resource-management-developer-guide.md](../../resource-management-developer-guide.md)
-and [resource-management-recommendations.md](../../resource-management-recommendations.md)
-(decisions D1–D78). This ADR is the single place where accepted decisions
-become the server contract. Each Phase 44 sub-phase amends it.
+The historical design exploration and decision log (`D1–D78`) are recorded in
+[resource-management-recommendations.md](../../resource-management-recommendations.md)
+and [resource-management-developer-guide.md](../../resource-management-developer-guide.md).
+This ADR and [docs/API-Specification/](../../API-Specification/) are the
+normative server contract.
 
 ## Decision
 
@@ -56,7 +61,7 @@ SSE, the dashboard and gRPC:
 | State | `unavailable`, `initializing`, `available`, `in_use_shared`, `in_use_locked` |
 | Declared mode | `shared`, `exclusive` |
 | Holder mode | `shared`, `exclusive`, `read_only` |
-| Delete reason | `client`, `reprogram`, `clear` |
+| Delete reason | `client`, `reprogram`, `clear`, `device_removed` |
 
 SSE events carry the event name in `event:` and the variant object itself
 in `data:` (no `{"VariantName": {...}}` wrapper).
@@ -66,23 +71,22 @@ in `data:` (no `{"VariantName": {...}}` wrapper).
 `CreateResourceRequest` (REST and gRPC) carries `name`, `device_serial`,
 `description`, `access_mode`, `interfaces`, `endpoints`, `address_ranges`,
 `metadata` (string values only, D69) and `private`. `resource_type` and
-`capabilities` are removed. Presence rules handled in 44-A (D61, D62, D68):
+`capabilities` are removed. Presence rules (D61, D62, D68, D77):
 
 - **No `endpoints` field** → the resource is exclusive. `access_mode` may
   be omitted (it becomes `exclusive`); `shared` is rejected (422). Coverage
-  (D77, revises D68): every **Wire and Trigger** endpoint (0x00–0x7F) only.
-  Pipe / BTPipe endpoints (0x80–0xBF) must be declared explicitly, because
-  the server cannot tell a Pipe from a BTPipe at the same address. D23
-  still applies (it blocks later classic resources). *Today the server
-  still claims all 0x00–0xBF; the D77 coverage change lands in 44-E.*
+  (D77, revises D68, enforced in 44-E): every **Wire and Trigger** endpoint
+  (`0x00–0x7F`) only. Pipe / BTPipe endpoints (`0x80–0xBF`) must be declared
+  explicitly, because the server cannot tell a Pipe from a BTPipe at the same
+  address. D23 still applies (it blocks later classic resources that claim
+  Wire or Trigger endpoints).
 - **`endpoints` present** → `access_mode` is required (422 if missing).
 - **Each entry** needs its own `access` or an `endpoints.default_access`;
   `default_access` only fills a missing `access`. Neither → 422.
 - `{"entries": []}` means "no classic endpoints".
 
 The full R1 overlap rules, Rule A and the interface/dataport check are
-implemented in 44-B (0.3.3), see §10. 44-A kept the existing
-exclusive-overlap check, reported as a structured conflict.
+implemented in 44-B (0.3.3), see §10.
 
 ### §4 Structured errors (Q44-13)
 
@@ -104,10 +108,10 @@ exclusive-overlap check, reported as a structured conflict.
 ### §5 Events (recs S5, D58)
 
 - New events: `resource_locked`, `resource_unlocked`.
-- `resource_deleted` gains `reason` (`client` now; `reprogram` / `clear`
-  in 44-F).
-- Proto `DeviceEvent` gains the matching messages. The gRPC
-  `WatchDeviceEvents` stream itself is implemented in 44-D.
+- `resource_deleted` gains `reason` (`client`, `reprogram`, `clear`,
+  `device_removed`; §14).
+- Proto `DeviceEvent` gains the matching messages, and the gRPC
+  `WatchDeviceEvents` stream fans out all 11 event variants (§12).
 
 ### §6 Users and holdings (P5)
 
@@ -117,13 +121,13 @@ exclusive-overlap check, reported as a structured conflict.
 ### §7 Undocumented routes (S-08)
 
 `wires/in/update` (write), `wires/out/update` and `triggers/out/update`
-(reads, D42) are now documented. Enforcement for them comes in 44-E.
+(reads, D42) are documented in `api/openapi.yaml` and enforced in `rest/classic.rs` (§13).
 
 *Amended in 0.3.0 (D76):* the whole-bank `GET wires/out` /
 `triggers/out` (no `endpoint` query), documented in 44-A, were never an
 approved feature and are **removed**. `endpoint` is now required.
 
-### §8 ReadOnly holders (D75, 0.3.0)
+### §8 ReadOnly holders (D75, 0.3.0 / 0.3.6)
 
 - A ReadOnly holder may **read** every covered item that is not
   `private`: WireOuts and `UpdateWireOuts`; TriggerOuts (`IsTriggered`,
@@ -153,8 +157,8 @@ approved feature and are **removed**. `endpoint` is now required.
   non-private PipeOut / BTPipeOut / TriggerOut or a non-private range.
 - Shared and exclusive holders are unrestricted by this section; D42 still
   applies to them.
-- 0.3.0 changes the spec text only. Enforcement of F1 and F2 and the F4
-  setting land in 44-E.
+- Spec text landed in 0.3.0; runtime enforcement of F1 and F2 and the F4
+  setting landed in 44-E (0.3.6, §13).
 
 ### §9 Opal Kelly read semantics (D76, 0.3.0)
 
@@ -214,7 +218,7 @@ the two APIs cannot drift apart.
   `access_control.warn_range_self_overlap` (default `true`, env
   `OKFPGA_WARN_RANGE_SELF_OVERLAP`) logs a `warn!` per overlapping pair
   (`warnings.rs`). Where such ranges differ in `private`, the private one
-  applies to the shared addresses; enforced with 44-E.
+  applies to the shared addresses; enforced in 44-E (§13).
 - **Duplicate endpoint addresses** (422): an address may appear once per
   declaration, even `pipe_in` vs `bt_pipe_in`.
 - **Strict REST address syntax** (422): `^0x[0-9A-Fa-f]{2}$`
@@ -224,16 +228,16 @@ the two APIs cannot drift apart.
   with the named resource: endpoints ascending, then that resource's ranges
   in declaration order; `item` is the first entry. `detail` ends with
   "(N conflicting items in total)" when N > 1. Wildcard vs wildcard lists
-  all 192 endpoints.
+  all 128 Wire/Trigger endpoints (`0x00–0x7F`, D77).
 - **Deterministic choice**: existing resources are checked in `id` order
   (the registry is a `HashMap`), so the lowest id is named.
 - **Check order on create**: build (422) → device lookup (404) → interfaces
   vs data port (422) → programmed (409) → self-overlap warning → R1 (409).
   A declaration that can never be valid on a device is 422 even while the
   device is unprogrammed.
-- **Wildcard coverage** is still 0x00–0xBF; D77 (0x00–0x7F) lands in 44-E.
+- **Wildcard coverage (D77)** is `0x00–0x7F` (Wire and Trigger endpoints; §13).
 - **Q5 — registration vs device lifecycle** (unplug / reprogram during or
-  after registration) is deferred to 44-F (roadmap).
+  after registration) is implemented in 44-F (§14).
 
 ### §11 Acquisition rules (44-C, 0.3.4)
 
@@ -276,7 +280,7 @@ both delegate to `ResourceRegistry::acquire` and `DefaultAccessPolicy::can_acqui
   without calling `lock()`. Removing the `locked_by` check for exclusive
   address ranges on shared resources (`S-14`) remains scoped to 44-E.
 
-#### 12. Locking, blocking and events (0.3.5, 44-D)
+### §12 Locking, blocking and events (44-D, 0.3.5)
 
 `ResourceRegistry::lock` and `ResourceRegistry::unlock` enforce the B1, B3,
 B4 and D35 rules and return structured `LockOutcome` / `LockError` types so
@@ -309,18 +313,76 @@ REST and gRPC share the exact same logic:
   `DeviceManager::subscribe()`, converts all 11 `DeviceEvent` variants via
   `device_event_to_proto`, and streams them over `ReceiverStream`.
 
-#### 13. Enforcement pipeline, coverage, and registration warnings (0.3.6, 44-E)
+### §13 Enforcement pipeline, permission matrix, coverage, and registration warnings (44-E, 0.3.6; SD-03)
 
 Phase 44-E aligns runtime data-port enforcement across REST and gRPC with
 the resource declaration, overlap, and blocking model (`B2`, `S-12..S-20`,
-`D42`, `D44`, `D51`, `D56`, `D61`, `D66`, `D75`, `D77`, `P14`):
+`D42`, `D44`, `D51`, `D56`, `D61`, `D66`, `D75`, `D77`, `P14`, `SD-03`):
 
 - **Default enforcement & identity (`S-12`, `S-18`, owner decision Q3a)**:
-  `AccessControlConfig::default().endpoint_enforcement` is now `"enforce"`,
-  and `resolve_user_id` rejects missing identity (`400 Bad Request`) instead
-  of falling back to `"Unknown"`. Anonymous `/configure` and
-  `/configure_from_server_path` requests are permitted only when
-  `endpoint_enforcement == "off"`.
+  `AccessControlConfig::default().endpoint_enforcement` is `"enforce"`
+  (`"off"` and `"warn"` exist only as debugging aids), and `resolve_user_id`
+  rejects missing identity (`400 Bad Request`) instead of falling back to
+  `"Unknown"`. Anonymous `/configure` and `/configure_from_server_path`
+  requests are permitted only when `endpoint_enforcement == "off"`.
+- **Route tiers**:
+  | Tier | Routes / RPCs | Check |
+  |---|---|---|
+  | 1 Management | `/server/*`, `/devices`, `/resources/*`, `/users/*`, `/events/*`, `/disconnect`, `/heartbeat`; `ServerService`, management `DeviceService` RPCs | user id |
+  | 2 Device | `/devices/{serial}`, `/configure*`, `/settings/*`, `/sensors`, `/syzygy`; device-info / configure / sensor / settings RPCs | user id |
+  | 3 Data port | `/devices/{serial}/classic/**`, `/devices/{serial}/axi/**`; `ClassicDataPortService`, `AXIDataPortService` | user id + holds ≥1 resource on device + permission matrix & B2 pipeline |
+- **Read vs. Write operation classes (`D16`, `D21`, `D42`, `D44`, `D75`, `D76`)**:
+  | Class | Operations |
+  |---|---|
+  | **Read** | `UpdateWireOuts`, `GetWireOutValue`, `UpdateTriggerOuts`, `IsTriggered`, `GetTriggerOutVector`, `ReadFromPipeOut`, `ReadFromBlockPipeOut`; `ReadRegister(s)`; direct AXI reads (`AXILite.Read*`, `AXIFull.Read*`, `AXIStream.Read`) |
+  | **Write** | `SetWireInValue`, `UpdateWireIns`, `ActivateTriggerIn`, `WriteToPipeIn`, `WriteToBlockPipeIn`; `WriteRegister(s)`; direct AXI writes (`AXILite.Write*`, `AXIFull.Write*`, `AXIStream.Write`); `ResetFPGA` and AXI Lite / Full / Stream resets (`D75 F1`). An `ADR-025` hook may map a Classic write to a 32-bit address, which is then checked against the same candidate resource's `address_ranges` |
+- **Normative Write Permission Matrix (`SD-03`, `D6`, `D44`, `D46`)** (`U` = requesting user; `R` = a resource `U` holds on the device; a write is allowed if **at least one** held resource `R` allows it; "usable" = not locked by another user and not blocked per §12):
+  | `U`'s hold on `R` | Shared EP | Exclusive EP | Shared range (`okRegisterBridge`, `ADR-025`, or AXI) | Exclusive range | Item **not** declared by `R` |
+  |---|---|---|---|---|---|
+  | None | ❌ | ❌ | ❌ | ❌ | ❌ |
+  | `Shared` holder, `R` usable (unlocked, or locked by `U`) | ✅ | ✅ | ✅ | ✅ | ❌ |
+  | `Shared` holder, `R` locked by another user | ❌ | ❌ | ❌ | ❌ | ❌ |
+  | `Shared` holder, `R` **blocked** by another user's lock on an overlapping resource | ❌ | ❌ | ❌ | ❌ | ❌ |
+  | `Exclusive` holder (`R` cannot be foreign-locked or blocked under `R1`) | — (`Rule A`) | ✅ | — (`Rule A`) | ✅ | ❌ |
+  | `ReadOnly` holder | ❌ | ❌ | ❌ | ❌ | ❌ |
+  - A lock is **never** required by the server to write an exclusive item or range inside a `Shared` resource (`S-14`, `D44`, `D46`); multi-step sequences are coordinated by clients using resource locks.
+  - `private` has no effect on writes (it restricts only `ReadOnly`, which cannot write).
+- **Normative Read Permission Matrix (`SD-03`, `D16`, `D21`, `D29`, `D42`, `D75`)**:
+  | `U`'s hold on `R` | Read, non-private (`private: false`) | Read, `private: true` | `ADR-025` mapped access (requires Classic writes) |
+  |---|---|---|---|
+  | None | ❌ | ❌ | ❌ |
+  | `Shared` / `Exclusive` holder (any lock state, incl. foreign-locked or blocked) | ✅ | ✅ | follows the **Write** table |
+  | `ReadOnly` holder | ✅ (`UpdateTriggerOuts` / trigger `update=true` ❌ if any resource on the device declares a `private: true` `TriggerOut`, `D75 F2`) | ❌ | ❌ (`D12`, `D29`) |
+- **Ordered 7-Step `B2` Data-Port Enforcement Pipeline (`SD-03`, `B2`)**:
+  ```text
+  1. User identified?                                       (S-18; 400 / 403 / PERMISSION_DENIED if missing)
+  2. User holds >= 1 resource on the device?                (Tier-3 device gate; 403 / PERMISSION_DENIED if none)
+  3. ResetFPGA / AXI reset (no item):
+       caller must hold >= 1 resource on the device that is NOT ReadOnly,
+       NOT foreign-locked, and NOT blocked                  (D56, D66, D75 F1)
+  4. UpdateTriggerOuts / trigger read with update=true:
+       caller must hold >= 1 covering resource (or any resource for standalone
+       UpdateTriggerOuts); if all held resources on the device are ReadOnly and
+       ANY resource on the device covers a private TriggerOut -> deny 403 (D75 F2)
+  5. Candidate resources = resources on the device held by U:
+       READ:  keep candidates that cover the EP or full address span
+              [start, start + byte_len - 1]; allow if >= 1 candidate is held as
+              Shared/Exclusive, or held as ReadOnly and the item is not private
+              (for self-overlapping ranges, private: true wins, 44-B Q1)
+       WRITE: filter out candidates held as ReadOnly, locked by another user
+              (locked_by != Some(U)), or blocked (B1/B2); keep remaining
+              candidates that cover the EP / address span; none left -> deny 403
+  6. WRITE via a Classic EP on a remaining candidate R:
+       policy.resolve_classic_address(R, U, ep, ep_type, value):
+         - NoMapping / AllowAlways -> allow (AllowAlways skips only the address
+           check on R, never steps 1-5, D51)
+         - MapsToAddress(a) -> allow iff a is in one of R's own AddressRanges
+           (same candidate R, S-20, D9, D44)
+  7. WRITE / READ via okRegisterBridge or direct AXI address:
+       allow iff the full byte span [start, start + byte_len - 1] falls within
+       at least one 32-bit AddressRange of the same candidate R (S-20, P14)
+  ```
+  - Checked **once per command** at initiation; bulk / pipe / stream byte transfers run without per-byte checks.
 - **Wildcard endpoint coverage (`D77`, owner decision Q2)**:
   `WILDCARD_EP_LAST` is narrowed from `0xBF` to `0x7F` so a Classic resource
   that omits `endpoints` (`None`) claims only Wire and Trigger endpoints
@@ -329,17 +391,6 @@ the resource declaration, overlap, and blocking model (`B2`, `S-12..S-20`,
   `warnings::warn_wildcard_endpoints` when `endpoints` is omitted or when an
   `endpoints: None` resource and a Pipe-declaring resource coexist on the
   same device.
-- **Candidate filtering & blocking (`B2`, `S-13`, `S-14`, `D44`, `D51`)**:
-  for write operations (`SetWireInValue`, `UpdateWireIns`,
-  `ActivateTriggerIn`, `PipeIn`/`BtPipeIn` writes, `WriteRegister(s)`, AXI
-  writes, `ResetFPGA`, AXI resets), candidate resources held only as
-  `ReadOnly`, locked by another user (`locked_by != Some(user_id)`), or
-  blocked by another user's lock on an overlapping resource (`B2`) are
-  filtered out before checking endpoint/address coverage. Exclusive address
-  ranges inside a `Shared` resource no longer require the caller to hold a
-  resource lock (`S-14`, `D44`), and `AccessRule::AllowAlways` skips only the
-  address-range check on the same candidate resource while still enforcing
-  holder mode, foreign lock, and blocking (`D51`).
 - **Same-resource address span checking & generic bridge policy (`S-20`, `P14`, owner decisions Q1, Q2, Q4)**:
   `Resource::check_address_span` checks that the full requested byte span
   `[start, start + byte_len - 1]` falls within at least one declared 32-bit
@@ -439,7 +490,7 @@ the resource declaration, overlap, and blocking model (`B2`, `S-12..S-20`,
     added a **🔵 Later** roadmap item to purge tracked proprietary Opal Kelly
     FrontPanel SDK files from git.
 
-#### 15. Dataport normalisation (0.3.9, 44-H)
+### §15 Dataport normalisation (44-H, 0.3.9)
 
 Phase 44-H normalises the physical host transport data port across REST,
 gRPC, core types, and clients (`D63`, `D70`, `S-10`, `SD-05`, `P9`, `P16`):
@@ -461,6 +512,22 @@ gRPC, core types, and clients (`D63`, `D70`, `S-10`, `SD-05`, `P9`, `P16`):
     enumeration (`scanner.rs`, `device_monitor.rs`), omitted from
     `DeviceRegistry::list()` / `count()`, and return `404` / `NOT_FOUND` on
     single-device lookups (`DeviceRegistry::get()`, `contains()`).
+
+### §16 WireIn read-back and host-side shadow values (SD-04, D16)
+
+- **No hardware `WireIn` read-back in FrontPanel**: Opal Kelly's `okWireIn`
+  HDL module is strictly host-to-FPGA (`ep_dataout` only); there is no
+  hardware read-back path from the FPGA fabric for `WireIn` endpoints.
+- **Host-side staging cache only**: FrontPanel's `GetWireInValue` reads only
+  the host-side staging buffer maintained inside the single `okCFrontPanel`
+  handle from prior `SetWireInValue` calls (whether or not `UpdateWireIns`
+  has been called). REST does not expose a `WireIn` read route.
+- **Client guidance**: clients that need to remember what they wrote to a
+  `WireIn` endpoint should cache the written values client-side, or place the
+  `WireIn` in an `exclusive` resource (or coordinate multi-step updates under
+  a `shared` resource lock) when multiple clients share a `WireIn`.
+  An optional server-side `WireIn` shadow read-back endpoint is tracked as a
+  **🔵 Later** research item (`Q44-6`).
 
 ### Rationale
 
@@ -731,6 +798,40 @@ Owner permission 2026-11-05 for the `api/openapi.yaml` and
 - Docs: this ADR, `docs/API-Specification/`, `docs/archive/roadmap-phases-44.md`,
   `docs/development-roadmap.md`, `docs/architecture/overview.md`.
 
+## Files changed (44-J)
+
+- Docs:
+  - `docs/architecture/adr/ADR-034-resource-model-consolidation.md` (consolidated
+    `SD-03` read/write permission matrix and 7-step `B2` pipeline into §13,
+    added `SD-04` `WireIn` read-back §16, updated status and `Supersedes`
+    header),
+  - `docs/architecture/adr/ADR-003-data-port-abstraction.md`,
+    `docs/architecture/adr/ADR-006-resource-management.md`,
+    `docs/architecture/adr/ADR-020-client-side-resource-registration.md`,
+    `docs/architecture/adr/ADR-024-endpoint-access-enforcement.md`,
+    `docs/architecture/adr/ADR-025-classic-address-mapping.md`,
+    `docs/architecture/adr/ADR-026-readonly-acquisition.md`,
+    `docs/architecture/adr/ADR-028-configure-fpga-api-alignment.md`
+    (added section-level *Superseded by ADR-034* markers),
+  - `docs/architecture/adr/ADR-029-user-identification-consistency.md`,
+    `docs/architecture/adr/ADR-030-sse-event-expansion.md` (updated status from
+    `Proposed` to `Accepted — Implemented`),
+  - `docs/architecture/overview.md` (synchronised ADR index statuses and fixed
+    relative links in §9),
+  - `docs/guides/python-rest-client-guide.md` (`SD-06` `ADR-028` configure
+    routes + `D26` forced cleanup note, `ADR-034` resource/snapshot alignment,
+    relative link fixes),
+  - `docs/client/hdl-resource-mapping-guide.md` (`SD-08` registration check-order
+    and structured conflict clarifications),
+  - `docs/resource-management-developer-guide.md`,
+    `docs/resource-management-recommendations.md` (reduced to pointers into
+    `ADR-034` and `docs/API-Specification/` while preserving the `D1–D78`
+    decision log),
+  - `docs/API-Specification/` (`main.typ`, `chapters/appendix-status.typ`, and
+    rebuilt `ok-fpga-server-api-specification.pdf`),
+  - `docs/archive/roadmap-phases-44.md`, `docs/development-roadmap.md`
+    (archived Phase 44-J and collapsed Phase 44 in the roadmap).
+
 ## Open items
 
 - ~~**44-B**: R1 overlap rules, Rule A, interface/dataport check, `private`
@@ -754,9 +855,14 @@ Owner permission 2026-11-05 for the `api/openapi.yaml` and
   sweep on unplug, configuration-generation check; optional bitfile regex/hash
   matching evaluated and rejected/dropped per `q4`).~~
   **Done in 0.3.7** (§14).
-- **Later**: TriggerOut event log (D67 reopened, roadmap 🔵 Later).
 - ~~**44-G**: example clients and `client/python-labview-client` are out of
   step with this contract until then.~~ **Done in 0.3.8**.
+- ~~**44-H**: dataport normalisation (`legacy` / `axi` only, `D63`, `D70`,
+  `S-10`, `SD-05`, `P9`, `P16`).~~ **Done in 0.3.9** (§15).
+- ~~**44-J**: documentation consolidation (`SD-03`, `SD-04`, `SD-06`, `SD-08`,
+  ADR superseded/status markers, working-doc pointers, roadmap collapse).~~
+  **Done** (§13, §16).
+- **Later**: TriggerOut event log (D67 reopened, roadmap 🔵 Later).
 - **Spec ↔ implementation discrepancies (spec unchanged)**:
   - Acquire `user_id` is `required` in the spec; the server still accepts
     the ADR-029 `X-User-Id` fallback. gRPC acquire requires `user_id`.

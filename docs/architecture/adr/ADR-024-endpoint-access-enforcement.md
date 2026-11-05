@@ -1,11 +1,14 @@
 # ADR-024: Endpoint Access Enforcement
 
-**Status**: Implemented  
+**Status**: Implemented (§1–§7, §9, §10 superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §8, §11, §13)  
 **Date**: 2026-08-18  
 **Deciders**: Architecture Team  
 **Depends on**: [ADR-006](ADR-006-resource-management.md) (Resource Management),
 [ADR-020](ADR-020-client-side-resource-registration.md) (Client-Side Resource Registration),
 [ADR-023](ADR-023-gui-example-clients.md) (GUI Example Clients — F11 origin)
+
+> **Superseded in part by [ADR-034](ADR-034-resource-model-consolidation.md) §8, §11, §13 & §14**:
+> Sections §1–§7, §9, and §10 are superseded by [ADR-034](ADR-034-resource-model-consolidation.md) (default enforcement `"enforce"`, `D77` `0x00–0x7F` omitted-endpoint coverage, `D61` `default_access` rules, `B2` write candidate filtering and blocking, `SD-03` read/write permission matrix, and `D26` reprogram cleanup). Section §8 (Dashboard / Observability) remains active. Historical text below is retained for context.
 
 ## Context
 
@@ -55,6 +58,8 @@ The codebase already has substantial groundwork for this:
 
 ### 1. Enforcement Model: Three Levels
 
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §13 (`endpoint_enforcement` defaults to `"enforce"` in both `config.toml` and `AccessControlConfig::default()`; `"off"` and `"warn"` exist only as debugging aids).*
+
 Introduce a server-level configuration setting that controls enforcement behavior:
 
 ```toml
@@ -81,6 +86,8 @@ unauthorized.
 
 ### 2. Authorization Rule: "Must Hold a Covering Resource"
 
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §8 & §13 (`SD-03` read/write permission matrix and 7-step `B2` enforcement pipeline).*
+
 For any Classic endpoint or AXI address operation, the enforcement middleware checks:
 
 ```
@@ -104,6 +111,8 @@ DENY response:
 
 ### 3. Handling Legacy / Minimal Resources
 
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §3, §10 & §13 (`D55`, `D61`, `D68`, `D77`: `default_access` only fills a missing `access` on listed entries and never claims unlisted endpoints; `{"entries": []}` claims no endpoints; omitted `endpoints` is an exclusive resource claiming only Wire and Trigger endpoints `0x00–0x7F`; resources are never called "legacy").*
+
 ADR-020 resources registered without endpoint declarations (e.g., the current GUI
 demos pass only `name`, `device_serial`, `access_mode`) are treated as **covering
 all endpoints** on that device. This ensures existing clients continue to work
@@ -116,6 +125,8 @@ without schema changes.
 | No `endpoints` field at all | Resource covers all endpoints on the device (legacy mode) |
 
 ### 4. Where Enforcement Hooks In
+
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §13 (`SD-03` route tiers, `check_endpoint_access`, `check_address_span_access`, `check_reset_access`, `check_trigger_out_update_access`).*
 
 #### Design Principles
 
@@ -288,6 +299,8 @@ impl ResourceRegistry {
 
 ### 5. Enforcement Scope: Command-Level, Not Transfer-Level
 
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §13 (retained in `ADR-034 §13`: enforcement runs once at command initiation, including full byte-span `[start, start + byte_len - 1]` checking).*
+
 Enforcement applies at the **command initiation** level, not at the per-byte
 transfer level. Once a command is authorized and initiated, it runs to completion
 without further per-transfer user checks:
@@ -306,6 +319,8 @@ authorization check happens once when the operation begins; the data transfer
 itself proceeds at full speed.
 
 ### 6. Lock Enforcement
+
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §8, §12 & §13 (`B1–B4` lock blocking across overlapping resources; `UpdateWireOuts` and `UpdateTriggerOuts` are reads per `D42`, subject to `D75 F2` for `ReadOnly` holders when a private `TriggerOut` exists on the device).*
 
 When a shared resource is locked (state `InUseLocked`):
 
@@ -331,6 +346,8 @@ This makes `Lock` semantically meaningful at the FPGA operation level, not just 
 the resource metadata level.
 
 ### 7. Error Responses
+
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §4 & §13.*
 
 #### REST
 
@@ -366,6 +383,8 @@ When enforcement is `warn` or `enforce`:
 
 ### 9. Configuration
 
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §13 (`endpoint_enforcement = "enforce"` by default, plus `warn_range_self_overlap = true` and `warn_readonly_side_effects = true`).*
+
 ```toml
 [access_control]
 # Enforcement level: "off", "warn", "enforce"
@@ -376,6 +395,8 @@ This is a runtime-reloadable setting (server watches config file). Changing from
 `off` → `warn` → `enforce` does not require a restart.
 
 ### 10. Note on ConfigureFPGA (Device Programming)
+
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §13 & §14 (`D26`: `ConfigureFPGA*` and `ClearFPGAConfiguration` require user identity under `warn`/`enforce` and perform unconditional forced resource cleanup).*
 
 `ConfigureFPGA` (programming the device) does **not** fall under endpoint access
 enforcement. Resources cannot exist until the FPGA is programmed, so there is no

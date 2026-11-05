@@ -10,8 +10,8 @@
 
 #import "lib.typ": *
 
-#let spec-version = "0.3.8"
-#let spec-date = "2026-11-03"
+#let spec-version = "0.3.9"
+#let spec-date = "2026-11-05"
 
 #set document(
   title: "ok-fpga-server API Specification",

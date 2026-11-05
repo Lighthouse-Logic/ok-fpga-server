@@ -1,8 +1,11 @@
 # ADR-026: Read-Only Resource Acquisition & Private Data
 
 **Date:** 2026-08-20  
-**Status:** Accepted ✅ — Implemented (Phase 30, commits `94a4a4b`, `fd46b97`)  
+**Status:** Implemented (Phase 30, commits `94a4a4b`, `fd46b97`; §1–§8 superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §1, §8, §9, §11, §13)  
 **Extends:** [ADR-024](ADR-024-endpoint-access-enforcement.md), [ADR-025](ADR-025-classic-address-mapping.md)
+
+> **Superseded in part by [ADR-034](ADR-034-resource-model-consolidation.md) §1, §8, §9, §11 & §13 (`D75`, `D76`, `A1`, `B2`)**:
+> `read_only` is a **holder mode** (never a declared resource `access_mode`); `ReadOnly` holders **may** call `UpdateWireOuts` and `UpdateTriggerOuts` (except `UpdateTriggerOuts` / `update=true` when any resource on the device covers a `private: true` `TriggerOut`, `D75 F2`); `ReadOnly` holders are denied `ResetFPGA` and AXI resets (`D75 F1`); and `private` is exposed at resource, endpoint, and address-range levels in both OpenAPI and Proto3. Historical text below is retained for context.
 
 ---
 
@@ -32,6 +35,8 @@ ability to *modify* it. This is a common need:
 
 ### 1. New Acquisition Mode: `ReadOnly`
 
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §1, §8 & §13 (`read_only` is a holder mode only; `UpdateWireOuts` is allowed to `ReadOnly` holders, and `UpdateTriggerOuts` is allowed unless a private `TriggerOut` exists on the device, `D75`).*
+
 Add `ReadOnly` to the existing `AccessMode` enum:
 
 ```rust
@@ -58,6 +63,8 @@ A `ReadOnly` holder **cannot**:
 - Access any Private endpoint, address range, or resource
 
 ### 2. The Private Concept — Three Levels
+
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §3, §8, §10, §11 & §13 (`private: true` on a resource returns `409` / `FAILED_PRECONDITION` with `conflict.code = "private"`; item-level `private` is compared in `R1` overlap rules and enforced in `B2`).*
 
 "Private" is a boolean flag that restricts ReadOnly access. It operates at three
 hierarchical levels:
@@ -107,6 +114,8 @@ Private address ranges deny ReadOnly access for:
 
 ### 3. Holder Tracking
 
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §1 & §2 (`holders` serialize on the wire as `[{user_id, mode}]` across REST, gRPC, SSE, and the dashboard).*
+
 To enforce ReadOnly restrictions at operation time, the server must know *how* each
 user acquired the resource. The `holders` field changes from a simple user ID list
 to a list of holder entries:
@@ -119,6 +128,8 @@ pub struct HolderEntry {
 ```
 
 ### 4. Acquisition Rules
+
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §11 (`A1` repeat-acquire rules, `D25a/b/c` `ReadOnly` + `Exclusive` transitions, and `conflict.code = "mode_mismatch" | "private"`).*
 
 | Resource State | Request Mode | Result |
 |---------------|-------------|--------|
@@ -138,6 +149,8 @@ Additional acquisition-time checks:
 - If the resource is marked `private: true`, deny ReadOnly acquisition
 
 ### 5. Enforcement Pipeline
+
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §8 & §13 (7-step `B2` enforcement pipeline and `SD-03` read/write permission matrix).*
 
 The enforcement pipeline from ADR-024 is extended with two new check stages
 that fire **after** the existing checks pass:
@@ -177,6 +190,8 @@ is set (checked at acquisition time, not at operation time).
 
 ### 6. Data Freshness for ReadOnly Users
 
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §8 & §9 (`D75`, `D76`: `ReadOnly` holders may call `UpdateWireOuts` and `UpdateTriggerOuts`, except `UpdateTriggerOuts` / `update=true` when any resource on the device covers a `private: true` `TriggerOut`).*
+
 ReadOnly users cannot call `UpdateWireOuts` or `UpdateTriggerOuts` because these
 operations disturb the system by causing the FPGA to latch output values. This
 means:
@@ -191,6 +206,8 @@ bus transactions on the FPGA. The intended use case is monitoring alongside an
 active ReadWrite user.
 
 ### 7. API Changes
+
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §1 & §3 (`ResourceAccessMode` `shared | exclusive` is distinct from `HolderMode` `shared | exclusive | read_only`; `private` is present on `Resource`, `EndpointEntry`, and `AddressRange` in both OpenAPI and Proto3).*
 
 #### OpenAPI (`api/openapi.yaml`)
 
@@ -222,6 +239,8 @@ Add `bool private` field to:
 - AddressRange message
 
 ### 8. Error Types
+
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §4, §8, §11 & §13 (`PrivateResource` maps to `conflict.code = "private"` on 409 / `FAILED_PRECONDITION`).*
 
 Two new `AccessDenied` variants:
 

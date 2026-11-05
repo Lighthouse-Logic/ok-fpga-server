@@ -1,11 +1,14 @@
 # ADR-025: Developer-Defined Classic Address Mapping
 
-**Status**: Accepted  
+**Status**: Implemented (§2, §3, §5, and Future Work superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §13)  
 **Date**: 2026-08-19  
 **Deciders**: Architecture Team  
 **Depends on**: [ADR-006](ADR-006-resource-management.md) (Resource Management),
 [ADR-020](ADR-020-client-side-resource-registration.md) (Client-Side Resource Registration),
 [ADR-024](ADR-024-endpoint-access-enforcement.md) (Endpoint Access Enforcement)
+
+> **Superseded in part by [ADR-034](ADR-034-resource-model-consolidation.md) §13 (`B2`, `S-14`, `S-20`, `D9`, `D44`, `D51`)**:
+> Sections §2, §3, §5, and Future Work are superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §13: exclusive `AddressRange`s inside a `Shared` resource do **not** require a resource lock (`S-14`, `D44`), `MapsToAddress(a)` checks `a` against the **same** candidate resource `R` (`S-20`, `D9`), `AllowAlways` skips only the address check on `R` while still enforcing holder mode, foreign lock, and blocking (`D51`), and `ClassicAddressBridgePolicy` provides a generic reference implementation. Sections §1, §4, and §6 remain active. Historical text below is retained for context.
 
 ## Context
 
@@ -100,6 +103,8 @@ fn resolve_classic_address(
 
 ### 2. Firing Order: After Upstream Checks
 
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §13 (ordered 7-step `B2` enforcement pipeline).*
+
 The hook fires **only after** the existing enforcement pipeline has verified:
 
 1. ✅ User is authenticated
@@ -115,6 +120,8 @@ Only then does the server call `resolve_classic_address()`. This means:
 - The server handles all enforcement decisions based on the hook's return value
 
 ### 3. Address Range Enforcement After Resolution
+
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §13 (`S-14`, `S-20`, `D9`, `D44`, `D51`: exclusive ranges inside a `Shared` resource do not require the caller to hold a resource lock; the resolved address is checked against the same usable candidate resource `R`).*
 
 When the hook returns `MapsToAddress(addr)`, the server checks the resolved
 address against the resource's declared `address_ranges`:
@@ -147,6 +154,8 @@ For operations where `value` is `None`, the developer's hook can return
 (which the developer's custom policy code has access to) to make a decision.
 
 ### 5. Updated Enforcement Flow
+
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §13 (7-step `B2` enforcement pipeline; exclusive ranges do not require a resource lock).*
 
 ```
 Client: SetWireInValue(device="ABC123", endpoint=0x01, value=0x0042)
@@ -241,6 +250,8 @@ which means:
   or return `NoMapping` to allow reads through standard endpoint enforcement.
 
 ### Future Work
+
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §13 and the [Development Roadmap](../../development-roadmap.md) `🔵 Later` section (`S-21` declarative address carriers and server-side sequences).*
 
 - **Read-value post-check** — after a WireOut/PipeOut read completes, the server
   could call a post-read hook with the actual value for audit logging

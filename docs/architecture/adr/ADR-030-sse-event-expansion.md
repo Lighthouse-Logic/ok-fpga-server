@@ -1,8 +1,8 @@
 # ADR-030: SSE Event Expansion
 
 **Date:** 2026-08-23  
-**Status:** Proposed (Phase 39)  
-**Phase:** [Phase 39 — Server-Side SSE Event Expansion](../../development-roadmap.md)  
+**Status:** Accepted — Implemented (Phase 39, commits `a593cf5`, `e8b52a2`; extended by [ADR-034](ADR-034-resource-model-consolidation.md) §2, §5, §12 & §14 with `resource_locked`, `resource_unlocked`, `resource_deleted.reason`, flat SSE payloads, and gRPC `WatchDeviceEvents` fan-out)  
+**Phase:** [Phase 39 — Server-Side SSE Event Expansion](../../archive/roadmap-phases-39.md)  
 
 ---
 

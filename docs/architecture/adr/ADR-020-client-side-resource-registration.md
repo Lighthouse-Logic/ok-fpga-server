@@ -1,6 +1,6 @@
 # ADR-020: Client-Side Resource Registration
 
-**Status**: Implemented — §7, §8 and the Validation Responses table superseded by [ADR-034](ADR-034-resource-model-consolidation.md) (2026-10-11)  
+**Status**: Implemented — §1–§3 and §6–§11 superseded by [ADR-034](ADR-034-resource-model-consolidation.md)  
 **Date**: 2026-08-17  
 **Deciders**: Architecture Team  
 **Amends**: [ADR-006](ADR-006-resource-management.md) (adds client-side resource creation,
@@ -10,6 +10,9 @@ enhanced resource schema, heartbeat/liveness, lock/unlock semantics),
 [ADR-005](ADR-005-grpc-api-design.md) (adds `CreateResource`, `DeleteResource`,
 `LockResource`, `UnlockResource`, `Ping` RPCs)  
 **Previously part of**: [ADR-016](ADR-016-hardware-integration-testing.md) (split out)
+
+> **Superseded in part by [ADR-034](ADR-034-resource-model-consolidation.md)**:
+> Sections §1–§3 and §6–§11 are superseded by [ADR-034](ADR-034-resource-model-consolidation.md) (§1–§6, §10–§14). Sections §4 (Resource Persistence & Device Lifecycle) and §5 (Heartbeat / Liveness) remain active as extended by ADR-034 §12 and §14. Historical text below is retained for context.
 
 ## Context
 
@@ -29,6 +32,8 @@ and significantly expands the resource registration design with:
 ## Decision
 
 ### 1. Client-Side Resource Registration Principle
+
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §3, §10, §11 & §14.*
 
 **The server is agnostic to bitfile capabilities.** The client that programs an
 FPGA also registers the resources that the bitfile exposes. The server stores,
@@ -92,6 +97,8 @@ Client                              Server
 
 ### 2. Resource Registration Schema
 
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §3 & §10 (`interfaces` is an array of strings `["classic" | "axi_lite" | "axi_full" | "axi_stream"]`; `access_mode` is optional only when `endpoints` is omitted; `private` booleans are supported at resource, endpoint, and address-range levels).*
+
 #### Full JSON Schema
 
 ```json
@@ -144,6 +151,8 @@ Client                              Server
 ---
 
 ### 3. Access Mode Semantics
+
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §1, §11, §12 & §13 (declared `access_mode` vs per-holder `mode` `shared | exclusive | read_only`, `B1–B4` lock blocking across overlapping resources, and `B2` write candidate filtering).*
 
 The `access_mode` field on a resource is a **design constraint** determined by the
 FPGA HDL bitfile, not a runtime user choice. It controls how the resource can be
@@ -266,6 +275,8 @@ When a user's `last_seen_at` exceeds 60 seconds:
 ---
 
 ### 6. Interface Type Declarations
+
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §3, §10 & §15 (`interfaces` is an array of strings `["classic", "axi_lite", "axi_full", "axi_stream"]`; `axi_*` interfaces are rejected with 422 on `legacy` dataport devices).*
 
 Resources must declare which data port interfaces they use. At least one interface
 must be enabled.
@@ -454,6 +465,8 @@ used for:
 
 ### 9. Extensible Metadata
 
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §3 (`D69`: `metadata` is strictly `map<string, string>`; non-string JSON values are rejected with 422).*
+
 Resources may include arbitrary key-value pairs for information that the server
 does not interpret but stores and returns to clients:
 
@@ -486,6 +499,8 @@ All clients registering resources must document:
 
 ### 10. REST API Changes
 
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §3, §4, §10, §11 & §12.*
+
 #### New Endpoints
 
 | Method | Path | Description |
@@ -504,7 +519,7 @@ All clients registering resources must document:
 
 #### Validation Responses
 
-> **Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §4** (2026-10-11).
+> **Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §4 & §10** (2026-10-11).
 > 409 / 422 bodies are `ProblemDetail` with a structured `conflict` object;
 > malformed bodies are 422. The messages below are historical.
 
@@ -522,6 +537,8 @@ All clients registering resources must document:
 ---
 
 ### 11. gRPC API Changes
+
+> *Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §3, §4, §5, §10, §11 & §12 (`CreateResourceRequest` carries the full declaration schema, `ResourceConflictDetail` in `google.rpc.Status` details, and `ResourceLocked` / `ResourceUnlocked` use `user_id`).*
 
 #### New RPCs
 

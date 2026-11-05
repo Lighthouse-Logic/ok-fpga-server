@@ -1,18 +1,20 @@
-# Resource Management — Findings & Recommendations (DRAFT rev 9)
+# Resource Management — Owner Decision Log (D1–D78) & Pointer to ADR-034
 
-> **Basis:** ADR-003, 004, 005, 006, 015, 016, 017, 018, 020, 021, 023, 024,
-> 025, 026, 029; the owner decisions of 2026-10-10 (§1); the DualPort-Transceiver
-> `axibridge-access-guide-v2.md`; `api/openapi.yaml` and
-> `proto/okfpga/v1/okfpga.proto` (definitions only); local Strata second
-> opinion (§8). No code was reviewed.
-> Companion: [resource-management-developer-guide.md](resource-management-developer-guide.md).
-> **Status:** Draft rev 9, 2026-10-10. No ADR, spec or code has been changed.
-> The server roadmap Phase 44 follows this model (§6).
+> **Status:** Consolidated into [ADR-034 — Resource Model, Registration, Acquisition, Locking and Enforcement](architecture/adr/ADR-034-resource-model-consolidation.md) and the [API Specification PDF](API-Specification/ok-fpga-server-api-specification.pdf) (Phase 44-J, 2026-11-05).
+> **Companion pointer:** [resource-management-developer-guide.md](resource-management-developer-guide.md)
+> **Archive:** [archive/roadmap-phases-44.md](archive/roadmap-phases-44.md)
 
 > [!IMPORTANT]
-> **Model in one sentence (D1, D8, D48):** shared items declared by shared
+> **Model in one sentence (`D1`, `D8`, `D48`):** shared items declared by shared
 > resources **may overlap**; every other overlap is denied to the later
 > registration (first wins). There is **no "declare-once" rule**.
+>
+> All normative rules (`R1`, `B1`–`B4`, `L1`, `A1`, `E1`, `T1`), OpenAPI (`S1`–`S8`)
+> and Proto (`P1`–`P16`) alignments, and ADR supersession details are now
+> canonically specified in **[ADR-034](architecture/adr/ADR-034-resource-model-consolidation.md)**.
+> This document retains the chronological owner decision log (`D1–D78`) and the
+> server-side sequence design options (`D12`, `D40`) referenced from
+> [development-roadmap.md](development-roadmap.md) (`🔵 Later`).
 
 ---
 
@@ -137,190 +139,13 @@ and F4 and the D77 coverage change land in 44-E.
 
 ---
 
-## 2. Status of earlier items
+## 2. Consolidated Specification Pointer
 
-### 2.1 Contradictions (⚠C) and gaps (❓G)
+All pre-implementation gap tables (`C1–C7`, `G1–G18`, `N1–N32`), OpenAPI/proto discrepancy tables (`S1–S8`, `P1–P16`), and normative rule drafts (`R1`, `B1–B4`, `L1`, `A1`, `E1`, `T1`) were implemented across Phases `44-A` through `44-J` and consolidated into:
 
-All C- and G-items are resolved. G18 closed by D51. Full history: rev 5
-(commit `e418550`).
-
-### 2.2 Gaps N1–N29
-
-| ID | Status |
-|---|---|
-| N1–N15 | Resolved in rev 5 (D18–D31) |
-| N16–N18, N20 | Resolved: D42, D43, D44, D46 |
-| N19 | **Resolved:** D52 |
-| N21 | **Resolved:** D53, superseded by D68 |
-| N22 | **Resolved:** D54 |
-| N23 | **Resolved:** D55 |
-| N24 | **Resolved:** D56 (gate wording, §7 Q5) |
-| N25 | **Resolved:** D57 |
-| N26 | **Resolved:** D61 |
-| N27 | **Resolved:** D62, D68 |
-| N28 | **Resolved:** D63, D70 |
-| N30–N32 | **Resolved:** D70, D71, D72 |
-| N29 | **Resolved:** D64 |
-
----
-
-## 3. Rules, open gaps and discrepancies
-
-### 3.1 Normative rules (proposed for ADR-034)
-
-- **R1 (registration, D6, D8, D22, D33, D48, D54, D61, D68).**
-  `access_mode` is required, except that a resource without `endpoints` is
-  exclusive (D68). An exclusive resource contains only exclusive items. A
-  resource covers only its listed entries (D61). A new declaration that
-  overlaps an existing one is allowed only if **both** are shared items in
-  shared resources and agree on type and `private`. Otherwise 409, naming
-  the existing resource and the conflicting item. A resource without
-  `endpoints` claims all classic EPs exclusively; an explicit empty
-  `endpoints` object claims none (D55). Address ranges claim only what is
-  declared (D52). AXI interfaces on an `OK_DATAPORT_LEGACY` device → 422.
-- **B1 (blocking, D5, D19).** Resource S is **blocked for user U** if another
-  user V ≠ U holds the lock on a resource R ≠ S, and S and R declare at
-  least one common shared item. S is also unusable for U if S itself is
-  locked by V. A blocked or foreign-locked resource gives U **no write
-  rights** through it. Reads of non-private items stay allowed (D16, D21).
-- **B2 (write authorisation, D44, D46, D51).** A write by U to item X is
-  allowed if U holds at least one resource that covers X, is not ReadOnly,
-  and is neither locked by another user nor blocked; then the ADR-025
-  address check ("address in one of **that** resource's ranges", D9)
-  applies. `AllowAlways` skips only that address check. **No lock is
-  required.** Each call is checked against the lock state at that moment.
-- **B3 (lock denial).** `lock` on S is denied (409) if S is locked or blocked
-  for the caller. A user's own lock never blocks that user (D35).
-- **B4 (non-transitive, D18).**
-- **L1 (client obligation, D20, D24, D46).** Multi-step operations (writes
-  or reads, incl. authentication and every bridge transaction) run under the
-  client's lock when other users may hold overlapping resources. The server
-  cannot detect or enforce this.
-- **A1 (acquire, D7, D28, D43).** Same mode → 200. Different mode → 409,
-  "release, then acquire".
-- **E1 (meaning of exclusive, D44).** An exclusive item belongs to exactly
-  one resource. It is not a mutex among that resource's holders; one-writer
-  guarantees come from an **exclusive resource** or from client locking.
-- **T1 (terminology, D49, D50).** "Legacy" = `OK_DATAPORT_LEGACY` only.
-  "Classic" = FrontPanel classic EPs (+ okRegisterBridge). "Direct AXI" =
-  FPGADataPortAXI, which needs an `OK_DATAPORT_AXI` device.
-
-### 3.2 Open gaps
-
-None. N30–N32 were resolved by D70–D72.
-
-Also noted, no question needed:
-- **Self-interleaving.** A user holding both ports can corrupt her own bridge
-  transactions; the server does not protect a user from herself (guide §6.2).
-- **Lock between unlocked steps.** If Bob locks between two unlocked calls by
-  Alice, her next write is denied mid-sequence. This is why L1 exists
-  (guide §4.3).
-- **A bridge-EP-only resource** never reaches another resource's ranges:
-  the ADR-025 address check uses the ranges of the **same** usable covering
-  resource, and an empty range list → deny (D9). So a DualPort port
-  resource must declare the shared bridge EPs **and** its own exclusive
-  ranges, as guide §6.1 already shows. The old C-SFPP roadmap resource set
-  (H-08, ports with no EPs) does not work and is corrected next round.
-- **gRPC registration before P1.** Today's proto `CreateResourceRequest`
-  has no `endpoints` field, so under D68 every gRPC registration would claim
-  every classic EP. 44-B therefore lands after P1 (44-A), and gRPC uses the
-  same validator as REST.
-
-### 3.3 OpenAPI discrepancies (⚠S)
-
-Discrepancies between `api/openapi.yaml` and the ADRs / owner decisions.
-All content is approved; the spec is edited at implementation time, with an
-explicit go-ahead per edit (ai-collaboration §2, §4). D63 grants that
-permission for the dataport change.
-
-| ID | Location | Discrepancy | Status |
-|---|---|---|---|
-| **S1** | `CreateResourceRequest` (~L2042) | Only `name`, `device_serial`, `description`, `resource_type`, `capabilities`. | **Approved** (D36, D61, D62, D68, D69): remove `resource_type` / `capabilities`; add `access_mode` (required unless `endpoints` is omitted), `interfaces`, `endpoints` (`default_access`, `entries[]`: `address`, `type`, `access`, `private`, `description`), `address_ranges[]` (`name`, `start`, `end`, `access`, `private`, `description`), `metadata` (string values only), `private` |
-| **S2** | `Resource` (~L2065) | `access_mode` enum incl. `read_only`; `holders` is `string[]`; no `locked_by` or declaration fields. | **Approved** (D37) |
-| **S3** | `createResource`, acquire, lock | Only 400/404/409 documented; no structured conflict body. | **Approved** (D38; 409/422 split per D72) |
-| **S4** | port-A/B JSON (not a spec) | Descriptions vs v2 guide; metadata array (D69). | **Approved for C-SFPP-1** (D39, D69) |
-| **S5** | `/events`, `DeviceEvent` | No lock events; no delete reason. | **Approved** (D58) |
-| **S6** | `Resource.private` description | Visibility wording. | **Approved** (D57) |
-| **S7** | `DeviceInfo.dataport` (~L1778), `GET …/dataport` (~L591) | `unknown`, `classic`; two different enums. | **Approved** (D63, D70): `legacy` / `axi` only; an UNKNOWN device is not listed (404) |
-| **S8** | Acquire request `mode` (~L1263) | Required. | **Approved** (D62): optional; omitted = declared mode |
-
-### 3.4 Proto discrepancies (⚠P) — `proto/okfpga/v1/okfpga.proto`, definition only
-
-Line numbers approximate. **No enum gets an `UNSPECIFIED` value (D59).**
-Presence is detected with proto3 `optional` fields.
-
-| ID | Location | Discrepancy | Fix / status |
-|---|---|---|---|
-| **P1** | `CreateResourceRequest` (L902) | Same gaps as S1; comment cites ADR-016, not ADR-020. | **Approved** (D59, D65): fields 4–5 **reused** (D71: 4 = `access_mode`, 5 = `interfaces`), declaration messages `EndpointDeclaration`, `EndpointEntry`, `AddressRange`, `map<string,string> metadata` (D69), `private` |
-| **P2** | `Resource` (L229) | No `access_mode`; `holders` is `repeated string`; no declarations. | **Approved** (D59): `ResourceAccessMode access_mode`, `repeated Holder holders` under a new field number, declarations |
-| **P3** | `AccessMode` enum (L114) | `ACCESS_MODE_SHARED = 0` is the default, so an omitted mode silently means "shared". | **Approved** (D59, D62): `ResourceAccessMode { RESOURCE_ACCESS_MODE_SHARED = 0; RESOURCE_ACCESS_MODE_EXCLUSIVE = 1; }` on an `optional` registration field (absent → D68 or 422); acquire `mode` `optional` (absent → declared mode) |
-| **P4** | `AccessMode` comment (L117–120) | Contradicts D42. | "cannot write input EPs or call ActivateTriggerIn; may call UpdateWireOuts / UpdateTriggerOuts (reads)" |
-| **P5** | `UserSession` (L249) | No holder mode. | `repeated Holding` (`resource_id`, `mode`, `locked`) |
-| **P6** | `DeviceEvent` (L280) | Missing lock events and REST parity. | Parity plus D58 |
-| **P7** | Errors (`ErrorCluster`, L27) | No gRPC status mapping or structured detail. | Document status codes per RPC; error-detail message |
-| **P8** | Identity | `x-user-id` metadata undocumented. | Document as required metadata |
-| **P9** | `AXIDataPortService` comment (L1191) | "via okRegisterBridge" (D50, D64). | "…via FPGADataPortAXI (`OK_DATAPORT_AXI` devices only)" |
-| **P10** | `LockResource` / `UnlockResource` (L1093) | Return `ResourceResponse`; ADR-020 §11 says `StatusResponse`. | Keep the proto |
-| **P11** | `DeleteResource` comment (L1083) | "Returns an error if held". | Add the forced-delete note |
-| **P12** | `ClearFPGAConfiguration` (L1021) | Not a forced cleanup. | D26 semantics |
-| **P13** | `Resource.private` comment (L240) | Visibility claim. | **Approved** (D57) |
-| **P14** | Address width | `uint32` vs `uint64`; ranges 32-bit. | AXI addresses above 32 bits cannot be covered and are denied under `enforce` |
-| **P15** | Non-resource (noted only) | `GetServerStatus` duplicated. | Out of scope |
-| **P16** | `DataportType` (L85) | `DATAPORT_UNKNOWN = 0`. | **Approved** (D63): `DATAPORT_LEGACY = 0; DATAPORT_AXI = 1;` an UNKNOWN device is not present (D70) |
-
-### 3.5 ADR text superseded (for ADR-034)
-
-| ADR | Text | Superseded by |
-|---|---|---|
-| ADR-025 §3 table | "In an Exclusive range \| Locked by this user → ALLOW"; "Not locked / locked by other → DENY" | D44 |
-| ADR-025 §3 | "critical pattern: shared endpoints gating exclusive address ranges" (implies lock protection) | D44 (pattern stays; protection = ownership) |
-| ADR-025 §5 flow (L191) | "In Exclusive range → User holds lock?" | B2 |
-| ADR-025 Future Work (L250) | "Per-range lock semantics…" | Premise gone (D44) |
-| ADR-024 §2 (L92) | "A locked resource can ONLY be used by the user who holds the lock." | B1 (writes only) |
-| ADR-024 §2 (~L112–124) | "No explicit entry but `default_access` is defined → ALLOW" | D61: coverage = listed entries only |
-| ADR-024 §3 | "legacy resource"; empty `entries` → `default_access` for all EPs | D68 (no special name); D55, D61 (empty = no EPs) |
-| ADR-024 §6 (L314) | "state-disturbing operations (UpdateWireOuts, UpdateTriggerOuts)" | D42 |
-| ADR-020 §3 (L171) | "Other holders … cannot perform operations…" | B1 (writes only) |
-| ADR-020 §7 | No endpoints → "all endpoints in exclusive mode" | **Kept** (D68), plus `access_mode` defaulting |
-| ADR-020 §7 | `default_access` applies to "any endpoint NOT explicitly listed" | D61 |
-| ADR-020 §11 | Lock/Unlock return `StatusResponse` | Proto (P10) |
-| ADR-003 L13, L37, L174–179 | okRegisterBridge described as the "AXI path" | D50, D64, T1 |
-
-### 3.6 Reprogramming event order (D15b, D26, D58)
-
-Under the device lock, atomically, for each resource on the device:
-`ResourceUnlocked` (if locked) → release every holder → `ResourceDeleted`
-(reason: `reprogram` / `clear`); then write the bitfile (or clear) and emit
-the device event. All holders receive the events whatever their state.
-`ResetFPGA` does **not** clear resources (D56, D66).
-
----
-
-## 4. Consolidated ADR (decided, D32): ADR-034
-
-`docs/architecture/adr/ADR-034-resource-model-consolidation.md`, title
-**"Resource Model, Registration, Acquisition, Locking and Enforcement"**
-(ADR-001–033 exist). It supersedes the sections below; the old ADRs stay in
-the log, marked *Superseded by ADR-034 §x*. It is added to
-`docs/architecture/overview.md` in the same commit as the first code it
-documents (roadmap 44-A).
-
-| § | Content | Supersedes / absorbs |
-|---|---|---|
-| 1 | Status, scope, authority (specs remain authoritative; S/P changes per D36–D38, D57–D59, D63) | — |
-| 2 | Terminology (T1): resource, item, holder, holder mode, lock, blocked, overlap, private, exclusive item (E1), single-/multi-step, legacy = dataport only (D49), Classic vs direct AXI (D50), ADR-025 mapped vs register / direct address | ADR-003 wording (D64) |
-| 3 | Resource model and registration schema, metadata (D69) | ADR-006 Resource Model; ADR-020 §1, §2, §6, §9; ADR-026 §2 |
-| 4 | Declaration rules R1, omitted / empty `endpoints` (D55, D68), `default_access` (D61), ranges (D52), interfaces (D54), 409 vs 422 (D72) | ADR-020 §7, §8, §10; ADR-024 §3 |
-| 5 | Acquisition A1, optional acquire mode (D62), ReadOnly states (D25) | ADR-006 Acquisition; ADR-020 §3 (part); ADR-026 §3, §4, §7 |
-| 6 | Locking B1–B4, client obligation L1, events (D58) | ADR-020 §3, §11; ADR-024 §6 |
-| 7 | Lifecycle: release, disconnect, heartbeat, device disconnect, reprogram / clear (D26, §3.6), delete (D15c), ResetFPGA (D56, D66) | ADR-006 Lifecycle; ADR-020 §4, §5, §10; ADR-023 Fix-F; ADR-024 §10 |
-| 8 | Reads vs writes (D16, D21, D42), permission matrix (D44), triggers are the clients' business (D67) | ADR-024 §6; ADR-026 §1, §5 |
-| 9 | Enforcement levels (D27), route tiers, pipeline (B2), errors and gRPC status mapping (D38, P7), identity metadata (P8) | ADR-024 §1, §2, §4, §5, §7, §9; ADR-026 §8 |
-| 10 | Address enforcement: ADR-025 hook (compiled), register / direct AXI, ReadOnly (D12, D29), `AllowAlways` (D51) | ADR-025 §2, §3, §5, Future Work |
-| 11 | Identity | ADR-029 (mark Accepted/Implemented) |
-| 12 | Dataport mapping (D63, D70) | ADR-003 (dataport enum only) |
-| 13 | Consequences, test requirements | — |
-| 14 | Open items: RBAC (D47), server-side sequences (D40), address carriers | — |
+- **[ADR-034 — Resource Model, Registration, Acquisition, Locking and Enforcement](architecture/adr/ADR-034-resource-model-consolidation.md)**
+- **[API Specification (`ok-fpga-server-api-specification.pdf`)](API-Specification/ok-fpga-server-api-specification.pdf)**
+- **[Phase 44 Archive (`docs/archive/roadmap-phases-44.md`)](archive/roadmap-phases-44.md)**
 
 ---
 
@@ -328,7 +153,7 @@ documents (roadmap 44-A).
 
 **Today:** ADR-025 hooks are compiled Rust. A DualPort one-shot write is
 about 5 REST calls and a burst read about 6–7; clients lock around them
-(L1).
+(`L1`).
 
 | Option | What | Recompile? | Pros | Cons |
 |---|---|---|---|---|
@@ -337,70 +162,6 @@ about 5 REST calls and a burst read about 6–7; clients lock around them
 | **C. Embedded engine (Rhai, Lua, WASM) — explore first (D40)** | Scripts from a server directory or the API, run under the device mutex after one permission check (B2) | No | Fully flexible; keys can stay server-side for authentication | Sandbox, limits, security review, new dependency |
 | D. Compiled trait hooks | ADR-025 style | Yes | Fast, type-safe | Per-bitfile logic built into the server |
 
-A sequence/script call counts as **single-step**, so L1's lock obligation
-falls away for it. Details are decided when the phase comes due.
-
----
-
-## 6. Impact on the drafted plans
-
-- **Server Phase 44** ([development-roadmap.md](development-roadmap.md)):
-  updated to D61–D72. The ❓ markers for N26–N32, Q4, Q5, Q7, Q8 are gone;
-  the per-holder trigger cache is removed everywhere, including Later
-  (D67); a dashboard metadata item is added (D69). **Promoted to Now**
-  2026-10-10 (rev 4: REST and gRPC together, 44-I folded into the other
-  sub-phases, file lists and tests per sub-phase). Remaining questions: §7.
-- **Client docs, next round** (agreed): LabVIEW C-17 draft
-  (`docs/client/client-development-roadmap.md`, uncommitted),
-  `client/python-DualPort-Transceiver-client/docs/client-sfpp-development-roadmap.md`,
-  `ADR-C-SFPP-001`, plus `docs/client/hdl-resource-mapping-guide.md` (SD-08,
-  owned by C-17). Strata listed about 45 passages with line numbers and
-  one-line fixes (job `job_40c1d604`, §B and §C.2), to be checked and
-  applied then. Main themes: declare-once, lock needed for exclusive items,
-  `default_access` claiming EPs, the per-holder trigger cache, the ADR-035
-  sequence endpoint, port resources without bridge EPs, metadata arrays.
-- **DualPort-Transceiver C-SFPP-1:** two shared port resources, each declaring the
-  shared bridge / Authenticator / GTY EPs **and** its own exclusive ranges
-  (guide §6.1); `access_mode` explicit; `associated_cores` as one string
-  (D69); lock around authentication and every bridge transaction.
-
----
-
-## 7. Clarifying questions
-
-No resource-model questions remain. Q44-3 (pipes → octet-stream) and Q44-5
-(all REST and gRPC changes together) were answered on 2026-10-10. The
-remaining implementation questions were answered the same day: Q44-13
-(D73), Q44-14 (D74); go given for 44-A.
-
----
-
-## 8. Local Strata second opinion
-
-Job `job_40c1d604` (inputs about 75k tokens: both docs rev 7, the roadmap,
-ADR-020, ADR-024, the proto, the LabVIEW and DualPort client roadmaps,
-ADR-C-SFPP-001, the HDL mapping guide, the port-A JSON; max_tokens 98304,
-reasoning 32768, `async_mode`). Two earlier submissions failed with an MCP
-EOF before the IDE reload. Claims were checked against the files before
-adoption. Output complete, no degeneration.
-
-**Adopted:**
-- ADR-024 §2 "no entry but `default_access` → ALLOW" also falls with D61
-  (§3.5).
-- `default_access` with empty `entries` is inert; entry without `access`
-  and no default → 422 (D61).
-- Where the UNKNOWN error surfaces, and the listing hole → N30 (resolved by
-  D70: such a device is not listed).
-- Field-number mapping → N31 (D71).
-- Bridge-EP-only port resources cannot reach their ranges; gRPC
-  registration must wait for P1 → §3.2 notes.
-- Passage lists for the client docs, the HDL mapping guide and Phase 44
-  (§6; Phase 44 applied now).
-
-**Differs:**
-- Strata kept `access_mode` required even when `endpoints` is omitted. You
-  chose that it may be omitted there (D68).
-- Strata offered "silently override `shared` to exclusive" as an option for
-  `shared` + no `endpoints`; rejected (D68: 422).
-- Strata asked whether port resources should declare both bridge EPs and
-  ranges. That is already the guide §6.1 design (D4, D14), so no question.
+A sequence/script call counts as **single-step**, so `L1`'s lock obligation
+falls away for it. Details are decided when the phase comes due (see
+[development-roadmap.md](development-roadmap.md) `🔵 Later`).

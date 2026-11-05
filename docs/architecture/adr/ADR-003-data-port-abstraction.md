@@ -1,8 +1,11 @@
 # ADR-003: Data Port Abstraction — Classic vs AXI
 
-**Status**: Implemented  
+**Status**: Implemented (wording calling `okRegisterBridge` "the AXI path" and `OK_DATAPORT_UNKNOWN` exposure superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §13, §15)  
 **Date**: 2026-08-16  
 **Deciders**: Architecture Team  
+
+> **Superseded in part by [ADR-034](ADR-034-resource-model-consolidation.md) §13 & §15 (`D50`, `D63`, `D64`, `D70`)**:
+> `okRegisterBridge` is a **Classic** endpoint (`FPGADataPortClassic_ReadRegister*` / `_WriteRegister*`), not part of `FPGADataPortAXI`. Direct AXI (`AXILite`, `AXIFull`, `AXIStream`) runs via `FPGADataPortAXI` on `OK_DATAPORT_AXI` devices only. Public dataport values are `legacy` and `axi`; devices reporting `OK_DATAPORT_UNKNOWN` are omitted. Historical text below is retained for context.
 
 ## Context
 
@@ -15,9 +18,13 @@ operations:
    - `AXIFull` — bulk memory-mapped read/write
    - `AXIStream` — streaming data transfers
 
+> *Note (Superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §13 & §15, `D50`, `D64`): `okRegisterBridge` belongs to `FPGADataPortClassic` (`ReadRegister`/`WriteRegister`), whereas `FPGADataPortAXI` (`AXILite`, `AXIFull`, `AXIStream`) uses the Gen3 AXI host bridge on `OK_DATAPORT_AXI` devices.*
+
 Device-level operations (configure FPGA, get device info, get sensors/settings, PLL, flash) remain on the `FrontPanel` device handle. Data operations (wires, triggers, pipes, registers) are accessed through a data port obtained *after* FPGA configuration via `GetFPGADataPortClassic()` or `GetFPGADataPortAXI()`.
 
 ### Important: `okTDeviceInfo.dataport` vs HDL Endpoint Availability
+
+> *Note (Superseded in part by [ADR-034](ADR-034-resource-model-consolidation.md) §10 & §15, `D50`, `D63`, `D64`, `D70`): Public dataport values are `legacy` (`OK_DATAPORT_LEGACY`) and `axi` (`OK_DATAPORT_AXI`); `OK_DATAPORT_UNKNOWN` devices are skipped and return 404 / `NOT_FOUND`. In `Counters.bit`, `okRegisterBridge` is part of the Classic data port (`FPGADataPortClassic`), not the AXI data port; declaring `axi_lite` / `axi_full` / `axi_stream` on a `legacy` dataport device is rejected with 422.*
 
 The field `okTDeviceInfo.dataport` (`okEDataport`) describes the **physical host
 interface** (transport layer), NOT which HDL endpoint families are available:
@@ -162,6 +169,8 @@ server maps to an appropriate HTTP/gRPC error response.
 
 ## Addendum A: Dataport Field Clarification (2026-08-17)
 
+> *Note (Superseded in part by [ADR-034](ADR-034-resource-model-consolidation.md) §13 & §15, `D50`, `D64`): `okRegisterBridge` is a Classic endpoint on `FPGADataPortClassic`, not the AXI path; direct AXI requires `OK_DATAPORT_AXI`.*
+
 The original ADR incorrectly stated that `okTDeviceInfo.dataport` determines whether
 Classic or AXI API calls can be used. This has been corrected above.
 
@@ -202,9 +211,9 @@ reporting `okDATAPORT_LEGACY` (e.g., XEM7320) do not support any AXI sub-interfa
 
 ## References
 
-- [FPGADataPortClassic C API](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 1080-1131
-- [FPGADataPortAXI / AXILite / AXIFull / AXIStream C API](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 939-1077
-- [C++ data port split](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 1696-1822
-- [okTDeviceInfo.dataport field](../../FrontPanel-6.1.0/okFrontPanel.h) — line 642
+- [FPGADataPortClassic C API](../../../FrontPanel-6.1.0/okFrontPanel.h) — lines 1080-1131
+- [FPGADataPortAXI / AXILite / AXIFull / AXIStream C API](../../../FrontPanel-6.1.0/okFrontPanel.h) — lines 939-1077
+- [C++ data port split](../../../FrontPanel-6.1.0/okFrontPanel.h) — lines 1696-1822
+- [okTDeviceInfo.dataport field](../../../FrontPanel-6.1.0/okFrontPanel.h) — line 642
 - [ADR-019 — AXI Interface Architecture](ADR-019-axi-interface-architecture.md)
 

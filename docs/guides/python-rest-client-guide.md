@@ -173,7 +173,7 @@ def get_syzygy_ports(client, serial: str):
 
 ## 5. Programming the FPGA
 
-There are **two modes** for FPGA configuration:
+There are **two endpoints** for FPGA configuration ([ADR-028](../architecture/adr/ADR-028-configure-fpga-api-alignment.md)):
 
 ### Mode A: Server-Side Path (bitfile exists on the server)
 
@@ -181,12 +181,15 @@ The bitfile must exist on the server's local filesystem. The server reads
 the file and calls `okFrontPanel_ConfigureFPGA()`.
 
 ```python
-# POST /api/v1/devices/{serial}/configure
+# POST /api/v1/devices/{serial}/configure_from_server_path
 # Content-Type: application/json
-# Body: {"bitfile_path": "/path/on/server/Counters.bit"}
-def configure_fpga_server_side(client, serial: str, server_path: str):
-    return client._post(f"/devices/{serial}/configure",
-                        json={"bitfile_path": server_path})
+# Headers: X-User-Id: <user_id>
+# Body: {"bitfile_path": "/path/on/server/Counters.bit", "user_id": "<user_id>"}
+def configure_fpga_server_side(client, serial: str, server_path: str, description: str = ""):
+    body = {"bitfile_path": server_path, "user_id": client.user_id}
+    if description:
+        body["description"] = description
+    return client._post(f"/devices/{serial}/configure_from_server_path", json=body)
 
 result = configure_fpga_server_side(client, "22520013CC",
     "/opt/fpga/bitfiles/Counters.bit")
@@ -195,25 +198,24 @@ print(f"Configured: {result}")
 
 ### Mode B: Client-Side Upload (bitfile exists on the client)
 
-The client reads the bitfile locally and uploads the raw bytes. The server
-calls `okFrontPanel_ConfigureFPGAFromMemory()`.
+The client reads the bitfile locally and uploads it via `multipart/form-data`.
+The server calls `okFrontPanel_ConfigureFPGAFromMemory()`.
 
 ```python
 # POST /api/v1/devices/{serial}/configure
-# Content-Type: application/octet-stream
-# Body: <raw bitfile bytes>
-# Optional headers: X-Filename (original filename for metadata)
-def configure_fpga_client_side(client, serial: str, local_path: str):
-    with open(local_path, "rb") as f:
-        data = f.read()
+# Content-Type: multipart/form-data (set automatically by requests)
+# Headers: X-User-Id: <user_id>
+# Form parts: bitfile (binary file), filename, description (optional), user_id
+def configure_fpga_client_side(client, serial: str, local_path: str, description: str = ""):
     import os
     filename = os.path.basename(local_path)
     url = f"{client.base_url}/devices/{serial}/configure"
-    resp = client.session.post(
-        url, data=data,
-        headers={"Content-Type": "application/octet-stream",
-                 "X-Filename": filename},
-    )
+    data = {"filename": filename, "user_id": client.user_id}
+    if description:
+        data["description"] = description
+    with open(local_path, "rb") as f:
+        files = {"bitfile": (filename, f, "application/octet-stream")}
+        resp = client.session.post(url, files=files, data=data)
     resp.raise_for_status()
     return resp.json()
 
@@ -234,63 +236,93 @@ print(f"Configured: {result}")
 }
 ```
 
-> **Important:** You cannot reprogram an FPGA that has resources currently
-> in use (returns `409 Conflict`). Release all resources first.
+> **Forced Resource Cleanup ([ADR-034](../architecture/adr/ADR-034-resource-model-consolidation.md) §14, `D26`):**
+> Reprogramming an FPGA (`POST /devices/{serial}/configure` or
+> `POST /devices/{serial}/configure_from_server_path`) or clearing its
+> configuration (`DELETE /devices/{serial}/configure`) is an unconditional
+> forced override: the server automatically unlocks any locked shared
+> resources, releases all holders, deletes all existing resources on the
+> device (`reason: "reprogram"` or `"clear"`), and notifies all holders via
+> SSE / WebSocket / gRPC events before programming.
 
 ---
 
 ## 6. Resource Management
 
 After programming, you must **register** one or more resources and **acquire**
-one before performing data port operations. Resources represent logical
-ownership of the FPGA hardware.
+one before performing data port operations ([ADR-034](../architecture/adr/ADR-034-resource-model-consolidation.md)).
+Resources represent logical ownership of the FPGA hardware.
 
-### Create Resources (Exclusive)
+### Create Resources
 
 ```python
 # POST /api/v1/resources
 # Body: {"name": "...", "device_serial": "...", "access_mode": "exclusive",
-#        "description": "..."}
-def create_resource(client, name: str, serial: str, mode: str = "exclusive"):
+#        "interfaces": ["classic"], "endpoints": {"entries": [...]}, "description": "..."}
+def create_resource(client, name: str, serial: str, entries: list[dict], mode: str = "exclusive"):
     return client._post("/resources", json={
         "name": name,
         "device_serial": serial,
         "access_mode": mode,
+        "interfaces": ["classic"],
+        "endpoints": {"entries": entries},
         "description": f"Resource for {name}",
     })
 
-# Create two exclusive resources
-res_a = create_resource(client, "ADC Controller", "22520013CC", "exclusive")
-res_b = create_resource(client, "DAC Controller", "22520013CC", "exclusive")
+# Create two non-overlapping exclusive resources on the same FPGA
+res_a = create_resource(
+    client, "ADC Controller", "22520013CC",
+    entries=[
+        {"address": "0x00", "type": "wire_in", "access": "exclusive"},
+        {"address": "0x20", "type": "wire_out", "access": "exclusive"},
+        {"address": "0x40", "type": "trigger_in", "access": "exclusive"},
+        {"address": "0x60", "type": "trigger_out", "access": "exclusive"},
+        {"address": "0x80", "type": "pipe_in", "access": "exclusive"},
+        {"address": "0xA0", "type": "pipe_out", "access": "exclusive"},
+    ],
+    mode="exclusive",
+)
+res_b = create_resource(
+    client, "DAC Controller", "22520013CC",
+    entries=[
+        {"address": "0x01", "type": "wire_in", "access": "exclusive"},
+        {"address": "0x21", "type": "wire_out", "access": "exclusive"},
+    ],
+    mode="exclusive",
+)
 
-resource_id_a = res_a["id"]  # e.g., "22520013CC:ADC Controller"
-resource_id_b = res_b["id"]  # e.g., "22520013CC:DAC Controller"
+resource_id_a = res_a["id"]
+resource_id_b = res_b["id"]
 ```
 
-### Access Modes
+### Declared vs. Holder Modes ([ADR-034](../architecture/adr/ADR-034-resource-model-consolidation.md) §1, §11)
 
-| Mode | Behavior |
-|------|----------|
-| `"shared"` | Multiple users can acquire simultaneously. Supports lock/unlock. |
-| `"exclusive"` | Only one user can hold the resource at a time. Effectively always-locked. |
+| Mode | Declared `access_mode` | Holder `mode` (`acquire`) | Behavior |
+|------|------------------------|---------------------------|----------|
+| `"shared"` | ✅ | ✅ | Multiple users can acquire simultaneously. Supports `lock` / `unlock`. |
+| `"exclusive"` | ✅ | ✅ | Only one read/write holder at a time (`read_only` observers may still join unless `private: true`). |
+| `"read_only"` | ❌ | ✅ | Observe-only holder mode: can read non-private items, never write or reset. |
 
 ### Acquire a Resource
 
 ```python
 # POST /api/v1/resources/{id}/acquire
-# Body: {"mode": "shared", "user_id": "Lab-User-Alice"}
-def acquire_resource(client, resource_id: str):
-    return client._post(f"/resources/{resource_id}/acquire",
-                        json={"mode": "shared", "user_id": client.user_id})
+# Body: {"user_id": "Lab-User-Alice", "mode": "exclusive"} (mode is optional; defaults to resource's access_mode)
+def acquire_resource(client, resource_id: str, mode: str | None = None):
+    body = {"user_id": client.user_id}
+    if mode is not None:
+        body["mode"] = mode
+    return client._post(f"/resources/{resource_id}/acquire", json=body)
 
 acquire_resource(client, resource_id_a)
-# Now this user holds "ADC Controller" exclusively
+# Now this user holds "ADC Controller" in its declared "exclusive" mode
 ```
 
-> For exclusive resources, the `"mode"` in the acquire body is the
-> runtime acquisition mode. Even though the resource itself is exclusive,
-> you still pass `"shared"` — the server enforces the exclusivity based
-> on the resource's `access_mode`.
+> If `mode` is omitted, the server acquires the resource in its declared
+> `access_mode` (`"shared"` or `"exclusive"`). Passing `"shared"` on an
+> `"exclusive"` resource (or vice versa) returns `409 Conflict`
+> (`conflict.code = "mode_mismatch"`). Pass `"mode": "read_only"` to join
+> as a read-only observer.
 
 ### Release a Resource
 
@@ -332,27 +364,36 @@ endpoints. All Classic Data Port endpoints live under
 
 ### 7.1 WireIn / WireOut
 
-**WireIn** — Set a persistent value on an FPGA input wire. The server
-automatically calls `UpdateWireIns()` after setting the value.
+**WireIn** — Set a persistent value on an FPGA input wire. When
+`auto_update` is `true` (the default), the server automatically calls
+`UpdateWireIns()` after setting the value; pass `auto_update: false` to stage
+multiple wire changes and then call `POST /devices/{serial}/classic/wires/in/update`.
+Note that FrontPanel has **no hardware `WireIn` read-back** ([ADR-034](../architecture/adr/ADR-034-resource-model-consolidation.md) §16); clients should cache values they wrote.
 
 ```python
 # PUT /api/v1/devices/{serial}/classic/wires/in
-# Body: {"endpoint": 0, "value": 5, "mask": 7}
-def set_wire_in(client, serial, endpoint, value, mask=0xFFFFFFFF):
-    return client._put(f"/devices/{serial}/classic/wires/in",
-                       json={"endpoint": endpoint, "value": value, "mask": mask})
+# Body: {"endpoint": 0, "value": 5, "mask": 7, "auto_update": True}
+def set_wire_in(client, serial, endpoint, value, mask=0xFFFFFFFF, auto_update=True):
+    return client._put(
+        f"/devices/{serial}/classic/wires/in",
+        json={"endpoint": endpoint, "value": value, "mask": mask, "auto_update": auto_update},
+    )
 
 # Set bits 0-2 of WireIn endpoint 0x00
 set_wire_in(client, "22520013CC", 0x00, value=0x05, mask=0x07)
 ```
 
-**WireOut** — Read the current value of an FPGA output wire. The server
-automatically calls `UpdateWireOuts()` before reading.
+**WireOut** — Read the value of a single FPGA output wire ([ADR-034](../architecture/adr/ADR-034-resource-model-consolidation.md) §9).
+By default (`update=false`), `GET /wires/out` reads the shared device snapshot
+from the most recent `UpdateWireOuts()`; pass `?update=true` to refresh the
+snapshot from the FPGA and read atomically under the device lock.
 
 ```python
-# GET /api/v1/devices/{serial}/classic/wires/out?endpoint=0x20
-def get_wire_out(client, serial, endpoint):
-    data = client._get(f"/devices/{serial}/classic/wires/out?endpoint={endpoint}")
+# GET /api/v1/devices/{serial}/classic/wires/out?endpoint=0x20&update=true
+def get_wire_out(client, serial, endpoint, update=True):
+    data = client._get(
+        f"/devices/{serial}/classic/wires/out?endpoint={endpoint}&update={str(update).lower()}"
+    )
     return data.get("value", 0)
 
 counter_value = get_wire_out(client, "22520013CC", 0x20)
@@ -361,7 +402,7 @@ print(f"Counter1 = {counter_value}")
 
 ### 7.2 TriggerIn / TriggerOut
 
-**TriggerIn** — Fire a one-shot trigger on a specific bit. The server calls
+**TriggerIn** — Fire a one-shot trigger on a specific bit (`0–31`). The server calls
 `ActivateTriggerIn(endpoint, bit)`. Unlike wires, triggers are edge-sensitive
 and self-clearing.
 
@@ -376,17 +417,21 @@ def activate_trigger(client, serial, endpoint, bit):
 activate_trigger(client, "22520013CC", 0x40, 0)
 ```
 
-**TriggerOut** — Read which trigger bits have fired since the last read.
-The server calls `UpdateTriggerOuts()` before reading. Trigger bits are
-**auto-cleared** after reading.
+**TriggerOut** — Read which trigger bits have fired ([ADR-034](../architecture/adr/ADR-034-resource-model-consolidation.md) §9, `D76`, `D78`).
+Pass `update=true` to call `UpdateTriggerOuts()` (which reads and clears all
+TriggerOut latches on the device) before reading the snapshot, and pass `mask`
+(defaults to `0`) to test specific bits in `triggered`; the full 32-bit latch
+word is always returned in `vector`.
 
 ```python
-# GET /api/v1/devices/{serial}/classic/triggers/out?endpoint=0x60
-def get_trigger_out(client, serial, endpoint):
-    data = client._get(f"/devices/{serial}/classic/triggers/out?endpoint={endpoint}")
-    return data.get("value", 0)
+# GET /api/v1/devices/{serial}/classic/triggers/out?endpoint=0x60&mask=0x03&update=true
+def get_trigger_out(client, serial, endpoint, mask=0xFFFFFFFF, update=True):
+    data = client._get(
+        f"/devices/{serial}/classic/triggers/out?endpoint={endpoint}&mask={mask}&update={str(update).lower()}"
+    )
+    return data.get("vector", 0)
 
-triggered = get_trigger_out(client, "22520013CC", 0x60)
+triggered = get_trigger_out(client, "22520013CC", 0x60, mask=0x03, update=True)
 if triggered & 0x01:
     print("Counter1 reached 0x00!")
 if triggered & 0x02:
@@ -514,34 +559,48 @@ for p in ports:
     if p.get("is_populated"):
         print(f"  SYZYGY {p['index']}: {p['product_name']}")
 
-# --- 3. Program FPGA (server-side path) ---
-post(f"/devices/{serial}/configure",
-     json={"bitfile_path": r"C:\fpga\Counters.bit"})
+# --- 3. Program FPGA (server-side path, ADR-028 / D26) ---
+post(f"/devices/{serial}/configure_from_server_path",
+     json={"bitfile_path": r"C:\fpga\Counters.bit", "user_id": USER})
 print("FPGA programmed.")
 
-# --- 4. Create Two Exclusive Resources ---
+# --- 4. Create Two Non-Overlapping Exclusive Resources (ADR-034) ---
 res_a = post("/resources", json={
     "name": "ADC", "device_serial": serial,
-    "access_mode": "exclusive", "description": "ADC resource"})
+    "access_mode": "exclusive", "interfaces": ["classic"],
+    "endpoints": {"entries": [
+        {"address": "0x00", "type": "wire_in", "access": "exclusive"},
+        {"address": "0x20", "type": "wire_out", "access": "exclusive"},
+        {"address": "0x40", "type": "trigger_in", "access": "exclusive"},
+        {"address": "0x60", "type": "trigger_out", "access": "exclusive"},
+        {"address": "0x80", "type": "pipe_in", "access": "exclusive"},
+        {"address": "0xA0", "type": "pipe_out", "access": "exclusive"},
+    ]},
+    "description": "ADC resource"})
 res_b = post("/resources", json={
     "name": "DAC", "device_serial": serial,
-    "access_mode": "exclusive", "description": "DAC resource"})
+    "access_mode": "exclusive", "interfaces": ["classic"],
+    "endpoints": {"entries": [
+        {"address": "0x01", "type": "wire_in", "access": "exclusive"},
+        {"address": "0x21", "type": "wire_out", "access": "exclusive"},
+    ]},
+    "description": "DAC resource"})
 
 # --- 5. Acquire One Resource ---
 post(f"/resources/{res_a['id']}/acquire",
-     json={"mode": "shared", "user_id": USER})
+     json={"mode": "exclusive", "user_id": USER})
 print(f"Acquired: {res_a['id']}")
 
 # --- 6. WireIn/Out ---
 put(f"/devices/{serial}/classic/wires/in",
     json={"endpoint": 0x00, "value": 0x04, "mask": 0x07})  # AUTOCOUNT2=on
-counter = get(f"/devices/{serial}/classic/wires/out?endpoint=0x20")["value"]
+counter = get(f"/devices/{serial}/classic/wires/out?endpoint=0x20&update=true")["value"]
 print(f"Counter1 = {counter & 0xFF}")
 
 # --- 7. TriggerIn/Out ---
 post(f"/devices/{serial}/classic/triggers/in",
      json={"endpoint": 0x40, "bit": 0})  # RESET2
-trig = get(f"/devices/{serial}/classic/triggers/out?endpoint=0x60")["value"]
+trig = get(f"/devices/{serial}/classic/triggers/out?endpoint=0x60&mask=0x03&update=true")["vector"]
 print(f"TriggerOut 0x60 = {trig:#06x}")
 
 # --- 8. PipeIn/Out ---
@@ -567,18 +626,19 @@ print("Released resource, done.")
 | List devices | `GET` | `/devices` | — |
 | Device info | `GET` | `/devices/{serial}` | — |
 | SYZYGY ports | `GET` | `/devices/{serial}/syzygy` | — |
-| Program (server path) | `POST` | `/devices/{serial}/configure` | `{"bitfile_path": "..."}` |
-| Program (upload) | `POST` | `/devices/{serial}/configure` | Body: raw bytes, `Content-Type: application/octet-stream` |
-| Create resource | `POST` | `/resources` | `{"name":"...", "device_serial":"...", "access_mode":"exclusive"}` |
-| Acquire resource | `POST` | `/resources/{id}/acquire` | `{"mode":"shared", "user_id":"..."}` |
+| Program (server path) | `POST` | `/devices/{serial}/configure_from_server_path` | `{"bitfile_path": "...", "user_id": "..."}` |
+| Program (upload) | `POST` | `/devices/{serial}/configure` | `multipart/form-data` (`bitfile`, `filename`, `user_id`) |
+| Clear configuration | `DELETE` | `/devices/{serial}/configure` | — |
+| Create resource | `POST` | `/resources` | `{"name":"...", "device_serial":"...", "access_mode":"...", "interfaces":["classic"], "endpoints":{...}}` |
+| Acquire resource | `POST` | `/resources/{id}/acquire` | `{"user_id":"...", "mode":"shared\|exclusive\|read_only"}` |
 | Release resource | `POST` | `/resources/{id}/release` | `{"user_id":"..."}` |
-| Set WireIn | `PUT` | `/devices/{serial}/classic/wires/in` | `{"endpoint":0, "value":5, "mask":7}` |
-| Read WireOut | `GET` | `/devices/{serial}/classic/wires/out?endpoint=0x20` | — |
+| Set WireIn | `PUT` | `/devices/{serial}/classic/wires/in` | `{"endpoint":0, "value":5, "mask":7, "auto_update":true}` |
+| Read WireOut | `GET` | `/devices/{serial}/classic/wires/out?endpoint=0x20&update=true` | — |
 | Fire TriggerIn | `POST` | `/devices/{serial}/classic/triggers/in` | `{"endpoint":64, "bit":0}` |
-| Read TriggerOut | `GET` | `/devices/{serial}/classic/triggers/out?endpoint=0x60` | — |
-| Write PipeIn | `POST` | `/devices/{serial}/classic/pipes/in?endpoint=0x80` | Body: raw bytes |
+| Read TriggerOut | `GET` | `/devices/{serial}/classic/triggers/out?endpoint=0x60&mask=0x03&update=true` | — |
+| Write PipeIn | `POST` | `/devices/{serial}/classic/pipes/in?endpoint=0x80` | Body: raw bytes (`application/octet-stream`) |
 | Read PipeOut | `GET` | `/devices/{serial}/classic/pipes/out?endpoint=0xA0&length=1024` | — |
-| Write BTPipeIn | `POST` | `/devices/{serial}/classic/pipes/block-in?endpoint=0x80&block_size=64` | Body: raw bytes |
+| Write BTPipeIn | `POST` | `/devices/{serial}/classic/pipes/block-in?endpoint=0x80&block_size=64` | Body: raw bytes (`application/octet-stream`) |
 | Read BTPipeOut | `GET` | `/devices/{serial}/classic/pipes/block-out?endpoint=0xA0&block_size=64&length=1024` | — |
 | Lock resource | `POST` | `/resources/{id}/lock` | `{"user_id":"..."}` |
 | Unlock resource | `POST` | `/resources/{id}/unlock` | `{"user_id":"..."}` |
@@ -589,11 +649,13 @@ print("Released resource, done.")
 
 ## 10. Authoritative Sources
 
-- **OpenAPI Spec:** [`api/openapi.yaml`](../api/openapi.yaml) — the single source of truth for all REST endpoints
-- **Existing Python REST client:** [`python_rest_gui_common/counters_client.py`](../client-examples/python_rest_gui_common/counters_client.py)
-- **Existing Python REST demo:** [`python-rest-client/`](../client-examples/python-rest-client/)
-- **ADR-004:** REST API design decisions
-- **ADR-015:** HTTP method conventions (PUT=idempotent, POST=action)
-- **ADR-020:** Resource management model
-- **ADR-024:** Endpoint access enforcement (`X-User-Id` header)
-- **ai-collaboration rules:** [`.agents/rules/ai-collaboration.md`](../.agents/rules/ai-collaboration.md) — §6: API Specification Authority
+- **OpenAPI Spec:** [`api/openapi.yaml`](../../api/openapi.yaml) — the single source of truth for all REST endpoints
+- **API Specification:** [`docs/API-Specification/ok-fpga-server-api-specification.pdf`](../API-Specification/ok-fpga-server-api-specification.pdf) — full Resource Model and Access Enforcement specification
+- **Existing Python REST client:** [`python_rest_gui_common/counters_client.py`](../../client-examples/python_rest_gui_common/counters_client.py)
+- **Existing Python REST demo:** [`python-rest-client/`](../../client-examples/python-rest-client/)
+- **[ADR-004](../architecture/adr/ADR-004-rest-api-design.md):** REST API design decisions
+- **[ADR-015](../architecture/adr/ADR-015-http-method-semantics.md):** HTTP method conventions (`PUT` = idempotent, `POST` = action)
+- **[ADR-028](../architecture/adr/ADR-028-configure-fpga-api-alignment.md):** Configure FPGA API alignment (`/configure` multipart vs `/configure_from_server_path` JSON)
+- **[ADR-029](../architecture/adr/ADR-029-user-identification-consistency.md):** User identification consistency (`user_id` body + `X-User-Id` header)
+- **[ADR-034](../architecture/adr/ADR-034-resource-model-consolidation.md):** Consolidated resource model, registration, acquisition, locking, and enforcement (supersedes parts of ADR-020 and ADR-024)
+- **ai-collaboration rules:** [`.agents/rules/ai-collaboration.md`](../../.agents/rules/ai-collaboration.md) — §4: API Specs (Single Source of Truth)

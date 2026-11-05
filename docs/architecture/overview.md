@@ -120,10 +120,10 @@ All decisions are recorded as ADRs in `docs/architecture/adr/`:
 |-----|-------|--------|
 | [ADR-001](adr/ADR-001-ffi-strategy.md) | FFI Strategy — libloading + rust-bindgen | Implemented |
 | [ADR-002](adr/ADR-002-device-lifecycle.md) | Device Lifecycle & Hot-Plug | Implemented |
-| [ADR-003](adr/ADR-003-data-port-abstraction.md) | Data Port Abstraction — Classic vs AXI | Implemented |
+| [ADR-003](adr/ADR-003-data-port-abstraction.md) | Data Port Abstraction — Classic vs AXI | Implemented (`okRegisterBridge`/dataport wording superseded by ADR-034 §13, §15) |
 | [ADR-004](adr/ADR-004-rest-api-design.md) | REST API Design — OpenAPI 3.0 | Implemented |
 | [ADR-005](adr/ADR-005-grpc-api-design.md) | gRPC API Design — Proto3 | Implemented |
-| [ADR-006](adr/ADR-006-resource-management.md) | Multi-User Resource Management | Implemented |
+| [ADR-006](adr/ADR-006-resource-management.md) | Multi-User Resource Management | Implemented (resource model, acquisition & lifecycle superseded by ADR-034) |
 | [ADR-007](adr/ADR-007-web-dashboard.md) | Web Dashboard Architecture | Implemented |
 | [ADR-008](adr/ADR-008-authentication.md) | Authentication Stubs — Local & LDAP | Implemented |
 | [ADR-009](adr/ADR-009-board-syzygy.md) | Supported Boards & SYZYGY Discovery | Implemented |
@@ -137,21 +137,21 @@ All decisions are recorded as ADRs in `docs/architecture/adr/`:
 | [ADR-017](adr/ADR-017-ffi-endpoint-wiring.md) | FFI Endpoint Wiring Strategy | Implemented |
 | [ADR-018](adr/ADR-018-device-handle-pool.md) | Device Handle Pool — Persistent Per-Device FFI Access | Implemented |
 | [ADR-019](adr/ADR-019-axi-interface-architecture.md) | AXI Interface Architecture — Lite, Full, and Stream | Implemented |
-| [ADR-020](adr/ADR-020-client-side-resource-registration.md) | Client-Side Resource Registration | Implemented (§7–§8, Validation table superseded by ADR-034) |
+| [ADR-020](adr/ADR-020-client-side-resource-registration.md) | Client-Side Resource Registration | Implemented (§1–§3, §6–§11 superseded by ADR-034) |
 | [ADR-021](adr/ADR-021-settings-ffi-wiring.md) | Device Settings FFI Wiring | Implemented |
 | [ADR-022](adr/ADR-022-dashboard-logging.md) | Dashboard Log Streaming & Level Filtering | Implemented |
 | [ADR-023](adr/ADR-023-gui-example-clients.md) | GUI Example Clients — Interactive Counters.bit Demo | Implemented |
-| [ADR-024](adr/ADR-024-endpoint-access-enforcement.md) | Endpoint Access Enforcement | Implemented |
-| [ADR-025](adr/ADR-025-classic-address-mapping.md) | Developer-Defined Classic Address Mapping | Implemented |
-| [ADR-026](adr/ADR-026-readonly-acquisition.md) | Read-Only Acquisition & Private Data | Implemented |
+| [ADR-024](adr/ADR-024-endpoint-access-enforcement.md) | Endpoint Access Enforcement | Implemented (§1–§7, §9, §10 superseded by ADR-034) |
+| [ADR-025](adr/ADR-025-classic-address-mapping.md) | Developer-Defined Classic Address Mapping | Implemented (§2, §3, §5, Future Work superseded by ADR-034 §13) |
+| [ADR-026](adr/ADR-026-readonly-acquisition.md) | Read-Only Acquisition & Private Data | Implemented (§1–§8 superseded by ADR-034) |
 | [ADR-027](adr/ADR-027-native-mdns-registration.md) | OS-Native mDNS Registration | Accepted (Phase 31) |
 | [ADR-028](adr/ADR-028-configure-fpga-api-alignment.md) | Configure FPGA API Alignment | Implemented |
-| [ADR-029](adr/ADR-029-user-identification-consistency.md) | User Identification Consistency | Proposed (Phase 38) |
-| [ADR-030](adr/ADR-030-sse-event-expansion.md) | SSE Event Expansion | Proposed (Phase 39) |
+| [ADR-029](adr/ADR-029-user-identification-consistency.md) | User Identification Consistency | Accepted — Implemented (Phase 38) |
+| [ADR-030](adr/ADR-030-sse-event-expansion.md) | SSE Event Expansion | Accepted — Implemented (Phase 39) |
 | [ADR-031](adr/ADR-031-mqtt-discovery.md) | MQTT Cross-Subnet Server Discovery | Implemented |
 | [ADR-032](adr/ADR-032-mqtt-report-by-exception.md) | MQTT Report-by-Exception Publishing | Implemented |
 | [ADR-033](adr/ADR-033-singleton-guard.md) | Singleton Instance Guard & Startup Safety | Implemented |
-| [ADR-034](adr/ADR-034-resource-model-consolidation.md) | Resource Model Consolidation | Accepted (Phase 44; 44-A through 44-H implemented) |
+| [ADR-034](adr/ADR-034-resource-model-consolidation.md) | Resource Model Consolidation | Accepted — Implemented (Phase 44: 44-A through 44-J) |
 
 ## 6. Technology Stack
 
@@ -190,7 +190,7 @@ duplicate table that used to be here was removed in ADR-034 / SD-02).
 
 ## 9. References
 
-- [FrontPanel 6.1.0 Header](../FrontPanel-6.1.0/okFrontPanel.h)
-- [FP5→FP6 Migration Guide](../migrate-cpp-fp5-to-fp6.md)
-- [Project Goals](../ok-FPGA-Server_Project-goals.txt)
+- [FrontPanel 6.1.0 Header](../../FrontPanel-6.1.0/okFrontPanel.h)
+- [FP5→FP6 Migration Guide](../../migrate-cpp-fp5-to-fp6.md)
+- [Project Goals](../../ok-FPGA-Server_Project-goals.txt)
 - [Opal Kelly FrontPanel API Documentation](https://library.opalkelly.com/library/FrontPanelAPI/namespaceOpalKelly.html)

@@ -226,8 +226,11 @@ This will be tracked as a separate task, not part of Phase 36.
 
 ## References
 
-- [OpenAPI spec — POST /devices/{serial}/configure](../../api/openapi.yaml)
-- [gRPC proto — ConfigureFPGA / ConfigureFPGAFromMemory](../../proto/okfpga/v1/okfpga.proto)
+> *Note ([ADR-034](ADR-034-resource-model-consolidation.md) §14, `D26`, Phase 44-F): Reprogramming (`POST /devices/{serial}/configure`, `POST /devices/{serial}/configure_from_server_path`, gRPC `ConfigureFPGA*`) and clearing (`DELETE /devices/{serial}/configure`, `ClearFPGAConfiguration`) perform unconditional forced cleanup of existing resources on the device (`reprogram` / `clear`) and never return `409 Conflict` for resources in use.*
+
+- [OpenAPI spec — POST /devices/{serial}/configure](../../../api/openapi.yaml)
+- [gRPC proto — ConfigureFPGA / ConfigureFPGAFromMemory](../../../proto/okfpga/v1/okfpga.proto)
 - [ADR-017: FFI Endpoint Wiring Strategy](ADR-017-ffi-endpoint-wiring.md)
-- [ADR-C-004: FPGA Programming Flow (Client)](../../docs/client/ADR/ADR-C-004-programming-flow.md)
-- [Configure FPGA Review](../../docs/client/labview-developer-guide.html)
+- [ADR-034: Resource Model Consolidation](ADR-034-resource-model-consolidation.md)
+- [ADR-C-004: FPGA Programming Flow (Client)](../../client/ADR/ADR-C-004-programming-flow.md)
+- [Configure FPGA Review](../../client/labview-developer-guide.html)
