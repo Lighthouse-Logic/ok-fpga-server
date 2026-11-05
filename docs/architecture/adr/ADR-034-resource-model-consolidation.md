@@ -9,7 +9,7 @@ shipped enforcement `2e2f7a3`; 44-B registration rules (0.3.3) `1d95a6f`;
 44-E enforcement pipeline (0.3.6) `7c39e74`; 44-F reprogram & clear cleanup (0.3.7) `5a1f025`;
 44-G classic data-path alignment & example clients (0.3.8) `d59921e`, `96c0ed7`;
 44-H dataport normalisation (0.3.9) `f1961c6`;
-44-J documentation consolidation (pending commit)
+44-J documentation consolidation `5ea5e78`
 **Deciders**: Project owner, Architecture Team
 **Phase**: 44 ([archive/roadmap-phases-44.md](../../archive/roadmap-phases-44.md))
 **Supersedes (in part)**:

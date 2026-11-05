@@ -778,4 +778,4 @@ adopted, 2 rejected as non-observable / redundant).
   - **Link & Build Verification:** Verified 100% of relative Markdown links in
     all modified documentation files resolve on disk; bumped `main.typ`
     `spec-version` to `"0.3.9"` and rebuilt `ok-fpga-server-api-specification.pdf`.
-- Commit: `docs: consolidate resource model documentation`.
+- Commit: `docs: consolidate resource model documentation` — **Done:** `5ea5e78`.
