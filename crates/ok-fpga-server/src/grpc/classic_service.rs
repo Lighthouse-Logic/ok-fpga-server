@@ -1084,7 +1084,7 @@ impl proto::classic_data_port_service_server::ClassicDataPortService
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::grpc::proto::ok_classic_service_server::OkClassicService;
+    use crate::grpc::proto::classic_data_port_service_server::ClassicDataPortService;
     use ok_fpga_core::manager::DeviceManager;
     use ok_fpga_core::resource::{
         AccessMode, AddressRange, EndpointDeclaration, EndpointEntry, Resource, ResourceRegistry,
@@ -1093,7 +1093,7 @@ mod tests {
     use ok_fpga_core::user::UserSessionRegistry;
     use tonic::Code;
 
-    fn test_service() -> ClassicServiceImpl {
+    fn test_service() -> ClassicDataPortServiceImpl {
         let auth_provider: Arc<dyn ok_fpga_core::auth::AuthProvider> =
             Arc::from(ok_fpga_core::auth::create_provider("none", vec![], None));
         let state = Arc::new(AppState::new(
@@ -1108,7 +1108,7 @@ mod tests {
             crate::config::ServerConfig::default(),
             None,
         ));
-        ClassicServiceImpl::new(state)
+        ClassicDataPortServiceImpl::new(state)
     }
 
     fn req_with_user<T>(inner: T, user_id: &str) -> Request<T> {

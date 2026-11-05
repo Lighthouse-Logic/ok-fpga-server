@@ -568,3 +568,51 @@ adopted, 2 rejected as non-observable / redundant).
 - Commits:
   - `fix: align classic pipe, register, and wire_in routes with OpenAPI (0.3.8)` — **Done:** `d59921e`.
   - `fix: update example clients to the ADR-034 resource contract` — **Done:** `96c0ed7`.
+
+---
+
+## 44-H — Dataport normalisation 🔒 (0.3.9)
+
+**44-H Dataport normalisation (`D63`, `D70`, `S-10`, `SD-05`, `P9`, `P16`)**
+- Files:
+  - Spec: `api/openapi.yaml`, `proto/okfpga/v1/okfpga.proto`.
+  - Core: `crates/ok-fpga-core/src/device.rs`, `crates/ok-fpga-core/src/manager.rs`,
+    `crates/ok-fpga-core/src/declaration.rs`.
+  - Server: `crates/ok-fpga-server/src/scanner.rs`,
+    `crates/ok-fpga-server/src/device_monitor.rs`,
+    `crates/ok-fpga-server/src/rest/devices.rs`,
+    `crates/ok-fpga-server/src/grpc/device_service.rs`,
+    `Cargo.toml` / `Cargo.lock`.
+  - Clients: `client/python-labview-client/` (`0.2.1` → `0.2.2`),
+    `client-examples/python-rest-client/` (`0.1.1` → `0.1.2`),
+    `client-examples/python-grpc-client/` (`0.1.1` → `0.1.2`, regenerated protobuf stubs),
+    `client-examples/python_grpc_gui_common/` (`0.1.1` → `0.1.2`, regenerated protobuf stubs).
+  - Docs: `docs/API-Specification/`, `docs/architecture/adr/ADR-034-resource-model-consolidation.md`,
+    `docs/architecture/overview.md`, `docs/development-roadmap.md`.
+- Implemented:
+  - **S-10 & SD-05 (OpenAPI):** Normalised `GET /devices/{serial}/dataport`
+    and `DeviceInfo.properties.dataport` to `enum: [legacy, axi]` with `SD-05`
+    descriptions clarifying `OK_DATAPORT_LEGACY` vs `OK_DATAPORT_AXI` and that
+    Classic endpoints exist on all supported devices.
+  - **P9 & P16 (Protobuf):** Updated `enum DataportType` to
+    `DATAPORT_LEGACY = 0; DATAPORT_AXI = 1;` (`P16`), updated `GetDataportType`
+    comment, and updated `AXIDataPortService` service comment (`P9`) to state
+    that direct AXI runs via `FPGADataPortAXI` (`OK_DATAPORT_AXI` devices only).
+  - **D70 (`OK_DATAPORT_UNKNOWN` Filtering):** Added `DataportType::as_str()`
+    and `DataportType::is_supported()`; filtered `DataportType::Unknown` during
+    FFI enumeration (`scanner.rs`, `device_monitor.rs`) and in
+    `DeviceRegistry` (`get`, `list`, `count`, `contains`, `on_device_added`).
+  - **REST & gRPC Parity:** Fixed `DataportType::Display` and
+    `GET /devices/{serial}/dataport` to return `"legacy"` / `"axi"`; added
+    `DeviceServiceImpl::dataport_to_proto` and implemented gRPC
+    `GetDataportType`.
+- Tests:
+  - Core `device.rs`: `test_dataport_legacy_maps_to_legacy`,
+    `test_dataport_axi_maps_to_axi`, `test_dataport_unknown_is_unsupported`.
+  - Core `manager.rs`: `test_device_registry_unknown_dataport_omitted_and_not_found`.
+  - Server `rest/devices.rs`: `test_dataport_legacy_maps_to_legacy`,
+    `test_dataport_axi_maps_to_axi`, `test_list_devices_unknown_dataport_omitted`,
+    `test_get_device_unknown_dataport_not_found`.
+  - Server `grpc/device_service.rs`: `test_grpc_dataport_legacy_and_axi_mapping`,
+    `test_grpc_get_device_unknown_dataport_not_found`.
+- Commit: `fix: normalise dataport enum to legacy and axi (0.3.9)`.

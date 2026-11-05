@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "okfpga-rest-client"
-version = "0.1.1"
+version = "0.1.2"
 description = "Example Python REST client for ok-FPGA-Server"
 authors = [{ name = "Lighthouse Logic" }]
 license = { text = "MIT" }

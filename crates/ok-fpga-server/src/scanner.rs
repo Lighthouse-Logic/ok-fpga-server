@@ -179,17 +179,19 @@ impl DeviceScanner {
                 // Read okTDeviceInfo.
                 match self.read_device_info(fp_handle, &serial) {
                     Some(info) => {
-                        // Filter: only accept supported devices (skip USB 2.0).
+                        // Filter: only accept supported devices (skip USB 2.0 and OK_DATAPORT_UNKNOWN, D70).
                         if ok_fpga_core::device::is_supported_device(
                             info.product_id,
                             info.device_interface,
-                        ) {
+                        ) && info.dataport.is_supported()
+                        {
                             devices.push(info);
                         } else {
                             info!(
                                 serial = %serial,
                                 interface = %info.device_interface,
                                 product_id = info.product_id,
+                                dataport = %info.dataport,
                                 "skipping unsupported device"
                             );
                         }

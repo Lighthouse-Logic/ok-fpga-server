@@ -30,6 +30,17 @@ impl DeviceServiceImpl {
         Self { state }
     }
 
+    /// Map core `DataportType` to proto `DataportType` (`DATAPORT_LEGACY = 0`, `DATAPORT_AXI = 1`, P16).
+    pub(crate) fn dataport_to_proto(dp: ok_fpga_core::device::DataportType) -> i32 {
+        match dp {
+            ok_fpga_core::device::DataportType::Axi => proto::DataportType::DataportAxi as i32,
+            ok_fpga_core::device::DataportType::Legacy
+            | ok_fpga_core::device::DataportType::Unknown => {
+                proto::DataportType::DataportLegacy as i32
+            }
+        }
+    }
+
     /// Convert a core FpgaDevice into a proto DeviceInfo message.
     fn device_to_proto(dev: &ok_fpga_core::device::FpgaDevice) -> proto::DeviceInfo {
         proto::DeviceInfo {
@@ -47,7 +58,7 @@ impl DeviceServiceImpl {
             register_address_width: dev.info.register_address_width,
             register_data_width: dev.info.register_data_width,
             fpga_vendor: dev.info.fpga_vendor as i32,
-            dataport: dev.info.dataport as i32,
+            dataport: Self::dataport_to_proto(dev.info.dataport),
             is_front_panel_enabled: dev.is_programmed(),
             bitfile: None,
         }
@@ -926,11 +937,20 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
 
     async fn get_dataport_type(
         &self,
-        _request: Request<proto::DeviceRequest>,
+        request: Request<proto::DeviceRequest>,
     ) -> Result<Response<proto::DataportTypeResponse>, Status> {
-        Err(Status::unimplemented(
-            "GetDataportType requires FFI integration",
-        ))
+        let req = request.into_inner();
+        let dev = self
+            .state
+            .device_manager
+            .registry()
+            .get(&req.serial)
+            .ok_or_else(|| Status::not_found(format!("Device '{}' not found", req.serial)))?;
+
+        Ok(Response::new(proto::DataportTypeResponse {
+            error: Self::ok_cluster(),
+            dataport: Self::dataport_to_proto(dev.info.dataport),
+        }))
     }
 
     // ========================================================================
@@ -2448,5 +2468,100 @@ mod tests {
             })
             .expect("ResourceDeleted(Clear) must be emitted on gRPC ClearFPGAConfiguration");
         assert!(unlock_pos < delete_pos);
+    }
+
+    // ── Phase 44-H (D63, D70, P16): gRPC Dataport normalisation tests ──
+
+    #[tokio::test]
+    async fn test_grpc_dataport_legacy_and_axi_mapping() {
+        let svc = service();
+
+        // Legacy device (SERIAL) -> DATAPORT_LEGACY (0)
+        let info_resp = svc
+            .get_device_info(Request::new(proto::DeviceRequest {
+                serial: SERIAL.to_string(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(
+            info_resp.device.unwrap().dataport,
+            proto::DataportType::DataportLegacy as i32
+        );
+
+        let dp_resp = svc
+            .get_dataport_type(Request::new(proto::DeviceRequest {
+                serial: SERIAL.to_string(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(dp_resp.dataport, proto::DataportType::DataportLegacy as i32);
+
+        // AXI device ("AXI001") -> DATAPORT_AXI (1)
+        let mut axi_info = svc.state.device_manager.registry().get(SERIAL).unwrap().info;
+        axi_info.serial = "AXI001".to_string();
+        axi_info.dataport = DataportType::Axi;
+        svc.state
+            .device_manager
+            .registry()
+            .add(FpgaDevice::new(axi_info));
+
+        let info_resp = svc
+            .get_device_info(Request::new(proto::DeviceRequest {
+                serial: "AXI001".to_string(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(
+            info_resp.device.unwrap().dataport,
+            proto::DataportType::DataportAxi as i32
+        );
+
+        let dp_resp = svc
+            .get_dataport_type(Request::new(proto::DeviceRequest {
+                serial: "AXI001".to_string(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(dp_resp.dataport, proto::DataportType::DataportAxi as i32);
+    }
+
+    #[tokio::test]
+    async fn test_grpc_get_device_unknown_dataport_not_found() {
+        let svc = service();
+        let mut unk_info = svc.state.device_manager.registry().get(SERIAL).unwrap().info;
+        unk_info.serial = "UNK001".to_string();
+        unk_info.dataport = DataportType::Unknown;
+        svc.state
+            .device_manager
+            .registry()
+            .add(FpgaDevice::new(unk_info));
+
+        let listed = svc
+            .list_devices(Request::new(proto::ListDevicesRequest {}))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(listed.devices.len(), 2);
+        assert!(listed.devices.iter().all(|d| d.serial != "UNK001"));
+
+        let err = svc
+            .get_device_info(Request::new(proto::DeviceRequest {
+                serial: "UNK001".to_string(),
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), Code::NotFound);
+
+        let err = svc
+            .get_dataport_type(Request::new(proto::DeviceRequest {
+                serial: "UNK001".to_string(),
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), Code::NotFound);
     }
 }

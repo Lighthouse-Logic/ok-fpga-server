@@ -573,10 +573,18 @@ paths:
       tags: [Devices]
       summary: Get data port type
       description: |
-        Returns the physical host interface (transport layer) type for this device.
-        This describes the USB host-side transport (Gen1/Gen2 vs Gen3), NOT which
-        HDL endpoint families (Classic or AXI) the loaded bitfile supports.
-        A bitfile can implement both Classic and AXI endpoints simultaneously.
+        Returns the physical host interface (transport layer) type for this device
+        (`okTDeviceInfo.dataport`).
+
+        - `legacy`: `OK_DATAPORT_LEGACY` — FP-Gen1/2-USB transport (e.g., XEM7320, XEM8320).
+          Supports Classic endpoints only; AXI interfaces are unavailable.
+        - `axi`: `OK_DATAPORT_AXI` — FP-Gen3-USB transport (e.g., XEM8305, XEM8310, XEM8350, XEM8370).
+          Supports both Classic endpoints and AXI interfaces.
+
+        `dataport` does **not** determine whether Classic endpoints exist: Classic endpoints
+        (`wire_in`, `wire_out`, `trigger_in`, `trigger_out`, `pipe_in`, `pipe_out`, `register`)
+        are available on all supported devices when instantiated by the loaded bitfile.
+        Devices reporting `OK_DATAPORT_UNKNOWN` are unsupported and filtered out.
       operationId: getDataportType
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -590,8 +598,11 @@ paths:
                 properties:
                   dataport:
                     type: string
-                    enum: [unknown, legacy, axi]
-                    description: Physical host interface type (legacy=FP-Gen1/2-USB, axi=FP-Gen3-USB)
+                    enum: [legacy, axi]
+                    description: >-
+                      Physical host transport type (`legacy` = OK_DATAPORT_LEGACY / FP-Gen1/2-USB,
+                      `axi` = OK_DATAPORT_AXI / FP-Gen3-USB). Does not decide whether Classic
+                      endpoints exist.
 
   # ---- Classic Data Port ----
 
@@ -2011,7 +2022,12 @@ components:
           enum: [unknown, xilinx, intel]
         dataport:
           type: string
-          enum: [unknown, classic, axi]
+          enum: [legacy, axi]
+          description: >-
+            Physical host transport type (`legacy` = OK_DATAPORT_LEGACY / FP-Gen1/2-USB,
+            `axi` = OK_DATAPORT_AXI / FP-Gen3-USB). Classic endpoints work on all supported
+            devices; AXI interfaces require `axi`. Devices reporting `OK_DATAPORT_UNKNOWN`
+            are unsupported and omitted.
         is_front_panel_enabled:
           type: boolean
         bitfile:

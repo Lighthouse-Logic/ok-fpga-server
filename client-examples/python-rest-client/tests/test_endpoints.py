@@ -117,7 +117,7 @@ class TestDeviceEndpoints:
         assert exc_info.value.response.status_code in (404, 501)
 
     async def test_dataport_type_not_implemented(self, client: OkFpgaRestClient) -> None:
-        """GET /devices/{serial}/dataport returns 501 (stub)."""
+        """GET /devices/{serial}/dataport returns 404 for unknown serial."""
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
             await client.get_dataport_type("TEST0001")
         assert exc_info.value.response.status_code in (404, 501)

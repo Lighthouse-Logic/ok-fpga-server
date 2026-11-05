@@ -144,7 +144,7 @@ fn device_to_full_info(d: &ok_fpga_core::device::FpgaDevice) -> DeviceFullInfo {
         register_address_width: d.info.register_address_width,
         register_data_width: d.info.register_data_width,
         fpga_vendor: format!("{:?}", d.info.fpga_vendor).to_lowercase(),
-        dataport: format!("{:?}", d.info.dataport).to_lowercase(),
+        dataport: d.info.dataport.as_str().unwrap_or("legacy").to_string(),
         is_front_panel_enabled: d.is_programmed(),
         bitfile,
     }
@@ -1210,7 +1210,7 @@ async fn get_dataport_type(
 
     Ok(Json(DataportResponse {
         serial,
-        dataport: dev.info.dataport.to_string(),
+        dataport: dev.info.dataport.as_str().unwrap_or("legacy").to_string(),
         dataport_raw: dev.info.dataport as i32,
     }))
 }
@@ -1532,5 +1532,110 @@ mod tests {
 
         assert_eq!(state.resource_registry.count(), 1);
         assert_eq!(state.resource_registry.holdings_for("alice").len(), 1);
+    }
+
+    // ── Phase 44-H (D63, D70, S-10): Dataport normalisation tests ──
+
+    #[tokio::test]
+    async fn test_dataport_legacy_maps_to_legacy() {
+        let state = test_state();
+
+        // GET /devices/{serial}
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/devices/{SERIAL}"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = routes().with_state(state.clone()).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["dataport"], "legacy");
+
+        // GET /devices/{serial}/dataport
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/devices/{SERIAL}/dataport"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = routes().with_state(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["dataport"], "legacy");
+        assert_eq!(json["dataport_raw"], 1);
+    }
+
+    #[tokio::test]
+    async fn test_dataport_axi_maps_to_axi() {
+        let state = test_state();
+        let mut axi_info = state.device_manager.registry().get(SERIAL).unwrap().info;
+        axi_info.serial = "AXI001".to_string();
+        axi_info.dataport = DataportType::Axi;
+        state.device_manager.registry().add(FpgaDevice::new(axi_info));
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/devices/AXI001")
+            .body(Body::empty())
+            .unwrap();
+        let resp = routes().with_state(state.clone()).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["dataport"], "axi");
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/devices/AXI001/dataport")
+            .body(Body::empty())
+            .unwrap();
+        let resp = routes().with_state(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["dataport"], "axi");
+        assert_eq!(json["dataport_raw"], 2);
+    }
+
+    #[tokio::test]
+    async fn test_list_devices_unknown_dataport_omitted() {
+        let state = test_state();
+        let mut unk_info = state.device_manager.registry().get(SERIAL).unwrap().info;
+        unk_info.serial = "UNK001".to_string();
+        unk_info.dataport = DataportType::Unknown;
+        state.device_manager.registry().add(FpgaDevice::new(unk_info));
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/devices")
+            .body(Body::empty())
+            .unwrap();
+        let resp = routes().with_state(state).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let devices = json["devices"].as_array().unwrap();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0]["serial"], SERIAL);
+    }
+
+    #[tokio::test]
+    async fn test_get_device_unknown_dataport_not_found() {
+        let state = test_state();
+        let mut unk_info = state.device_manager.registry().get(SERIAL).unwrap().info;
+        unk_info.serial = "UNK001".to_string();
+        unk_info.dataport = DataportType::Unknown;
+        state.device_manager.registry().add(FpgaDevice::new(unk_info));
+
+        for uri in ["/devices/UNK001", "/devices/UNK001/dataport"] {
+            let req = Request::builder()
+                .method("GET")
+                .uri(uri)
+                .body(Body::empty())
+                .unwrap();
+            let resp = routes().with_state(state.clone()).oneshot(req).await.unwrap();
+            assert_eq!(resp.status(), StatusCode::NOT_FOUND, "URI {uri} must 404");
+        }
     }
 }

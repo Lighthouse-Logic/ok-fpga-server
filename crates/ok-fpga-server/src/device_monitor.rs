@@ -86,6 +86,8 @@ pub struct DeviceMonitor {
     manager_handle: okCFrontPanelManager_HANDLE,
     /// Receive side of the callback channel (consumed by `start()`).
     rx: Option<mpsc::Receiver<MonitorEvent>>,
+    /// Realm used to construct the FrontPanelManager (`""` local, `"test"` emulated).
+    realm: String,
 }
 
 // SAFETY: The DeviceMonitor can be sent between threads. The inner
@@ -233,6 +235,7 @@ impl DeviceMonitor {
             dll,
             manager_handle: handle,
             rx: Some(rx),
+            realm: realm.to_string(),
         })
     }
 
@@ -305,9 +308,19 @@ impl DeviceMonitor {
         // Step 3: Spawn the async event processor task.
         let dll = self.dll.clone();
         let mgr_handle = SendableManagerHandle(self.manager_handle);
+        let realm = self.realm.clone();
 
         tokio::spawn(async move {
-            event_processor(rx, dll, mgr_handle, device_manager, resource_registry, event_tx).await;
+            event_processor(
+                rx,
+                dll,
+                mgr_handle,
+                device_manager,
+                resource_registry,
+                event_tx,
+                realm,
+            )
+            .await;
         });
 
         true
@@ -377,6 +390,7 @@ async fn event_processor(
     device_manager: Arc<DeviceManager>,
     resource_registry: Arc<ok_fpga_core::resource::ResourceRegistry>,
     event_tx: tokio::sync::broadcast::Sender<String>,
+    realm: String,
 ) {
     info!("device event processor started");
 
@@ -439,40 +453,47 @@ async fn event_processor(
                         }
                     }
                     None => {
-                        warn!(
-                            serial = %serial,
-                            "could not read device info - device may be in test realm or unsupported"
-                        );
+                        if realm == "test" {
+                            warn!(
+                                serial = %serial,
+                                "could not read device info - registering emulated test device"
+                            );
 
-                        // For okREALM_TEST, create a minimal DeviceInfo.
-                        let info = DeviceInfo {
-                            serial: serial.clone(),
-                            product_name: "Unknown (emulated)".to_string(),
-                            device_id: String::new(),
-                            product_id: 0,
-                            device_interface: DeviceInterface::Unknown,
-                            usb_speed: UsbSpeed::Unknown,
-                            device_major_version: 0,
-                            device_minor_version: 0,
-                            wire_width: 0,
-                            trigger_width: 0,
-                            pipe_width: 0,
-                            register_address_width: 0,
-                            register_data_width: 0,
-                            fpga_vendor: FpgaVendor::Unknown,
-                            dataport: DataportType::Legacy,
-                        };
+                            // For okREALM_TEST, create a minimal DeviceInfo.
+                            let info = DeviceInfo {
+                                serial: serial.clone(),
+                                product_name: "Unknown (emulated)".to_string(),
+                                device_id: String::new(),
+                                product_id: 0,
+                                device_interface: DeviceInterface::Unknown,
+                                usb_speed: UsbSpeed::Unknown,
+                                device_major_version: 0,
+                                device_minor_version: 0,
+                                wire_width: 0,
+                                trigger_width: 0,
+                                pipe_width: 0,
+                                register_address_width: 0,
+                                register_data_width: 0,
+                                fpga_vendor: FpgaVendor::Unknown,
+                                dataport: DataportType::Legacy,
+                            };
 
-                        if device_manager.on_device_added(info) {
-                            info!(serial = %serial, "emulated device registered");
-                            let _ = event_tx.send(
-                                serde_json::json!({
-                                    "type": "device_connected",
-                                    "serial": serial,
-                                    "product_name": "Unknown (emulated)",
-                                    "timestamp": chrono::Utc::now().to_rfc3339()
-                                })
-                                .to_string(),
+                            if device_manager.on_device_added(info) {
+                                info!(serial = %serial, "emulated device registered");
+                                let _ = event_tx.send(
+                                    serde_json::json!({
+                                        "type": "device_connected",
+                                        "serial": serial,
+                                        "product_name": "Unknown (emulated)",
+                                        "timestamp": chrono::Utc::now().to_rfc3339()
+                                    })
+                                    .to_string(),
+                                );
+                            }
+                        } else {
+                            warn!(
+                                serial = %serial,
+                                "could not read device info or device is unsupported - skipping"
                             );
                         }
                     }
@@ -570,6 +591,17 @@ fn open_and_read_device_info(
         return None;
     }
 
+    // Filter unsupported dataport (OK_DATAPORT_UNKNOWN, D70).
+    let dataport = DataportType::from_raw(raw_info.dataport);
+    if !dataport.is_supported() {
+        info!(
+            serial = %serial,
+            raw_dataport = raw_info.dataport,
+            "skipping device with OK_DATAPORT_UNKNOWN (not supported)"
+        );
+        return None;
+    }
+
     // Convert to safe Rust type.
     Some(DeviceInfo {
         serial: cstr_from_char_array(&raw_info.serialNumber),
@@ -586,7 +618,7 @@ fn open_and_read_device_info(
         register_address_width: raw_info.registerAddressWidth,
         register_data_width: raw_info.registerDataWidth,
         fpga_vendor: FpgaVendor::from_raw(raw_info.fpgaVendor as i32),
-        dataport: DataportType::from_raw(raw_info.dataport),
+        dataport,
     })
 }
 

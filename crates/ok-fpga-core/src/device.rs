@@ -156,21 +156,22 @@ impl fmt::Display for UsbSpeed {
 /// - `Legacy` = FrontPanel Gen1/Gen2 USB interface
 /// - `Axi` = FrontPanel Gen3 USB interface
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(i32)]
 pub enum DataportType {
     /// Unknown or not yet determined.
-    Unknown,
+    Unknown = 0,
     /// FrontPanel Gen1/Gen2 USB host interface (legacy transport).
-    Legacy,
+    Legacy = 1,
     /// FrontPanel Gen3 USB host interface (AXI transport).
-    Axi,
+    Axi = 2,
 }
 
 impl DataportType {
     /// Convert from the raw `OK_DATAPORT_*` integer constant.
     ///
-    /// - 0 = Unknown
-    /// - 1 = Legacy (Classic)
-    /// - 2 = AXI
+    /// - 0 = Unknown (unsupported; filtered out by the server per D70)
+    /// - 1 = Legacy (`OK_DATAPORT_LEGACY` — FP-Gen1/2-USB)
+    /// - 2 = AXI (`OK_DATAPORT_AXI` — FP-Gen3-USB)
     pub fn from_raw(value: i32) -> Self {
         match value {
             0 => DataportType::Unknown,
@@ -179,14 +180,30 @@ impl DataportType {
             _ => DataportType::Unknown,
         }
     }
+
+    /// Canonical OpenAPI string for supported dataport types (`"legacy"` or `"axi"`).
+    ///
+    /// Returns `None` for [`DataportType::Unknown`] (which is unsupported per D70).
+    pub fn as_str(&self) -> Option<&'static str> {
+        match self {
+            DataportType::Legacy => Some("legacy"),
+            DataportType::Axi => Some("axi"),
+            DataportType::Unknown => None,
+        }
+    }
+
+    /// Returns `true` if this dataport type is supported (`Legacy` or `Axi`, D70).
+    pub fn is_supported(&self) -> bool {
+        matches!(self, DataportType::Legacy | DataportType::Axi)
+    }
 }
 
 impl fmt::Display for DataportType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DataportType::Unknown => write!(f, "Unknown"),
-            DataportType::Legacy => write!(f, "Classic"),
-            DataportType::Axi => write!(f, "AXI"),
+            DataportType::Unknown => write!(f, "unknown"),
+            DataportType::Legacy => write!(f, "legacy"),
+            DataportType::Axi => write!(f, "axi"),
         }
     }
 }
@@ -600,5 +617,32 @@ mod tests {
         assert!(display.contains("XEM8320"));
         assert!(display.contains("ABC123"));
         assert!(display.contains("USB 3.0"));
+    }
+
+    #[test]
+    fn test_dataport_legacy_maps_to_legacy() {
+        let dp = DataportType::from_raw(1);
+        assert_eq!(dp, DataportType::Legacy);
+        assert!(dp.is_supported());
+        assert_eq!(dp.as_str(), Some("legacy"));
+        assert_eq!(dp.to_string(), "legacy");
+    }
+
+    #[test]
+    fn test_dataport_axi_maps_to_axi() {
+        let dp = DataportType::from_raw(2);
+        assert_eq!(dp, DataportType::Axi);
+        assert!(dp.is_supported());
+        assert_eq!(dp.as_str(), Some("axi"));
+        assert_eq!(dp.to_string(), "axi");
+    }
+
+    #[test]
+    fn test_dataport_unknown_is_unsupported() {
+        let dp = DataportType::from_raw(0);
+        assert_eq!(dp, DataportType::Unknown);
+        assert!(!dp.is_supported());
+        assert_eq!(dp.as_str(), None);
+        assert_eq!(dp.to_string(), "unknown");
     }
 }

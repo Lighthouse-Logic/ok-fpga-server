@@ -1,14 +1,15 @@
 # ADR-034: Resource Model Consolidation
 
 **Status**: Accepted — 44-A implemented incl. post-44-A read semantics (0.3.0) and mask default (0.3.1);
-44-A through 44-G archived; 44-B implemented (0.3.3); 44-C implemented (0.3.4); 44-D implemented (0.3.5); 44-E implemented (0.3.6); 44-F implemented (0.3.7); 44-G implemented (0.3.8); 44-H … 44-J pending
-**Date**: 2026-10-11 (amended 2026-11-03)
+44-A through 44-H archived; 44-B implemented (0.3.3); 44-C implemented (0.3.4); 44-D implemented (0.3.5); 44-E implemented (0.3.6); 44-F implemented (0.3.7); 44-G implemented (0.3.8); 44-H implemented (0.3.9); 44-J pending
+**Date**: 2026-10-11 (amended 2026-11-05)
 **Commit hash**: 44-A `d3b19a6`; 0.3.0 read semantics (D75–D77) `dcb5e5a`;
 0.3.1 IsTriggered mask default (D78) `6e11f9b`; 0.3.2 heartbeat text and
 shipped enforcement `2e2f7a3`; 44-B registration rules (0.3.3) `1d95a6f`;
 44-C acquisition rules (0.3.4) `2167914`; 44-D locking, blocking & events (0.3.5) `e562705`;
 44-E enforcement pipeline (0.3.6) `7c39e74`; 44-F reprogram & clear cleanup (0.3.7) `5a1f025`;
-44-G classic data-path alignment & example clients (0.3.8) `d59921e`, `96c0ed7`
+44-G classic data-path alignment & example clients (0.3.8) `d59921e`, `96c0ed7`;
+44-H dataport normalisation (0.3.9) (this commit)
 **Deciders**: Project owner, Architecture Team
 **Phase**: 44 ([development-roadmap.md](../../development-roadmap.md) §44)
 **Supersedes (in part)**: ADR-020 §7, §8 and the Validation Responses table
@@ -438,6 +439,29 @@ the resource declaration, overlap, and blocking model (`B2`, `S-12..S-20`,
     added a **🔵 Later** roadmap item to purge tracked proprietary Opal Kelly
     FrontPanel SDK files from git.
 
+#### 15. Dataport normalisation (0.3.9, 44-H)
+
+Phase 44-H normalises the physical host transport data port across REST,
+gRPC, core types, and clients (`D63`, `D70`, `S-10`, `SD-05`, `P9`, `P16`):
+
+- **Public values `legacy` and `axi` only (`D63`, `S-10`, `P16`)**:
+  - OpenAPI `GET /devices/{serial}/dataport` and `DeviceInfo.properties.dataport`
+    use `enum: [legacy, axi]` (`SD-05`).
+  - Protobuf `enum DataportType` is `DATAPORT_LEGACY = 0; DATAPORT_AXI = 1;`
+    (`P16`), and `AXIDataPortService` comments state that direct AXI runs via
+    `FPGADataPortAXI` on `OK_DATAPORT_AXI` devices only (`P9`, `D50`, `D64`).
+  - `DataportType::as_str()` and `Display` return `"legacy"` / `"axi"` so
+    both `GET /devices` and `GET /devices/{serial}/dataport` return lowercase
+    canonical strings.
+  - gRPC `DeviceServiceImpl::dataport_to_proto` explicitly maps
+    `DataportType::Legacy` → `DATAPORT_LEGACY` (`0`) and `DataportType::Axi`
+    → `DATAPORT_AXI` (`1`), and `GetDataportType` is wired to `DeviceRegistry`.
+- **Unsupported `OK_DATAPORT_UNKNOWN` filtering (`D70`)**:
+  - Devices reporting `OK_DATAPORT_UNKNOWN` (`0`) are skipped during FFI
+    enumeration (`scanner.rs`, `device_monitor.rs`), omitted from
+    `DeviceRegistry::list()` / `count()`, and return `404` / `NOT_FOUND` on
+    single-device lookups (`DeviceRegistry::get()`, `contains()`).
+
 ### Rationale
 
 One schema shared by REST, gRPC and the dashboard removes the guessing that
@@ -668,6 +692,42 @@ regex/hash matching on resource declarations `q4`, `.gitignore` for
     `client-examples/python_grpc_gui_common/` (`0.1.0` → `0.1.1`, regenerated
     protobuf stubs).
 - Version: `Cargo.toml`, `Cargo.lock` (0.3.8).
+- Docs: this ADR, `docs/API-Specification/`, `docs/archive/roadmap-phases-44.md`,
+  `docs/development-roadmap.md`, `docs/architecture/overview.md`.
+
+## Files changed (0.3.9, 44-H)
+
+Owner permission 2026-11-05 for the `api/openapi.yaml` and
+`proto/okfpga/v1/okfpga.proto` dataport normalisation changes (`D63`, `D70`,
+`S-10`, `SD-05`, `P9`, `P16`):
+
+- Spec: `api/openapi.yaml` (`GET /devices/{serial}/dataport` and
+  `DeviceInfo.properties.dataport` normalised to `enum: [legacy, axi]` with
+  `SD-05` descriptions),
+  `proto/okfpga/v1/okfpga.proto` (`enum DataportType` `DATAPORT_LEGACY = 0;
+  DATAPORT_AXI = 1;`, `GetDataportType` and `AXIDataPortService` comments).
+- Core: `crates/ok-fpga-core/src/device.rs` (`DataportType::as_str`,
+  `DataportType::is_supported`, lowercase `Display`, unit tests),
+  `crates/ok-fpga-core/src/manager.rs` (`DeviceRegistry` `D70` filtering on
+  `get`, `list`, `count`, `contains`, `on_device_added`, unit test),
+  `crates/ok-fpga-core/src/declaration.rs` (updated test assertion).
+- Server: `crates/ok-fpga-server/src/scanner.rs`,
+  `crates/ok-fpga-server/src/device_monitor.rs`,
+  `crates/ok-fpga-server/src/rest/devices.rs` (`as_str()`, Tier 3 tests
+  `test_dataport_legacy_maps_to_legacy`, `test_dataport_axi_maps_to_axi`,
+  `test_list_devices_unknown_dataport_omitted`,
+  `test_get_device_unknown_dataport_not_found`),
+  `crates/ok-fpga-server/src/grpc/device_service.rs` (`dataport_to_proto`,
+  `get_dataport_type` implementation, Tier 3 tests
+  `test_grpc_dataport_legacy_and_axi_mapping`,
+  `test_grpc_get_device_unknown_dataport_not_found`).
+- Clients: `client/python-labview-client/` (`0.2.1` → `0.2.2`),
+  `client-examples/python-rest-client/` (`0.1.1` → `0.1.2`),
+  `client-examples/python-grpc-client/` (`0.1.1` → `0.1.2`, regenerated
+  protobuf stubs),
+  `client-examples/python_grpc_gui_common/` (`0.1.1` → `0.1.2`, regenerated
+  protobuf stubs).
+- Version: `Cargo.toml`, `Cargo.lock` (0.3.9).
 - Docs: this ADR, `docs/API-Specification/`, `docs/archive/roadmap-phases-44.md`,
   `docs/development-roadmap.md`, `docs/architecture/overview.md`.
 

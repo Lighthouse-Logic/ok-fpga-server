@@ -272,19 +272,40 @@ impl DeviceRegistry {
         self.devices.write().unwrap().remove(serial)
     }
 
-    /// Get a clone of a device by serial number.
+    /// Get a clone of a supported device by serial number.
+    ///
+    /// Per D70, devices whose `dataport` is [`crate::device::DataportType::Unknown`]
+    /// are unsupported and return `None`.
     pub fn get(&self, serial: &str) -> Option<FpgaDevice> {
-        self.devices.read().unwrap().get(serial).cloned()
+        self.devices
+            .read()
+            .unwrap()
+            .get(serial)
+            .filter(|d| d.info.dataport.is_supported())
+            .cloned()
     }
 
-    /// List all registered devices (returns cloned values).
+    /// List all registered supported devices (returns cloned values).
+    ///
+    /// Per D70, devices with [`crate::device::DataportType::Unknown`] are omitted.
     pub fn list(&self) -> Vec<FpgaDevice> {
-        self.devices.read().unwrap().values().cloned().collect()
+        self.devices
+            .read()
+            .unwrap()
+            .values()
+            .filter(|d| d.info.dataport.is_supported())
+            .cloned()
+            .collect()
     }
 
-    /// Returns the number of registered devices.
+    /// Returns the number of registered supported devices (omitting `Unknown` dataport, D70).
     pub fn count(&self) -> usize {
-        self.devices.read().unwrap().len()
+        self.devices
+            .read()
+            .unwrap()
+            .values()
+            .filter(|d| d.info.dataport.is_supported())
+            .count()
     }
 
     /// Update the state of a device by serial number and bump its
@@ -302,9 +323,13 @@ impl DeviceRegistry {
         }
     }
 
-    /// Check if a device with the given serial is registered.
+    /// Check if a supported device with the given serial is registered.
     pub fn contains(&self, serial: &str) -> bool {
-        self.devices.read().unwrap().contains_key(serial)
+        self.devices
+            .read()
+            .unwrap()
+            .get(serial)
+            .is_some_and(|d| d.info.dataport.is_supported())
     }
 }
 
@@ -385,6 +410,9 @@ impl DeviceManager {
     /// Returns `true` if the device was newly added, `false` if it was
     /// already registered.
     pub fn on_device_added(&self, info: DeviceInfo) -> bool {
+        if !info.dataport.is_supported() {
+            return false;
+        }
         let serial = info.serial.clone();
         let product_name = info.product_name.clone();
         let interface = info.device_interface.to_string();
@@ -691,5 +719,25 @@ mod tests {
             }
             _ => panic!("Expected ServerShutdown"),
         }
+    }
+
+    #[test]
+    fn test_device_registry_unknown_dataport_omitted_and_not_found() {
+        let registry = DeviceRegistry::new();
+        let mut unknown_info = test_device_info("UNK001");
+        unknown_info.dataport = DataportType::Unknown;
+        registry.add(FpgaDevice::new(unknown_info));
+
+        let legacy_info = test_device_info("LEG001");
+        registry.add(FpgaDevice::new(legacy_info));
+
+        assert_eq!(registry.count(), 1);
+        let listed = registry.list();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].serial(), "LEG001");
+        assert!(registry.get("UNK001").is_none());
+        assert!(!registry.contains("UNK001"));
+        assert!(registry.get("LEG001").is_some());
+        assert!(registry.contains("LEG001"));
     }
 }

@@ -77,15 +77,19 @@ enum FPGAVendor {
   FPGA_VENDOR_INTEL = 2;
 }
 
-// Physical host interface (transport layer) for a device.
-// This describes the USB host-side data transport, NOT which HDL endpoint
-// families (Classic wires/triggers vs AXI register bridge) the bitfile implements.
-// A bitfile can implement both Classic and AXI endpoints simultaneously.
-// See ADR-003 Addendum A.
+// Physical host transport data port type from okTDeviceInfo.dataport (D63, D70, SD-05).
+//
+// - DATAPORT_LEGACY: OK_DATAPORT_LEGACY (1) — FP-Gen1/2-USB transport (e.g., XEM7320, XEM8320).
+//   Supports Classic endpoints only; AXI interfaces are unavailable.
+// - DATAPORT_AXI: OK_DATAPORT_AXI (2) — FP-Gen3-USB transport (e.g., XEM8305, XEM8310, XEM8350, XEM8370).
+//   Supports both Classic endpoints and AXI interfaces.
+//
+// `dataport` does NOT decide whether Classic endpoints exist: Classic endpoints
+// are available on all supported devices when instantiated by the loaded bitfile.
+// Devices reporting OK_DATAPORT_UNKNOWN (0) are unsupported and filtered out by the server.
 enum DataportType {
-  DATAPORT_UNKNOWN = 0;
-  DATAPORT_LEGACY = 1;   // FP-Gen1/Gen2 USB host interface
-  DATAPORT_AXI = 2;      // FP-Gen3 USB host interface
+  DATAPORT_LEGACY = 0;   // OK_DATAPORT_LEGACY — FP-Gen1/Gen2 USB host interface
+  DATAPORT_AXI = 1;      // OK_DATAPORT_AXI — FP-Gen3 USB host interface
 }
 
 // State of a user-defined resource exposed by a programmed FPGA.
@@ -1295,7 +1299,7 @@ service DeviceService {
   // Get information about the currently loaded bitfile (if any).
   rpc GetBitfileInfo(DeviceRequest) returns (BitfileInfoResponse);
 
-  // Get the data port type (classic, AXI, or none if not configured).
+  // Get the physical host transport data port type (legacy or AXI).
   rpc GetDataportType(DeviceRequest) returns (DataportTypeResponse);
 
   // --- PLL Configuration ---
@@ -1485,10 +1489,11 @@ service ClassicDataPortService {
   rpc WriteRegisters(WriteRegistersRequest) returns (StatusResponse);
 }
 
-// AXIDataPortService handles FrontPanel AXI Lite, Full, and Stream
-// operations via okRegisterBridge. These endpoints are available when the
-// loaded bitfile instantiates okRegisterBridge on the okHost bus. The server
-// does NOT gate access based on okTDeviceInfo.dataport.
+// AXIDataPortService handles direct FrontPanel AXI Lite, Full, and Stream
+// operations via FPGADataPortAXI (D50, D64, P9).
+//
+// Available only on OK_DATAPORT_AXI (FP-Gen3-USB) devices whose loaded
+// bitfile instantiates the corresponding AXI dataport HDL.
 service AXIDataPortService {
   // --- AXI Lite ---
 

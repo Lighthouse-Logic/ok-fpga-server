@@ -344,7 +344,7 @@ class DeviceServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def GetDataportType(self, request, context):
-        """Get the data port type (classic, AXI, or none if not configured).
+        """Get the physical host transport data port type (legacy or AXI).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -2564,10 +2564,11 @@ class ClassicDataPortService:
 
 
 class AXIDataPortServiceStub:
-    """AXIDataPortService handles FrontPanel AXI Lite, Full, and Stream
-    operations via okRegisterBridge. These endpoints are available when the
-    loaded bitfile instantiates okRegisterBridge on the okHost bus. The server
-    does NOT gate access based on okTDeviceInfo.dataport.
+    """AXIDataPortService handles direct FrontPanel AXI Lite, Full, and Stream
+    operations via FPGADataPortAXI (D50, D64, P9).
+
+    Available only on OK_DATAPORT_AXI (FP-Gen3-USB) devices whose loaded
+    bitfile instantiates the corresponding AXI dataport HDL.
     --- AXI Lite ---
     """
 
@@ -2645,10 +2646,11 @@ class AXIDataPortServiceStub:
 
 
 class AXIDataPortServiceServicer:
-    """AXIDataPortService handles FrontPanel AXI Lite, Full, and Stream
-    operations via okRegisterBridge. These endpoints are available when the
-    loaded bitfile instantiates okRegisterBridge on the okHost bus. The server
-    does NOT gate access based on okTDeviceInfo.dataport.
+    """AXIDataPortService handles direct FrontPanel AXI Lite, Full, and Stream
+    operations via FPGADataPortAXI (D50, D64, P9).
+
+    Available only on OK_DATAPORT_AXI (FP-Gen3-USB) devices whose loaded
+    bitfile instantiates the corresponding AXI dataport HDL.
     --- AXI Lite ---
     """
 
@@ -2824,10 +2826,11 @@ def add_AXIDataPortServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class AXIDataPortService:
-    """AXIDataPortService handles FrontPanel AXI Lite, Full, and Stream
-    operations via okRegisterBridge. These endpoints are available when the
-    loaded bitfile instantiates okRegisterBridge on the okHost bus. The server
-    does NOT gate access based on okTDeviceInfo.dataport.
+    """AXIDataPortService handles direct FrontPanel AXI Lite, Full, and Stream
+    operations via FPGADataPortAXI (D50, D64, P9).
+
+    Available only on OK_DATAPORT_AXI (FP-Gen3-USB) devices whose loaded
+    bitfile instantiates the corresponding AXI dataport HDL.
     --- AXI Lite ---
     """
 

@@ -1185,7 +1185,7 @@ mod tests {
             .unwrap_err();
         assert!(err.is_validation());
         assert!(err.detail.contains("axi_lite"));
-        assert!(err.detail.contains("Classic"));
+        assert!(err.detail.contains("legacy"));
     }
 
     #[test]

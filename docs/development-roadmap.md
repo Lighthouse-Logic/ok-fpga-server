@@ -303,22 +303,13 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
   hardware tests).
 - Commits `d59921e`, `96c0ed7`. ADR-034 (0.3.8).
 
-**44-H Dataport normalisation 🔒 (D63; permission granted)**
-- Files: `api/openapi.yaml` (`:593`, `:1780`), `proto/okfpga/v1/okfpga.proto`
-  (`DataportType`, `AXIDataPortService` comment), `ok-fpga-core/src/dataport.rs`,
-  `ok-fpga-core/src/device.rs` / `manager.rs` (device listing),
-  `rest/devices.rs`, `grpc/device_service.rs`, client models in
-  `client-examples/` and `client/python-labview-client/`.
-- S-10, SD-05: public `legacy` / `axi`; proto `DATAPORT_LEGACY = 0,
-  DATAPORT_AXI = 1` (P16); a device whose FFI dataport is
-  `OK_DATAPORT_UNKNOWN` is dropped from listings and gives 404 /
-  `NOT_FOUND` on single-device calls (D70); `AXIDataPortService` comment:
-  "direct AXI via FPGADataPortAXI (`OK_DATAPORT_AXI` devices only)" (P9).
-- Tests (Tier 3): `test_dataport_legacy_maps_to_legacy`,
-  `test_dataport_axi_maps_to_axi`, `test_list_devices_unknown_dataport_omitted`,
-  `test_get_device_unknown_dataport_not_found`,
-  `test_grpc_get_device_unknown_dataport_not_found`.
-- Commit: `fix: normalise dataport enum to legacy and axi`.
+**44-H Dataport normalisation 🔒 (D63) — ✅ Done (0.3.9)**
+- Archived: [archive/roadmap-phases-44.md](archive/roadmap-phases-44.md)
+  (`S-10`, `SD-05`, `P9`, `P16`, `D63`, `D70` `legacy` / `axi` enum
+  normalisation, `OK_DATAPORT_UNKNOWN` filtering in FFI enumeration and
+  `DeviceRegistry`, gRPC `GetDataportType` + `dataport_to_proto`, client model
+  updates, Tier 3 unit tests).
+- Commit: `fix: normalise dataport enum to legacy and axi (0.3.9)`. ADR-034 §15.
 
 **44-J Documentation**
 - SD-03, SD-04, SD-06, SD-08 check; ADR-034 status → Accepted/Implemented
