@@ -309,7 +309,7 @@ Order and dependencies: 44-A → 44-B → 44-C → 44-D → 44-E → 44-F; 44-G 
   normalisation, `OK_DATAPORT_UNKNOWN` filtering in FFI enumeration and
   `DeviceRegistry`, gRPC `GetDataportType` + `dataport_to_proto`, client model
   updates, Tier 3 unit tests).
-- Commit: `fix: normalise dataport enum to legacy and axi (0.3.9)`. ADR-034 §15.
+- Commit `f1961c6` (`fix: normalise dataport enum to legacy and axi (0.3.9)`). ADR-034 §15.
 
 **44-J Documentation**
 - SD-03, SD-04, SD-06, SD-08 check; ADR-034 status → Accepted/Implemented

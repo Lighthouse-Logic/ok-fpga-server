@@ -615,4 +615,4 @@ adopted, 2 rejected as non-observable / redundant).
     `test_get_device_unknown_dataport_not_found`.
   - Server `grpc/device_service.rs`: `test_grpc_dataport_legacy_and_axi_mapping`,
     `test_grpc_get_device_unknown_dataport_not_found`.
-- Commit: `fix: normalise dataport enum to legacy and axi (0.3.9)`.
+- Commit: `fix: normalise dataport enum to legacy and axi (0.3.9)` — **Done:** `f1961c6`.
