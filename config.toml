@@ -79,6 +79,10 @@ warn_range_self_overlap = true
 # non-private PipeOut, BTPipeOut, TriggerOut, or address range (D75 F4).
 # Env: OKFPGA_WARN_READONLY_SIDE_EFFECTS.
 warn_readonly_side_effects = true
+# Log a warning at registration when a Classic resource omits `endpoints`
+# (0x00–0x7F assumed) or coexists with a Pipe-declaring resource (D77, Phase 45).
+# Env: OKFPGA_WARN_WILDCARD_ENDPOINTS.
+warn_wildcard_endpoints = true
 
 [catalog]
 syzygy_boards = []

@@ -88,6 +88,7 @@ class ResourceInfo:
     access_mode: str = ""
     holders: List[str] = field(default_factory=list)
     locked_by: Optional[str] = None
+    warnings: List[str] = field(default_factory=list)
 
 
 class CountersGrpcClient:
@@ -261,9 +262,11 @@ class CountersGrpcClient:
             h.user_id if hasattr(h, "user_id") else str(h)
             for h in r.holders
         ]
+        warnings = list(getattr(resp, "warnings", []))
         return ResourceInfo(
             id=r.id, name=r.name, device_serial=r.device_serial,
             access_mode=access_mode, holders=holders, locked_by=locked_by,
+            warnings=warnings,
         )
 
     def create_resource(self, name: str, device_serial: str, resource_type: str = "shared") -> ResourceInfo:

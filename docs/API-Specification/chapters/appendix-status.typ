@@ -8,18 +8,19 @@
 //   forced cleanup on configure/clear, reasons reprogram/clear   → 44-F
 //   example clients                                              → 44-G
 //   dataport normalisation (legacy / axi, D63, D70, P9, P16)     → 44-H
+//   explicit CreateResource registration warnings                → 45
 // Update this appendix with every sub-phase commit.
 #import "../lib.typ": *
 
-= Implementation Status (server 0.3.9) <appendix-status>
+= Implementation Status (server 0.3.10) <appendix-status>
 
-This document specifies the target behaviour. Server version 0.3.9
+This document specifies the target behaviour. Server version 0.3.10
 implements part of it. Clients SHOULD be written against the specification;
 the items below show where today's server still differs.
 
 #table(
   columns: (1fr, auto),
-  [Behaviour], [Status in 0.3.9],
+  [Behaviour], [Status in 0.3.10],
   [Declaration schema, holder objects, state strings, structured conflicts (@res-declare, @res-errors)], [implemented],
   [Opal Kelly snapshot reads, `update` flag, one endpoint per read, mask default 0 (@enf-opalkelly)], [implemented],
   [`ResourceLocked` / `ResourceUnlocked` events; `holdings` in user listings], [implemented],
@@ -37,6 +38,7 @@ the items below show where today's server still differs.
   [Forced cleanup when programming, clearing or unplugging, with delete reasons `reprogram` / `clear` / `device_removed` (@res-lifecycle-device)], [implemented],
   [Classic data-path REST alignment: `application/octet-stream` pipes and block pipes, bulk register reads/writes, `WireInRequest.auto_update` (@ov-classic)], [implemented],
   [Dataport normalisation (`legacy` / `axi` only; `OK_DATAPORT_UNKNOWN` devices omitted and return 404 / `NOT_FOUND`)], [implemented],
+  [Explicit registration warnings in `CreateResource` responses (`Resource.warnings` / `ResourceResponse.warnings`) and `warn_wildcard_endpoints` setting (@res-declare, @enf-readonly-warning)], [implemented],
   [`GET /users/{user_id}`, gRPC `GetUser`; REST `connected_at` field (@res-users)], [planned; REST returns `last_seen_at`],
   [gRPC AXI methods (@ov-axi)], [planned; use REST],
 )

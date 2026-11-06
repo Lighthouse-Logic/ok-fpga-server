@@ -281,14 +281,19 @@ The server does not forbid risky observer reads outright, because some
 designs want them (for example a monitor that drains a diagnostics FIFO). It
 recommends, warns and lets the architect decide.
 
-=== The side-effect warning <enf-readonly-warning>
-// ref: D75 F4; ADR-034 §8. Implementation status: setting lands in 44-E.
+=== Registration warning settings <enf-readonly-warning>
+// ref: D72 Q4, D75 F4, D77; ADR-034 §8, §10, §17. Implementation status: 0.3.3 / 0.3.6 / 0.3.10.
+
+Enabled warnings are logged via `tracing::warn!` after registration succeeds
+and returned to the caller in `Resource.warnings` (REST `201 Created`) and
+`ResourceResponse.warnings` (gRPC `CreateResource`):
 
 #table(
-  columns: (1.4fr, 0.7fr, 0.6fr, 2fr),
+  columns: (1.5fr, 0.6fr, 0.5fr, 2fr),
   [Setting], [Type], [Default], [Effect],
-  [`warn_readonly_side_effects`], [boolean], [`true`], [At registration, log a warning when ReadOnly holders could reach a non-private PipeOut, block-throttled PipeOut or TriggerOut, or a non-private address range.],
-  [env `OKFPGA_WARN_READONLY_SIDE_EFFECTS`], [boolean], [—], [Overrides the file value.],
+  [`warn_range_self_overlap` / env `OKFPGA_WARN_RANGE_SELF_OVERLAP`], [boolean], [`true`], [Warn when two `address_ranges` in the same declaration overlap (@res-registration).],
+  [`warn_readonly_side_effects` / env `OKFPGA_WARN_READONLY_SIDE_EFFECTS`], [boolean], [`true`], [Warn when ReadOnly holders could reach a non-private PipeOut, block-throttled PipeOut or TriggerOut, or a non-private address range.],
+  [`warn_wildcard_endpoints` / env `OKFPGA_WARN_WILDCARD_ENDPOINTS`], [boolean], [`true`], [Warn when a Classic resource omits `endpoints` (claiming `0x00`–`0x7F` only) or coexists on the same device with a Pipe-declaring resource (@res-endpoint-shapes).],
 )
 
 == When other users' reads could hurt you <enf-read-harm>

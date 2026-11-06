@@ -93,6 +93,8 @@ pub struct ResourceInfo {
     pub holders: Vec<String>,
     #[serde(default)]
     pub locked_by: Option<String>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 // ============================================================================
@@ -431,13 +433,16 @@ impl CountersGrpcClient {
             access_mode,
             holders: r.holders.into_iter().map(|h| h.user_id).collect(),
             locked_by: if r.locked_by.is_empty() { None } else { Some(r.locked_by) },
+            warnings: vec![],
         }
     }
 
     /// Helper to extract ResourceInfo from a ResourceResponse.
     fn resource_from_response(resp: okfpga::v1::ResourceResponse) -> ResourceInfo {
         if let Some(r) = resp.resource {
-            Self::resource_from_proto(r)
+            let mut info = Self::resource_from_proto(r);
+            info.warnings = resp.warnings;
+            info
         } else {
             ResourceInfo {
                 id: String::new(),
@@ -446,6 +451,7 @@ impl CountersGrpcClient {
                 access_mode: String::new(),
                 holders: vec![],
                 locked_by: None,
+                warnings: resp.warnings,
             }
         }
     }
@@ -671,6 +677,7 @@ mod tests {
             access_mode: "shared".to_string(),
             holders: vec!["user1".to_string()],
             locked_by: None,
+            warnings: vec![],
         };
         assert!(info.locked_by.is_none());
         assert_eq!(info.holders.len(), 1);
@@ -686,6 +693,7 @@ mod tests {
             access_mode: "shared".to_string(),
             holders: vec![],
             locked_by: Some("Icy Garpac".to_string()),
+            warnings: vec![],
         };
         assert_eq!(info.locked_by.as_deref(), Some("Icy Garpac"));
     }
@@ -699,6 +707,7 @@ mod tests {
             access_mode: "exclusive".to_string(),
             holders: vec![],
             locked_by: None,
+            warnings: vec![],
         };
         assert!(info.holders.is_empty());
     }
@@ -728,6 +737,7 @@ mod tests {
         let resp = okfpga::v1::ResourceResponse {
             resource: Some(proto_resource),
             error: None,
+            warnings: vec!["resource 'Counter Resource' omits 'endpoints'".to_string()],
         };
         let info = CountersGrpcClient::resource_from_response(resp);
         assert_eq!(info.id, "res-abc");
@@ -736,11 +746,16 @@ mod tests {
         assert_eq!(info.access_mode, "shared");
         assert_eq!(info.holders.len(), 2);
         assert!(info.locked_by.is_none());
+        assert_eq!(info.warnings, vec!["resource 'Counter Resource' omits 'endpoints'"]);
     }
 
     #[test]
     fn test_resource_from_response_without_resource() {
-        let resp = okfpga::v1::ResourceResponse { resource: None, error: None };
+        let resp = okfpga::v1::ResourceResponse {
+            resource: None,
+            error: None,
+            warnings: vec![],
+        };
         let info = CountersGrpcClient::resource_from_response(resp);
         assert!(info.id.is_empty());
         assert!(info.name.is_empty());
@@ -762,6 +777,7 @@ mod tests {
                 access_mode: "shared".to_string(),
                 holders: vec![],
                 locked_by: None,
+                warnings: vec![],
             },
             ResourceInfo {
                 id: "res-2".to_string(),
@@ -770,6 +786,7 @@ mod tests {
                 access_mode: "shared".to_string(),
                 holders: vec![],
                 locked_by: None,
+                warnings: vec![],
             },
         ];
         // F3/F4: Lookup by serial.

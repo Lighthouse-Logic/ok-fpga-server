@@ -1107,6 +1107,12 @@ message ResourceResponse {
   Resource resource = 1;
   // Error status for this operation.
   ErrorCluster error = 2;
+  // Registration-time advisory warnings (self-overlapping address ranges,
+  // ReadOnly side-effect risks, omitted `endpoints` / Pipe coexistence).
+  // Populated by `CreateResource` when non-empty and enabled in
+  // `[access_control]`; empty on `GetResource`, `AcquireResource`,
+  // `LockResource`, and `UnlockResource` (Phase 45).
+  repeated string warnings = 3;
 }
 
 message AcquireResourceRequest {

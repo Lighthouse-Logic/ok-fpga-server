@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-11-05 (Phase 44 completed and archived, 0.3.9)
+> **Last Updated:** 2026-11-06 (Phase 45 completed and archived)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -52,12 +52,13 @@
 | **Phase 42** | mDNS Hostname Identity Alignment | — | ✅ [Archived](archive/roadmap-phases-40-43.md) |
 | **Phase 43** | mDNS Stale Registration Cleanup & Hostname Sanitization | — | ✅ [Archived](archive/roadmap-phases-40-43.md) |
 | **Phase 44** | Resource Model Consolidation & Enforcement Alignment | ADR-034 (supersedes parts of ADR-003/006/020/024/025/026) | ✅ [Archived](archive/roadmap-phases-44.md) |
+| **Phase 45** | Explicit Registration Warnings in CreateResource Responses | ADR-034 (§17) | ✅ [Archived](archive/roadmap-phases-44.md#phase-45--explicit-registration-warnings-in-createresource-responses--0310) |
 
 ---
 
 ## 🟢 Now
 
-*(Empty — Phase 44 completed. No active phase.)*
+*(Empty — Phase 45 completed and archived in [docs/archive/roadmap-phases-44.md](archive/roadmap-phases-44.md). Per Roadmap Rule 5, promote the next phase explicitly when ready.)*
 
 ---
 
@@ -276,21 +277,11 @@ Features in this section represent uncommitted research or long-term capabilitie
   multi-resource acquire (old Q44-12). See
   [resource-management-recommendations.md](resource-management-recommendations.md) §5.
 
-* **Phase 44-E follow-ups (owner decisions Q1, Q2, Q3b)** —
-  1. **Explicit registration warnings in OpenAPI & Proto (Q1 Option B):** add a
-     documented `warnings: list[string]` field to `CreateResource` responses in
-     `api/openapi.yaml` and `proto/okfpga/v1/okfpga.proto` so clients receive
-     registration warnings (self-overlapping address ranges, `ReadOnly`
-     side-effect risks, omitted `endpoints` / Pipe coexistence) directly in the
-     response payload instead of relying only on server logs.
-  2. **Explicit zero-endpoint Classic declaration ergonomics (Q2):** evaluate
-     whether a dedicated declaration form is needed beyond `"endpoints": {"entries": []}` (`D59`) for Classic resources that use only `okRegisterBridge`
-     register-mapped I/O and zero Wire/Trigger/Pipe endpoints.
-  3. **Migrate legacy Tier 3 route unit tests to `EndpointEnforcement::Enforce` (Q3b):**
-     update older route-level validation unit tests (which currently use a
-     `test_state()` helper with `EndpointEnforcement::Off` to test query/body
-     parsing in isolation) so all unit tests run with
-     `EndpointEnforcement::Enforce` enabled.
+* **Phase 44-E follow-up (owner decision Q3b) — Migrate legacy Tier 3 route unit tests to `EndpointEnforcement::Enforce`:**
+  update older route-level validation unit tests (which currently use a
+  `test_state()` helper with `EndpointEnforcement::Off` to test query/body
+  parsing in isolation) so all unit tests run with
+  `EndpointEnforcement::Enforce` enabled.
 
 * **Purge tracked proprietary Opal Kelly FrontPanel SDK/IP files from git (Phase 44-F Q5)** —
   remove tracked proprietary FrontPanel SDK headers, C++ wrappers, sample

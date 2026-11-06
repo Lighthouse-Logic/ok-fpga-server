@@ -404,22 +404,6 @@ async fn create_resource(
         }
     };
 
-    // Ranges of one declaration may overlap each other (owner decision Q1);
-    // that is allowed, so it is only a warning, and only if enabled.
-    let (warn_self_overlap, warn_readonly_side_effects) = state
-        .config
-        .read()
-        .map(|c| {
-            (
-                c.access_control.warn_range_self_overlap,
-                c.access_control.warn_readonly_side_effects,
-            )
-        })
-        .unwrap_or((true, true));
-    if warn_self_overlap {
-        crate::warnings::warn_self_overlapping_ranges(&resource);
-    }
-
     // 4. Re-verify device configuration generation + overlap check + insert,
     //    atomically under the ResourceRegistry write lock (44-B Q5 / 44-F q4).
     let resource_id = resource.id.clone();
@@ -458,11 +442,23 @@ async fn create_resource(
         .get(&resource_id)
         .ok_or_else(|| ProblemDetail::internal("resource vanished after registration"))?;
 
-    if warn_readonly_side_effects {
-        crate::warnings::warn_readonly_side_effects(&created);
-    }
+    // 5. Collect and log enabled registration-time advisory warnings (Phase 45 Q4)
+    //    after registration succeeds so failed registrations do not log noise.
+    let warning_toggles = state
+        .config
+        .read()
+        .map(|c| crate::warnings::RegistrationWarningToggles {
+            self_overlap: c.access_control.warn_range_self_overlap,
+            readonly_side_effects: c.access_control.warn_readonly_side_effects,
+            wildcard_endpoints: c.access_control.warn_wildcard_endpoints,
+        })
+        .unwrap_or_default();
     let existing_on_device = state.resource_registry.list_for_device(&device_serial);
-    crate::warnings::warn_wildcard_endpoints(&existing_on_device, &created);
+    let warnings = crate::warnings::collect_and_log_registration_warnings(
+        &created,
+        &existing_on_device,
+        warning_toggles,
+    );
 
     // Broadcast DeviceEvent for SSE subscribers (Phase 39, ADR-030).
     let _ = state.device_manager.broadcast(DeviceEvent::ResourceCreated {
@@ -483,7 +479,11 @@ async fn create_resource(
     // text, so the ID is percent-encoded as one path segment. The result is
     // plain ASCII, so it is always a valid header value; Axum's `Path`
     // extractor decodes it again on `GET /resources/{id}`.
-    let mut response = (StatusCode::CREATED, Json(ResourceView::from(&created))).into_response();
+    let mut response = (
+        StatusCode::CREATED,
+        Json(ResourceView::from_with_warnings(&created, warnings)),
+    )
+        .into_response();
     let location = format!("/api/v1/resources/{}", encode_path_segment(&resource_id));
     if let Ok(value) = HeaderValue::from_str(&location) {
         response.headers_mut().insert(header::LOCATION, value);
@@ -1705,5 +1705,116 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, RegisterError::PreconditionFailed(_)));
         assert_eq!(state.resource_registry.count(), 0);
+    }
+
+    // ── Phase 45: Explicit registration warnings in CreateResource responses ──
+
+    #[tokio::test]
+    async fn test_create_resource_returns_warnings_and_get_acquire_lock_unlock_omit_warnings() {
+        let state = test_state();
+
+        // Register a shared resource with self-overlapping non-private ranges and
+        // a non-private TriggerOut so both `self_overlap` and `readonly_side_effects`
+        // warnings are returned on 201 Created.
+        let (status, _, body) = send(
+            &state,
+            "POST",
+            "/resources",
+            serde_json::json!({
+                "name": "warn_res",
+                "device_serial": SERIAL,
+                "access_mode": "shared",
+                "interfaces": ["classic"],
+                "endpoints": {
+                    "entries": [
+                        { "address": "0x60", "type": "trigger_out", "access": "shared", "private": false }
+                    ]
+                },
+                "address_ranges": [
+                    { "start": "0x00001000", "end": "0x00001FFF", "access": "shared", "private": false },
+                    { "start": "0x00001800", "end": "0x000027FF", "access": "shared", "private": false }
+                ]
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let warnings = body["warnings"]
+            .as_array()
+            .expect("201 response must include 'warnings' array when warnings fire");
+        // 1 self-overlap + 3 readonly side effects (TriggerOut 0x60 + 2 non-private ranges) = 4
+        assert_eq!(warnings.len(), 4);
+        assert!(warnings[0].as_str().unwrap().contains("address range #0"));
+        assert!(warnings[1].as_str().unwrap().contains("0x60 (trigger_out)"));
+
+        let id = body["id"].as_str().unwrap().to_string();
+
+        // GET /resources/{id} must omit `warnings`.
+        let (status, _, get_body) =
+            send(&state, "GET", &format!("/resources/{id}"), serde_json::json!({})).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(get_body.get("warnings").is_none());
+
+        // Acquire, lock, and unlock must also omit `warnings`.
+        let (status, _, acq_body) = send(
+            &state,
+            "POST",
+            &format!("/resources/{id}/acquire"),
+            serde_json::json!({"user_id": "alice", "mode": "shared"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(acq_body.get("warnings").is_none());
+
+        let (status, _, lock_body) = send(
+            &state,
+            "POST",
+            &format!("/resources/{id}/lock"),
+            serde_json::json!({"user_id": "alice"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(lock_body.get("warnings").is_none());
+
+        let (status, _, unlock_body) = send(
+            &state,
+            "POST",
+            &format!("/resources/{id}/unlock"),
+            serde_json::json!({"user_id": "alice"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(unlock_body.get("warnings").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_create_resource_warnings_disabled_by_config_omits_warnings_field() {
+        let state = test_state();
+        {
+            let mut cfg = state.config.write().unwrap();
+            cfg.access_control.warn_range_self_overlap = false;
+            cfg.access_control.warn_readonly_side_effects = false;
+            cfg.access_control.warn_wildcard_endpoints = false;
+        }
+
+        // Omitted `endpoints` + self-overlapping non-private ranges would normally
+        // emit all 3 warning families; with all 3 toggles false, `warnings` is
+        // empty and omitted from the serialized JSON.
+        let (status, _, body) = send(
+            &state,
+            "POST",
+            "/resources",
+            serde_json::json!({
+                "name": "quiet_wild",
+                "device_serial": SERIAL,
+                "interfaces": ["classic"],
+                "address_ranges": [
+                    { "start": "0x00001000", "end": "0x00001FFF", "access": "exclusive", "private": false },
+                    { "start": "0x00001800", "end": "0x000027FF", "access": "exclusive", "private": false }
+                ]
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert!(body.get("warnings").is_none());
     }
 }

@@ -1145,6 +1145,7 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
                 code: 0,
                 source: String::new(),
             }),
+            warnings: Vec::new(),
         }))
     }
 
@@ -1209,6 +1210,7 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         Ok(Response::new(proto::ResourceResponse {
             resource: Some(Self::resource_to_proto(&resource)),
             error: Self::ok_cluster(),
+            warnings: Vec::new(),
         }))
     }
 
@@ -1309,23 +1311,6 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             }
         };
 
-        // Overlapping ranges inside one declaration are allowed (owner
-        // decision Q1); log a warning if the setting is on.
-        let (warn_self_overlap, warn_readonly_side_effects) = self
-            .state
-            .config
-            .read()
-            .map(|c| {
-                (
-                    c.access_control.warn_range_self_overlap,
-                    c.access_control.warn_readonly_side_effects,
-                )
-            })
-            .unwrap_or((true, true));
-        if warn_self_overlap {
-            crate::warnings::warn_self_overlapping_ranges(&resource);
-        }
-
         let resource_id = resource.id.clone();
         let device_serial = resource.device_serial.clone();
         let name = resource.name.clone();
@@ -1361,11 +1346,24 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
             .get(&resource_id)
             .ok_or_else(|| Status::internal("Resource vanished after registration"))?;
 
-        if warn_readonly_side_effects {
-            crate::warnings::warn_readonly_side_effects(&created);
-        }
+        // Collect and log enabled registration-time advisory warnings (Phase 45 Q4)
+        // after registration succeeds so failed registrations do not log noise.
+        let warning_toggles = self
+            .state
+            .config
+            .read()
+            .map(|c| crate::warnings::RegistrationWarningToggles {
+                self_overlap: c.access_control.warn_range_self_overlap,
+                readonly_side_effects: c.access_control.warn_readonly_side_effects,
+                wildcard_endpoints: c.access_control.warn_wildcard_endpoints,
+            })
+            .unwrap_or_default();
         let existing_on_device = self.state.resource_registry.list_for_device(&device_serial);
-        crate::warnings::warn_wildcard_endpoints(&existing_on_device, &created);
+        let warnings = crate::warnings::collect_and_log_registration_warnings(
+            &created,
+            &existing_on_device,
+            warning_toggles,
+        );
 
         let _ = self.state.device_manager.broadcast(DeviceEvent::ResourceCreated {
             resource_id: resource_id.clone(),
@@ -1381,6 +1379,7 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
         Ok(Response::new(proto::ResourceResponse {
             resource: Some(Self::resource_to_proto(&created)),
             error: Self::ok_cluster(),
+            warnings,
         }))
     }
 
@@ -1515,6 +1514,7 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
                 code: 0,
                 source: String::new(),
             }),
+            warnings: Vec::new(),
         }))
     }
 
@@ -1565,6 +1565,7 @@ impl proto::device_service_server::DeviceService for DeviceServiceImpl {
                 code: 0,
                 source: String::new(),
             }),
+            warnings: Vec::new(),
         }))
     }
 
@@ -2563,5 +2564,61 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(err.code(), Code::NotFound);
+    }
+
+    // ── Phase 45: Explicit registration warnings in gRPC CreateResource ──
+
+    #[tokio::test]
+    async fn test_grpc_create_resource_returns_warnings_and_other_rpcs_omit_warnings() {
+        let svc = service();
+
+        // Register a resource with omitted `endpoints` and self-overlapping
+        // non-private ranges so all 3 warning categories fire.
+        let req = proto::CreateResourceRequest {
+            name: "wild_warn".to_string(),
+            device_serial: SERIAL.to_string(),
+            access_mode: None,
+            interfaces: vec!["classic".to_string()],
+            endpoints: None,
+            address_ranges: vec![
+                proto_range(0x1000, 0x1FFF, proto::ResourceAccessMode::Exclusive, false),
+                proto_range(0x1800, 0x27FF, proto::ResourceAccessMode::Exclusive, false),
+            ],
+            ..Default::default()
+        };
+
+        let create_resp = svc
+            .create_resource(Request::new(req))
+            .await
+            .unwrap()
+            .into_inner();
+        // 1 self-overlap + 3 readonly (omitted TriggerOuts + 2 ranges) + 1 wildcard omitted = 5
+        assert_eq!(create_resp.warnings.len(), 5);
+        assert!(create_resp.warnings[0].contains("address range #0"));
+        assert!(create_resp.warnings[1].contains("0x60–0x7F"));
+        assert!(create_resp.warnings[4].contains("0x00–0x7F"));
+
+        let id = create_resp.resource.unwrap().id;
+
+        // GetResource, AcquireResource, LockResource, UnlockResource return empty `warnings`.
+        let get_resp = svc
+            .get_resource(Request::new(proto::ResourceRequest {
+                resource_id: id.clone(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(get_resp.warnings.is_empty());
+
+        let acq_resp = svc
+            .acquire_resource(Request::new(proto::AcquireResourceRequest {
+                resource_id: id.clone(),
+                user_id: "alice".to_string(),
+                mode: None,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(acq_resp.warnings.is_empty());
     }
 }

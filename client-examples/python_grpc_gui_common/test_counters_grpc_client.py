@@ -113,6 +113,11 @@ class TestResourceInfo:
     def test_empty_holders_default(self):
         info = ResourceInfo()
         assert info.holders == []
+        assert info.warnings == []
+
+    def test_warnings_populated(self):
+        info = ResourceInfo(warnings=["resource 'test' omits 'endpoints'"])
+        assert info.warnings == ["resource 'test' omits 'endpoints'"]
 
     def test_multiple_holders(self):
         info = ResourceInfo(holders=["user1", "user2", "user3"])

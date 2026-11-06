@@ -1,6 +1,6 @@
 [project]
 name = "python-rest-gui-common"
-version = "0.1.1"
+version = "0.1.2"
 description = "Shared REST API client for ok-FPGA-Server Python GUI demos"
 requires-python = ">=3.12"
 dependencies = [

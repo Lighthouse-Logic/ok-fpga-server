@@ -33,7 +33,6 @@ class FPGAVendor(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
 
 class DataportType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
-    DATAPORT_UNKNOWN: _ClassVar[DataportType]
     DATAPORT_LEGACY: _ClassVar[DataportType]
     DATAPORT_AXI: _ClassVar[DataportType]
 
@@ -89,7 +88,6 @@ USB_SPEED_SS_GEN2X2: USBSpeed
 FPGA_VENDOR_UNKNOWN: FPGAVendor
 FPGA_VENDOR_XILINX: FPGAVendor
 FPGA_VENDOR_INTEL: FPGAVendor
-DATAPORT_UNKNOWN: DataportType
 DATAPORT_LEGACY: DataportType
 DATAPORT_AXI: DataportType
 RESOURCE_STATE_UNAVAILABLE: ResourceState
@@ -1112,12 +1110,14 @@ class ResourceRequest(_message.Message):
     def __init__(self, resource_id: _Optional[str] = ...) -> None: ...
 
 class ResourceResponse(_message.Message):
-    __slots__ = ("resource", "error")
+    __slots__ = ("resource", "error", "warnings")
     RESOURCE_FIELD_NUMBER: _ClassVar[int]
     ERROR_FIELD_NUMBER: _ClassVar[int]
+    WARNINGS_FIELD_NUMBER: _ClassVar[int]
     resource: Resource
     error: ErrorCluster
-    def __init__(self, resource: _Optional[_Union[Resource, _Mapping]] = ..., error: _Optional[_Union[ErrorCluster, _Mapping]] = ...) -> None: ...
+    warnings: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, resource: _Optional[_Union[Resource, _Mapping]] = ..., error: _Optional[_Union[ErrorCluster, _Mapping]] = ..., warnings: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class AcquireResourceRequest(_message.Message):
     __slots__ = ("resource_id", "user_id", "mode")

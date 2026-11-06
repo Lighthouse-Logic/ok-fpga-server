@@ -176,6 +176,8 @@ pub struct ResourceInfo {
     pub holders: Vec<String>,
     #[serde(default)]
     pub locked_by: Option<String>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 /// Deserializes `holders` from either ADR-034 `[{"user_id": "...", "mode": "..."}]`
@@ -573,6 +575,7 @@ impl CountersClient {
             access_mode: resource_type.to_string(),
             holders: vec![],
             locked_by: None,
+            warnings: vec![],
         });
         Ok(info)
     }
@@ -614,6 +617,7 @@ impl CountersClient {
             access_mode: String::new(),
             holders: vec![],
             locked_by: None,
+            warnings: vec![],
         });
         Ok(info)
     }
@@ -767,6 +771,7 @@ mod tests {
             access_mode: "shared".to_string(),
             holders: vec!["user1".to_string()],
             locked_by: None,
+            warnings: vec![],
         };
         assert!(info.locked_by.is_none());
         assert_eq!(info.holders.len(), 1);
@@ -781,6 +786,7 @@ mod tests {
             access_mode: "shared".to_string(),
             holders: vec![],
             locked_by: Some("Icy Rester".to_string()),
+            warnings: vec![],
         };
         assert_eq!(info.locked_by.as_deref(), Some("Icy Rester"));
     }
@@ -794,6 +800,7 @@ mod tests {
             access_mode: "exclusive".to_string(),
             holders: vec![],
             locked_by: None,
+            warnings: vec![],
         };
         assert!(info.holders.is_empty());
     }
@@ -1019,7 +1026,7 @@ mod tests {
         let mock = server.mock("POST", "/api/v1/resources")
             .match_header("X-User-Id", "test-user")
             .with_status(200)
-            .with_body(r#"{"id":"res-abc","name":"Counter Resource","device_serial":"SN001","access_mode":"shared","holders":[],"locked_by":null}"#)
+            .with_body(r#"{"id":"res-abc","name":"Counter Resource","device_serial":"SN001","access_mode":"shared","holders":[],"locked_by":null,"warnings":["resource 'Counter Resource' omits 'endpoints'"]}"#)
             .create_async().await;
 
         let client = CountersClient::new(&server.url(), "test-user");
@@ -1030,6 +1037,7 @@ mod tests {
         assert_eq!(info.name, "Counter Resource");
         assert_eq!(info.access_mode, "shared");
         assert!(info.locked_by.is_none());
+        assert_eq!(info.warnings, vec!["resource 'Counter Resource' omits 'endpoints'"]);
     }
 
     // ========================================================================

@@ -1,7 +1,7 @@
 # ADR-034: Resource Model Consolidation
 
-**Status**: Accepted — Implemented (Phase 44: 44-A through 44-J archived)
-**Date**: 2026-10-11 (amended 2026-11-05)
+**Status**: Accepted — Implemented (Phase 44: 44-A through 44-J & Phase 45 archived)
+**Date**: 2026-10-11 (amended 2026-11-06)
 **Commit hash**: 44-A `d3b19a6`; 0.3.0 read semantics (D75–D77) `dcb5e5a`;
 0.3.1 IsTriggered mask default (D78) `6e11f9b`; 0.3.2 heartbeat text and
 shipped enforcement `2e2f7a3`; 44-B registration rules (0.3.3) `1d95a6f`;
@@ -9,9 +9,10 @@ shipped enforcement `2e2f7a3`; 44-B registration rules (0.3.3) `1d95a6f`;
 44-E enforcement pipeline (0.3.6) `7c39e74`; 44-F reprogram & clear cleanup (0.3.7) `5a1f025`;
 44-G classic data-path alignment & example clients (0.3.8) `d59921e`, `96c0ed7`;
 44-H dataport normalisation (0.3.9) `f1961c6`;
-44-J documentation consolidation `5ea5e78`
+44-J documentation consolidation `5ea5e78`;
+Phase 45 explicit registration warnings (0.3.10) pending commit
 **Deciders**: Project owner, Architecture Team
-**Phase**: 44 ([archive/roadmap-phases-44.md](../../archive/roadmap-phases-44.md))
+**Phase**: 44 & 45 ([archive/roadmap-phases-44.md](../../archive/roadmap-phases-44.md))
 **Supersedes (in part)**:
 - [ADR-003](ADR-003-data-port-abstraction.md) (wording calling `okRegisterBridge` "the AXI path" and `OK_DATAPORT_UNKNOWN` exposure; see §13, §15)
 - [ADR-006](ADR-006-resource-management.md) (Resource Model, Resource State Model, Resource Registry, Acquisition Protocol, and FPGA ↔ Resource Lifecycle; see §1–§6, §10–§14)
@@ -529,6 +530,38 @@ gRPC, core types, and clients (`D63`, `D70`, `S-10`, `SD-05`, `P9`, `P16`):
   An optional server-side `WireIn` shadow read-back endpoint is tracked as a
   **🔵 Later** research item (`Q44-6`).
 
+### §17 Explicit registration warnings in CreateResource responses (Phase 45, 0.3.10)
+
+Owner decisions 2026-11-06 (`q1` spec edit permission, `q2` Option A1 REST
+`Resource.warnings`, `q3` gRPC `ResourceResponse.warnings = 3`, `q4`
+post-registration evaluation + `warn_wildcard_endpoints` toggle, `q5` client
+updates):
+
+- **REST (`api/openapi.yaml` & `ResourceView`)**:
+  - `components/schemas/Resource` defines an optional `readOnly: true` field
+    `warnings: array of string`.
+  - `ResourceView` carries `#[serde(skip_serializing_if = "Vec::is_empty")] pub warnings: Vec<String>`,
+    populated on `201 Created` from `POST /resources` via
+    `ResourceView::from_with_warnings(&created, warnings)` when at least one
+    enabled registration warning fires, and omitted from serialized JSON when
+    empty or on `GET /resources`, `GET /resources/{id}`, acquire, lock, and
+    unlock responses.
+- **gRPC (`proto/okfpga/v1/okfpga.proto` & `DeviceServiceImpl`)**:
+  - `ResourceResponse` defines `repeated string warnings = 3;`, populated by
+    `CreateResource` and empty (`Vec::new()`) on `GetResource`,
+    `AcquireResource`, `LockResource`, and `UnlockResource`.
+- **Unified post-registration warning evaluation (`warnings.rs` & `config.rs`)**:
+  - Added `warn_wildcard_endpoints: bool` (default `true`, env override
+    `OKFPGA_WARN_WILDCARD_ENDPOINTS`) to `[access_control]` alongside
+    `warn_range_self_overlap` and `warn_readonly_side_effects`.
+  - All three warning generators are evaluated and logged via `tracing::warn!`
+    *after* `try_register_with_precondition` succeeds via
+    `collect_and_log_registration_warnings` in deterministic order:
+    (1) `self_overlap_messages`, (2) `readonly_side_effects_messages`, and
+    (3) `wildcard_endpoint_messages` (with existing device resources sorted by
+    `id`). Failed registrations (`404` / `409` / `422`) never emit false-alarm
+    server log warnings.
+
 ### Rationale
 
 One schema shared by REST, gRPC and the dashboard removes the guessing that
@@ -831,6 +864,35 @@ Owner permission 2026-11-05 for the `api/openapi.yaml` and
     rebuilt `ok-fpga-server-api-specification.pdf`),
   - `docs/archive/roadmap-phases-44.md`, `docs/development-roadmap.md`
     (archived Phase 44-J and collapsed Phase 44 in the roadmap).
+
+## Files changed (0.3.10, Phase 45)
+
+Owner decisions 2026-11-06 (`q1`–`q5`):
+
+- Spec: `api/openapi.yaml` (`POST /resources` 201 description and
+  `Resource.properties.warnings`),
+  `proto/okfpga/v1/okfpga.proto` (`ResourceResponse.warnings = 3`).
+- Server & Config: `config.toml` (`warn_wildcard_endpoints = true`),
+  `crates/ok-fpga-server/src/config.rs` (`warn_wildcard_endpoints`,
+  `OKFPGA_WARN_WILDCARD_ENDPOINTS`, unit test),
+  `crates/ok-fpga-server/src/warnings.rs` (`RegistrationWarningToggles`,
+  `collect_and_log_registration_warnings`, unit test),
+  `crates/ok-fpga-server/src/views.rs` (`ResourceView.warnings`,
+  `ResourceView::from_with_warnings`, unit test),
+  `crates/ok-fpga-server/src/rest/resources.rs` (`create_resource` post-registration
+  warning collection, Tier 3 unit tests),
+  `crates/ok-fpga-server/src/grpc/device_service.rs` (`create_resource`
+  post-registration warning collection, Tier 3 unit test).
+- Clients: `client/python-labview-client/` (`0.2.2` → `0.2.3`; `Resource.warnings`),
+  `client-examples/rust-rest-gui-common/` (`ResourceInfo.warnings`),
+  `client-examples/rust-grpc-gui-common/` (`ResourceInfo.warnings`),
+  `client-examples/python_rest_gui_common/` (`0.1.1` → `0.1.2`; `ResourceInfo.warnings`),
+  `client-examples/python_grpc_gui_common/` (`0.1.2` → `0.1.3`; `ResourceInfo.warnings`,
+  regenerated protobuf stubs),
+  `client-examples/python-grpc-client/` (`0.1.2` → `0.1.3`, regenerated protobuf stubs).
+- Version: `Cargo.toml`, `Cargo.lock` (0.3.10).
+- Docs: this ADR, `docs/API-Specification/`, `docs/archive/roadmap-phases-44.md`,
+  `docs/development-roadmap.md`.
 
 ## Open items
 

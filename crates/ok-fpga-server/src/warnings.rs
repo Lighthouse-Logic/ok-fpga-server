@@ -199,6 +199,72 @@ pub fn warn_wildcard_endpoints(existing_on_device: &[Resource], new_resource: &R
     }
 }
 
+/// Active `[access_control]` warning switches for a resource registration
+/// request (Phase 45 Q4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RegistrationWarningToggles {
+    /// Emit warnings when `address_ranges` inside one declaration overlap
+    /// (`warn_range_self_overlap`).
+    pub self_overlap: bool,
+    /// Emit warnings when `ReadOnly` holders could reach a non-private
+    /// side-effect item (`warn_readonly_side_effects`).
+    pub readonly_side_effects: bool,
+    /// Emit warnings when a Classic resource omits `endpoints` (`0x00–0x7F`
+    /// assumed) or coexists with a Pipe-declaring resource
+    /// (`warn_wildcard_endpoints`).
+    pub wildcard_endpoints: bool,
+}
+
+impl Default for RegistrationWarningToggles {
+    fn default() -> Self {
+        Self {
+            self_overlap: true,
+            readonly_side_effects: true,
+            wildcard_endpoints: true,
+        }
+    }
+}
+
+/// Collect and log all enabled registration-time advisory warnings for a
+/// newly registered `resource` in a deterministic order (Phase 45 Q4):
+///
+/// 1. [`self_overlap_messages`] (when `toggles.self_overlap` is `true`)
+/// 2. [`readonly_side_effects_messages`] (when `toggles.readonly_side_effects` is `true`)
+/// 3. [`wildcard_endpoint_messages`] (when `toggles.wildcard_endpoints` is `true`,
+///    with `existing_on_device` sorted by `id` for deterministic ordering)
+///
+/// Every collected message is logged once via `tracing::warn!` and returned in
+/// the resulting `Vec<String>` so REST `POST /resources` (`ResourceView.warnings`)
+/// and gRPC `CreateResource` (`ResourceResponse.warnings`) surface identical
+/// warning lists.
+pub fn collect_and_log_registration_warnings(
+    resource: &Resource,
+    existing_on_device: &[Resource],
+    toggles: RegistrationWarningToggles,
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+
+    if toggles.self_overlap {
+        warnings.extend(self_overlap_messages(resource));
+    }
+
+    if toggles.readonly_side_effects {
+        warnings.extend(readonly_side_effects_messages(resource));
+    }
+
+    if toggles.wildcard_endpoints {
+        let mut sorted = existing_on_device.to_vec();
+        sorted.sort_by(|a, b| a.id.cmp(&b.id));
+        warnings.extend(wildcard_endpoint_messages(&sorted, resource));
+    }
+
+    for msg in &warnings {
+        warn!(resource_id = %resource.id, "{}", msg);
+    }
+
+    warnings
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,5 +433,98 @@ mod tests {
         assert_eq!(msgs2.len(), 1);
         assert!(msgs2[0].contains("SN1:wild"));
         assert!(msgs2[0].contains("0x80–0xBF"));
+    }
+
+    #[test]
+    fn test_collect_and_log_registration_warnings_orders_and_respects_toggles() {
+        use ok_fpga_core::resource::{EndpointDeclaration, EndpointEntry};
+        // Build an existing Pipe resource (`SN1:z_pipe` and `SN1:a_pipe` out of
+        // alphabetical order to test sorting) and a new resource with omitted
+        // `endpoints` + self-overlapping non-private ranges so all 3 categories
+        // fire.
+        let make_pipe = |id: &str, name: &str| {
+            let mut p = Resource::new(
+                id.into(),
+                name.into(),
+                None,
+                "SN1".into(),
+                AccessMode::Shared,
+            );
+            p.endpoints = Some(EndpointDeclaration {
+                default_access: Some(AccessMode::Shared),
+                entries: vec![EndpointEntry {
+                    address: 0x80,
+                    ep_type: EndpointType::PipeIn,
+                    access: AccessMode::Shared,
+                    description: None,
+                    private: true,
+                }],
+            });
+            p
+        };
+        let existing = vec![make_pipe("SN1:z_pipe", "z_pipe"), make_pipe("SN1:a_pipe", "a_pipe")];
+
+        let mut new_res = Resource::new(
+            "SN1:wild".into(),
+            "wild".into(),
+            None,
+            "SN1".into(),
+            AccessMode::Exclusive,
+        );
+        new_res.address_ranges = vec![range(0x1000, 0x1FFF, false), range(0x1800, 0x27FF, false)];
+
+        // 1. All toggles enabled: self_overlap -> readonly_side_effects -> wildcard (sorted a_pipe then z_pipe).
+        let all = collect_and_log_registration_warnings(
+            &new_res,
+            &existing,
+            RegistrationWarningToggles::default(),
+        );
+        // 1 self-overlap + 3 readonly (omitted TriggerOuts + 2 non-private ranges) + 3 wildcard (omitted + a_pipe + z_pipe) = 7
+        assert_eq!(all.len(), 7);
+        assert!(all[0].contains("address range #0"));
+        assert!(all[1].contains("0x60–0x7F"));
+        assert!(all[2].contains("0x00001000-0x00001FFF"));
+        assert!(all[3].contains("0x00001800-0x000027FF"));
+        assert!(all[4].contains("0x00–0x7F"));
+        assert!(all[5].contains("SN1:a_pipe"));
+        assert!(all[6].contains("SN1:z_pipe"));
+
+        // 2. Disable self_overlap only.
+        let no_self = collect_and_log_registration_warnings(
+            &new_res,
+            &existing,
+            RegistrationWarningToggles {
+                self_overlap: false,
+                readonly_side_effects: true,
+                wildcard_endpoints: true,
+            },
+        );
+        assert_eq!(no_self.len(), 6);
+        assert!(!no_self.iter().any(|m| m.contains("address range #0")));
+
+        // 3. Disable readonly_side_effects only.
+        let no_ro = collect_and_log_registration_warnings(
+            &new_res,
+            &existing,
+            RegistrationWarningToggles {
+                self_overlap: true,
+                readonly_side_effects: false,
+                wildcard_endpoints: true,
+            },
+        );
+        assert_eq!(no_ro.len(), 4);
+
+        // 4. Disable wildcard_endpoints only.
+        let no_wild = collect_and_log_registration_warnings(
+            &new_res,
+            &existing,
+            RegistrationWarningToggles {
+                self_overlap: true,
+                readonly_side_effects: true,
+                wildcard_endpoints: false,
+            },
+        );
+        assert_eq!(no_wild.len(), 4);
+        assert!(!no_wild.iter().any(|m| m.contains("SN1:a_pipe")));
     }
 }

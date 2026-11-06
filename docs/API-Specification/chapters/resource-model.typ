@@ -112,6 +112,11 @@ The device MUST be connected and programmed. A successful create returns
 `201 Created` with a `Location: /api/v1/resources/{resource_id}` header and
 the new `Resource`, in state `available`. The resource id is
 `{device_serial}:{name}`. `POST` is used because the server forms the id.
+When one or more registration warnings fire (@res-registration,
+@enf-readonly-warning), the `201 Created` `Resource` object on REST includes a
+read-only `warnings` string array (omitted when empty and on `GET`, acquire,
+lock and unlock responses), and gRPC `CreateResource` populates
+`ResourceResponse.warnings` (proto field 3, empty on other RPCs).
 
 === Request fields <res-declare-request>
 `CreateResourceRequest`:
@@ -283,10 +288,16 @@ Inside one declaration:
   two hex digits (`0x05`); `5`, `0x5`, `0x005` and `0X05` are rejected with
   *422*. gRPC sends addresses as numbers.
 - Address ranges MAY overlap each other. The request succeeds (*201*), and
-  the server logs a warning unless the server setting
+  the server logs a warning and returns it in the `CreateResource` response
+  `warnings` list unless the server setting
   `access_control.warn_range_self_overlap` is turned off. Where overlapping
   ranges differ in `private`, the private range applies to the addresses they
   share.
+- Likewise, enabled registration warnings for non-private ReadOnly side-effect
+  items (`access_control.warn_readonly_side_effects`, @enf-readonly-warning)
+  and omitted `endpoints` / Pipe coexistence
+  (`access_control.warn_wildcard_endpoints`) are logged and returned in the
+  `CreateResource` `warnings` list.
 
 The server uses 409 for a clash with existing state and 422 for a request
 that is wrong on its own.

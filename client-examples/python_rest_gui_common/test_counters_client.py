@@ -268,7 +268,8 @@ class TestCountersClientHTTP:
                   "device_serial": "SN001", "access_mode": "shared",
                   "interfaces": ["classic"],
                   "holders": [{"user_id": "test-user", "mode": "shared"}],
-                  "locked_by": None},
+                  "locked_by": None,
+                  "warnings": ["resource 'Counter Resource' omits 'endpoints'"]},
             status=200,
         )
         client = CountersClient("http://localhost:8088", "test-user")
@@ -278,6 +279,7 @@ class TestCountersClientHTTP:
         assert info.access_mode == "shared"
         assert info.holders == ["test-user"]
         assert info.locked_by is None
+        assert info.warnings == ["resource 'Counter Resource' omits 'endpoints'"]
         import json
         body = json.loads(responses.calls[0].request.body)
         assert body["interfaces"] == ["classic"]

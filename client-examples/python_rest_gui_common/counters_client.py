@@ -80,6 +80,7 @@ class ResourceInfo:
     access_mode: str = ""
     holders: List[str] = field(default_factory=list)
     locked_by: Optional[str] = None
+    warnings: List[str] = field(default_factory=list)
 
 
 class ClientError(Exception):
@@ -303,6 +304,7 @@ class CountersClient:
             access_mode=r.get("access_mode", ""),
             holders=self._normalize_holders(r.get("holders", [])),
             locked_by=r.get("locked_by"),
+            warnings=list(r.get("warnings") or []),
         ) for r in resources_list]
 
 
@@ -322,6 +324,7 @@ class CountersClient:
             access_mode=data.get("access_mode", resource_type),
             holders=self._normalize_holders(data.get("holders", [])),
             locked_by=data.get("locked_by"),
+            warnings=list(data.get("warnings") or []),
         )
 
     def acquire_resource(self, resource_id: str):
@@ -350,6 +353,7 @@ class CountersClient:
             access_mode=data.get("access_mode", ""),
             holders=self._normalize_holders(data.get("holders", [])),
             locked_by=data.get("locked_by"),
+            warnings=list(data.get("warnings") or []),
         )
 
     def lock_resource(self, resource_id: str):

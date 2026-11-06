@@ -58,6 +58,11 @@ pub struct ResourceView {
     pub metadata: HashMap<String, String>,
     /// Resource-level `private` flag: an access rule, not visibility (D57).
     pub private: bool,
+    /// Registration-time advisory warnings (populated on `POST /resources`
+    /// when non-empty; omitted when empty and on `GET`/acquire/lock/unlock,
+    /// Phase 45 Q2 Option A1).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 /// One holder of a resource.
@@ -173,7 +178,18 @@ impl From<&Resource> for ResourceView {
             address_ranges: r.address_ranges.iter().map(AddressRangeView::from).collect(),
             metadata: r.metadata.clone(),
             private: r.private,
+            warnings: Vec::new(),
         }
+    }
+}
+
+impl ResourceView {
+    /// Construct a [`ResourceView`] with registration-time `warnings` attached
+    /// (used by `POST /api/v1/resources` `201 Created`, Phase 45 Q2).
+    pub fn from_with_warnings(r: &Resource, warnings: Vec<String>) -> Self {
+        let mut view = Self::from(r);
+        view.warnings = warnings;
+        view
     }
 }
 
@@ -307,5 +323,20 @@ mod tests {
         r.endpoints = None;
         let v = serde_json::to_value(ResourceView::from(&r)).unwrap();
         assert!(v.get("endpoints").is_none());
+        assert!(v.get("warnings").is_none());
+    }
+
+    #[test]
+    fn test_resource_view_warnings_omitted_when_empty_and_included_when_non_empty() {
+        let r = sample();
+        let v_empty = serde_json::to_value(ResourceView::from(&r)).unwrap();
+        assert!(v_empty.get("warnings").is_none());
+
+        let v_with = serde_json::to_value(ResourceView::from_with_warnings(
+            &r,
+            vec!["warn-1".to_string(), "warn-2".to_string()],
+        ))
+        .unwrap();
+        assert_eq!(v_with["warnings"], serde_json::json!(["warn-1", "warn-2"]));
     }
 }

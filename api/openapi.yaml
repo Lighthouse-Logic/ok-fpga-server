@@ -1331,6 +1331,10 @@ paths:
           applies.
         - With `endpoints`, `access_mode` is required, and each entry needs
           `access` unless `endpoints.default_access` is set.
+        - Advisory registration warnings (self-overlapping address ranges,
+          `ReadOnly` side-effect risks, omitted `endpoints` / Pipe coexistence)
+          are returned in the response's `warnings` array when non-empty and
+          enabled in `[access_control]` (Phase 45).
         - Errors carry a `conflict` object (`ProblemDetail.conflict`) when a
           machine-readable code applies.
       operationId: createResource
@@ -2471,6 +2475,18 @@ components:
             acquisition is denied. Every user can still list and read the
             resource description. Recommended when any ReadOnly read of the
             resource could cause an unwanted side-effect (D75).
+        warnings:
+          type: array
+          readOnly: true
+          items:
+            type: string
+          description: |
+            Registration-time advisory warnings (self-overlapping address
+            ranges, ReadOnly side-effect risks, omitted `endpoints` / Pipe
+            coexistence). Returned by `POST /resources` (`201 Created`) when
+            non-empty; omitted when empty and on `GET /resources`,
+            `GET /resources/{resource_id}`, `acquire`, `lock`, and `unlock`
+            responses (Phase 45).
 
     Holder:
       type: object

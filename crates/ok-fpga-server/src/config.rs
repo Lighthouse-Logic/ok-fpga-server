@@ -474,6 +474,14 @@ pub struct AccessControlConfig {
     ///
     /// Default: `true`. Env override: `OKFPGA_WARN_READONLY_SIDE_EFFECTS`.
     pub warn_readonly_side_effects: bool,
+
+    /// Log and return a warning at registration when a Classic resource omits
+    /// `endpoints` (claiming `0x00–0x7F` Wire/Trigger endpoints only) or when
+    /// an omitted-`endpoints` resource coexists on the same device with a
+    /// Pipe/BTPipe-declaring resource (D77, 44-E Q2, Phase 45 Q4).
+    ///
+    /// Default: `true`. Env override: `OKFPGA_WARN_WILDCARD_ENDPOINTS`.
+    pub warn_wildcard_endpoints: bool,
 }
 
 impl Default for AccessControlConfig {
@@ -482,6 +490,7 @@ impl Default for AccessControlConfig {
             endpoint_enforcement: "enforce".to_string(),
             warn_range_self_overlap: true,
             warn_readonly_side_effects: true,
+            warn_wildcard_endpoints: true,
         }
     }
 }
@@ -728,6 +737,10 @@ fn apply_env_overrides(mut config: ServerConfig) -> ServerConfig {
         config.access_control.warn_readonly_side_effects =
             parse_bool(&val, config.access_control.warn_readonly_side_effects);
     }
+    if let Ok(val) = std::env::var("OKFPGA_WARN_WILDCARD_ENDPOINTS") {
+        config.access_control.warn_wildcard_endpoints =
+            parse_bool(&val, config.access_control.warn_wildcard_endpoints);
+    }
     if let Ok(val) = std::env::var("OKFPGA_ENDPOINT_ENFORCEMENT") {
         config.access_control.endpoint_enforcement = val;
     }
@@ -847,6 +860,18 @@ mod tests {
         let cfg: ServerConfig =
             toml::from_str("[access_control]\nwarn_readonly_side_effects = false\n").unwrap();
         assert!(!cfg.access_control.warn_readonly_side_effects);
+    }
+
+    #[test]
+    fn test_access_control_warn_wildcard_endpoints_omitted_defaults_true() {
+        // Phase 45 Q4: Default is true when omitted.
+        assert!(ServerConfig::default().access_control.warn_wildcard_endpoints);
+        let cfg: ServerConfig =
+            toml::from_str("[access_control]\nendpoint_enforcement = \"enforce\"\n").unwrap();
+        assert!(cfg.access_control.warn_wildcard_endpoints);
+        let cfg: ServerConfig =
+            toml::from_str("[access_control]\nwarn_wildcard_endpoints = false\n").unwrap();
+        assert!(!cfg.access_control.warn_wildcard_endpoints);
     }
 
     #[test]

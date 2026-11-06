@@ -779,3 +779,58 @@ adopted, 2 rejected as non-observable / redundant).
     all modified documentation files resolve on disk; bumped `main.typ`
     `spec-version` to `"0.3.9"` and rebuilt `ok-fpga-server-api-specification.pdf`.
 - Commit: `docs: consolidate resource model documentation` — **Done:** `5ea5e78`.
+
+---
+
+## Phase 45 — Explicit Registration Warnings in CreateResource Responses 🔒 (0.3.10)
+
+**Owner decisions (2026-11-06):**
+- **Q1 (Spec & proto permission):** Permission granted to edit
+  `api/openapi.yaml` and `proto/okfpga/v1/okfpga.proto`.
+- **Q2 (REST OpenAPI placement):** **Option A1** — add optional
+  `warnings: list[string]` (`readOnly: true`) directly to the `Resource` schema
+  in `api/openapi.yaml` and `ResourceView` in `crates/ok-fpga-server/src/views.rs`
+  (`#[serde(skip_serializing_if = "Vec::is_empty")] pub warnings: Vec<String>`),
+  populated on `201 Created` from `POST /resources` when non-empty and omitted
+  when empty or on `GET`/acquire/lock/unlock.
+- **Q3 (gRPC proto placement):** Add `repeated string warnings = 3;` to
+  `ResourceResponse` in `proto/okfpga/v1/okfpga.proto`, populated by
+  `CreateResource` and empty on `GetResource`, `AcquireResource`,
+  `LockResource`, and `UnlockResource`.
+- **Q4 (Config toggle & post-registration warning evaluation):** Add
+  `warn_wildcard_endpoints = true` (`OKFPGA_WARN_WILDCARD_ENDPOINTS`) to
+  `[access_control]` in `crates/ok-fpga-server/src/config.rs` and `config.toml`,
+  and evaluate/log all 3 warning generators together *after* registration
+  succeeds via `collect_and_log_registration_warnings` in
+  `crates/ok-fpga-server/src/warnings.rs` (sorting `existing_on_device` by `id`).
+- **Q5 (Client library updates):** Update `client/python-labview-client/` and
+  `client-examples/` with `warnings` support and regenerated Python protobuf stubs.
+
+**Phase 45 Explicit Registration Warnings in CreateResource Responses**
+- Files:
+  - Spec: `api/openapi.yaml`, `proto/okfpga/v1/okfpga.proto`.
+  - Server & Config: `config.toml`, `crates/ok-fpga-server/src/config.rs`,
+    `crates/ok-fpga-server/src/warnings.rs`, `crates/ok-fpga-server/src/views.rs`,
+    `crates/ok-fpga-server/src/rest/resources.rs`,
+    `crates/ok-fpga-server/src/grpc/device_service.rs`,
+    `Cargo.toml` / `Cargo.lock`.
+  - Clients: `client/python-labview-client/` (`0.2.2` → `0.2.3`),
+    `client-examples/rust-rest-gui-common/`,
+    `client-examples/rust-grpc-gui-common/`,
+    `client-examples/python_rest_gui_common/` (`0.1.1` → `0.1.2`),
+    `client-examples/python_grpc_gui_common/` (`0.1.2` → `0.1.3`, regenerated protobuf stubs),
+    `client-examples/python-grpc-client/` (`0.1.2` → `0.1.3`, regenerated protobuf stubs).
+  - Docs: `docs/architecture/adr/ADR-034-resource-model-consolidation.md`,
+    `docs/API-Specification/`, `docs/development-roadmap.md`,
+    `docs/archive/roadmap-phases-44.md`.
+- Tests:
+  - Server `config.rs`: `test_access_control_warn_wildcard_endpoints_omitted_defaults_true`.
+  - Server `warnings.rs`: `test_collect_and_log_registration_warnings_orders_and_respects_toggles`.
+  - Server `views.rs`: `test_resource_view_warnings_omitted_when_empty_and_included_when_non_empty`.
+  - Server `rest/resources.rs`: `test_create_resource_returns_warnings_and_get_acquire_lock_unlock_omit_warnings`,
+    `test_create_resource_warnings_disabled_by_config_omits_warnings_field`.
+  - Server `grpc/device_service.rs`: `test_grpc_create_resource_returns_warnings_and_other_rpcs_omit_warnings`.
+  - Clients: `python-labview-client` (150 passed), `python_rest_gui_common` (36 passed),
+    `python_grpc_gui_common` (16 passed), `rust-rest-gui-common` (29 passed),
+    `rust-grpc-gui-common` (16 passed).
+- Commit: `feat: surface registration warnings in CreateResource responses (0.3.10)` — **Done:** pending commit.
