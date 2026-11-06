@@ -77,7 +77,8 @@ enum FPGAVendor {
   FPGA_VENDOR_INTEL = 2;
 }
 
-// Physical host transport data port type from okTDeviceInfo.dataport (D63, D70, SD-05).
+// Physical host transport data port type from okTDeviceInfo.dataport
+// (see API Specification §2.4.4 and §3.2.3).
 //
 // - DATAPORT_LEGACY: OK_DATAPORT_LEGACY (1) — FP-Gen1/2-USB transport (e.g., XEM7320, XEM8320).
 //   Supports Classic endpoints only; AXI interfaces are unavailable.
@@ -118,7 +119,7 @@ enum SensorType {
 enum AccessMode {
   ACCESS_MODE_SHARED = 0;
   ACCESS_MODE_EXCLUSIVE = 1;
-  // Read-only mode (ADR-026, ADR-034 §8, D75): observe without writing.
+  // Read-only mode (see API Specification §3.5 and §4.6): observe without writing.
   // ReadOnly holders may READ every item their resources cover unless the
   // item (or the resource) is private: WireOuts (incl. UpdateWireOuts),
   // TriggerOuts (IsTriggered, GetTriggerOutVector, UpdateTriggerOuts),
@@ -138,24 +139,25 @@ enum AccessMode {
   ACCESS_MODE_READ_ONLY = 2;
 }
 
-// Declared access mode of a resource or of one declared item (ADR-034).
-// Only shared and exclusive can be declared; read_only is a holder mode.
-// Always used as an `optional` field, so "not set" is distinguishable from
-// SHARED (there is deliberately no UNSPECIFIED value, D59).
+// Declared access mode of a resource or of one declared item (see API
+// Specification §3.1.2 and §3.2.1). Only shared and exclusive can be
+// declared; read_only is a holder mode. Always used as an `optional` field,
+// so "not set" is distinguishable from SHARED (there is deliberately no
+// UNSPECIFIED value).
 enum ResourceAccessMode {
   RESOURCE_ACCESS_MODE_SHARED = 0;
   RESOURCE_ACCESS_MODE_EXCLUSIVE = 1;
 }
 
-// Why a resource was deleted (ADR-034, D58, 44-F Q2).
+// Why a resource was deleted (see API Specification §3.8 and §3.9).
 enum DeleteReason {
   // A client called DeleteResource (or REST DELETE /resources/{id}).
   DELETE_REASON_CLIENT = 0;
-  // The FPGA was reprogrammed (forced cleanup, D26).
+  // The FPGA was reprogrammed (forced cleanup; see API Specification §2.4.3 and §3.8).
   DELETE_REASON_REPROGRAM = 1;
-  // The FPGA configuration was cleared (forced cleanup, D26).
+  // The FPGA configuration was cleared (forced cleanup; see API Specification §2.4.3 and §3.8).
   DELETE_REASON_CLEAR = 2;
-  // The physical FPGA device disconnected or was swept as absent (44-F Q2).
+  // The physical FPGA device disconnected or was swept as absent (see API Specification §2.3.1 and §3.8).
   DELETE_REASON_DEVICE_REMOVED = 3;
 }
 
@@ -197,7 +199,7 @@ message DeviceInfo {
   optional BitfileInfo bitfile = 17;
 }
 
-// Information about the bitfile currently loaded on an FPGA.
+// Information about the bitfile currently loaded on an FPGA (see API Specification §2.4.4).
 message BitfileInfo {
   // Filename on disk.
   string filename = 1;
@@ -205,9 +207,9 @@ message BitfileInfo {
   string description = 2;
   string programmed_at = 3;   // ISO 8601 timestamp
   string programmed_by = 4;   // User ID who programmed it
-  // Phase 34-C: Full path on the server filesystem (empty for client uploads).
+  // Full path on the server filesystem (empty for client uploads).
   string file_path = 5;
-  // Phase 34-C: MD5 hash of the bitfile content, hex-encoded.
+  // MD5 hash of the bitfile content, hex-encoded.
   string md5_hash = 6;
 }
 
@@ -263,7 +265,7 @@ message SyzygyPort {
 // Resource Management Messages
 // ============================================================================
 
-// A user-defined resource exposed by a programmed FPGA (ADR-034).
+// A user-defined resource exposed by a programmed FPGA (see API Specification §3).
 message Resource {
   // Old `repeated string holders`; replaced by `holders = 9` (with mode).
   // Only the number is reserved: the name lives on in field 9.
@@ -278,24 +280,24 @@ message Resource {
   string device_serial = 4;      // Serial of the FPGA providing this resource
   // Current resource state.
   ResourceState state = 5;
-  // Access rule, not visibility (ADR-034 P13, D57): when true, ReadOnly
-  // acquisition is denied. Every user can still list the resource.
+  // Access rule, not visibility (see API Specification §3.1.4): when true,
+  // ReadOnly acquisition is denied. Every user can still list the resource.
   bool private = 7;
-  // Phase 34-A: User ID of the lock holder (empty string if not locked).
+  // User ID of the lock holder (empty string if not locked).
   // Populated when state == RESOURCE_STATE_IN_USE_LOCKED.
   string locked_by = 8;
-  // Current holders and the mode each acquired with (D37).
+  // Current holders and the mode each acquired with (see API Specification §3.5).
   repeated Holder holders = 9;
   // Declared mode of the resource.
   optional ResourceAccessMode access_mode = 10;
   // Data-port interfaces: "classic", "axi_lite", "axi_full", "axi_stream".
   repeated string interfaces = 11;
-  // Classic endpoint declaration. Not set = the resource claims every
-  // classic endpoint exclusively (D68).
+  // Classic endpoint declaration. Not set = the resource claims every Wire
+  // and Trigger endpoint (0x00-0x7F) exclusively (see API Specification §3.2.2).
   EndpointDeclaration endpoints = 12;
   // Declared 32-bit address ranges.
   repeated AddressRange address_ranges = 13;
-  // Text-only metadata (D69).
+  // Text-only metadata (see API Specification §3.2.1).
   map<string, string> metadata = 14;
 }
 
@@ -309,8 +311,8 @@ message Holder {
 
 // Classic endpoint declaration of a resource.
 message EndpointDeclaration {
-  // Mode for entries without their own `access` (D61). Used only at
-  // registration; it never claims endpoints that are not listed.
+  // Mode for entries without their own `access` (see API Specification §3.2.1).
+  // Used only at registration; it never claims endpoints that are not listed.
   optional ResourceAccessMode default_access = 1;
   // Declared endpoints. Each address may appear only once per declaration
   // (INVALID_ARGUMENT otherwise, also for a Pipe and a BTPipe at the same
@@ -330,7 +332,8 @@ message EndpointEntry {
   // Item-level private flag (access rule, not visibility): ReadOnly holders
   // cannot read this item. Set it on any item whose read could change
   // user-logic state or consume data other holders rely on (TriggerOut,
-  // PipeOut / BTPipeOut, clear-on-read registers) (D75).
+  // PipeOut / BTPipeOut, clear-on-read registers; see API Specification
+  // §3.1.4 and §4.6).
   bool private = 4;
   // Optional description.
   string description = 5;
@@ -349,13 +352,14 @@ message AddressRange {
   // Item-level private flag (access rule, not visibility): ReadOnly holders
   // cannot read this item. Set it on any item whose read could change
   // user-logic state or consume data other holders rely on (TriggerOut,
-  // PipeOut / BTPipeOut, clear-on-read registers) (D75).
+  // PipeOut / BTPipeOut, clear-on-read registers; see API Specification
+  // §3.1.4 and §4.6).
   bool private = 5;
   // Optional description.
   string description = 6;
 }
 
-// One resource held by a user (ADR-034 P5).
+// One resource held by a user (see API Specification §3.11).
 message Holding {
   // The held resource.
   string resource_id = 1;
@@ -372,11 +376,12 @@ message UserSession {
   string connected_at = 2;       // ISO 8601 timestamp
   // IDs of resources held by this user.
   repeated string held_resource_ids = 3;
-  // Held resources with mode and lock flag (ADR-034 P5).
+  // Held resources with mode and lock flag (see API Specification §3.11).
   repeated Holding holdings = 4;
 }
 
-// Machine-readable detail of a failed resource operation (ADR-034, D73).
+// Machine-readable detail of a failed resource operation (see API
+// Specification §1.2.3 and §3.10).
 //
 // Sent in the standard `google.rpc.Status` error details (trailer
 // `grpc-status-details-bin`), packed as
@@ -424,7 +429,8 @@ message ServerStatus {
 // Event Streaming Messages
 // ============================================================================
 
-// A real-time event pushed to clients via server streaming.
+// A real-time event pushed to clients via server streaming (see API
+// Specification §2.7.1 and §3.9).
 message DeviceEvent {
   string timestamp = 1;          // ISO 8601 timestamp
   oneof event {
@@ -432,7 +438,7 @@ message DeviceEvent {
     DeviceRemoved device_removed = 3;                       // Device disconnected.
     BitfileProgrammed bitfile_programmed = 4;               // FPGA programmed.
     ResourceStateChanged resource_state_changed = 5;        // Resource state changed.
-    // ADR-034 (P6): parity with the REST SSE events.
+    // Parity with the REST SSE events (see API Specification §2.7.1 and §3.9).
     ResourceCreatedEvent resource_created = 6;              // Resource registered.
     ResourceDeletedEvent resource_deleted = 7;              // Resource deleted.
     ResourceLockedEvent resource_locked = 8;                // Shared resource locked.
@@ -455,7 +461,7 @@ message ResourceCreatedEvent {
 message ResourceDeletedEvent {
   // Deleted resource ID.
   string resource_id = 1;
-  // Why it was deleted (D58).
+  // Why it was deleted (see API Specification §3.8 and §3.9).
   DeleteReason reason = 2;
 }
 
@@ -596,13 +602,13 @@ message ConfigureFPGARequest {
   string user_id = 3;
 }
 
-// Configure FPGA from memory — client sends the bitfile in chunks.
+// Configure FPGA from memory — client sends the bitfile in chunks (see API Specification §2.4.1).
 message ConfigureFPGAChunk {
   string serial = 1;       // Only required in the first chunk
   bytes data = 2;           // Chunk of the bitfile binary
   bool is_last = 3;         // true for the final chunk
   string user_id = 4;       // Only required in the first chunk
-  // Phase 34-C: Original filename of the bitfile (only in the first chunk, optional).
+  // Original filename of the bitfile (only in the first chunk, optional).
   // If empty, the server falls back to "uploaded".
   string filename = 5;
 }
@@ -741,7 +747,7 @@ message GetWireValueRequest {
   // GetWireOutValue only (ignored by GetWireInValue): when true, the server
   // calls UpdateWireOuts immediately before the read, under the same device
   // lock. Not set / false = read the current snapshot, exactly like Opal
-  // Kelly's GetWireOutValue (ADR-034 §9, D76).
+  // Kelly's GetWireOutValue (see API Specification §2.5.2 and §4.4).
   optional bool update = 3;
 }
 
@@ -763,17 +769,17 @@ message IsTriggeredRequest {
   // Device serial number.
   string serial = 1;
   int32 endpoint = 2;        // Endpoint address (0x60-0x7F)
-  // Bits to test (Opal Kelly IsTriggered mask). Not set = 0 (D78), so
-  // `triggered` is false until the caller names the bits it cares about.
-  // Deliberately not all-ones: that would make a client look correct while
-  // also reporting triggers on unrelated bits. Use GetTriggerOutVector for
-  // the full vector.
+  // Bits to test (Opal Kelly IsTriggered mask). Not set = 0 (see API
+  // Specification §4.4.4), so `triggered` is false until the caller names the
+  // bits it cares about. Deliberately not all-ones: that would make a client
+  // look correct while also reporting triggers on unrelated bits. Use
+  // GetTriggerOutVector for the full vector.
   uint32 mask = 3;
   // When true, the server calls UpdateTriggerOuts immediately before the
-  // read, under the same device lock (ADR-034 §9, D76). Not set / false =
-  // read the current snapshot, exactly like Opal Kelly's IsTriggered.
-  // UpdateTriggerOuts clears the latches of EVERY TriggerOut on the device
-  // for every client; see the UpdateTriggerOuts RPC comment.
+  // read, under the same device lock (see API Specification §2.5.4 and §4.4).
+  // Not set / false = read the current snapshot, exactly like Opal Kelly's
+  // IsTriggered. UpdateTriggerOuts clears the latches of EVERY TriggerOut on
+  // the device for every client; see the UpdateTriggerOuts RPC comment.
   optional bool update = 4;
 }
 
@@ -789,7 +795,7 @@ message TriggerOutVectorRequest {
   string serial = 1;
   // FrontPanel endpoint address.
   int32 endpoint = 2;
-  // Same meaning as IsTriggeredRequest.update (ADR-034 §9, D76).
+  // Same meaning as IsTriggeredRequest.update (see API Specification §2.5.4 and §4.4).
   optional bool update = 3;
 }
 
@@ -922,13 +928,14 @@ message WriteRegistersRequest {
 // Request/Response Messages — AXI Data Port
 // ============================================================================
 //
-// Note on address widths (ADR-034 P14): AXI request messages carry `uint64
-// address` to match the Opal Kelly FrontPanel C API (`okAXILite_Read` /
-// `okAXIFull_Read`), whereas resource `AddressRange` declarations are 32-bit
-// (`uint32 start` / `uint32 end`, matching Classic `okRegisterBridge` and
-// current 32-bit AXI designs). Under `endpoint_enforcement = "enforce"`, any
-// AXI request whose `[address, address + length - 1]` span exceeds
-// `0xFFFF_FFFF` cannot match a declared 32-bit `AddressRange` and is denied.
+// Note on address widths (see API Specification §2.6.1 and §4.8): AXI request
+// messages carry `uint64 address` to match the Opal Kelly FrontPanel C API
+// (`okAXILite_Read` / `okAXIFull_Read`), whereas resource `AddressRange`
+// declarations are 32-bit (`uint32 start` / `uint32 end`, matching Classic
+// `okRegisterBridge` and current 32-bit AXI designs). Under
+// `endpoint_enforcement = "enforce"`, any AXI request whose
+// `[address, address + length - 1]` span exceeds `0xFFFF_FFFF` cannot match a
+// declared 32-bit `AddressRange` and is denied.
 
 // --- AXI Lite ---
 
@@ -1111,7 +1118,7 @@ message ResourceResponse {
   // ReadOnly side-effect risks, omitted `endpoints` / Pipe coexistence).
   // Populated by `CreateResource` when non-empty and enabled in
   // `[access_control]`; empty on `GetResource`, `AcquireResource`,
-  // `LockResource`, and `UnlockResource` (Phase 45).
+  // `LockResource`, and `UnlockResource` (see API Specification §3.2 and §4.6.3).
   repeated string warnings = 3;
 }
 
@@ -1120,9 +1127,9 @@ message AcquireResourceRequest {
   string resource_id = 1;
   // User identifier.
   string user_id = 2;
-  // Requested holder mode (shared, exclusive, or read_only — ADR-026).
-  // Optional (ADR-034 P3): when not set, the resource's declared mode is
-  // used.
+  // Requested holder mode (shared, exclusive, or read_only; see API
+  // Specification §3.5 and §4.6). Optional: when not set, the resource's
+  // declared mode is used.
   optional AccessMode mode = 3;
 }
 
@@ -1135,8 +1142,8 @@ message ReleaseResourceRequest {
 
 // Request to create a new resource for a programmed FPGA.
 // The client creates resources after programming a bitfile, since the client
-// knows what capabilities the bitfile exposes. See ADR-016 and ADR-034.
-// Same fields and rules as the REST `CreateResourceRequest`.
+// knows what capabilities the bitfile exposes. See API Specification §3.2 and
+// §3.3. Same fields and rules as the REST `CreateResourceRequest`.
 message CreateResourceRequest {
   // Human-readable resource name (e.g., "xem7320-classic-counters").
   string name = 1;
@@ -1144,29 +1151,30 @@ message CreateResourceRequest {
   string description = 2;
   // Serial of the FPGA that provides this resource.
   string device_serial = 3;
-  // Declared mode. Required when `endpoints` is set (D62). When
-  // `endpoints` is not set it may be omitted (= exclusive) or exclusive;
-  // shared is rejected (D68). Replaces the old `string resource_type`.
+  // Declared mode. Required when `endpoints` is set (see API Specification
+  // §3.2.2). When `endpoints` is not set it may be omitted (= exclusive) or
+  // exclusive; shared is rejected.
   optional ResourceAccessMode access_mode = 4;
   // Interfaces used: "classic", "axi_lite", "axi_full", "axi_stream"; at
-  // least one (D65, D71). Replaces the old `capabilities` list.
+  // least one (see API Specification §3.2.3).
   repeated string interfaces = 5;
   // Classic endpoint declaration. Not set = an exclusive resource that
-  // claims every Wire and Trigger endpoint (0x00-0x7F) (D68, revised by
-  // D77). It claims NO Pipe / BTPipe endpoints: the server cannot tell a
+  // claims every Wire and Trigger endpoint (0x00-0x7F; see API Specification
+  // §3.2.2). It claims NO Pipe / BTPipe endpoints: the server cannot tell a
   // Pipe from a BTPipe at the same address, so those must be declared
   // explicitly. While such a resource exists no other classic resource can
-  // register on the device (D23). Set but empty = no classic endpoints.
+  // register on the device (see API Specification §3.3). Set but empty = no
+  // classic endpoints.
   EndpointDeclaration endpoints = 6;
   // Declared 32-bit address ranges. Ranges of one declaration may overlap
   // each other; the server accepts this but logs a warning (setting
   // `warn_range_self_overlap`). Where overlapping ranges differ in
   // `private`, the private one applies to the shared addresses.
   repeated AddressRange address_ranges = 7;
-  // Text-only metadata (D69).
+  // Text-only metadata (see API Specification §3.2.1).
   map<string, string> metadata = 8;
   // Resource-level private flag (access rule, not visibility): when true,
-  // ReadOnly acquisition is denied (D57, D75).
+  // ReadOnly acquisition is denied (see API Specification §3.1.4 and §4.6).
   bool private = 9;
 }
 
@@ -1195,7 +1203,7 @@ message UserResponse {
   ErrorCluster error = 2;
 }
 
-// Heartbeat / liveness ping (ADR-020 §5).
+// Heartbeat / liveness ping (see API Specification §2.2.3 and §3.7).
 // Clients should send this periodically to keep their session alive.
 message PingRequest {
   // User identifier sending the heartbeat.
@@ -1208,7 +1216,7 @@ message PingResponse {
   ErrorCluster error = 2;
 }
 
-// User-initiated disconnect request (Phase 25-Fix-H, F10).
+// User-initiated disconnect request (see API Specification §2.2.3 and §3.7).
 // Releases all resources held by this user and removes the session.
 message DisconnectRequest {
   // User identifier to disconnect.
@@ -1225,7 +1233,7 @@ message DisconnectResponse {
   string message = 3;
 }
 
-// Lock/unlock a shared resource (ADR-020 §3).
+// Lock/unlock a shared resource (see API Specification §3.6).
 message LockResourceRequest {
   // Resource identifier.
   string resource_id = 1;
@@ -1240,17 +1248,18 @@ message LockResourceRequest {
 // DeviceService handles device discovery, configuration, and monitoring.
 // It corresponds to the FrontPanel device-level operations (not data port ops).
 //
-// Caller identity (ADR-029, ADR-034 P8): every resource RPC requires the
-// `x-user-id` metadata header (or the request's `user_id` field where one
-// exists).
+// Caller identity (see API Specification §2.2.1 and §3.7.1): every resource
+// RPC requires the `x-user-id` metadata header (or the request's `user_id`
+// field where one exists).
 //
-// Status mapping for resource RPCs (ADR-034 P7), matching REST:
+// Status mapping for resource RPCs (see API Specification §1.2.3 and §3.10),
+// matching REST:
 //   REST 404 -> NOT_FOUND            (unknown resource / device)
 //   REST 409 -> FAILED_PRECONDITION  (overlap, locked, blocked,
 //                                     mode_mismatch, private, duplicate name,
 //                                     device not programmed, held on delete)
 //   REST 422 -> INVALID_ARGUMENT     (invalid declaration or mode)
-// When a D73 code applies, the error details carry a
+// When a conflict code applies, the error details carry a
 // ResourceConflictDetail (see that message).
 service DeviceService {
   // --- Enumeration ---
@@ -1283,23 +1292,23 @@ service DeviceService {
   // --- FPGA Configuration ---
 
   // Program the FPGA with a bitfile from the server's filesystem.
-  // Forced override (ADR-034, D26): unlocks all locked resources on the
-  // device (ResourceUnlocked), releases all holders, and deletes all
-  // existing resources (ResourceDeleted with DELETE_REASON_REPROGRAM)
-  // before programming. If the FFI transfer fails, the device state
-  // transitions to Connected (unprogrammed).
+  // Forced override (see API Specification §2.4.2, §2.4.3, and §3.8): unlocks
+  // all locked resources on the device (ResourceUnlocked), releases all
+  // holders, and deletes all existing resources (ResourceDeleted with
+  // DELETE_REASON_REPROGRAM) before programming. If the FFI transfer fails,
+  // the device state transitions to Connected (unprogrammed).
   rpc ConfigureFPGA(ConfigureFPGARequest) returns (ConfigureFPGAResponse);
 
   // Program the FPGA with a bitfile streamed from the client in chunks.
-  // Forced override (ADR-034, D26): same forced cleanup semantics as
-  // ConfigureFPGA (DELETE_REASON_REPROGRAM).
+  // Forced override (see API Specification §2.4.1, §2.4.3, and §3.8): same
+  // forced cleanup semantics as ConfigureFPGA (DELETE_REASON_REPROGRAM).
   rpc ConfigureFPGAFromMemory(stream ConfigureFPGAChunk) returns (ConfigureFPGAResponse);
 
   // Clear the current FPGA configuration (un-program the FPGA).
-  // Forced override (ADR-034, D26, P12): unlocks all locked resources on the
-  // device (ResourceUnlocked), releases all holders, and deletes all
-  // existing resources (ResourceDeleted with DELETE_REASON_CLEAR) before
-  // clearing the FPGA configuration.
+  // Forced override (see API Specification §2.4.3 and §3.8): unlocks all
+  // locked resources on the device (ResourceUnlocked), releases all holders,
+  // and deletes all existing resources (ResourceDeleted with
+  // DELETE_REASON_CLEAR) before clearing the FPGA configuration.
   rpc ClearFPGAConfiguration(DeviceRequest) returns (StatusResponse);
 
   // Get information about the currently loaded bitfile (if any).
@@ -1358,29 +1367,32 @@ service DeviceService {
   rpc GetResource(ResourceRequest) returns (ResourceResponse);
 
   // Create a new resource for a programmed FPGA.
-  // The client creates resources after programming a bitfile. See ADR-016.
+  // The client creates resources after programming a bitfile. See API
+  // Specification §3.2 and §3.3.
   rpc CreateResource(CreateResourceRequest) returns (ResourceResponse);
 
   // Delete a resource definition (client-initiated, DELETE_REASON_CLIENT).
   // Returns FAILED_PRECONDITION if the resource is currently held by any
   // user. By contrast, ConfigureFPGA*, ClearFPGAConfiguration, and device
-  // disconnect perform forced cleanup (D26, P11) regardless of holders,
-  // emitting ResourceDeleted with DELETE_REASON_REPROGRAM,
-  // DELETE_REASON_CLEAR, or DELETE_REASON_DEVICE_REMOVED.
+  // disconnect perform forced cleanup (see API Specification §2.4.3 and §3.8)
+  // regardless of holders, emitting ResourceDeleted with
+  // DELETE_REASON_REPROGRAM, DELETE_REASON_CLEAR, or
+  // DELETE_REASON_DEVICE_REMOVED.
   rpc DeleteResource(ResourceRequest) returns (StatusResponse);
 
-  // Acquire a resource in shared, exclusive, or read-only mode (ADR-026).
+  // Acquire a resource in shared, exclusive, or read-only mode (see API
+  // Specification §3.5 and §4.6).
   rpc AcquireResource(AcquireResourceRequest) returns (ResourceResponse);
 
   // Release a previously acquired resource.
   rpc ReleaseResource(ReleaseResourceRequest) returns (StatusResponse);
 
-  // Lock a shared resource for exclusive use by a holder (ADR-020 §3).
-  // Returns the updated resource (ADR-034 P10).
+  // Lock a shared resource for exclusive use by a holder (see API
+  // Specification §3.6). Returns the updated resource.
   rpc LockResource(LockResourceRequest) returns (ResourceResponse);
 
-  // Unlock a previously locked shared resource (ADR-020 §3).
-  // Returns the updated resource (ADR-034 P10).
+  // Unlock a previously locked shared resource (see API Specification §3.6).
+  // Returns the updated resource.
   rpc UnlockResource(LockResourceRequest) returns (ResourceResponse);
 
   // --- Users ---
@@ -1393,12 +1405,12 @@ service DeviceService {
 
   // --- Heartbeat ---
 
-  // Heartbeat / liveness ping (ADR-020 §5).
+  // Heartbeat / liveness ping (see API Specification §2.2.3 and §3.7).
   // Clients should call this at least every 24 seconds while idle to keep
   // their session alive (default timeout 60 s, `user_timeout_secs`).
   rpc Ping(PingRequest) returns (PingResponse);
 
-  // User-initiated disconnect (Phase 25-Fix-H, F10).
+  // User-initiated disconnect (see API Specification §2.2.3 and §3.7).
   // Releases all resources held by this user on any device,
   // removes the user session, and ceases heartbeat checking.
   // This is the recommended way to end a client session.
@@ -1413,7 +1425,8 @@ service DeviceService {
 service ClassicDataPortService {
   // Reset the FPGA (equivalent to pressing the reset button). Changes
   // user-logic state, so it counts as a write: the caller must hold a
-  // resource on the device in a mode other than ReadOnly (D66, D75).
+  // resource on the device in a mode other than ReadOnly (see API
+  // Specification §2.5.8 and §4.10).
   rpc ResetFPGA(DeviceRequest) returns (StatusResponse);
 
   // --- Wires ---
@@ -1430,12 +1443,12 @@ service ClassicDataPortService {
   // Get the value of a WireOut endpoint from the snapshot taken by the last
   // UpdateWireOuts (by any client; one snapshot per device). Set
   // `update = true` to refresh the snapshot first under the same device
-  // lock (ADR-034 §9, D76).
+  // lock (see API Specification §2.5.2 and §4.4).
   rpc GetWireOutValue(GetWireValueRequest) returns (WireValueResponse);
 
   // Read all WireOut values from the FPGA into the device snapshot.
   // Allowed for ReadOnly holders: it only samples the WireOut inputs and is
-  // invisible to user logic (D75).
+  // invisible to user logic (see API Specification §2.5.2 and §4.6).
   rpc UpdateWireOuts(DeviceRequest) returns (StatusResponse);
 
   // --- Triggers ---
@@ -1448,15 +1461,15 @@ service ClassicDataPortService {
   // last call"). This clears the latches of EVERY TriggerOut on the device,
   // so a trigger another client has not read yet is lost to it. Coordinate
   // trigger reads between clients (lock, exclusive resource) or mark
-  // TriggerOuts private. Denied to ReadOnly holders when any resource on
-  // the device declares a private TriggerOut (D75). A future server-side
-  // TriggerOut event log may improve this (roadmap, Later).
+  // TriggerOuts private (see API Specification §2.5.4 and §4.4.5). Denied to
+  // ReadOnly holders when any resource on the device declares a private
+  // TriggerOut (see API Specification §4.6.1).
   rpc UpdateTriggerOuts(DeviceRequest) returns (StatusResponse);
 
   // Check trigger bits on one TriggerOut endpoint in the snapshot taken by
   // the last UpdateTriggerOuts (by any client). Set `update = true` to
-  // refresh first (ADR-034 §9, D76). A client cannot tell from this call
-  // how many updates happened since its own previous read.
+  // refresh first (see API Specification §2.5.4 and §4.4). A client cannot
+  // tell from this call how many updates happened since its own previous read.
   rpc IsTriggered(IsTriggeredRequest) returns (IsTriggeredResponse);
 
   // Get the full trigger vector of one TriggerOut endpoint from the
@@ -1496,7 +1509,7 @@ service ClassicDataPortService {
 }
 
 // AXIDataPortService handles direct FrontPanel AXI Lite, Full, and Stream
-// operations via FPGADataPortAXI (D50, D64, P9).
+// operations via FPGADataPortAXI (see API Specification §2.6 and §3.2.3).
 //
 // Available only on OK_DATAPORT_AXI (FP-Gen3-USB) devices whose loaded
 // bitfile instantiates the corresponding AXI dataport HDL.
@@ -1548,7 +1561,7 @@ service AXIDataPortService {
 }
 
 // ============================================================================
-// Server Management Service (ADR-010)
+// Server Management Service (see API Specification §2.8)
 // ============================================================================
 
 // Information about a single manageable service.
@@ -1603,7 +1616,7 @@ message ServerStatusResponse {
 //
 // This service provides RPCs for querying server status, managing
 // optional services (REST, gRPC, MQTT, mDNS), and restarting the server.
-// See ADR-010 for the ServiceManager architecture.
+// See API Specification §2.8.
 service ServerService {
   // Get detailed server status including uptime and service states.
   rpc GetServerStatus(StatusResponse) returns (ServerStatusResponse);

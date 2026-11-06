@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-11-06 (Phases 46 & 47 planned; Phase 46 promoted to Now)
+> **Last Updated:** 2026-11-06 (Phases 46 & 47 completed and archived)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -54,21 +54,19 @@
 | **Phase 44** | Resource Model Consolidation & Enforcement Alignment | ADR-034 (supersedes parts of ADR-003/006/020/024/025/026) | ✅ [Archived](archive/roadmap-phases-44.md) |
 | **Phase 45** | Explicit Registration Warnings in CreateResource Responses | ADR-034 (§17) | ✅ [Archived](archive/roadmap-phases-44.md#phase-45--explicit-registration-warnings-in-createresource-responses--0310) |
 | **Phase 46** | API Specification: Expand the Overview Chapters (§2.1–§2.9) | — | ✅ [Archived](archive/roadmap-phases-46-47.md#phase-46--api-specification-expand-the-overview-chapters-2129--doc-v100-server-0310) |
-| **Phase 47** | OpenAPI / Proto Cite API Specification Section Numbers | — | 🟢 Now |
+| **Phase 47** | OpenAPI / Proto Cite API Specification Section Numbers | — | ✅ [Archived](archive/roadmap-phases-46-47.md#phase-47--openapi--proto-cite-api-specification-section-numbers--doc-v100-server-0310) |
 
 ---
 
 ## 🟢 Now
 
-### Phase 47 — OpenAPI / Proto Cite API Specification Section Numbers 🔒
-
-Update inline descriptions and comments in [`api/openapi.yaml`](../api/openapi.yaml) and [`proto/okfpga/v1/okfpga.proto`](../proto/okfpga/v1/okfpga.proto) so developer-facing explanations cite the stable API Specification section numbers (`§1.x`–`§4.x`) instead of internal working shorthand (`ADR-NNN`, `D1–D78`, `S-NN`, `SD-NN`, `P1–P16`, `Phase NN`). Regenerate Python protobuf stubs and verify all Rust and Python test suites.
+*(Empty — Phases 46 & 47 completed and archived in [docs/archive/roadmap-phases-46-47.md](archive/roadmap-phases-46-47.md). Per Roadmap Rule 5, promote the next phase explicitly when ready.)*
 
 ---
 
 ## 🟡 Next
 
-*(Empty — Phase 47 promoted to Now.)*
+*(Empty — no phase is planned next.)*
 
 ---
 
@@ -344,6 +342,7 @@ implementation details, verification steps, and acceptance criteria.
 | 44 | Resource Model Consolidation & Enforcement Alignment | 2026-11-05 | ADR-034 | [phase 44](archive/roadmap-phases-44.md) |
 | 45 | Explicit Registration Warnings in CreateResource Responses | 2026-11-06 | ADR-034 (§17) | [phases 44–45](archive/roadmap-phases-44.md#phase-45--explicit-registration-warnings-in-createresource-responses--0310) |
 | 46 | API Specification: Expand the Overview Chapters (§2.1–§2.9) | 2026-11-06 | — | [phases 46–47](archive/roadmap-phases-46-47.md#phase-46--api-specification-expand-the-overview-chapters-2129--doc-v100-server-0310) |
+| 47 | OpenAPI / Proto Cite API Specification Section Numbers | 2026-11-06 | — | [phases 46–47](archive/roadmap-phases-46-47.md#phase-47--openapi--proto-cite-api-specification-section-numbers--doc-v100-server-0310) |
 
 ---
 

@@ -24,7 +24,7 @@ servers:
     description: Local development server
 
 # Root-level security: empty array means no auth required by default.
-# This matches ADR-008 (NoAuth provider is the default).
+# This matches API Specification §2.2.2 (NoAuth provider is the default).
 # Individual endpoints can override this when auth stubs are enabled.
 security:
   - {}
@@ -105,7 +105,7 @@ paths:
       description: |
         Returns the status of all manageable services (REST, gRPC, MQTT, mDNS).
         Each service entry includes whether it is compiled, enabled, and running.
-        See ADR-010 for the ServiceManager architecture.
+        See API Specification §2.8.2.
       operationId: listServices
       responses:
         '200':
@@ -392,7 +392,7 @@ paths:
         Uploads and programs a bitfile to the specified FPGA via multipart file
         upload. The bitfile binary is sent as the `bitfile` form field.
 
-        Programming is a **forced override** (ADR-034, D26): all locks on the
+        Programming is a **forced override** (see API Specification §2.4.3 and §3.8): all locks on the
         device's resources are ended (`ResourceUnlocked`), all holders are
         released, and all existing resources on the device are deleted
         (`ResourceDeleted` with `reason: reprogram`) before programming. If the
@@ -435,7 +435,7 @@ paths:
                     User performing the programming. Should match the X-User-Id
                     header. If omitted, the server falls back to the X-User-Id
                     header value. If both are present and differ, the server
-                    returns 400 Bad Request (ADR-029).
+                    returns 400 Bad Request (see API Specification §2.2.1 and §3.7.1).
       responses:
         '200':
           description: FPGA configured successfully
@@ -460,7 +460,7 @@ paths:
       summary: Clear FPGA configuration
       description: |
         Un-programs the FPGA (`ClearFPGAConfiguration`). This is a **forced
-        override** (ADR-034, D26): all locks on the device's resources are
+        override** (see API Specification §2.4.3 and §3.8): all locks on the device's resources are
         ended (`ResourceUnlocked`), all holders are released, and all existing
         resources on the device are deleted (`ResourceDeleted` with
         `reason: clear`) before the configuration is cleared.
@@ -490,7 +490,7 @@ paths:
         filesystem. The client sends only the path; the server reads and programs
         the file directly.
 
-        Programming is a **forced override** (ADR-034, D26): all locks on the
+        Programming is a **forced override** (see API Specification §2.4.3 and §3.8): all locks on the
         device's resources are ended (`ResourceUnlocked`), all holders are
         released, and all existing resources on the device are deleted
         (`ResourceDeleted` with `reason: reprogram`) before programming. If the
@@ -525,7 +525,7 @@ paths:
                     User performing the programming. Should match the X-User-Id
                     header. If omitted, the server falls back to the X-User-Id
                     header value. If both are present and differ, the server
-                    returns 400 Bad Request (ADR-029).
+                    returns 400 Bad Request (see API Specification §2.2.1 and §3.7.1).
       responses:
         '200':
           description: FPGA configured successfully
@@ -612,9 +612,10 @@ paths:
       summary: Set WireIn value
       description: |
         Sets a WireIn endpoint value with an optional bitmask and optionally
-        triggers UpdateWireIns. This is an idempotent state assignment (PUT)
-        per ADR-015 — setting endpoint 0x00 to value 0xFF produces the same
-        hardware state regardless of how many times it is called.
+        triggers UpdateWireIns. This is an idempotent state assignment (PUT;
+        see API Specification §2.5.1) — setting endpoint 0x00 to value 0xFF
+        produces the same hardware state regardless of how many times it is
+        called.
       operationId: setWireInValue
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -644,8 +645,8 @@ paths:
       summary: Push buffered WireIn values (UpdateWireIns)
       description: |
         Calls UpdateWireIns, sending every buffered WireIn value to the FPGA.
-        This is a **write** (ADR-034, D42): it needs write access to the
-        WireIns.
+        This is a **write** (see API Specification §2.5.1 and §4.3): it needs
+        write access to the WireIns.
       operationId: updateWireIns
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -664,9 +665,10 @@ paths:
       description: |
         Calls UpdateWireOuts, copying the current value of every WireOut on the
         device into the device's snapshot (one snapshot per device, shared by
-        all clients). This is a **read** (ADR-034, D42): ReadOnly holders may
-        call it. It only samples the WireOut inputs; the FPGA's user logic
-        cannot detect it (D75).
+        all clients). This is a **read** (see API Specification §2.5.2, §4.3,
+        and §4.4): ReadOnly holders may call it. It only samples the WireOut
+        inputs; the FPGA's user logic cannot detect it (see API Specification
+        §4.6.2).
       operationId: updateWireOuts
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -683,14 +685,16 @@ paths:
       tags: [Classic Data Port]
       summary: Read one WireOut value
       description: |
-        Opal Kelly `GetWireOutValue` semantics (ADR-034 §9, D76): returns the
-        value of **one** WireOut from the device snapshot taken by the last
-        UpdateWireOuts call by **any** client. With `update=true` the server
-        calls UpdateWireOuts immediately before the read, under the same
-        device lock, so no other client's update can come in between.
+        Opal Kelly `GetWireOutValue` semantics (see API Specification §2.5.2 and
+        §4.4): returns the value of **one** WireOut from the device snapshot
+        taken by the last UpdateWireOuts call by **any** client. With
+        `update=true` the server calls UpdateWireOuts immediately before the
+        read, under the same device lock, so no other client's update can come
+        in between.
 
-        There is no whole-bank read: `endpoint` is required (422 if missing).
-        ReadOnly holders may call this unless the endpoint is private (D75).
+        There is no whole-bank read: `endpoint` is required (422 if missing;
+        see API Specification §4.4.3). ReadOnly holders may call this unless
+        the endpoint is private (see API Specification §4.6).
       operationId: getWireOutValue
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -756,12 +760,12 @@ paths:
         of **every** TriggerOut on the device are cleared, so a trigger that
         another client has not read yet is lost to that client. Coordinate
         trigger reads between clients (lock, exclusive resource) or mark the
-        TriggerOuts private (guide §5.4). A future server-side TriggerOut
-        event log may improve this (roadmap, Later).
+        TriggerOuts private (see API Specification §4.4.5).
 
-        This is a **read** (ADR-034, D42). ReadOnly holders may call it,
-        except when any resource on the device declares a private TriggerOut
-        (D75): the call would clear that private latch too.
+        This is a **read** (see API Specification §2.5.4 and §4.3). ReadOnly
+        holders may call it, except when any resource on the device declares a
+        private TriggerOut (see API Specification §4.6.1): the call would clear
+        that private latch too.
       operationId: updateTriggerOuts
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -778,10 +782,11 @@ paths:
       tags: [Classic Data Port]
       summary: Read one TriggerOut
       description: |
-        Opal Kelly `IsTriggered` + `GetTriggerOutVector` semantics (ADR-034
-        §9, D76): reports, for **one** TriggerOut, the triggers seen by the
-        last UpdateTriggerOuts call by **any** client (one snapshot per
-        device). This read never touches the FPGA and clears nothing.
+        Opal Kelly `IsTriggered` + `GetTriggerOutVector` semantics (see API
+        Specification §2.5.4 and §4.4): reports, for **one** TriggerOut, the
+        triggers seen by the last UpdateTriggerOuts call by **any** client (one
+        snapshot per device). This read never touches the FPGA and clears
+        nothing.
 
         With `update=true` the server calls UpdateTriggerOuts immediately
         before the read, under the same device lock, so no other client's
@@ -792,12 +797,13 @@ paths:
         **Limitation:** a client cannot tell how many updates (by other
         clients) happened since its own previous read, so a trigger can be
         missed when several clients update. Clients that need every trigger
-        must coordinate (lock, exclusive resource) until the planned
-        TriggerOut event log exists (roadmap, Later).
+        must coordinate (lock, exclusive resource; see API Specification
+        §4.4.5).
 
-        There is no whole-bank read: `endpoint` is required (422 if missing).
-        ReadOnly holders may call this unless the endpoint is private; with
-        `update=true` the UpdateTriggerOuts rule above also applies (D75).
+        There is no whole-bank read: `endpoint` is required (422 if missing;
+        see API Specification §4.4.3). ReadOnly holders may call this unless
+        the endpoint is private; with `update=true` the UpdateTriggerOuts rule
+        above also applies (see API Specification §4.6.1).
       operationId: getTriggerOutValue
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -815,10 +821,10 @@ paths:
             default: 0
           description: |
             Bits to test for `triggered` (Opal Kelly `IsTriggered` mask).
-            **Default 0** (D78): with no mask, `triggered` is always
-            `false`. Set the mask to exactly the bits you care about. An
-            all-ones mask would make a client look correct while also
-            reporting `triggered` for unrelated bits. `vector` always
+            **Default 0** (see API Specification §4.4.4): with no mask,
+            `triggered` is always `false`. Set the mask to exactly the bits you
+            care about. An all-ones mask would make a client look correct while
+            also reporting `triggered` for unrelated bits. `vector` always
             holds the full 32-bit vector.
         - name: update
           in: query
@@ -1007,8 +1013,9 @@ paths:
       summary: Write registers
       description: |
         Writes one or more register address-data pairs. This is an idempotent
-        state assignment (PUT) per ADR-015 — writing address 0x04 = 0xDEADBEEF
-        produces the same hardware state regardless of repetition.
+        state assignment (PUT; see API Specification §2.5.7) — writing address
+        0x04 = 0xDEADBEEF produces the same hardware state regardless of
+        repetition.
       operationId: writeRegisters
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -1039,7 +1046,8 @@ paths:
       description: |
         Issues a FrontPanel reset to the FPGA. This changes user-logic state,
         so it counts as a write: the caller must hold a resource on the
-        device in a mode other than ReadOnly (D66, D75).
+        device in a mode other than ReadOnly (see API Specification §2.5.8 and
+        §4.10).
       operationId: resetFPGAClassic
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -1081,7 +1089,8 @@ paths:
       summary: AXI Lite write
       description: |
         Writes a single 32-bit value or bulk values to an AXI Lite address.
-        This is an idempotent state assignment (PUT) per ADR-015.
+        This is an idempotent state assignment (PUT; see API Specification
+        §2.6.2).
       operationId: axiLiteWrite
       parameters:
         - $ref: '#/components/parameters/serial'
@@ -1321,20 +1330,21 @@ paths:
       description: |
         Creates a new resource for a programmed FPGA. The client creates resources
         after programming a bitfile, since the client knows what the bitfile
-        exposes. See ADR-016 and ADR-034.
+        exposes. See API Specification §3.2 and §3.3.
 
         - Omitting `endpoints` claims every Wire and Trigger endpoint
-          (0x00-0x7F) exclusively (D77); `access_mode` may then be omitted or
-          `exclusive` (`shared` is a 422). Pipe/BTPipe endpoints (0x80-0xBF)
-          are never claimed implicitly — the server cannot tell a Pipe from a
-          BTPipe at the same address — so declare them explicitly. D23 still
-          applies.
+          (0x00-0x7F) exclusively (see API Specification §3.2.2); `access_mode`
+          may then be omitted or `exclusive` (`shared` is a 422). Pipe/BTPipe
+          endpoints (0x80-0xBF) are never claimed implicitly — the server cannot
+          tell a Pipe from a BTPipe at the same address — so declare them
+          explicitly. While such a resource exists, no other resource may
+          declare Classic endpoints on the device (see API Specification §3.3).
         - With `endpoints`, `access_mode` is required, and each entry needs
           `access` unless `endpoints.default_access` is set.
         - Advisory registration warnings (self-overlapping address ranges,
           `ReadOnly` side-effect risks, omitted `endpoints` / Pipe coexistence)
           are returned in the response's `warnings` array when non-empty and
-          enabled in `[access_control]` (Phase 45).
+          enabled in `[access_control]` (see API Specification §3.2 and §4.6.3).
         - Errors carry a `conflict` object (`ProblemDetail.conflict`) when a
           machine-readable code applies.
       operationId: createResource
@@ -1410,7 +1420,7 @@ paths:
       description: |
         Deletes a resource definition. Returns 409 if the resource is currently
         held by any user. Emits `ResourceDeleted` with `reason` = `client`.
-        See ADR-016 and ADR-034.
+        See API Specification §3.8.
       operationId: deleteResource
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -1435,10 +1445,11 @@ paths:
       tags: [Resources]
       summary: Acquire a resource
       description: |
-        Acquires a resource in shared, exclusive, or read-only mode. Shared mode allows
-        multiple users to hold the resource simultaneously. Exclusive mode
-        grants sole access — other users' acquire requests will be denied.
-        Read-only mode (ADR-026, ADR-034, D75) allows reading every covered
+        Acquires a resource in shared, exclusive, or read-only mode (see API
+        Specification §3.5). Shared mode allows multiple users to hold the
+        resource simultaneously. Exclusive mode grants sole access — other
+        users' acquire requests will be denied. Read-only mode (see API
+        Specification §3.5 and §4.6) allows reading every covered
         item that is not `private`: WireOuts and UpdateWireOuts, TriggerOuts
         (IsTriggered, GetTriggerOutVector, UpdateTriggerOuts), PipeOut /
         BTPipeOut, register reads and AXI reads. ReadOnly holders can never
@@ -1475,7 +1486,7 @@ paths:
                     User acquiring the resource. Should match the X-User-Id
                     header. If omitted, the server falls back to the X-User-Id
                     header value. If both are present and differ, the server
-                    returns 400 Bad Request (ADR-029).
+                    returns 400 Bad Request (see API Specification §2.2.1 and §3.7.1).
                 mode:
                   type: string
                   enum: [shared, exclusive, read_only]
@@ -1532,7 +1543,7 @@ paths:
                     User releasing the resource. Should match the X-User-Id
                     header. If omitted, the server falls back to the X-User-Id
                     header value. If both are present and differ, the server
-                    returns 400 Bad Request (ADR-029).
+                    returns 400 Bad Request (see API Specification §2.2.1 and §3.7.1).
       responses:
         '200':
           description: Resource released
@@ -1555,7 +1566,8 @@ paths:
         A holder of a shared resource can temporarily lock it for exclusive use.
         Other holders remain in the holders list but cannot operate on the
         resource until it is unlocked. Only works on resources in `in_use_shared`
-        state. Emits `ResourceChanged` and `ResourceLocked`.
+        state. Emits `ResourceChanged` and `ResourceLocked`. See API
+        Specification §3.6.
       operationId: lockResource
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -1574,7 +1586,7 @@ paths:
                     the resource. Should match the X-User-Id header. If omitted,
                     the server falls back to the X-User-Id header value. If both
                     are present and differ, the server returns 400 Bad Request
-                    (ADR-029).
+                    (see API Specification §2.2.1 and §3.7.1).
       responses:
         '200':
           description: Resource locked successfully. Returns the updated resource state.
@@ -1605,7 +1617,8 @@ paths:
       description: |
         Unlocks a resource that was previously locked via `/lock`. Only the user
         who holds the lock can unlock it. The resource returns to `in_use_shared`
-        state. Emits `ResourceChanged` and `ResourceUnlocked`.
+        state. Emits `ResourceChanged` and `ResourceUnlocked`. See API
+        Specification §3.6.
       operationId: unlockResource
       parameters:
         - $ref: '#/components/parameters/resourceId'
@@ -1623,7 +1636,7 @@ paths:
                     The user who holds the lock. Should match the X-User-Id
                     header. If omitted, the server falls back to the X-User-Id
                     header value. If both are present and differ, the server
-                    returns 400 Bad Request (ADR-029).
+                    returns 400 Bad Request (see API Specification §2.2.1 and §3.7.1).
       responses:
         '200':
           description: Resource unlocked successfully. Returns the updated resource state.
@@ -1693,10 +1706,10 @@ paths:
       summary: User liveness heartbeat
       description: |
         Clients should call this periodically (at least every 24 seconds
-        while idle; ADR-020 §5) to keep their session alive. With the
-        default 60-second timeout (`user_timeout_secs`) one lost heartbeat
-        never expires the session. The server updates the user's
-        `last_seen_at` timestamp.
+        while idle; see API Specification §2.2.3 and §3.7) to keep their
+        session alive. With the default 60-second timeout
+        (`user_timeout_secs`) one lost heartbeat never expires the session. The
+        server updates the user's `last_seen_at` timestamp.
 
         If a user's heartbeat expires (no activity for the configured timeout),
         the server will automatically disconnect them and release all held
@@ -1718,7 +1731,7 @@ paths:
                     The user identifier sending the heartbeat. Should match the
                     X-User-Id header. If omitted, the server falls back to the
                     X-User-Id header value. If both are present and differ, the
-                    server returns 400 Bad Request (ADR-029).
+                    server returns 400 Bad Request (see API Specification §2.2.1 and §3.7.1).
       responses:
         '200':
           description: Heartbeat acknowledged
@@ -1768,7 +1781,7 @@ paths:
                     The user identifier to disconnect. Should match the X-User-Id
                     header. If omitted, the server falls back to the X-User-Id
                     header value. If both are present and differ, the server
-                    returns 400 Bad Request (ADR-029).
+                    returns 400 Bad Request (see API Specification §2.2.1 and §3.7.1).
       responses:
         '200':
           description: User disconnected successfully
@@ -1800,20 +1813,20 @@ paths:
       description: |
         Opens a Server-Sent Events (SSE) stream that pushes device, resource,
         user, and server lifecycle events in real time.  The stream stays open
-        until the client disconnects.
+        until the client disconnects. See API Specification §2.7.1 and §3.9.
 
         **Event types** (sent as the SSE `event:` field):
         - `DeviceAdded` — A new FPGA was connected
         - `DeviceRemoved` — An FPGA was disconnected
         - `DeviceProgrammed` — An FPGA was programmed with a bitfile
         - `ResourceChanged` — A resource's state changed (acquired, released, locked, unlocked, invalidated)
-        - `UserConnected` — A new user session was created *(Phase 39)*
-        - `UserDisconnected` — A user session ended *(Phase 39)*
-        - `ResourceCreated` — A resource definition was registered *(Phase 39)*
-        - `ResourceDeleted` — A resource definition was deleted, with a `reason` *(Phase 39, ADR-034)*
-        - `ResourceLocked` — A holder locked a shared resource *(ADR-034)*
-        - `ResourceUnlocked` — The lock holder unlocked a shared resource *(ADR-034)*
-        - `ServerShutdown` — The server is shutting down gracefully *(Phase 39)*
+        - `UserConnected` — A new user session was created
+        - `UserDisconnected` — A user session ended
+        - `ResourceCreated` — A resource definition was registered
+        - `ResourceDeleted` — A resource definition was deleted, with a `reason`
+        - `ResourceLocked` — A holder locked a shared resource
+        - `ResourceUnlocked` — The lock holder unlocked a shared resource
+        - `ServerShutdown` — The server is shutting down gracefully
 
         The SSE `data:` field is the event object itself (e.g.
         `{"resource_id": "…", "new_state": "in_use_shared", "timestamp": "…"}`),
@@ -1900,7 +1913,7 @@ components:
 
     ServiceInfo:
       type: object
-      description: Status information for a manageable service (ADR-010).
+      description: Status information for a manageable service (see API Specification §2.8.2).
       properties:
         name:
           type: string
@@ -1945,10 +1958,10 @@ components:
     ResourceConflict:
       type: object
       description: |
-        Machine-readable detail of a failed resource operation (ADR-034, D73).
-        Present on resource 409 / 422 responses when one of the codes applies.
-        gRPC sends the same fields as `ResourceConflictDetail` in the status
-        details.
+        Machine-readable detail of a failed resource operation (see API
+        Specification §1.2.3 and §3.10). Present on resource 409 / 422
+        responses when one of the codes applies. gRPC sends the same fields as
+        `ResourceConflictDetail` in the status details.
       required: [code]
       properties:
         code:
@@ -2182,7 +2195,8 @@ components:
           type: boolean
           description: |
             `IsTriggered(endpoint, mask)`: true if any bit in `mask` is set
-            in the snapshot. Always false when `mask` is 0 (the default, D78).
+            in the snapshot. Always false when `mask` is 0 (the default; see
+            API Specification §4.4.4).
         vector:
           type: integer
           format: int64
@@ -2299,9 +2313,10 @@ components:
     CreateResourceRequest:
       type: object
       description: |
-        Request body for creating a new resource (ADR-016, ADR-034).
+        Request body for creating a new resource (see API Specification §3.2).
         `access_mode` is required when `endpoints` is present; without
-        `endpoints` it may be omitted (= `exclusive`) or `exclusive` (D62, D77).
+        `endpoints` it may be omitted (= `exclusive`) or `exclusive` (see API
+        Specification §3.2.2).
       required: [name, device_serial, interfaces]
       properties:
         name:
@@ -2321,10 +2336,10 @@ components:
           type: boolean
           default: false
           description: |
-            Access rule, not visibility (D57) — when true, ReadOnly
-            acquisition of the whole resource is denied. Recommended when any
-            ReadOnly read of the resource could cause an unwanted side-effect
-            (D75).
+            Access rule, not visibility (see API Specification §3.1.4) — when
+            true, ReadOnly acquisition of the whole resource is denied.
+            Recommended when any ReadOnly read of the resource could cause an
+            unwanted side-effect (see API Specification §4.6.2).
         interfaces:
           type: array
           minItems: 1
@@ -2346,19 +2361,20 @@ components:
           type: object
           additionalProperties:
             type: string
-          description: Text-only key/value metadata (D69).
+          description: Text-only key/value metadata (see API Specification §3.2.1).
 
     EndpointDeclaration:
       type: object
       description: |
         Classic endpoint declaration. Omitted = every Wire and Trigger
         endpoint (0x00-0x7F), exclusive; Pipe/BTPipe endpoints must always be
-        declared explicitly (D77). `{"entries": []}` = no classic endpoints.
+        declared explicitly (see API Specification §3.2.2). `{"entries": []}` =
+        no classic endpoints.
       properties:
         default_access:
           type: string
           enum: [shared, exclusive]
-          description: Mode for entries without `access` (D61). Never claims unlisted endpoints.
+          description: Mode for entries without `access` (see API Specification §3.2.1). Never claims unlisted endpoints.
         entries:
           type: array
           description: |
@@ -2369,7 +2385,7 @@ components:
 
     EndpointEntry:
       type: object
-      description: One declared Classic endpoint. `access` is required unless `default_access` is set (D61).
+      description: One declared Classic endpoint. `access` is required unless `default_access` is set (see API Specification §3.2.1).
       required: [address, type]
       properties:
         address:
@@ -2387,12 +2403,12 @@ components:
           type: boolean
           default: false
           description: |
-            When true, ReadOnly holders may not access this endpoint (D75).
-            RECOMMENDED for TriggerOut (UpdateTriggerOuts clears the latch), PipeOut /
-            BTPipeOut (a read drains the FIFO) and any endpoint whose read
-            has a side-effect other holders rely on. A private TriggerOut
-            also denies UpdateTriggerOuts to every ReadOnly holder on the
-            device.
+            When true, ReadOnly holders may not access this endpoint (see API
+            Specification §3.1.4 and §4.6). RECOMMENDED for TriggerOut
+            (UpdateTriggerOuts clears the latch), PipeOut / BTPipeOut (a read
+            drains the FIFO) and any endpoint whose read has a side-effect
+            other holders rely on. A private TriggerOut also denies
+            UpdateTriggerOuts to every ReadOnly holder on the device.
         description:
           type: string
 
@@ -2416,16 +2432,18 @@ components:
           type: boolean
           default: false
           description: |
-            When true, ReadOnly holders may not read this range (D75).
-            RECOMMENDED for ranges containing clear-on-read registers, FIFOs
-            or any address whose read has a side-effect.
+            When true, ReadOnly holders may not read this range (see API
+            Specification §3.1.4 and §4.6). RECOMMENDED for ranges containing
+            clear-on-read registers, FIFOs or any address whose read has a
+            side-effect.
         description:
           type: string
 
     Resource:
       type: object
       description: |
-        A user-defined resource exposed by a programmed FPGA (ADR-034).
+        A user-defined resource exposed by a programmed FPGA (see API
+        Specification §3).
       properties:
         id:
           type: string
@@ -2448,7 +2466,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Holder'
-          description: Current holders and the mode each acquired with (D37).
+          description: Current holders and the mode each acquired with (see API Specification §3.5).
         locked_by:
           type: string
           description: User holding the lock (absent when not locked).
@@ -2471,10 +2489,11 @@ components:
           type: boolean
           default: false
           description: |
-            Access rule, not visibility (ADR-034, D57): when true, ReadOnly
-            acquisition is denied. Every user can still list and read the
-            resource description. Recommended when any ReadOnly read of the
-            resource could cause an unwanted side-effect (D75).
+            Access rule, not visibility (see API Specification §3.1.4): when
+            true, ReadOnly acquisition is denied. Every user can still list and
+            read the resource description. Recommended when any ReadOnly read
+            of the resource could cause an unwanted side-effect (see API
+            Specification §4.6.2).
         warnings:
           type: array
           readOnly: true
@@ -2486,7 +2505,7 @@ components:
             coexistence). Returned by `POST /resources` (`201 Created`) when
             non-empty; omitted when empty and on `GET /resources`,
             `GET /resources/{resource_id}`, `acquire`, `lock`, and `unlock`
-            responses (Phase 45).
+            responses (see API Specification §3.2 and §4.6.3).
 
     Holder:
       type: object
@@ -2518,7 +2537,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Holding'
-          description: Held resources with mode and lock flag (ADR-034).
+          description: Held resources with mode and lock flag (see API Specification §3.11).
 
     Holding:
       type: object
@@ -2678,7 +2697,7 @@ components:
           type: string
           format: date-time
 
-    # ── Phase 39 (ADR-030) event types ──────────────────────────
+    # ── Session & resource lifecycle event types (see API Specification §2.7.1 and §3.9) ──
 
     UserConnectedEvent:
       type: object
@@ -2739,15 +2758,15 @@ components:
           type: string
           enum: [client, reprogram, clear, device_removed]
           description: |
-            Why it was deleted (D58, 44-F Q2): `client` = a client deleted it;
-            `reprogram` / `clear` = forced cleanup when the FPGA was
-            reprogrammed or cleared; `device_removed` = forced cleanup when the
-            physical device disconnected or was swept as absent.
+            Why it was deleted (see API Specification §3.8 and §3.9): `client` =
+            a client deleted it; `reprogram` / `clear` = forced cleanup when the
+            FPGA was reprogrammed or cleared; `device_removed` = forced cleanup
+            when the physical device disconnected or was swept as absent.
         timestamp:
           type: string
           format: date-time
 
-    # ── ADR-034 event types ──
+    # ── Shared resource lock event types (see API Specification §3.6 and §3.9) ──
 
     ResourceLockedEvent:
       type: object

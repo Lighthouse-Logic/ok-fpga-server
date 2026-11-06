@@ -15,3 +15,27 @@
     - [`2-8-management.typ`](../API-Specification/chapters/overview/2-8-management.typ) (`§2.8.1–§2.8.2`): `GET /server/status`, `GET /server/logs` SSE, `POST /server/restart`, and `ServiceManager` start/stop/restart lifecycle (respond-then-stop / respond-then-restart pattern).
     - [`2-9-config.typ`](../API-Specification/chapters/overview/2-9-config.typ) (`§2.9.1–§2.9.2`): Complete `config.toml` key reference and `OKFPGA_*` environment variable overrides.
   - Added independent document version (`doc-version = "1.0.0"`) alongside `spec-version = "0.3.10"` in [`docs/API-Specification/main.typ`](../API-Specification/main.typ), updated [`chapters/introduction.typ`](../API-Specification/chapters/introduction.typ), [`chapters/appendix-status.typ`](../API-Specification/chapters/appendix-status.typ), and [`chapters/appendix-references.typ`](../API-Specification/chapters/appendix-references.typ), and rebuilt [`ok-fpga-server-api-specification.pdf`](../API-Specification/ok-fpga-server-api-specification.pdf).
+
+---
+
+## Phase 47 — OpenAPI / Proto Cite API Specification Section Numbers ✅ (Doc `v1.0.0`, Server `0.3.10`)
+
+- **Date:** 2026-11-06
+- **Scope:**
+  - Updated inline descriptions and comments in [`api/openapi.yaml`](../../api/openapi.yaml) and [`proto/okfpga/v1/okfpga.proto`](../../proto/okfpga/v1/okfpga.proto) so developer-facing explanations cite the stable rendered API Specification section numbers (`§1.x`–`§4.x`) instead of internal working shorthand (`ADR-NNN`, `D1–D78`, `S-NN`, `SD-NN`, `P1–P16`, `Phase NN`):
+    - Identity resolution & mismatch rules → `API Specification §2.2.1 and §3.7.1`.
+    - Pluggable authentication → `API Specification §2.2.2`.
+    - Heartbeat & disconnect → `API Specification §2.2.3 and §3.7`.
+    - Service lifecycle management → `API Specification §2.8` / `§2.8.2`.
+    - FPGA programming / clearing forced cleanup → `API Specification §2.4.1–§2.4.3 and §3.8`.
+    - Bitfile metadata & `dataport` type → `API Specification §2.4.4 and §3.2.3`.
+    - Classic `WireIn`, `WireOut`, `TriggerOut` snapshot & mask, `okRegisterBridge`, and `ResetFPGA` → `API Specification §2.5.1–§2.5.8, §4.3, §4.4, §4.6, and §4.10`.
+    - Direct AXI & 64-bit request `address` vs 32-bit `AddressRange` → `API Specification §2.6.1, §2.6.2, §3.2.3, and §4.8`.
+    - Resource declaration, omitted `endpoints` (`0x00–0x7F`), overlap rules, and registration warnings → `API Specification §3.1.2, §3.1.4, §3.2, §3.3, and §4.6.3`.
+    - Resource acquisition, holder modes, and `read_only` → `API Specification §3.5 and §4.6`.
+    - Resource lock, unlock, and blocking → `API Specification §3.6`.
+    - Structured conflicts → `API Specification §1.2.3 and §3.10`.
+    - Events & `DeleteReason` → `API Specification §2.7.1, §3.8, and §3.9`.
+    - User sessions & `Holding` → `API Specification §3.11`.
+  - Verified YAML validity and `cargo test` across the workspace.
+
