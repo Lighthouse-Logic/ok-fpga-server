@@ -833,4 +833,4 @@ adopted, 2 rejected as non-observable / redundant).
   - Clients: `python-labview-client` (150 passed), `python_rest_gui_common` (36 passed),
     `python_grpc_gui_common` (16 passed), `rust-rest-gui-common` (29 passed),
     `rust-grpc-gui-common` (16 passed).
-- Commit: `feat: surface registration warnings in CreateResource responses (0.3.10)` — **Done:** pending commit.
+- Commit: `feat: surface registration warnings in CreateResource responses (0.3.10)` — **Done:** `3545dbf`.
