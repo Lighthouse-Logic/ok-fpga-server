@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-11-06 (Phases 46 & 47 completed and archived)
+> **Last Updated:** 2026-11-06 (Phase 48 completed and archived)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -55,12 +55,13 @@
 | **Phase 45** | Explicit Registration Warnings in CreateResource Responses | ADR-034 (§17) | ✅ [Archived](archive/roadmap-phases-44.md#phase-45--explicit-registration-warnings-in-createresource-responses--0310) |
 | **Phase 46** | API Specification: Expand the Overview Chapters (§2.1–§2.9) | — | ✅ [Archived](archive/roadmap-phases-46-47.md#phase-46--api-specification-expand-the-overview-chapters-2129--doc-v100-server-0310) |
 | **Phase 47** | OpenAPI / Proto Cite API Specification Section Numbers | — | ✅ [Archived](archive/roadmap-phases-46-47.md#phase-47--openapi--proto-cite-api-specification-section-numbers--doc-v100-server-0310) |
+| **Phase 48** | Configurable MQTT Test Broker Host | — | ✅ [Archived](archive/roadmap-phases-48.md) |
 
 ---
 
 ## 🟢 Now
 
-*(Empty — Phases 46 & 47 completed and archived in [docs/archive/roadmap-phases-46-47.md](archive/roadmap-phases-46-47.md). Per Roadmap Rule 5, promote the next phase explicitly when ready.)*
+*(Empty — Phase 48 completed and archived in [docs/archive/roadmap-phases-48.md](archive/roadmap-phases-48.md). Per Roadmap Rule 5, promote the next phase explicitly when ready.)*
 
 ---
 
@@ -170,17 +171,6 @@ Features in this section represent uncommitted research or long-term capabilitie
   handling (ADR-025 `ResourceAccessPolicy`), and server-side sequences
   (44.5, D12, D40). A common extension mechanism should be considered
   together with this item.
-
-* **Configurable MQTT test broker host** (follow-up, 2026-10-11) —
-  `crates/ok-fpga-server/tests/mqtt_integration.rs` hardcodes
-  `127.0.0.1:1883`, so 3 tests fail with "connection refused" when no local
-  Mosquitto runs (the lab broker is `127.0.0.1`). Read the
-  host and port from environment variables (e.g. `OKFPGA_TEST_MQTT_HOST`,
-  `OKFPGA_TEST_MQTT_PORT`, defaulting to `127.0.0.1:1883`), document them in
-  the test module header, and decide whether the tests are skipped (or
-  `#[ignore]`d) when the broker is unreachable so `cargo test --features full`
-  stays green on machines without a broker. Use unique topic prefixes per run
-  so tests against a shared broker do not collide.
 
 * **gRPC AXI FFI wiring** — all 14 AXI RPCs in `AXIDataPortService` (Lite, Full,
   Stream) are `UNIMPLEMENTED` stubs. REST AXI is fully wired, but gRPC was not
@@ -343,6 +333,7 @@ implementation details, verification steps, and acceptance criteria.
 | 45 | Explicit Registration Warnings in CreateResource Responses | 2026-11-06 | ADR-034 (§17) | [phases 44–45](archive/roadmap-phases-44.md#phase-45--explicit-registration-warnings-in-createresource-responses--0310) |
 | 46 | API Specification: Expand the Overview Chapters (§2.1–§2.9) | 2026-11-06 | — | [phases 46–47](archive/roadmap-phases-46-47.md#phase-46--api-specification-expand-the-overview-chapters-2129--doc-v100-server-0310) |
 | 47 | OpenAPI / Proto Cite API Specification Section Numbers | 2026-11-06 | — | [phases 46–47](archive/roadmap-phases-46-47.md#phase-47--openapi--proto-cite-api-specification-section-numbers--doc-v100-server-0310) |
+| 48 | Configurable MQTT Test Broker Host | 2026-11-06 | — | [phase 48](archive/roadmap-phases-48.md) |
 
 ---
 

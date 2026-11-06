@@ -931,5 +931,8 @@ Owner decisions 2026-11-06 (`q1`–`q5`):
   - REST `/users` returns `last_seen_at` / `count`; the spec says
     `connected_at`. gRPC fills `connected_at` with the last-seen time.
   - REST `GET /users/{user_id}` and gRPC `GetUser` are not implemented.
-- `tests/mqtt_integration.rs` hardcodes `127.0.0.1:1883`; it fails without
-  a local broker. Proposal: make the broker host configurable.
+- ~~`tests/mqtt_integration.rs` hardcodes `127.0.0.1:1883`; it fails without
+  a local broker. Proposal: make the broker host configurable.~~ **Done in
+  Phase 48** (`OKFPGA_TEST_MQTT_HOST` / `OKFPGA_TEST_MQTT_PORT`, defaulting to
+  `127.0.0.1:1883` with unique per-run topic prefixes and
+  client IDs).
