@@ -10,6 +10,7 @@
 
 #import "lib.typ": *
 
+#let doc-version = "1.0.0"
 #let spec-version = "0.3.10"
 #let spec-date = "2026-11-06"
 
@@ -24,7 +25,7 @@
   header: context {
     if counter(page).get().first() > 1 [
       #set text(size: 8pt, fill: gray)
-      ok-fpga-server API Specification #h(1fr) v#spec-version
+      ok-fpga-server API Specification #h(1fr) Doc v#doc-version (Server v#spec-version)
     ]
   },
 )
@@ -61,12 +62,11 @@
     #v(1.5em)
     #text(size: 12pt)[Developer reference for the OpenAPI and Protocol Buffers interfaces]
     #v(3em)
-    #text(size: 11pt)[Version #spec-version #h(1em) | #h(1em) #spec-date]
+    #text(size: 11pt)[Document Version #doc-version #h(1em) | #h(1em) Target Server #spec-version #h(1em) | #h(1em) #spec-date]
     #v(1em)
     #text(size: 10pt, fill: gray)[
-      Status: working draft. The Resource Model and Access Enforcement
-      chapters are complete; the remaining chapters are overviews that will
-      be expanded in later revisions.
+      Complete specification of the Server Overview, Resource Model, Access
+      Enforcement and Worked Examples.
     ]
   ]
 ]

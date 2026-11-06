@@ -30,13 +30,6 @@ holds the behavioural rules and rationale that are too long for inline
 comments. Where the definitions and this document disagree, report the
 discrepancy; it is a defect in one of them.
 
-#note[
-  This revision describes the *Resource Model* (@resource-model) and *Access
-  Enforcement* (@enforcement) in full. @overview gives a short overview of the
-  rest of the server; those areas will be specified in detail in later
-  revisions.
-]
-
 == Conventions <intro-conventions>
 
 === Requirement keywords <intro-keywords>

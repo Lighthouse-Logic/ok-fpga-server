@@ -41,4 +41,6 @@ the items below show where today's server still differs.
   [Explicit registration warnings in `CreateResource` responses (`Resource.warnings` / `ResourceResponse.warnings`) and `warn_wildcard_endpoints` setting (@res-declare, @enf-readonly-warning)], [implemented],
   [`GET /users/{user_id}`, gRPC `GetUser`; REST `connected_at` field (@res-users)], [planned; REST returns `last_seen_at`],
   [gRPC AXI methods (@ov-axi)], [planned; use REST],
+  [Board-level PLL, Flash, `SetDeviceID`, `SetTimeout`, `GetWireInValue` and `SetBTPipePollingInterval` (@ov-dev-hardware-mgmt, @ov-classic-wirein, @ov-classic-blockpipes)], [gRPC only; no REST routes],
+  [Live server log stream `GET /server/logs` (@ov-mgmt-status-logs)], [REST SSE only; no gRPC RPC],
 )

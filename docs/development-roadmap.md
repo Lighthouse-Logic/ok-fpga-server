@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-11-06 (Phase 45 completed and archived)
+> **Last Updated:** 2026-11-06 (Phases 46 & 47 planned; Phase 46 promoted to Now)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -53,40 +53,28 @@
 | **Phase 43** | mDNS Stale Registration Cleanup & Hostname Sanitization | — | ✅ [Archived](archive/roadmap-phases-40-43.md) |
 | **Phase 44** | Resource Model Consolidation & Enforcement Alignment | ADR-034 (supersedes parts of ADR-003/006/020/024/025/026) | ✅ [Archived](archive/roadmap-phases-44.md) |
 | **Phase 45** | Explicit Registration Warnings in CreateResource Responses | ADR-034 (§17) | ✅ [Archived](archive/roadmap-phases-44.md#phase-45--explicit-registration-warnings-in-createresource-responses--0310) |
+| **Phase 46** | API Specification: Expand the Overview Chapters (§2.1–§2.9) | — | ✅ [Archived](archive/roadmap-phases-46-47.md#phase-46--api-specification-expand-the-overview-chapters-2129--doc-v100-server-0310) |
+| **Phase 47** | OpenAPI / Proto Cite API Specification Section Numbers | — | 🟢 Now |
 
 ---
 
 ## 🟢 Now
 
-*(Empty — Phase 45 completed and archived in [docs/archive/roadmap-phases-44.md](archive/roadmap-phases-44.md). Per Roadmap Rule 5, promote the next phase explicitly when ready.)*
+### Phase 47 — OpenAPI / Proto Cite API Specification Section Numbers 🔒
+
+Update inline descriptions and comments in [`api/openapi.yaml`](../api/openapi.yaml) and [`proto/okfpga/v1/okfpga.proto`](../proto/okfpga/v1/okfpga.proto) so developer-facing explanations cite the stable API Specification section numbers (`§1.x`–`§4.x`) instead of internal working shorthand (`ADR-NNN`, `D1–D78`, `S-NN`, `SD-NN`, `P1–P16`, `Phase NN`). Regenerate Python protobuf stubs and verify all Rust and Python test suites.
 
 ---
 
 ## 🟡 Next
 
-*(Empty — no phase is planned next.)*
+*(Empty — Phase 47 promoted to Now.)*
 
 ---
 
 ## 🔵 Later: Future Horizons
 
 Features in this section represent uncommitted research or long-term capabilities:
-
-* **API Specification — expand the overview chapters.** Section 2 of
-  [docs/API-Specification/](API-Specification/) is an overview only. Expand
-  each part into a full specification (every operation, parameter, error,
-  rationale, Opal Kelly citation), as already done for the Resource Model
-  (§3) and Access Enforcement (§4): server/management, identity and auth,
-  devices (sensors, settings, SYZYGY, PLL, flash), FPGA configuration,
-  Classic data port (wires, triggers, pipes, block pipes, register bridge),
-  AXI data port, events (SSE / gRPC / MQTT), dashboard, mDNS. Existing
-  section numbers must not change (append sub-sections only).
-* **OpenAPI / proto cite API Specification section numbers.** After the
-  spec chapters exist, change `api/openapi.yaml` and
-  `proto/okfpga/v1/okfpga.proto` descriptions to refer to the required
-  behaviour by spec section number (e.g. "see API Specification §4.4.4")
-  instead of ADR / D-numbers, keeping inline notes short. 🔒 Needs owner
-  permission for the spec change.
 
 * **TriggerOut event log (non-standard Opal Kelly extension)** — D67
   reopened 2026-10-11 (Q-F). Needs a design round and owner approval
@@ -215,15 +203,6 @@ Features in this section represent uncommitted research or long-term capabilitie
   the server with knowledge of specific bitfiles' capabilities so that when a
   known bitfile is programmed, the server automatically creates the appropriate
   resources without client involvement.
-
-* **In-use protection on re-program** — *superseded by D15b/D26:*
-  reprogramming is a forced override that unlocks, releases and deletes all
-  resources and notifies every holder (Phase 44-F). Restricting **who** may
-  reprogram is part of **Role-based access control** below.
-
-* **Read-only resource acquisition** — **Completed in Phase 30.**
-  See [ADR-026](architecture/adr/ADR-026-readonly-acquisition.md) and
-  [archive](archive/roadmap-phases-30.md).
 
 * **Native TLS termination & certificate-based identity** — embedded `rustls` for
   secure lab deployments without a reverse proxy. When mutual TLS (mTLS) is enabled,
@@ -363,6 +342,8 @@ implementation details, verification steps, and acceptance criteria.
 | 42 | mDNS Hostname Identity Alignment | 2026-08-27 | — | [phases 40–43](archive/roadmap-phases-40-43.md) |
 | 43 | mDNS Stale Registration Cleanup & Hostname Sanitization | 2026-09-19 | — | [phases 40–43](archive/roadmap-phases-40-43.md) |
 | 44 | Resource Model Consolidation & Enforcement Alignment | 2026-11-05 | ADR-034 | [phase 44](archive/roadmap-phases-44.md) |
+| 45 | Explicit Registration Warnings in CreateResource Responses | 2026-11-06 | ADR-034 (§17) | [phases 44–45](archive/roadmap-phases-44.md#phase-45--explicit-registration-warnings-in-createresource-responses--0310) |
+| 46 | API Specification: Expand the Overview Chapters (§2.1–§2.9) | 2026-11-06 | — | [phases 46–47](archive/roadmap-phases-46-47.md#phase-46--api-specification-expand-the-overview-chapters-2129--doc-v100-server-0310) |
 
 ---
 
