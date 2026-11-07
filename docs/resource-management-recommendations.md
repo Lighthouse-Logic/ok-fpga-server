@@ -27,7 +27,7 @@
 | **D1** | Q-A | A lock applies to the **entire** resource. Overlapping **shared** declarations are allowed. Locking a resource already locked by someone else is denied. |
 | **D2** | Q-B | A user acquires a given resource at most once (no duplicate holder entries). |
 | **D3** | Q-C | Shared resources: many holders. Exclusive: one. ReadOnly for read-only users; Private flags at L1/L2/L3. |
-| **D4** | — | This branch's ADR-025 stub implements the DualPort-Transceiver bridge. Bridge EPs are shared. WI 0x00 = AXI write address, WI 0x01 = AXI read address. |
+| **D4** | — | Custom `ResourceAccessPolicy` implementations can map shared Classic `WireIn` endpoints (e.g. `0x00` write address, `0x01` read address) to 32-bit target addresses. |
 | **D5** | Q1 | **Blocking (simplest rule):** if any shared item (EP or shared range) of resource S is also declared by a resource R that another user has locked, **S as a whole** is "locked by another user" for its holders until R is unlocked. |
 | **D6** | Q2 | Shared items are allowed **only in shared resources**. An exclusive resource that declares a shared EP, a shared range or `default_access: shared` is rejected at registration. |
 | **D7** | Q3 | A second acquire of the same resource by the same user (same mode) returns **idempotent 200**. |
@@ -35,9 +35,9 @@
 | **D9** | Q5 | The server does not dictate how resources are used; the HDL designer / software architect designs resources within the rules. The entity that programs the FPGA registers its resources. Alice writing Bob's exclusive range is denied, even when neither resource is locked. |
 | **D10** | Q6 | ~~A per-EP `access: exclusive` inside a shared resource means "writable only by the locker"~~ **Corrected by D44:** "writable only by the **holders** of the declaring resource". |
 | **D11** | Q7 | Expose `private` on EP entries and address ranges in the registration API. |
-| **D12** | Q8 | The server stays FPGA-agnostic. ReadOnly does not apply to ADR-025 developer-defined classic address ranges; it applies to FPGADataPortAXI and okRegisterBridge ranges. Future work: server-side sequences for multi-step transactions and FPGA authentication. |
-| **D13** | Q9 | The bridge register map is in `client/python-DualPort-Transceiver-client/docs/` (now `axibridge-access-guide-v2.md`, D30). |
-| **D14** | Q10 | The Authenticator EPs are **shared in both** port resources. Whichever port is acquired first authenticates. |
+| **D12** | Q8 | The server stays FPGA-agnostic. ReadOnly does not apply to ADR-025 developer-defined classic address ranges; it applies to FPGADataPortAXI and okRegisterBridge ranges. Future work: server-side sequences for multi-step transactions and device initialization. |
+| **D13** | Q9 | Bridge register maps are defined by the HDL design documentation. |
+| **D14** | Q10 | Shared device-level supervisor endpoints are declared as **shared in both** port resources. Whichever port is acquired first initializes the device. |
 | **D15** | Q11 | (a) A classic resource with no `endpoints` claims **all EPs as exclusive** (it is simply an exclusive resource, D68). (b) Any user may reprogram; reprogramming unlocks all, releases all, deletes all resources, then writes the bitfile. (c) Anyone may delete a resource until RBAC exists. (d) ADR-029 is implemented; its status is stale. (e) The enforcement default becomes **`enforce`**. (f) ADR-020 §3 gets ReadOnly behaviour; ADR-026 §4 is correct (allow unless private). |
 | **D16** | Q12 | A read of a **non-private** item is permitted, including during someone else's lock. The guide gets a read/write permission matrix. A consolidated ADR may supersede the older resource ADRs. |
 | **D17** | Q13 | No server restriction on reset EPs. Any holder of a resource that is not locked by another user (and not blocked) may write any WireIn the resource declares. Future RBAC *may* restrict this. |
@@ -58,7 +58,7 @@
 | **D27** | Q8/N10 | All clients must comply. `off` / `warn` are **debugging aids** only; the default is `enforce`. |
 | **D28** | Q9/N11 | Same-mode repeat acquire = 200 (D7). A **different-mode** acquire is a change, and is **denied** with "release, then acquire". |
 | **D29** | Q10/N12 | ReadOnly holders are denied ADR-025 mapped access. |
-| **D30** | Q11/N13 | DualPort-Transceiver uses only one-shot writes, burst writes (PipeIn 0x80) and burst reads (PipeOut 0xA0), per `axibridge-access-guide-v2.md`. Authenticated status = AXI Status Register 2 bit 7 (module base + 0x08). Field list in guide §6.1. |
+| **D30** | Q11/N13 | The worked dual-port bridge design uses three transaction patterns: one-shot writes, burst writes (PipeIn 0x80) and burst reads (PipeOut 0xA0), with module status read from Status Register 2 (module base + 0x08). |
 | **D31** | Q12/N14 | Widen the RBAC Future-work item. **Done** (D47). |
 | **D32** | Q13 | **One consolidated superseding ADR** (§4). |
 | **D33** | Q14/C1 | `access_mode` is **required** at registration; a missing value returns a meaningful error. *Exception: a resource without `endpoints` (D68).* |
@@ -72,9 +72,9 @@
 | **D36** | S1 | Spec fix approved for Phase 44: **remove** (not deprecate) `resource_type` and `capabilities` (no existing users); add `access_mode`, `interfaces`, `endpoints`, `address_ranges` (`name`, `private`), `metadata`, `private`. Applies to OpenAPI and, by parity, proto (P1, D59). |
 | **D37** | S2 | Approved: `Resource.access_mode` = declared mode (`shared` / `exclusive`); `holders[]` = `{user_id, mode}`; add `locked_by` and the declaration fields. |
 | **D38** | S3 | Approved: 422 for validation; structured error body naming the conflicting resource / item or the locking resource. |
-| **D39** | S4 | The draft port JSON resources are corrected as part of C-SFPP-1. |
-| **D40** | §5 | When server-side sequences come due, the **embedded engine (option C)** will likely be explored first (extensibility; server-held keys for authentication). Decided at that phase. |
-| **D41** | — | The client project is renamed from the codename "dualport" to **DualPort-Transceiver**. **Done** (D60): folder `client/python-DualPort-Transceiver-client/`, branch `feature/python-DualPort-Transceiver-client`, package `dualport_client`. |
+| **D39** | S4 | Draft port JSON resource declarations are maintained in downstream client repositories. |
+| **D40** | §5 | When server-side sequences come due, the **embedded engine (option C)** will likely be explored first (extensibility; server-held secrets for device initialization). Decided at that phase. |
+| **D41** | — | Downstream client packages live in their own repositories outside the server repository. |
 | **D42** | N16 | `UpdateWireOuts` / `UpdateTriggerOuts` are **reads**: FrontPanel 6.1.0 calls that latch the outputs, and must precede the read. |
 | **D43** | N17 | A different-mode acquire returns **409**. |
 | **D44** | N18 | **D10 corrected:** an exclusive item (per-EP `access: exclusive`, or an exclusive range) in a shared resource is **writable by any holder** of the declaring resource, not only the locker. No lock is required. |
@@ -98,7 +98,7 @@
 | **D57** | N25, S6 | Approved: `private` does not hide resources from listings; it restricts ReadOnly acquisition and reads only. Fix the OpenAPI and proto comments (S6, P13). |
 | **D58** | S5 | Approved: add `ResourceLocked` / `ResourceUnlocked` events (`resource_id`, `user_id`) and a reprogram/clear reason on `ResourceDeleted` (OpenAPI; proto by parity, P6). |
 | **D59** | Q4, P1–P3 | **No `UNSPECIFIED` enum value** in OpenAPI or proto, anywhere. P1, P2, P3 agreed. "Unspecified" is only a transient condition when the resource JSON omits `access_mode`; the established rules then set the mode. It is never a spec state. (How the rules set it: D62, D68. Field numbers: D65.) |
-| **D60** | D41 | Rename done now: folder, branch, package `dualport_client`, distribution `okfpga-DualPort-Transceiver-client`. |
+| **D60** | D41 | Downstream client packages extracted to standalone repositories. |
 
 ### 1.5 Round 6 (D61–D72)
 
@@ -112,7 +112,7 @@
 | **D66** | Q5 | `ResetFPGA` uses the **tier-3 data-port gate only**: caller identified and holding any resource on the device. |
 | **D67** | Q7 | ~~**Never** a per-holder TriggerOut cache (old S-16), now or later.~~ **Reopened 2026-10-11 (Q-F):** still no per-holder state, but a device-wide, non-standard **TriggerOut event log** (client-held sequence numbers) is a 🔵 Later item in the roadmap. Until then the server stays agnostic and clients manage how and when triggers are read. |
 | **D68** | Q6 | *Revised by D77 (Pipe/BTPipe not claimed).* A resource JSON **without an `endpoints` field** is simply an **exclusive resource** that claims every classic EP (ADR-020 §7): a quick-and-dirty resource. No special name. `access_mode` may be omitted and is then set to `exclusive`; `access_mode: exclusive` is accepted; `access_mode: shared` → 422. It claims only the ranges it declares (D52), blocks later classic resources (D23), and ReadOnly may join unless private (D25). |
-| **D69** | Q8 | `metadata` stays **`map<string,string>`** (text values only; proto unchanged). Lists go into one string (DualPort `associated_cores` → comma-separated). The server's web dashboard shows each resource's metadata. |
+| **D69** | Q8 | `metadata` stays **`map<string,string>`** (text values only; proto unchanged). Lists go into one string (e.g., `associated_cores` → comma-separated). The server's web dashboard shows each resource's metadata. |
 | **D70** | N30 | `OK_DATAPORT_UNKNOWN` is **not supported**. A device that reports it is **left out** of device listings and treated as not present: single-device calls return 404 / gRPC `NOT_FOUND`, and nothing can be registered on it. The dataport enums have no "unknown" value. |
 | **D71** | N31 | Proto `CreateResourceRequest`: field 4 = `optional ResourceAccessMode access_mode`, field 5 = `repeated string interfaces`; the other new fields take 6+. |
 | **D72** | N32 | **422** for every error visible from the request alone (rule A, a resource without `endpoints` declared `shared`, missing fields, type / address mismatch, entry without `access`, non-string metadata, `axi_*` on a legacy device). **409** only for clashes with existing state (overlap with another resource, duplicate name, lock denied, different-mode acquire). |
@@ -151,15 +151,15 @@ All pre-implementation gap tables (`C1–C7`, `G1–G18`, `N1–N32`), OpenAPI/p
 
 ## 5. Future work: server-side sequences (D12, D40)
 
-**Today:** ADR-025 hooks are compiled Rust. A DualPort one-shot write is
+**Today:** ADR-025 hooks are compiled Rust. A multi-step bridge one-shot write is
 about 5 REST calls and a burst read about 6–7; clients lock around them
 (`L1`).
 
 | Option | What | Recompile? | Pros | Cons |
 |---|---|---|---|---|
-| A. Built-in DualPort ops | `axi_write`, `axi_read`, `authenticate` endpoints | Yes | Atomic, simple | Server becomes DualPort-aware: violates D12 |
-| B. Declarative sequences | Named JSON sequences run under the device mutex after one permission check | No | Generic, auditable, one round trip | Limited logic; auth maths needs built-in operators |
-| **C. Embedded engine (Rhai, Lua, WASM) — explore first (D40)** | Scripts from a server directory or the API, run under the device mutex after one permission check (B2) | No | Fully flexible; keys can stay server-side for authentication | Sandbox, limits, security review, new dependency |
+| A. Built-in design-specific ops | Custom `axi_write`, `axi_read`, `initialize` endpoints | Yes | Atomic, simple | Server becomes design-specific: violates D12 |
+| B. Declarative sequences | Named JSON sequences run under the device mutex after one permission check | No | Generic, auditable, one round trip | Limited logic; handshake maths needs built-in operators |
+| **C. Embedded engine (Rhai, Lua, WASM) — explore first (D40)** | Scripts from a server directory or the API, run under the device mutex after one permission check (B2) | No | Fully flexible; keys can stay server-side for device initialization | Sandbox, limits, security review, new dependency |
 | D. Compiled trait hooks | ADR-025 style | Yes | Fast, type-safe | Per-bitfile logic built into the server |
 
 A sequence/script call counts as **single-step**, so `L1`'s lock obligation

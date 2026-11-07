@@ -392,7 +392,7 @@ the resource declaration, overlap, and blocking model (`B2`, `S-12..S-20`,
   `warnings::warn_wildcard_endpoints` when `endpoints` is omitted or when an
   `endpoints: None` resource and a Pipe-declaring resource coexist on the
   same device.
-- **Same-resource address span checking & generic bridge policy (`S-20`, `P14`, owner decisions Q1, Q2, Q4)**:
+- **Same-resource address span checking & bridge policy hook (`S-20`, `P14`, owner decisions Q1, Q2, Q4)**:
   `Resource::check_address_span` checks that the full requested byte span
   `[start, start + byte_len - 1]` falls within at least one declared 32-bit
   `AddressRange` on the **same** candidate resource (`byte_len = 1` for
@@ -401,9 +401,8 @@ the resource declaration, overlap, and blocking model (`B2`, `S-12..S-20`,
   Bulk). When self-overlapping ranges in one resource disagree on `private`,
   the private one wins (`44-B Q1`). AXI addresses `> 0xFFFF_FFFF` cannot
   match any 32-bit `AddressRange` and are denied under `enforce` (`P14`).
-  `ClassicAddressBridgePolicy` provides a documented, generic
-  non-DualPort-specific `ResourceAccessPolicy` reference implementation for
-  Classic WireIn-bridged register spaces.
+  Custom [`ResourceAccessPolicy`] implementations can override
+  `resolve_classic_address` for Classic WireIn-bridged register spaces.
 - **ReadOnly hardware side-effect protections (`D56`, `D66`, `D75 F1, F2, F4`)**:
   - **F1**: `ResetFPGA` and AXI Lite / Full / Stream resets use
     `check_reset_access`, denying callers who hold only `ReadOnly` access on
@@ -685,7 +684,7 @@ lock Q2, implicit unlock events Q3):
 ## Files changed (0.3.6, 44-E)
 
 Owner decisions 2026-11-03 (`P14` proto comment & Later warning schema Q1,
-omitted `endpoints` Pipe coexistence & generic `ClassicAddressBridgePolicy`
+omitted `endpoints` Pipe coexistence & bridge policy hook
 Q2, default `"enforce"` & Later unit test migration Q3a/Q3b, full
 `[start, start + length - 1]` span checking Q4, Tier 2 `XEM7320` hardware
 test Q5):
@@ -696,7 +695,7 @@ test Q5):
   `D77`, unit tests),
   `crates/ok-fpga-core/src/resource.rs` (`AccessDenied::BlockedByOther`,
   `Resource::check_endpoint_coverage`, `Resource::check_address_span`,
-  `ClassicAddressBridgePolicy`, `check_endpoint_access`,
+  `check_endpoint_access`,
   `check_address_access`, `check_address_span_access`, `check_reset_access`,
   `check_device_write_access`, `check_trigger_out_update_access`, 14 unit
   tests),
@@ -933,6 +932,5 @@ Owner decisions 2026-11-06 (`q1`–`q5`):
   - REST `GET /users/{user_id}` and gRPC `GetUser` are not implemented.
 - ~~`tests/mqtt_integration.rs` hardcodes `127.0.0.1:1883`; it fails without
   a local broker. Proposal: make the broker host configurable.~~ **Done in
-  Phase 48** (`OKFPGA_TEST_MQTT_HOST` / `OKFPGA_TEST_MQTT_PORT`, defaulting to
-  `127.0.0.1:1883` with unique per-run topic prefixes and
-  client IDs).
+  Phase 48** (`OKFPGA_TEST_MQTT_HOST` / `OKFPGA_TEST_MQTT_PORT`, with unique
+  per-run topic prefixes and client IDs).

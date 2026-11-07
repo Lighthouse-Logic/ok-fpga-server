@@ -1841,151 +1841,6 @@ impl ResourceAccessPolicy for DefaultAccessPolicy {
     }
 }
 
-/// Generic reference implementation of [`ResourceAccessPolicy`] (Strategy
-/// pattern) for HDL designs that use Classic `WireIn` endpoints as address
-/// registers into a 32-bit memory/register space (ADR-025, 44-E Q2).
-///
-/// ## Why this stub exists
-///
-/// Many Opal Kelly Classic FrontPanel designs (such as multi-port transceivers,
-/// custom Wishbone/AXI bridges, or DDR4 controllers) share a small set of
-/// Classic `WireIn` / `TriggerIn` / `Pipe` endpoints across multiple logical
-/// ports while partitioning the internal 32-bit memory map into per-port
-/// [`AddressRange`] declarations.
-///
-/// In those designs:
-/// 1. The client writes a 32-bit target address into a designated `WireIn`
-///    endpoint (for example `0x00` for an AXI write address `awaddr` and
-///    `0x01` for an AXI read address `araddr`).
-/// 2. The client writes control/data words to other shared `WireIn` or `PipeIn`
-///    endpoints and pulses `UpdateWireIns` / `ActivateTriggerIn`.
-/// 3. Because the bridge endpoints are shared between resources on the same
-///    device, a client performing a multi-step bridge sequence acquires its
-///    resource and calls `lock()` (`POST /resources/{id}/lock`). Locking
-///    blocks overlapping resources (`B1`/`B2`), preventing another client from
-///    overwriting the staged `WireIn` address mid-transaction.
-/// 4. When `SetWireInValue` is called on a configured address-carrier `WireIn`,
-///    [`ClassicAddressBridgePolicy::resolve_classic_address`] returns
-///    [`ClassicAddressResolution::MapsToAddress`], causing the enforcement
-///    pipeline (`check_endpoint_access`) to verify that the written 32-bit
-///    address falls within an [`AddressRange`] of **that same usable resource**
-///    (`S-20`).
-///
-/// ## Configuration (Compile-time or Resource Metadata)
-///
-/// `ClassicAddressBridgePolicy` can be configured in two ways:
-/// - **Struct fields (`write_addr_ep`, `read_addr_ep`):** fixed `WireIn`
-///   endpoint addresses (e.g. `Some(0x00)` and `Some(0x01)`).
-/// - **Per-resource `metadata` overrides:** if a resource's `metadata` map
-///   contains `"classic_write_addr_ep": "0x00"` or `"classic_read_addr_ep": "0x01"`,
-///   those endpoints are also treated as address carriers for that resource.
-///   This allows generic deployments to declare bridge endpoints in JSON
-///   without modifying Rust code.
-///
-/// ## Example
-///
-/// ```
-/// use ok_fpga_core::resource::{
-///     ClassicAddressBridgePolicy, ClassicAddressResolution, EndpointType,
-///     Resource, ResourceAccessPolicy, AccessMode,
-/// };
-///
-/// // Configure WireIn 0x00 as write-address register and WireIn 0x01 as
-/// // read-address register.
-/// let policy = ClassicAddressBridgePolicy::new(Some(0x00), Some(0x01));
-/// let resource = Resource::new(
-///     "SN1:port-a".into(),
-///     "port-a".into(),
-///     None,
-///     "SN1".into(),
-///     AccessMode::Shared,
-/// );
-///
-/// // Writing 0x44A6_0000 to WireIn 0x00 maps to address 0x44A6_0000:
-/// let res = policy.resolve_classic_address(
-///     &resource,
-///     &"alice".into(),
-///     0x00,
-///     &EndpointType::WireIn,
-///     Some(0x44A6_0000),
-/// );
-/// assert_eq!(res, ClassicAddressResolution::MapsToAddress(0x44A6_0000));
-///
-/// // Writing to a data/control WireIn (e.g. 0x02) does not carry an address:
-/// let res_data = policy.resolve_classic_address(
-///     &resource,
-///     &"alice".into(),
-///     0x02,
-///     &EndpointType::WireIn,
-///     Some(0x1234),
-/// );
-/// assert_eq!(res_data, ClassicAddressResolution::NoMapping);
-/// ```
-#[derive(Debug, Clone, Default)]
-pub struct ClassicAddressBridgePolicy {
-    /// Optional `WireIn` endpoint address (`0x00..=0x1F`) that carries a
-    /// 32-bit target write address (e.g. `Some(0x00)` for `m_axi_awaddr`).
-    pub write_addr_ep: Option<u8>,
-    /// Optional `WireIn` endpoint address (`0x00..=0x1F`) that carries a
-    /// 32-bit target read address (e.g. `Some(0x01)` for `m_axi_araddr`).
-    pub read_addr_ep: Option<u8>,
-}
-
-impl ClassicAddressBridgePolicy {
-    /// Create a bridge policy with optional `WireIn` write-address and
-    /// read-address endpoints.
-    pub const fn new(write_addr_ep: Option<u8>, read_addr_ep: Option<u8>) -> Self {
-        Self {
-            write_addr_ep,
-            read_addr_ep,
-        }
-    }
-
-    /// Parse a `"0xNN"` metadata value into a `u8` endpoint address.
-    fn parse_meta_ep(resource: &Resource, key: &str) -> Option<u8> {
-        let raw = resource.metadata.get(key)?.trim();
-        let hex = raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X"))?;
-        u8::from_str_radix(hex, 16).ok()
-    }
-
-    /// Returns `true` if `endpoint` is configured as an address-carrier
-    /// `WireIn` either on this policy struct or in `resource.metadata`.
-    fn is_address_wire_in(&self, resource: &Resource, endpoint: u8) -> bool {
-        if self.write_addr_ep == Some(endpoint) || self.read_addr_ep == Some(endpoint) {
-            return true;
-        }
-        Self::parse_meta_ep(resource, "classic_write_addr_ep") == Some(endpoint)
-            || Self::parse_meta_ep(resource, "classic_read_addr_ep") == Some(endpoint)
-    }
-}
-
-impl ResourceAccessPolicy for ClassicAddressBridgePolicy {
-    fn can_acquire(
-        &self,
-        resource: &Resource,
-        user: &UserId,
-        requested_mode: AccessMode,
-    ) -> Result<(), AcquisitionDenied> {
-        DefaultAccessPolicy.can_acquire(resource, user, requested_mode)
-    }
-
-    fn resolve_classic_address(
-        &self,
-        resource: &Resource,
-        _user: &UserId,
-        endpoint: u8,
-        ep_type: &EndpointType,
-        value: Option<u32>,
-    ) -> ClassicAddressResolution {
-        if *ep_type == EndpointType::WireIn && self.is_address_wire_in(resource, endpoint) {
-            if let Some(addr) = value {
-                return ClassicAddressResolution::MapsToAddress(u64::from(addr));
-            }
-        }
-        ClassicAddressResolution::NoMapping
-    }
-}
-
 // ============================================================================
 // Resource Registry
 // ============================================================================
@@ -5417,28 +5272,28 @@ mod tests {
         // must lie in a range of THAT SAME usable candidate R — not a range on
         // a different resource S that is unusable (locked by someone else) or
         // does not cover the endpoint.
-        let policy = Box::new(ClassicAddressBridgePolicy::new(Some(0x00), Some(0x01)));
+        let policy = Box::new(TestAddressMappingPolicy);
         let registry = ResourceRegistry::with_policy(policy);
 
-        // Port A: covers WireIn 0x00 and range 0x44A6_0000..=0x44A6_0FFF.
-        let mut port_a = shared_ep_resource("DEV_A:port-a", "port-a", "DEV_A", &[0x00]);
+        // Port A: covers WireIn 0x01 and range 0x1000..=0x1FFF.
+        let mut port_a = shared_ep_resource("DEV_A:port-a", "port-a", "DEV_A", &[0x01]);
         port_a.address_ranges.push(AddressRange {
             name: None,
             description: None,
-            start: 0x44A6_0000,
-            end: 0x44A6_0FFF,
+            start: 0x1000,
+            end: 0x1FFF,
             access: AccessMode::Exclusive,
             private: false,
         });
 
-        // Aux: does NOT cover WireIn 0x00 (only covers WireIn 0x05), but holds
-        // range 0x44B6_0000..=0x44B6_0FFF.
+        // Aux: does NOT cover WireIn 0x01 (only covers WireIn 0x05), but holds
+        // range 0x2000..=0x2FFF.
         let mut aux = shared_ep_resource("DEV_A:aux", "aux", "DEV_A", &[0x05]);
         aux.address_ranges.push(AddressRange {
             name: None,
             description: None,
-            start: 0x44B6_0000,
-            end: 0x44B6_0FFF,
+            start: 0x2000,
+            end: 0x2FFF,
             access: AccessMode::Exclusive,
             private: false,
         });
@@ -5452,27 +5307,27 @@ mod tests {
             .acquire("DEV_A:aux", &"alice".to_string(), AccessMode::Shared)
             .unwrap();
 
-        // Alice can map WireIn 0x00 to Port A's range (0x44A6_0100):
+        // Alice can map WireIn 0x01 to Port A's range (0x1100):
         assert!(registry
             .check_endpoint_access(
                 "alice",
                 "DEV_A",
-                0x00,
+                0x01,
                 &EndpointType::WireIn,
-                Some(0x44A6_0100)
+                Some(0x1100)
             )
             .is_ok());
 
-        // Alice CANNOT map WireIn 0x00 to Aux's range (0x44B6_0100), because
-        // Aux does not cover WireIn 0x00 and Port A does not cover 0x44B6_0100!
+        // Alice CANNOT map WireIn 0x01 to Aux's range (0x2100), because
+        // Aux does not cover WireIn 0x01 and Port A does not cover 0x2100!
         assert!(matches!(
             registry
                 .check_endpoint_access(
                     "alice",
                     "DEV_A",
-                    0x00,
+                    0x01,
                     &EndpointType::WireIn,
-                    Some(0x44B6_0100)
+                    Some(0x2100)
                 )
                 .unwrap_err(),
             AccessDenied::NoCoveringResource { .. }

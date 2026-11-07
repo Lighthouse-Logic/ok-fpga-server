@@ -444,9 +444,8 @@ adopted, 2 rejected as non-observable / redundant).
     `"endpoints": {"entries": []}` for zero endpoints, `D59`) and when an
     `endpoints: None` resource and a Pipe-declaring resource coexist on the
     same device.
-  - Provide and document a generic, non-DualPort-specific
-    `ClassicAddressBridgePolicy` reference implementation in
-    `crates/ok-fpga-core/src/resource.rs`.
+  - Document how custom `ResourceAccessPolicy` implementations can map Classic
+    `WireIn` endpoints to 32-bit target addresses (`resolve_classic_address`).
 - **Q3a & Q3b (`endpoint_enforcement` default & unit test migration):**
   - Default `access_control.endpoint_enforcement` to `"enforce"` (`S-12`) and
     reject missing identity in `resolve_user_id` (`S-18`); allow anonymous
@@ -490,7 +489,7 @@ adopted, 2 rejected as non-observable / redundant).
     `ReadOnly` mapped-address denial (`D29`), `ResetFPGA` (`D56`, `D66`,
     `D75 F1`), `UpdateTriggerOuts` private TriggerOut denial (`D75 F2`),
     full-span AXI & 64-bit address checking (`Q4`, `P14`), and
-    `ClassicAddressBridgePolicy` (`Q2`).
+    `ResourceAccessPolicy::resolve_classic_address` (`Q2`).
   - Core `device_resource_integration.rs`:
     `test_two_users_classic_bridge_enforcement_and_blocking`,
     `test_hardware_xem7320_counters_enforcement_pipeline` (`#[ignore]`).

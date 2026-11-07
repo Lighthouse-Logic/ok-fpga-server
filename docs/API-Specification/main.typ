@@ -78,7 +78,7 @@
 #include "chapters/overview.typ"
 #include "chapters/resource-model.typ"
 #include "chapters/enforcement.typ"
-#include "chapters/example-DualPort.typ"
+#include "chapters/example-dual-port.typ"
 
 // ---------------------------------------------------------------- appendices
 #counter(heading).update(0)

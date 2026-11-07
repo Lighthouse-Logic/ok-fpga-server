@@ -10,8 +10,7 @@
 //! variables so tests can point at the shared lab broker today and switch
 //! to a dedicated development or local Mosquitto broker without code changes:
 //!
-//! - `OKFPGA_TEST_MQTT_HOST` — broker hostname or IP (default:
-//!   `127.0.0.1`)
+//! - `OKFPGA_TEST_MQTT_HOST` — broker hostname or IP (default: `127.0.0.1`)
 //! - `OKFPGA_TEST_MQTT_PORT` — broker TCP port (default: `1883`)
 //! - `OKFPGA_TEST_MQTT_STRICT` — when set to `1` or `true`, unreachable
 //!   brokers cause an immediate test failure instead of a graceful skip.

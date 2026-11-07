@@ -62,4 +62,4 @@ working on this codebase. They must be followed in every session.
 
 **10. Versioning**
 * Bump the server's semantic version in the root `Cargo.toml` (`[workspace.package] version`) in the *same commit* as functional server changes. The crates inherit it via `version.workspace = true`.
-* Python clients under `client/` and `client-examples/` each have their own `pyproject.toml` and version. Bump a client's version only in commits that change that client.
+* Python clients under `client-examples/` each have their own `pyproject.toml` and version. Bump a client's version only in commits that change that client.

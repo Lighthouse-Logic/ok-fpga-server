@@ -167,7 +167,7 @@ Features in this section represent uncommitted research or long-term capabilitie
 
   **Related design-specific hooks.** This is one of several server-side
   extensions that particular bitfiles need beyond plain FrontPanel calls,
-  e.g. the DualPort-Transceiver FrontPanel_to_AXI bridge and custom AXI address
+  e.g. Classic-to-AXI address bridges and custom AXI address
   handling (ADR-025 `ResourceAccessPolicy`), and server-side sequences
   (44.5, D12, D40). A common extension mechanism should be considered
   together with this item.

@@ -8,7 +8,7 @@
 [ADR-024](ADR-024-endpoint-access-enforcement.md) (Endpoint Access Enforcement)
 
 > **Superseded in part by [ADR-034](ADR-034-resource-model-consolidation.md) §13 (`B2`, `S-14`, `S-20`, `D9`, `D44`, `D51`)**:
-> Sections §2, §3, §5, and Future Work are superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §13: exclusive `AddressRange`s inside a `Shared` resource do **not** require a resource lock (`S-14`, `D44`), `MapsToAddress(a)` checks `a` against the **same** candidate resource `R` (`S-20`, `D9`), `AllowAlways` skips only the address check on `R` while still enforcing holder mode, foreign lock, and blocking (`D51`), and `ClassicAddressBridgePolicy` provides a generic reference implementation. Sections §1, §4, and §6 remain active. Historical text below is retained for context.
+> Sections §2, §3, §5, and Future Work are superseded by [ADR-034](ADR-034-resource-model-consolidation.md) §13: exclusive `AddressRange`s inside a `Shared` resource do **not** require a resource lock (`S-14`, `D44`), `MapsToAddress(a)` checks `a` against the **same** candidate resource `R` (`S-20`, `D9`), and `AllowAlways` skips only the address check on `R` while still enforcing holder mode, foreign lock, and blocking (`D51`). Sections §1, §4, and §6 remain active. Historical text below is retained for context.
 
 ## Context
 

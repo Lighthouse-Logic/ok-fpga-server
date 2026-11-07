@@ -1,30 +1,29 @@
-// chapters/example-DualPort.typ — Section 5: worked example.
+// chapters/example-dual-port.typ — Section 5: worked example.
 // Drafted by local-strata (job_0a95d459), reviewed and corrected by
-// Antigravity 2026-10-11. Source: developer guide §6 (DualPort-Transceiver,
-// axibridge-access-guide-v2.md). Address ranges are ILLUSTRATIVE: Strata
-// invented the base addresses; only Core 0 0x44A0_0014 appears in the guide.
-// ref: ADR-025 (DualPort mapping stub); D4, D5, D9, D14, D19, D20, D21,
+// Antigravity 2026-10-11. Source: developer guide §6.
+// Address ranges are ILLUSTRATIVE.
+// ref: ADR-025 (Classic address mapping hook); D4, D5, D9, D14, D19, D20, D21,
 // D24, D29, D30, D35, D44, D46, D75
 #import "../lib.typ": *
 
-= Worked Example: Dual-Port DualPort on an XEM8320 <example-DualPort>
+= Worked Example: Dual-Port Transceiver on an XEM8320 <example-dual-port>
 
-This chapter applies the rules of @resource-model and @enforcement to a real
-design: a DualPort-Transceiver bitfile on an XEM8320 with two network ports. Each
-port has its own cores (Core, Trigger, Gearbox, I²C) and half of the DDR4
-memory. Both ports reach their cores through *one* AXI bridge built from
-Classic endpoints, and share one Authenticator.
+This chapter applies the rules of @resource-model and @enforcement to a
+multi-port HDL design: a dual-port transceiver bitfile on an XEM8320 with two
+network ports. Each port has its own cores (Core, Trigger, Gearbox, I²C) and
+half of the DDR4 memory. Both ports reach their cores through *one* AXI bridge
+built from Classic endpoints, and share one device-level supervisor block.
 
 #note[
-  The address ranges in this chapter are illustrative. The real DualPort
-  address map is defined by the bitfile's documentation.
+  The address ranges in this chapter are illustrative. Real address maps are
+  defined by the bitfile's documentation.
 ]
 
-== Setup <DualPort-setup>
+== Setup <dual-port-setup>
 // ref: D9, D14, D30, D75 (0xA0 private), D26 (reprogram clears)
 
-+ Program the XEM8320 with the DualPort bitfile. Any user may do this; it
-  deletes every existing resource on the device (@res-lifecycle-device).
++ Program the XEM8320 with the dual-port transceiver bitfile. Any user may do
+  this; it deletes every existing resource on the device (@res-lifecycle-device).
 + Register two *shared* resources, `port-a` and `port-b`. Order does not
   matter: every overlap is a shared item in a shared resource
   (@res-registration, row 1).
@@ -32,13 +31,13 @@ Classic endpoints, and share one Authenticator.
 #table(
   columns: (auto, 1fr, 1fr),
   [Resource], [Shared endpoints (declared by both)], [Exclusive ranges (own only)],
-  [`port-a`], [AXI bridge: WireIn `0x00`–`0x08`, TriggerIn `0x40`/`0x44`/`0x45`, WireOut `0x20`–`0x23`/`0x31`, PipeIn `0x80`, PipeOut `0xA0`. Authenticator: WireIn `0x17`, TriggerIn `0x4C`, WireOut `0x2A`–`0x2C`, TriggerOut `0x60`–`0x63`.], [Core 0, Trigger 0, Gearbox 0, I²C 0, DDR4 lower half.],
+  [`port-a`], [AXI bridge: WireIn `0x00`–`0x08`, TriggerIn `0x40`/`0x44`/`0x45`, WireOut `0x20`–`0x23`/`0x31`, PipeIn `0x80`, PipeOut `0xA0`. Supervisor: WireIn `0x17`, TriggerIn `0x4C`, WireOut `0x2A`–`0x2C`, TriggerOut `0x60`–`0x63`.], [Core 0, Trigger 0, Gearbox 0, I²C 0, DDR4 lower half.],
   [`port-b`], [the same], [Core 1, Trigger 1, Gearbox 1, I²C 1, DDR4 upper half.],
 )
 
 PipeOut `0xA0` is marked `private` in both resources: a ReadOnly read would
 drain bridge data that a holder is waiting for (@enf-readonly-design-rule).
-The Authenticator TriggerOuts are also private, so a ReadOnly observer cannot
+The supervisor TriggerOuts are also private, so a ReadOnly observer cannot
 clear them with `UpdateTriggerOuts` (@enf-readonly). The `private` flag must
 be identical in both declarations (@res-registration, row 11).
 
@@ -48,7 +47,7 @@ be identical in both declarations (@res-registration, row 11).
   ```json
   {
     "name": "port-a",
-    "description": "DualPort port A",
+    "description": "Transceiver port A",
     "device_serial": "2149000ABC",
     "access_mode": "shared",
     "interfaces": ["classic"],
@@ -87,10 +86,10 @@ be identical in both declarations (@res-registration, row 11).
   ```
 ]
 
-== Bridge transactions <DualPort-transactions>
+== Bridge transactions <dual-port-transactions>
 // ref: D30 (only three transactions), D4 (ADR-025 hook maps WI 0x00/0x01)
 
-DualPort uses only three bridge transactions. Each is several calls on
+This dual-port design uses three bridge transactions. Each is several calls on
 shared endpoints, so a compliant client locks its port before the first call
 and unlocks after the last (@res-lock-when).
 
@@ -102,8 +101,8 @@ and unlocks after the last (@res-lock-when).
   [Burst read], [`SetWireInValue` `0x01` = address, `0x03` = control, `UpdateWireIns`, `ActivateTriggerIn` `0x44` bit 0, `UpdateWireOuts`, poll `0x21` bit 0, `ReadFromPipeOut` `0xA0`.],
 )
 
-The server's DualPort address mapping (@enf-address-mapping) resolves the
-address written to WireIn `0x00` or `0x01`, and checks it against the ranges
+A custom `ResourceAccessPolicy` address mapping (@enf-address-mapping) resolves
+the address written to WireIn `0x00` or `0x01`, and checks it against the ranges
 of the caller's resource.
 
 Module status is read from AXI memory, not from WireOuts: *Status Register
@@ -112,7 +111,7 @@ Module status is read from AXI memory, not from WireOuts: *Status Register
 #table(
   columns: (auto, 1fr, 1fr),
   [Bits], [Core module], [Trigger module],
-  [7], [Authenticated], [Authenticated],
+  [7], [Initialized], [Initialized],
   [4:1], [current state], [current state],
   [0], [txTriggerArmed], [txTriggerArmed],
   [8], [Core Ready], [—],
@@ -121,19 +120,19 @@ Module status is read from AXI memory, not from WireOuts: *Status Register
   [31:16], [last non-idle address], [—],
 )
 
-== Usage scenario <DualPort-scenarios>
+== Usage scenario <dual-port-scenarios>
 // ref: D5, D9, D16, D17, D19, D20, D21, D24, D29, D35, D44, D46, D75
 
 #table(
   columns: (auto, 1fr, 1fr),
   [Step], [Action], [Result and reason],
   [1], [Alice acquires `port-a`.], [200. She is a holder and may write `port-a`'s items.],
-  [2], [Alice locks `port-a` and burst-reads Core 0 Status Register 2: bit 7 = 0 (not authenticated).], [Allowed. The burst read is multi-step, so she locks. The address is in `port-a`'s Core 0 range.],
-  [3], [Still holding the lock, Alice authenticates (WireIn `0x17`, TriggerIn `0x4C`, …), re-reads bit 7 = 1, then unlocks.], [Allowed. While she holds the lock, `port-b` is blocked for everyone else.],
+  [2], [Alice locks `port-a` and burst-reads Core 0 Status Register 2: bit 7 = 0 (not initialized).], [Allowed. The burst read is multi-step, so she locks. The address is in `port-a`'s Core 0 range.],
+  [3], [Still holding the lock, Alice runs the device initialization handshake (WireIn `0x17`, TriggerIn `0x4C`, …), re-reads bit 7 = 1, then unlocks.], [Allowed. While she holds the lock, `port-b` is blocked for everyone else.],
   [4], [Alice locks `port-a`, does a one-shot write to Core 0 (`0x44A0_0014`), unlocks.], [Allowed. The server would accept the writes without the lock, but the transaction is multi-step, so a compliant client locks.],
   [5], [Bob acquires `port-b`.], [200, even while `port-a` is locked: acquiring is never blocked.],
   [6], [Bob locks `port-b`.], [200 if `port-a` is unlocked. If Alice holds her lock: 409 (`blocked`). Bob waits for `ResourceUnlocked` and retries.],
-  [7], [Bob burst-reads Core 1 Status Register 2: bit 7 = 1, Core Ready = 1.], [Allowed. The FPGA is already authenticated, so Bob skips authentication, uses his own ranges, then unlocks.],
+  [7], [Bob burst-reads Core 1 Status Register 2: bit 7 = 1, Core Ready = 1.], [Allowed. The FPGA is already initialized, so Bob skips initialization, uses his own ranges, then unlocks.],
   [8], [Alice (holding only `port-a`) writes a Core 1 address to WireIn `0x00`.], [403: the mapped address is not in any of `port-a`'s ranges, locked or not.],
   [9], [Bob writes WireIn `0x00` while Alice holds `port-a`'s lock.], [403: `port-b` is blocked for Bob.],
   [10], [Bob reads WireOut `0x21` or PipeOut `0xA0` while Alice holds the lock.], [Allowed by the server (shared holders may read, private or not). A compliant client never does this outside its own locked transaction: reading `0xA0` would steal Alice's burst-read data.],
@@ -151,7 +150,7 @@ Module status is read from AXI memory, not from WireOuts: *Status Register
   her client's concern; the server does not protect a user from herself.
 ]
 
-== Why a lock blocks the other port <DualPort-lock-rationale>
+== Why a lock blocks the other port <dual-port-lock-rationale>
 
 Both ports drive one physical bridge. Each transaction is five to seven calls
 on shared endpoints, and interleaving two transactions corrupts both.

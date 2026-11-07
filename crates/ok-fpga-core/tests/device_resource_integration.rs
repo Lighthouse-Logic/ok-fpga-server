@@ -317,18 +317,50 @@ fn test_two_users_classic_bridge_enforcement_and_blocking() {
         ResourceSpec,
     };
     use ok_fpga_core::resource::{
-        AccessDenied, ClassicAddressBridgePolicy, EndpointType, LockOutcome,
+        AccessDenied, AcquisitionDenied, ClassicAddressResolution, DefaultAccessPolicy,
+        EndpointType, LockOutcome, ResourceAccessPolicy, UserId,
     };
     use std::collections::HashMap;
 
-    let policy = Box::new(ClassicAddressBridgePolicy::new(Some(0x00), Some(0x01)));
+    struct TestAddressMappingPolicy;
+
+    impl ResourceAccessPolicy for TestAddressMappingPolicy {
+        fn can_acquire(
+            &self,
+            resource: &Resource,
+            user: &UserId,
+            mode: AccessMode,
+        ) -> Result<(), AcquisitionDenied> {
+            DefaultAccessPolicy.can_acquire(resource, user, mode)
+        }
+
+        fn resolve_classic_address(
+            &self,
+            _resource: &Resource,
+            _user: &UserId,
+            endpoint: u8,
+            ep_type: &EndpointType,
+            value: Option<u32>,
+        ) -> ClassicAddressResolution {
+            match (endpoint, ep_type) {
+                (0x00 | 0x01, EndpointType::WireIn) => {
+                    value.map_or(ClassicAddressResolution::NoMapping, |v| {
+                        ClassicAddressResolution::MapsToAddress(u64::from(v))
+                    })
+                }
+                _ => ClassicAddressResolution::NoMapping,
+            }
+        }
+    }
+
+    let policy = Box::new(TestAddressMappingPolicy);
     let rr = ResourceRegistry::with_policy(policy);
 
     let make_port = |name: &str, core_start: u32, core_end: u32| -> Resource {
         let spec = ResourceSpec {
             name: name.to_string(),
             description: None,
-            device_serial: "DEV_BP".to_string(),
+            device_serial: "DEV_DUAL".to_string(),
             access_mode: Some(AccessMode::Shared),
             private: false,
             interfaces: vec!["classic".to_string()],
@@ -340,21 +372,21 @@ fn test_two_users_classic_bridge_enforcement_and_blocking() {
                         ep_type: "wire_in".to_string(),
                         access: Some(AccessMode::Shared),
                         private: false,
-                        description: Some("m_axi_awaddr".to_string()),
+                        description: Some("write_addr".to_string()),
                     },
                     EndpointEntrySpec {
                         address: 0x01,
                         ep_type: "wire_in".to_string(),
                         access: Some(AccessMode::Shared),
                         private: false,
-                        description: Some("m_axi_araddr".to_string()),
+                        description: Some("read_addr".to_string()),
                     },
                     EndpointEntrySpec {
                         address: 0x20,
                         ep_type: "wire_out".to_string(),
                         access: Some(AccessMode::Shared),
                         private: false,
-                        description: Some("m_axi_rdata".to_string()),
+                        description: Some("read_data".to_string()),
                     },
                 ],
             }),
@@ -371,14 +403,14 @@ fn test_two_users_classic_bridge_enforcement_and_blocking() {
         build_resource(spec).unwrap()
     };
 
-    let port_a = make_port("port_a", 0x44A6_0000, 0x44A6_0FFF);
-    let port_b = make_port("port_b", 0x44B6_0000, 0x44B6_0FFF);
+    let port_a = make_port("port_a", 0x1000_0000, 0x1000_0FFF);
+    let port_b = make_port("port_b", 0x2000_0000, 0x2000_0FFF);
     rr.try_register(port_a, check_overlap).unwrap();
     rr.try_register(port_b, check_overlap).unwrap();
 
-    rr.acquire("DEV_BP:port_a", &"alice".to_string(), AccessMode::Shared)
+    rr.acquire("DEV_DUAL:port_a", &"alice".to_string(), AccessMode::Shared)
         .unwrap();
-    rr.acquire("DEV_BP:port_b", &"bob".to_string(), AccessMode::Shared)
+    rr.acquire("DEV_DUAL:port_b", &"bob".to_string(), AccessMode::Shared)
         .unwrap();
 
     // 1. S-14: Alice can write Port A's exclusive range without locking Port A,
@@ -386,31 +418,31 @@ fn test_two_users_classic_bridge_enforcement_and_blocking() {
     assert!(rr
         .check_endpoint_access(
             "alice",
-            "DEV_BP",
+            "DEV_DUAL",
             0x00,
             &EndpointType::WireIn,
-            Some(0x44A6_0100)
+            Some(0x1000_0100)
         )
         .is_ok());
     assert!(rr
         .check_endpoint_access(
             "bob",
-            "DEV_BP",
+            "DEV_DUAL",
             0x00,
             &EndpointType::WireIn,
-            Some(0x44B6_0100)
+            Some(0x2000_0100)
         )
         .is_ok());
 
-    // 2. S-20: Alice cannot address Port B's range (0x44B6_0100), and Bob cannot
-    //    address Port A's range (0x44A6_0100).
+    // 2. S-20: Alice cannot address Port B's range (0x2000_0100), and Bob cannot
+    //    address Port A's range (0x1000_0100).
     assert!(matches!(
         rr.check_endpoint_access(
             "alice",
-            "DEV_BP",
+            "DEV_DUAL",
             0x00,
             &EndpointType::WireIn,
-            Some(0x44B6_0100)
+            Some(0x2000_0100)
         )
         .unwrap_err(),
         AccessDenied::NoCoveringResource { .. }
@@ -418,10 +450,10 @@ fn test_two_users_classic_bridge_enforcement_and_blocking() {
     assert!(matches!(
         rr.check_endpoint_access(
             "bob",
-            "DEV_BP",
+            "DEV_DUAL",
             0x00,
             &EndpointType::WireIn,
-            Some(0x44A6_0100)
+            Some(0x1000_0100)
         )
         .unwrap_err(),
         AccessDenied::NoCoveringResource { .. }
@@ -430,33 +462,33 @@ fn test_two_users_classic_bridge_enforcement_and_blocking() {
     // 3. B2: Alice locks Port A for a multi-step bridge sequence -> Port B is
     //    blocked for Bob's writes, while Bob's reads still succeed.
     assert_eq!(
-        rr.lock("DEV_BP:port_a", &"alice".to_string()).unwrap(),
+        rr.lock("DEV_DUAL:port_a", &"alice".to_string()).unwrap(),
         LockOutcome::Locked
     );
     assert!(matches!(
         rr.check_endpoint_access(
             "bob",
-            "DEV_BP",
+            "DEV_DUAL",
             0x00,
             &EndpointType::WireIn,
-            Some(0x44B6_0100)
+            Some(0x2000_0100)
         )
         .unwrap_err(),
         AccessDenied::BlockedByOther { .. }
     ));
     assert!(rr
-        .check_endpoint_access("bob", "DEV_BP", 0x20, &EndpointType::WireOut, None)
+        .check_endpoint_access("bob", "DEV_DUAL", 0x20, &EndpointType::WireOut, None)
         .is_ok());
 
     // 4. Alice unlocks Port A -> Bob's writes to Port B succeed again.
-    rr.unlock("DEV_BP:port_a", &"alice".to_string()).unwrap();
+    rr.unlock("DEV_DUAL:port_a", &"alice".to_string()).unwrap();
     assert!(rr
         .check_endpoint_access(
             "bob",
-            "DEV_BP",
+            "DEV_DUAL",
             0x00,
             &EndpointType::WireIn,
-            Some(0x44B6_0100)
+            Some(0x2000_0100)
         )
         .is_ok());
 }

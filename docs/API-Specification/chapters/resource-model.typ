@@ -342,7 +342,7 @@ therefore gets *422* even while that device is not programmed.
 
 *Rationale.* Shared items in shared resources may overlap because several
 functions often need the same physical endpoints. In the example of
-@example-DualPort, two network ports drive one AXI bridge through the same
+@example-dual-port, two network ports drive one AXI bridge through the same
 WireIns, so both port resources must declare them. Everything else must have
 one clear owner, and "first registration wins" gives a deterministic answer
 without a central schema. Requiring the same `private` flag on both sides

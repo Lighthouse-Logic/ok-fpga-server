@@ -17,7 +17,7 @@ devices that report `dataport = "axi"` / `OK_DATAPORT_AXI`,
   Classic devices (such as XEM8320 or XEM7320) that tunnel AXI accesses through
   Classic `WireIn`/`TriggerIn`/`WireOut` endpoints. Classic bridge designs use
   `/classic/*` routes with `interfaces: ["classic"]` and optional
-  developer-defined address mappings (@enf-address-mapping, @example-DualPort).
+  developer-defined address mappings (@enf-address-mapping, @example-dual-port).
 - *64-bit request `address` vs 32-bit `AddressRange`:* To match the FrontPanel
   6.1.0 C API signatures (`uint64_t address`), AXI Lite and AXI Full request
   schemas accept a 64-bit integer `address`. Resource `AddressRange`
