@@ -1165,6 +1165,263 @@ fn test_hardware_xem7320_wire_in_auto_update_semantics() {
         let c1_reset = (dll.classic_get_wire_out_value)(classic, 0x20) as u32;
         assert_eq!(c1_reset, 0, "Counter #1 must be 0 once UpdateWireIns flushes RESET1=1");
 
+        let _ = (dll.fp_clear_fpga_configuration)(fp_handle);
         (dll.fp_destruct)(fp_handle);
+    }
+}
+
+// ============================================================================
+// Phase 49: Separable Dual-XEM7320 Hardware Isolation & Enforcement Test
+// ============================================================================
+
+/// Verifies independent programming, resource registration, lock isolation, and
+/// live counter/trigger control across two physical XEM7320 boards when both are
+/// connected.
+///
+/// **Separable / Single-Board Friendly:** If fewer than 2 physical XEM7320 boards
+/// are connected, this test logs a skip notice and returns `Ok` so single-board
+/// hardware test suites pass without failure.
+#[test]
+#[ignore = "Requires live XEM7320 hardware (skips gracefully if < 2 boards connected)"]
+fn test_hardware_dual_xem7320_independent_resources_and_enforcement() {
+    use ok_fpga_core::declaration::{
+        build_resource, check_overlap, EndpointEntrySpec, EndpointSpec, ResourceSpec,
+    };
+    use ok_fpga_core::resource::{AccessMode, EndpointType, LockOutcome, ResourceRegistry};
+    use ok_fpga_ffi::api::FrontPanelDll;
+    use ok_fpga_ffi::*;
+    use std::collections::HashMap;
+    use std::ffi::{CStr, CString};
+    use std::path::{Path, PathBuf};
+
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let workspace_root = Path::new(manifest_dir)
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap_or(Path::new(manifest_dir));
+
+    let dll_path = std::env::var("OKFPGA_DLL_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            #[cfg(target_os = "windows")]
+            let lib_name = "okFrontPanel.dll";
+            #[cfg(not(target_os = "windows"))]
+            let lib_name = "libokFrontPanel.so";
+            workspace_root.join("FrontPanel-6.1.0").join(lib_name)
+        });
+    let dll = FrontPanelDll::load(&dll_path).expect("load libokFrontPanel.so");
+    let counters_bit = workspace_root
+        .join("FrontPanel-6.1.0")
+        .join("ExampleBitfiles")
+        .join("20190501-FP50-XEM7320-A75")
+        .join("XEM7320-A75")
+        .join("Counters.bit");
+    assert!(counters_bit.exists(), "Counters.bit must exist");
+
+    unsafe {
+        let mut err_ptr: *mut okError = std::ptr::null_mut();
+        let realm = CString::new("").unwrap();
+        let devices_handle = (dll.devices_construct)(realm.as_ptr(), &mut err_ptr);
+        assert!(!devices_handle.is_null());
+
+        let count = (dll.devices_get_count)(devices_handle);
+        let mut boards: Vec<(String, okFrontPanel_HANDLE)> = Vec::new();
+
+        for idx in 0..count {
+            let mut serial_buf = [0i8; 11];
+            (dll.devices_get_serial)(devices_handle, idx, serial_buf.as_mut_ptr());
+            let serial = CStr::from_ptr(serial_buf.as_ptr())
+                .to_string_lossy()
+                .to_string();
+            let serial_c = CString::new(serial.clone()).unwrap();
+            let fp_handle = (dll.devices_open)(devices_handle, serial_c.as_ptr());
+            if fp_handle.is_null() {
+                continue;
+            }
+            let mut info = okTDeviceInfo::default();
+            let size = std::mem::size_of::<okTDeviceInfo>() as u32;
+            let rc = (dll.fp_get_device_info_with_size)(fp_handle, &mut info, size);
+            let product_name = if rc as i32 == ok_ErrorCode::ok_NoError as i32 {
+                CStr::from_ptr(info.productName.as_ptr())
+                    .to_string_lossy()
+                    .to_string()
+            } else {
+                String::new()
+            };
+            if product_name.starts_with("XEM7320") {
+                boards.push((serial, fp_handle));
+                if boards.len() == 2 {
+                    break;
+                }
+            } else {
+                (dll.fp_destruct)(fp_handle);
+            }
+        }
+        (dll.devices_destruct)(devices_handle);
+
+        if boards.len() < 2 {
+            eprintln!(
+                "SKIP: test_hardware_dual_xem7320_independent_resources_and_enforcement \
+                 requires >= 2 connected XEM7320 boards (found {}); skipping cleanly.",
+                boards.len()
+            );
+            for (_, h) in boards {
+                (dll.fp_destruct)(h);
+            }
+            return;
+        }
+
+        let (serial_a, fp_a) = boards.remove(0);
+        let (serial_b, fp_b) = boards.remove(0);
+        eprintln!(
+            "Running dual-XEM7320 isolation test on Board A ({}) and Board B ({})",
+            serial_a, serial_b
+        );
+
+        let bit_c = CString::new(counters_bit.to_string_lossy().as_ref()).unwrap();
+        assert_eq!(
+            (dll.fp_configure_fpga)(fp_a, bit_c.as_ptr()) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+        assert_eq!(
+            (dll.fp_configure_fpga)(fp_b, bit_c.as_ptr()) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+
+        let mut classic_a: okFPGADataPortClassic_HANDLE = std::ptr::null_mut();
+        let mut classic_b: okFPGADataPortClassic_HANDLE = std::ptr::null_mut();
+        assert_eq!(
+            (dll.fp_get_fpga_data_port_classic)(fp_a, &mut classic_a) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+        assert_eq!(
+            (dll.fp_get_fpga_data_port_classic)(fp_b, &mut classic_b) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+
+        // Register identical resource layouts on Board A and Board B in the same ResourceRegistry.
+        let rr = ResourceRegistry::new();
+        let make_board_res = |serial: &str, name: &str| -> ok_fpga_core::resource::Resource {
+            build_resource(ResourceSpec {
+                name: name.to_string(),
+                description: Some(format!("Counters resource on {}", serial)),
+                device_serial: serial.to_string(),
+                access_mode: Some(AccessMode::Shared),
+                private: false,
+                interfaces: vec!["classic".to_string()],
+                endpoints: Some(EndpointSpec {
+                    default_access: Some(AccessMode::Shared),
+                    entries: vec![
+                        EndpointEntrySpec {
+                            address: 0x00,
+                            ep_type: "wire_in".to_string(),
+                            access: Some(AccessMode::Shared),
+                            private: false,
+                            description: None,
+                        },
+                        EndpointEntrySpec {
+                            address: 0x20,
+                            ep_type: "wire_out".to_string(),
+                            access: Some(AccessMode::Shared),
+                            private: false,
+                            description: None,
+                        },
+                        EndpointEntrySpec {
+                            address: 0x21,
+                            ep_type: "wire_out".to_string(),
+                            access: Some(AccessMode::Shared),
+                            private: false,
+                            description: None,
+                        },
+                        EndpointEntrySpec {
+                            address: 0x40,
+                            ep_type: "trigger_in".to_string(),
+                            access: Some(AccessMode::Shared),
+                            private: false,
+                            description: None,
+                        },
+                    ],
+                }),
+                address_ranges: vec![],
+                metadata: HashMap::new(),
+            })
+            .unwrap()
+        };
+
+        let res_a_id = format!("{}:counters", serial_a);
+        let res_b_id = format!("{}:counters", serial_b);
+        rr.try_register(make_board_res(&serial_a, "counters"), check_overlap)
+            .unwrap();
+        rr.try_register(make_board_res(&serial_b, "counters"), check_overlap)
+            .unwrap();
+
+        rr.acquire(&res_a_id, &"alice".to_string(), AccessMode::Shared)
+            .unwrap();
+        rr.acquire(&res_b_id, &"bob".to_string(), AccessMode::Shared)
+            .unwrap();
+
+        // Locking Board A by Alice must NOT block Bob on Board B, and Alice cannot
+        // access Board B (she holds no resource on Board B).
+        assert_eq!(
+            rr.lock(&res_a_id, &"alice".to_string()).unwrap(),
+            LockOutcome::Locked
+        );
+        assert!(rr
+            .check_endpoint_access("bob", &serial_b, 0x00, &EndpointType::WireIn, Some(0))
+            .is_ok());
+        assert!(rr
+            .check_endpoint_access("alice", &serial_b, 0x20, &EndpointType::WireOut, None)
+            .is_err());
+
+        // Reset Counter #2 on both boards, then trigger Counter #2 3 times on Board A
+        // and 7 times on Board B — verifying independent physical FPGA state.
+        assert_eq!(
+            (dll.classic_activate_trigger_in)(classic_a, 0x40, 0) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+        assert_eq!(
+            (dll.classic_activate_trigger_in)(classic_b, 0x40, 0) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+        for _ in 0..3 {
+            assert_eq!(
+                (dll.classic_activate_trigger_in)(classic_a, 0x40, 1) as i32,
+                ok_ErrorCode::ok_NoError as i32
+            );
+        }
+        for _ in 0..7 {
+            assert_eq!(
+                (dll.classic_activate_trigger_in)(classic_b, 0x40, 1) as i32,
+                ok_ErrorCode::ok_NoError as i32
+            );
+        }
+
+        assert_eq!(
+            (dll.classic_update_wire_outs)(classic_a) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+        assert_eq!(
+            (dll.classic_update_wire_outs)(classic_b) as i32,
+            ok_ErrorCode::ok_NoError as i32
+        );
+        let c2_a = (dll.classic_get_wire_out_value)(classic_a, 0x21) & 0xFF;
+        let c2_b = (dll.classic_get_wire_out_value)(classic_b, 0x21) & 0xFF;
+        eprintln!(
+            "  Dual-board Counter #2 values: Board A ({}) = {}, Board B ({}) = {}",
+            serial_a, c2_a, serial_b, c2_b
+        );
+        assert_eq!(c2_a, 3, "Board A Counter #2 should equal 3");
+        assert_eq!(c2_b, 7, "Board B Counter #2 should equal 7");
+
+        // Clearing Board A must only delete Board A's resources; Board B remains intact.
+        let deleted_a = rr.force_delete_for_device(&serial_a);
+        assert_eq!(deleted_a.len(), 1);
+        assert_eq!(rr.list_for_device(&serial_a).len(), 0);
+        assert_eq!(rr.list_for_device(&serial_b).len(), 1);
+
+        let _ = (dll.fp_clear_fpga_configuration)(fp_a);
+        let _ = (dll.fp_clear_fpga_configuration)(fp_b);
+        (dll.fp_destruct)(fp_a);
+        (dll.fp_destruct)(fp_b);
     }
 }

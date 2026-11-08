@@ -88,17 +88,7 @@ class _Listener:
         pass  # Not needed for one-shot discovery.
 
 
-def discover_servers(timeout: float = 3.0) -> list[DiscoveredServer]:
-    """Browse the local network for ok-FPGA-Server instances.
-
-    Args:
-        timeout: How long to wait for mDNS responses (seconds).
-
-    Returns:
-        List of discovered servers (may be empty).
-    """
-    logger.info("Browsing for %s (timeout: %.1fs)...", SERVICE_TYPE, timeout)
-
+def _discover_sync(timeout: float) -> list[DiscoveredServer]:
     zc = Zeroconf()
     listener = _Listener()
     browser = ServiceBrowser(zc, SERVICE_TYPE, listener)
@@ -107,8 +97,40 @@ def discover_servers(timeout: float = 3.0) -> list[DiscoveredServer]:
 
     browser.cancel()
     zc.close()
+    return listener.servers
 
-    if not listener.servers:
+
+def discover_servers(timeout: float = 3.0) -> list[DiscoveredServer]:
+    """Browse the local network for ok-FPGA-Server instances.
+
+    Safe to call from both synchronous code and inside an active ``asyncio``
+    event loop (offloads blocking ``Zeroconf`` I/O to a worker thread when an
+    event loop is running on the current thread).
+
+    Args:
+        timeout: How long to wait for mDNS responses (seconds).
+
+    Returns:
+        List of discovered servers (may be empty).
+    """
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    logger.info("Browsing for %s (timeout: %.1fs)...", SERVICE_TYPE, timeout)
+
+    try:
+        asyncio.get_running_loop()
+        in_loop = True
+    except RuntimeError:
+        in_loop = False
+
+    if in_loop:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            servers = pool.submit(_discover_sync, timeout).result()
+    else:
+        servers = _discover_sync(timeout)
+
+    if not servers:
         logger.warning("No ok-FPGA-Server instances found via mDNS")
 
-    return listener.servers
+    return servers

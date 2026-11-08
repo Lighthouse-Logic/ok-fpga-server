@@ -105,9 +105,10 @@ async fn main() {
     println!("━━━ Server Status ━━━");
     match client.get_server_status().await {
         Ok(status) => {
-            println!("  API Version:  {}", status["api_version"]);
-            println!("  Uptime:       {}s", status["uptime_secs"]);
-            println!("  Devices:      {}", status["device_count"]);
+            println!("  Server Ver:   {}", status["server_version"]);
+            println!("  OpenAPI Ver:  {}", status["openapi_version"]);
+            println!("  Uptime:       {}s", status["uptime_seconds"]);
+            println!("  Devices:      {}", status["connected_devices"]);
             if let Some(services) = status["services"].as_array() {
                 for svc in services {
                     println!("  Service:      {} → {}", svc["name"], svc["status"]);
@@ -144,7 +145,9 @@ async fn main() {
                 for dev in devices {
                     println!(
                         "  {} — {} (programmed: {})",
-                        dev["serial"], dev["product_name"], dev["is_programmed"]
+                        dev["serial"],
+                        dev["product_name"],
+                        dev.get("bitfile").is_some()
                     );
                 }
                 devices.clone()

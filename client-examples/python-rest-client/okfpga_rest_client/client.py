@@ -30,7 +30,12 @@ class OkFpgaRestClient:
     - watch_events — SSE event stream
     """
 
-    def __init__(self, base_url: str, timeout: float = 10.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        timeout: float = 10.0,
+        user_id: str = "python-rest-client",
+    ) -> None:
         """Create a new REST client.
 
         The ``/api/v1`` prefix is appended automatically — pass the bare
@@ -39,11 +44,14 @@ class OkFpgaRestClient:
         Args:
             base_url: Server REST API base URL (e.g., "http://localhost:8088").
             timeout: Default request timeout in seconds.
+            user_id: Caller identity sent via ``X-User-Id`` header (S-18, ADR-029).
         """
         self.base_url = base_url.rstrip("/")
+        self.user_id = user_id
         self._client = httpx.AsyncClient(
             base_url=f"{self.base_url}/api/v1",
             timeout=timeout,
+            headers={"X-User-Id": self.user_id},
         )
 
     async def __aenter__(self) -> "OkFpgaRestClient":
@@ -386,15 +394,14 @@ class OkFpgaRestClient:
         access_mode: str = "shared",
         description: Optional[str] = None,
         interfaces: Optional[list[str]] = None,
+        endpoints: Optional[dict[str, Any]] = None,
+        address_ranges: Optional[list[dict[str, Any]]] = None,
     ) -> dict:
         """POST /resources — Create a new resource (ADR-020 / ADR-034).
 
-        Args:
-            name: Human-readable resource name (e.g., "xem7320-classic-counters").
-            device_serial: Serial of the FPGA providing this resource.
-            access_mode: "shared" or "exclusive" (design-level constraint).
-            description: Optional description of the resource.
-            interfaces: Data-path interfaces (defaults to ``["classic"]``).
+        When ``access_mode == "shared"`` and ``endpoints`` is omitted,
+        populates the standard ``Counters.bit`` endpoint and register
+        declarations so ``ADR-034 D68`` validation succeeds.
         """
         body: dict[str, Any] = {
             "name": name,
@@ -402,6 +409,32 @@ class OkFpgaRestClient:
             "access_mode": access_mode,
             "interfaces": interfaces if interfaces is not None else ["classic"],
         }
+        if endpoints is not None:
+            body["endpoints"] = endpoints
+        elif access_mode == "shared":
+            body["endpoints"] = {
+                "default_access": "shared",
+                "entries": [
+                    {"address": "0x00", "type": "wire_in", "access": "shared"},
+                    {"address": "0x20", "type": "wire_out", "access": "shared"},
+                    {"address": "0x21", "type": "wire_out", "access": "shared"},
+                    {"address": "0x22", "type": "wire_out", "access": "shared"},
+                    {"address": "0x40", "type": "trigger_in", "access": "shared"},
+                    {"address": "0x60", "type": "trigger_out", "access": "shared"},
+                    {"address": "0x61", "type": "trigger_out", "access": "shared"},
+                ],
+            }
+        if address_ranges is not None:
+            body["address_ranges"] = address_ranges
+        elif access_mode == "shared":
+            body["address_ranges"] = [
+                {
+                    "name": "classic_registers",
+                    "start": "0x00000000",
+                    "end": "0x000000FF",
+                    "access": "shared",
+                }
+            ]
         if description is not None:
             body["description"] = description
         return await self._post("/resources", json=body)

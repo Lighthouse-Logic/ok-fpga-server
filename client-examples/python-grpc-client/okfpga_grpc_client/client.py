@@ -42,14 +42,22 @@ class OkFpgaGrpcClient:
     Wraps all 4 gRPC services with typed async methods.
     """
 
-    def __init__(self, target: str) -> None:
+    def __init__(
+        self, target: str, user_id: str = "python-grpc-client"
+    ) -> None:
         """Create a new gRPC client.
 
         Args:
             target: gRPC server address (e.g., "localhost:50051").
+            user_id: Caller identity sent via ``x-user-id`` metadata (S-18, ADR-029).
         """
         self._target = target
+        self.user_id = user_id
         self._channel: Optional[grpc.aio.Channel] = None
+
+    def _meta(self) -> tuple[tuple[str, str], ...]:
+        """Return gRPC metadata tuple carrying x-user-id."""
+        return (("x-user-id", self.user_id),)
 
     async def __aenter__(self) -> "OkFpgaGrpcClient":
         self._channel = grpc.aio.insecure_channel(self._target)
@@ -82,40 +90,68 @@ class OkFpgaGrpcClient:
 
     async def list_devices(self):
         """List all connected FPGA devices."""
-        return await self._device.ListDevices(okfpga_pb2.ListDevicesRequest())
+        return await self._device.ListDevices(
+            okfpga_pb2.ListDevicesRequest(), metadata=self._meta()
+        )
 
     async def get_device_info(self, serial: str):
         """Get detailed device info."""
         return await self._device.GetDeviceInfo(
-            okfpga_pb2.DeviceRequest(serial=serial)
+            okfpga_pb2.DeviceRequest(serial=serial), metadata=self._meta()
         )
 
     async def get_server_status_device(self):
         """Get server status via DeviceService."""
-        return await self._device.GetServerStatus(okfpga_pb2.ServerStatusRequest())
+        return await self._device.GetServerStatus(
+            okfpga_pb2.ServerStatusRequest(), metadata=self._meta()
+        )
 
     async def get_device_settings(self, serial: str):
         """Get all device settings (key-value pairs from device flash/EEPROM)."""
         return await self._device.GetDeviceSettings(
-            okfpga_pb2.DeviceRequest(serial=serial)
+            okfpga_pb2.DeviceRequest(serial=serial), metadata=self._meta()
         )
 
     async def get_device_setting(self, serial: str, key: str):
         """Get a single device setting by key."""
         return await self._device.GetDeviceSetting(
-            okfpga_pb2.GetDeviceSettingRequest(serial=serial, key=key)
+            okfpga_pb2.GetDeviceSettingRequest(serial=serial, key=key),
+            metadata=self._meta(),
         )
 
     async def get_syzygy_ports(self, serial: str):
         """Discover SYZYGY peripheral ports on a device."""
         return await self._device.GetSyzygyPorts(
-            okfpga_pb2.DeviceRequest(serial=serial)
+            okfpga_pb2.DeviceRequest(serial=serial), metadata=self._meta()
         )
 
     async def get_device_sensors(self, serial: str):
         """Get device sensor readings."""
         return await self._device.GetDeviceSensors(
-            okfpga_pb2.DeviceRequest(serial=serial)
+            okfpga_pb2.DeviceRequest(serial=serial), metadata=self._meta()
+        )
+
+    async def configure_fpga(self, serial: str, bitfile_path: str):
+        """Program the FPGA from a bitfile path on the server's filesystem."""
+        return await self._device.ConfigureFPGA(
+            okfpga_pb2.ConfigureFPGARequest(
+                serial=serial,
+                bitfile_path=bitfile_path,
+                user_id=self.user_id,
+            ),
+            metadata=self._meta(),
+        )
+
+    async def clear_fpga_configuration(self, serial: str):
+        """Clear the current FPGA configuration."""
+        return await self._device.ClearFPGAConfiguration(
+            okfpga_pb2.DeviceRequest(serial=serial), metadata=self._meta()
+        )
+
+    async def get_dataport_type(self, serial: str):
+        """Get the active data port type for a device."""
+        return await self._device.GetDataportType(
+            okfpga_pb2.DeviceRequest(serial=serial), metadata=self._meta()
         )
 
     # ========================================================================
@@ -124,11 +160,15 @@ class OkFpgaGrpcClient:
 
     async def get_server_status(self):
         """Get server status via ServerService."""
-        return await self._server.GetServerStatus(okfpga_pb2.StatusResponse())
+        return await self._server.GetServerStatus(
+            okfpga_pb2.StatusResponse(), metadata=self._meta()
+        )
 
     async def list_services(self):
         """List all manageable services."""
-        return await self._server.ListServices(okfpga_pb2.StatusResponse())
+        return await self._server.ListServices(
+            okfpga_pb2.StatusResponse(), metadata=self._meta()
+        )
 
     # ========================================================================
     # ClassicDataPortService RPCs
@@ -139,13 +179,14 @@ class OkFpgaGrpcClient:
         return await self._classic.SetWireInValue(
             okfpga_pb2.SetWireInValueRequest(
                 serial=serial, endpoint=endpoint, value=value, mask=mask
-            )
+            ),
+            metadata=self._meta(),
         )
 
     async def update_wire_ins(self, serial: str):
         """Transfer pending WireIn values to FPGA."""
         return await self._classic.UpdateWireIns(
-            okfpga_pb2.DeviceRequest(serial=serial)
+            okfpga_pb2.DeviceRequest(serial=serial), metadata=self._meta()
         )
 
     async def activate_trigger_in(self, serial: str, endpoint: int, bit: int):
@@ -153,43 +194,52 @@ class OkFpgaGrpcClient:
         return await self._classic.ActivateTriggerIn(
             okfpga_pb2.ActivateTriggerInRequest(
                 serial=serial, endpoint=endpoint, bit=bit
-            )
+            ),
+            metadata=self._meta(),
         )
 
-    async def get_wire_out_value(self, serial: str, endpoint: int):
-        """Get a WireOut value (calls UpdateWireOuts + GetWireOutValue)."""
+    async def get_wire_out_value(self, serial: str, endpoint: int, update: bool = True):
+        """Get a WireOut value (calls UpdateWireOuts + GetWireOutValue when update=True)."""
         return await self._classic.GetWireOutValue(
-            okfpga_pb2.GetWireValueRequest(serial=serial, endpoint=endpoint)
+            okfpga_pb2.GetWireValueRequest(
+                serial=serial, endpoint=endpoint, update=update
+            ),
+            metadata=self._meta(),
         )
 
     async def update_wire_outs(self, serial: str):
         """Update all WireOut values from FPGA."""
         return await self._classic.UpdateWireOuts(
-            okfpga_pb2.DeviceRequest(serial=serial)
+            okfpga_pb2.DeviceRequest(serial=serial), metadata=self._meta()
         )
 
-    async def get_trigger_out_vector(self, serial: str, endpoint: int):
+    async def get_trigger_out_vector(self, serial: str, endpoint: int, update: bool = True):
         """Get TriggerOut vector for an endpoint."""
         return await self._classic.GetTriggerOutVector(
-            okfpga_pb2.TriggerOutVectorRequest(serial=serial, endpoint=endpoint)
+            okfpga_pb2.TriggerOutVectorRequest(
+                serial=serial, endpoint=endpoint, update=update
+            ),
+            metadata=self._meta(),
         )
 
     async def read_register(self, serial: str, address: int):
         """Read a single register."""
         return await self._classic.ReadRegister(
-            okfpga_pb2.ReadRegisterRequest(serial=serial, address=address)
+            okfpga_pb2.ReadRegisterRequest(serial=serial, address=address),
+            metadata=self._meta(),
         )
 
     async def write_register(self, serial: str, address: int, data: int):
         """Write a single register."""
         return await self._classic.WriteRegister(
-            okfpga_pb2.WriteRegisterRequest(serial=serial, address=address, data=data)
+            okfpga_pb2.WriteRegisterRequest(serial=serial, address=address, data=data),
+            metadata=self._meta(),
         )
 
     async def reset_fpga(self, serial: str):
         """Reset the FPGA via Classic data port."""
         return await self._classic.ResetFPGA(
-            okfpga_pb2.DeviceRequest(serial=serial)
+            okfpga_pb2.DeviceRequest(serial=serial), metadata=self._meta()
         )
 
     # ========================================================================
@@ -199,7 +249,8 @@ class OkFpgaGrpcClient:
     async def axi_lite_read(self, serial: str, address: int):
         """AXI Lite read."""
         return await self._axi.AXILiteRead(
-            okfpga_pb2.AXILiteReadRequest(serial=serial, address=address)
+            okfpga_pb2.AXILiteReadRequest(serial=serial, address=address),
+            metadata=self._meta(),
         )
 
     async def axi_lite_write(self, serial: str, address: int, value: int):
@@ -207,7 +258,8 @@ class OkFpgaGrpcClient:
         return await self._axi.AXILiteWrite(
             okfpga_pb2.AXILiteWriteRequest(
                 serial=serial, address=address, value=value
-            )
+            ),
+            metadata=self._meta(),
         )
 
     # ========================================================================
@@ -217,13 +269,14 @@ class OkFpgaGrpcClient:
     async def list_resources(self):
         """List all registered resources."""
         return await self._device.ListResources(
-            okfpga_pb2.ListResourcesRequest()
+            okfpga_pb2.ListResourcesRequest(), metadata=self._meta()
         )
 
     async def get_resource(self, resource_id: str):
         """Get a specific resource by ID."""
         return await self._device.GetResource(
-            okfpga_pb2.ResourceRequest(resource_id=resource_id)
+            okfpga_pb2.ResourceRequest(resource_id=resource_id),
+            metadata=self._meta(),
         )
 
     async def create_resource(
@@ -236,32 +289,67 @@ class OkFpgaGrpcClient:
     ):
         """Create a new resource (ADR-020 / ADR-034).
 
-        Args:
-            name: Human-readable resource name.
-            device_serial: Serial of the FPGA providing this resource.
-            description: Optional description.
-            access_mode: "shared" or "exclusive" (design-level constraint).
-            interfaces: Data-path interfaces (defaults to ``["classic"]``).
+        When ``access_mode == "shared"``, populates the standard
+        ``Counters.bit`` endpoint and register declarations so ``ADR-034 D68``
+        validation succeeds.
         """
+        shared_enum = okfpga_pb2.RESOURCE_ACCESS_MODE_SHARED
         mode_enum = (
             okfpga_pb2.RESOURCE_ACCESS_MODE_EXCLUSIVE
             if access_mode == "exclusive"
-            else okfpga_pb2.RESOURCE_ACCESS_MODE_SHARED
+            else shared_enum
         )
-        return await self._device.CreateResource(
-            okfpga_pb2.CreateResourceRequest(
-                name=name,
-                device_serial=device_serial,
-                description=description,
-                access_mode=mode_enum,
-                interfaces=interfaces if interfaces is not None else ["classic"],
+        req = okfpga_pb2.CreateResourceRequest(
+            name=name,
+            device_serial=device_serial,
+            description=description,
+            access_mode=mode_enum,
+            interfaces=interfaces if interfaces is not None else ["classic"],
+        )
+        if access_mode == "shared":
+            req.endpoints.CopyFrom(
+                okfpga_pb2.EndpointDeclaration(
+                    default_access=shared_enum,
+                    entries=[
+                        okfpga_pb2.EndpointEntry(
+                            address=0x00, type="wire_in", access=shared_enum
+                        ),
+                        okfpga_pb2.EndpointEntry(
+                            address=0x20, type="wire_out", access=shared_enum
+                        ),
+                        okfpga_pb2.EndpointEntry(
+                            address=0x21, type="wire_out", access=shared_enum
+                        ),
+                        okfpga_pb2.EndpointEntry(
+                            address=0x22, type="wire_out", access=shared_enum
+                        ),
+                        okfpga_pb2.EndpointEntry(
+                            address=0x40, type="trigger_in", access=shared_enum
+                        ),
+                        okfpga_pb2.EndpointEntry(
+                            address=0x60, type="trigger_out", access=shared_enum
+                        ),
+                        okfpga_pb2.EndpointEntry(
+                            address=0x61, type="trigger_out", access=shared_enum
+                        ),
+                    ],
+                )
             )
-        )
+            req.address_ranges.append(
+                okfpga_pb2.AddressRange(
+                    name="classic_registers",
+                    start=0,
+                    end=255,
+                    access=shared_enum,
+                )
+            )
+        return await self._device.CreateResource(req, metadata=self._meta())
 
     async def delete_resource(self, resource_id: str):
         """Delete a resource (ADR-020)."""
         return await self._device.DeleteResource(
-            okfpga_pb2.ResourceRequest(resource_id=resource_id)
+            okfpga_pb2.ResourceRequest(resource_id=resource_id),
+            metadata=self._meta(),
         )
 
     async def acquire_resource(
@@ -278,14 +366,15 @@ class OkFpgaGrpcClient:
                 "read_only": okfpga_pb2.ACCESS_MODE_READ_ONLY,
             }
             req.mode = mode_map.get(mode, okfpga_pb2.ACCESS_MODE_SHARED)
-        return await self._device.AcquireResource(req)
+        return await self._device.AcquireResource(req, metadata=self._meta())
 
     async def release_resource(self, resource_id: str, user_id: str):
         """Release a resource."""
         return await self._device.ReleaseResource(
             okfpga_pb2.ReleaseResourceRequest(
                 resource_id=resource_id, user_id=user_id
-            )
+            ),
+            metadata=self._meta(),
         )
 
     async def lock_resource(self, resource_id: str, user_id: str):
@@ -293,7 +382,8 @@ class OkFpgaGrpcClient:
         return await self._device.LockResource(
             okfpga_pb2.LockResourceRequest(
                 resource_id=resource_id, user_id=user_id
-            )
+            ),
+            metadata=self._meta(),
         )
 
     async def unlock_resource(self, resource_id: str, user_id: str):
@@ -301,13 +391,14 @@ class OkFpgaGrpcClient:
         return await self._device.UnlockResource(
             okfpga_pb2.LockResourceRequest(
                 resource_id=resource_id, user_id=user_id
-            )
+            ),
+            metadata=self._meta(),
         )
 
     async def ping(self, user_id: str):
         """Heartbeat / liveness ping (ADR-020 §5)."""
         return await self._device.Ping(
-            okfpga_pb2.PingRequest(user_id=user_id)
+            okfpga_pb2.PingRequest(user_id=user_id), metadata=self._meta()
         )
 
     # ========================================================================
@@ -316,4 +407,6 @@ class OkFpgaGrpcClient:
 
     async def list_users(self):
         """List all active user sessions."""
-        return await self._device.ListUsers(okfpga_pb2.ListUsersRequest())
+        return await self._device.ListUsers(
+            okfpga_pb2.ListUsersRequest(), metadata=self._meta()
+        )

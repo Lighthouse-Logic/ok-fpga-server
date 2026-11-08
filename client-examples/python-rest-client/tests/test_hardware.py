@@ -129,6 +129,26 @@ async def device_serial(client: OkFpgaRestClient) -> str:
     return serial
 
 
+async def ensure_session_resource(
+    client: OkFpgaRestClient, serial: str
+) -> None:
+    """Ensure a shared covering resource exists and is acquired by client.user_id."""
+    res_id = f"{serial}:session-counters"
+    try:
+        await client.create_resource(
+            name="session-counters",
+            device_serial=serial,
+            access_mode="shared",
+            description="Session covering resource for Classic tests",
+        )
+    except Exception:
+        pass
+    try:
+        await client.acquire_resource(res_id, "shared", client.user_id)
+    except Exception:
+        pass
+
+
 @pytest_asyncio.fixture(scope="session")
 async def programmed_device(
     session_client: OkFpgaRestClient, bitfile_path: str
@@ -162,7 +182,8 @@ async def programmed_device(
             pytest.skip("POST /configure returns 501 (FFI stub)")
         raise
     # Small delay for hardware to stabilize after programming.
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.3)
+    await ensure_session_resource(session_client, serial)
     return serial
 
 
@@ -176,9 +197,11 @@ async def programmed_device(
 async def test_01_server_status(client: OkFpgaRestClient):
     """Verify server is reachable and returns valid status."""
     status = await client.get_server_status()
-    assert "api_version" in status
-    assert "uptime_secs" in status
-    logger.info(f"Server v{status['api_version']}, uptime={status['uptime_secs']}s")
+    assert "server_version" in status
+    assert "uptime_seconds" in status
+    logger.info(
+        f"Server v{status['server_version']}, uptime={status['uptime_seconds']}s"
+    )
 
 
 @pytest.mark.asyncio
@@ -229,7 +252,8 @@ async def test_05_configure_fpga(
         client.configure_fpga(device_serial, bitfile_path), "POST /configure"
     )
     logger.info(f"Configure result: {result}")
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.3)
+    await ensure_session_resource(client, device_serial)
 
     # Verify bitfile info
     bitinfo = await skip_if_not_implemented(
@@ -364,7 +388,7 @@ async def test_11_classic_trigger_count_up(
 
     # Read counter2 via WireOut
     result = await skip_if_not_implemented(
-        client.get_wire_out(serial), "GET wires/out"
+        client.get_wire_out(serial, WIRE_OUT_COUNT2), "GET wires/out"
     )
     logger.info(f"Counter2 after 5 count-ups: {result}")
 
@@ -383,7 +407,7 @@ async def test_12_classic_trigger_count_down(
     await asyncio.sleep(0.05)
 
     result = await skip_if_not_implemented(
-        client.get_wire_out(serial), "GET wires/out"
+        client.get_wire_out(serial, WIRE_OUT_COUNT2), "GET wires/out"
     )
     logger.info(f"Counter2 after count-down: {result}")
 
@@ -595,17 +619,22 @@ async def test_23_delete_resource(
     """Delete a resource via DELETE /resources/{id} (ADR-020)."""
     serial = programmed_device
 
-    # Create a resource to delete
+    # Create a resource to delete (shared so it coexists with session-counters)
     result = await client.create_resource(
         name="test-delete-me",
         device_serial=serial,
-        access_mode="exclusive",
+        access_mode="shared",
         description="Temporary resource for deletion test",
     )
     resource_id = result["id"]
 
     # Delete it
     await client.delete_resource(resource_id)
+    # Also clean up test-classic-counters created in test_22
+    try:
+        await client.delete_resource(f"{serial}:test-classic-counters")
+    except Exception:
+        pass
 
     # Verify it's gone
     resources = await client.list_resources()
@@ -613,4 +642,58 @@ async def test_23_delete_resource(
         r["id"] == resource_id for r in resources.get("resources", [])
     )
     logger.info(f"Deleted resource: {resource_id}")
+
+
+# ---------------------------------------------------------------------------
+# Phase 8: Separable Dual-Board Isolation Test (Optional — Skips if < 2 Boards)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@hardware
+async def test_24_dual_board_isolation_optional(bitfile_path: str):
+    """Separable dual-XEM7320 isolation test (skips cleanly if < 2 boards)."""
+    async with (
+        OkFpgaRestClient(SERVER_URL, user_id="py-dual-user-a") as client_a,
+        OkFpgaRestClient(SERVER_URL, user_id="py-dual-user-b") as client_b,
+    ):
+        devices = (await client_a.list_devices()).get("devices", [])
+        if len(devices) < 2:
+            pytest.skip(
+                f"Dual-board test requires >= 2 connected FPGAs (found {len(devices)})"
+            )
+
+        serial_a = devices[0]["serial"]
+        serial_b = devices[1]["serial"]
+        logger.info(f"Dual-board REST test on {serial_a} and {serial_b}")
+
+        await client_a.configure_fpga(serial_a, bitfile_path)
+        await client_b.configure_fpga(serial_b, bitfile_path)
+
+        res_a = f"{serial_a}:py-dual-counters"
+        res_b = f"{serial_b}:py-dual-counters"
+        await client_a.create_resource("py-dual-counters", serial_a, "shared")
+        await client_b.create_resource("py-dual-counters", serial_b, "shared")
+        await client_a.acquire_resource(res_a, "shared", "py-dual-user-a")
+        await client_b.acquire_resource(res_b, "shared", "py-dual-user-b")
+
+        await client_a.set_wire_in(serial_a, WIRE_IN_EP, 0x00)
+        await client_b.set_wire_in(serial_b, WIRE_IN_EP, 0x00)
+        await client_a.activate_trigger_in(serial_a, TRIGGER_IN_EP, 0)
+        await client_b.activate_trigger_in(serial_b, TRIGGER_IN_EP, 0)
+
+        for _ in range(4):
+            await client_a.activate_trigger_in(serial_a, TRIGGER_IN_EP, 1)
+        for _ in range(9):
+            await client_b.activate_trigger_in(serial_b, TRIGGER_IN_EP, 1)
+
+        c2_a = (await client_a.get_wire_out(serial_a, WIRE_OUT_COUNT2))["value"] & 0xFF
+        c2_b = (await client_b.get_wire_out(serial_b, WIRE_OUT_COUNT2))["value"] & 0xFF
+        assert c2_a == 4
+        assert c2_b == 9
+
+        await client_a.release_resource(res_a, "py-dual-user-a")
+        await client_b.release_resource(res_b, "py-dual-user-b")
+        await client_a.delete_resource(res_a)
+        await client_b.delete_resource(res_b)
 

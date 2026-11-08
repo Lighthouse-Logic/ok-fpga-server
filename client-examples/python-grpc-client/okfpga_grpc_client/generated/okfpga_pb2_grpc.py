@@ -33,17 +33,18 @@ class DeviceServiceStub:
     DeviceService handles device discovery, configuration, and monitoring.
     It corresponds to the FrontPanel device-level operations (not data port ops).
 
-    Caller identity (ADR-029, ADR-034 P8): every resource RPC requires the
-    `x-user-id` metadata header (or the request's `user_id` field where one
-    exists).
+    Caller identity (see API Specification §2.2.1 and §3.7.1): every resource
+    RPC requires the `x-user-id` metadata header (or the request's `user_id`
+    field where one exists).
 
-    Status mapping for resource RPCs (ADR-034 P7), matching REST:
+    Status mapping for resource RPCs (see API Specification §1.2.3 and §3.10),
+    matching REST:
     REST 404 -> NOT_FOUND            (unknown resource / device)
     REST 409 -> FAILED_PRECONDITION  (overlap, locked, blocked,
     mode_mismatch, private, duplicate name,
     device not programmed, held on delete)
     REST 422 -> INVALID_ARGUMENT     (invalid declaration or mode)
-    When a D73 code applies, the error details carry a
+    When a conflict code applies, the error details carry a
     ResourceConflictDetail (see that message).
     --- Enumeration ---
     """
@@ -234,17 +235,18 @@ class DeviceServiceServicer:
     DeviceService handles device discovery, configuration, and monitoring.
     It corresponds to the FrontPanel device-level operations (not data port ops).
 
-    Caller identity (ADR-029, ADR-034 P8): every resource RPC requires the
-    `x-user-id` metadata header (or the request's `user_id` field where one
-    exists).
+    Caller identity (see API Specification §2.2.1 and §3.7.1): every resource
+    RPC requires the `x-user-id` metadata header (or the request's `user_id`
+    field where one exists).
 
-    Status mapping for resource RPCs (ADR-034 P7), matching REST:
+    Status mapping for resource RPCs (see API Specification §1.2.3 and §3.10),
+    matching REST:
     REST 404 -> NOT_FOUND            (unknown resource / device)
     REST 409 -> FAILED_PRECONDITION  (overlap, locked, blocked,
     mode_mismatch, private, duplicate name,
     device not programmed, held on delete)
     REST 422 -> INVALID_ARGUMENT     (invalid declaration or mode)
-    When a D73 code applies, the error details carry a
+    When a conflict code applies, the error details carry a
     ResourceConflictDetail (see that message).
     --- Enumeration ---
     """
@@ -306,11 +308,11 @@ class DeviceServiceServicer:
         """--- FPGA Configuration ---
 
         Program the FPGA with a bitfile from the server's filesystem.
-        Forced override (ADR-034, D26): unlocks all locked resources on the
-        device (ResourceUnlocked), releases all holders, and deletes all
-        existing resources (ResourceDeleted with DELETE_REASON_REPROGRAM)
-        before programming. If the FFI transfer fails, the device state
-        transitions to Connected (unprogrammed).
+        Forced override (see API Specification §2.4.2, §2.4.3, and §3.8): unlocks
+        all locked resources on the device (ResourceUnlocked), releases all
+        holders, and deletes all existing resources (ResourceDeleted with
+        DELETE_REASON_REPROGRAM) before programming. If the FFI transfer fails,
+        the device state transitions to Connected (unprogrammed).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -318,8 +320,8 @@ class DeviceServiceServicer:
 
     def ConfigureFPGAFromMemory(self, request_iterator, context):
         """Program the FPGA with a bitfile streamed from the client in chunks.
-        Forced override (ADR-034, D26): same forced cleanup semantics as
-        ConfigureFPGA (DELETE_REASON_REPROGRAM).
+        Forced override (see API Specification §2.4.1, §2.4.3, and §3.8): same
+        forced cleanup semantics as ConfigureFPGA (DELETE_REASON_REPROGRAM).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -327,10 +329,10 @@ class DeviceServiceServicer:
 
     def ClearFPGAConfiguration(self, request, context):
         """Clear the current FPGA configuration (un-program the FPGA).
-        Forced override (ADR-034, D26, P12): unlocks all locked resources on the
-        device (ResourceUnlocked), releases all holders, and deletes all
-        existing resources (ResourceDeleted with DELETE_REASON_CLEAR) before
-        clearing the FPGA configuration.
+        Forced override (see API Specification §2.4.3 and §3.8): unlocks all
+        locked resources on the device (ResourceUnlocked), releases all holders,
+        and deletes all existing resources (ResourceDeleted with
+        DELETE_REASON_CLEAR) before clearing the FPGA configuration.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -449,7 +451,8 @@ class DeviceServiceServicer:
 
     def CreateResource(self, request, context):
         """Create a new resource for a programmed FPGA.
-        The client creates resources after programming a bitfile. See ADR-016.
+        The client creates resources after programming a bitfile. See API
+        Specification §3.2 and §3.3.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -459,16 +462,18 @@ class DeviceServiceServicer:
         """Delete a resource definition (client-initiated, DELETE_REASON_CLIENT).
         Returns FAILED_PRECONDITION if the resource is currently held by any
         user. By contrast, ConfigureFPGA*, ClearFPGAConfiguration, and device
-        disconnect perform forced cleanup (D26, P11) regardless of holders,
-        emitting ResourceDeleted with DELETE_REASON_REPROGRAM,
-        DELETE_REASON_CLEAR, or DELETE_REASON_DEVICE_REMOVED.
+        disconnect perform forced cleanup (see API Specification §2.4.3 and §3.8)
+        regardless of holders, emitting ResourceDeleted with
+        DELETE_REASON_REPROGRAM, DELETE_REASON_CLEAR, or
+        DELETE_REASON_DEVICE_REMOVED.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def AcquireResource(self, request, context):
-        """Acquire a resource in shared, exclusive, or read-only mode (ADR-026).
+        """Acquire a resource in shared, exclusive, or read-only mode (see API
+        Specification §3.5 and §4.6).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -482,16 +487,16 @@ class DeviceServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def LockResource(self, request, context):
-        """Lock a shared resource for exclusive use by a holder (ADR-020 §3).
-        Returns the updated resource (ADR-034 P10).
+        """Lock a shared resource for exclusive use by a holder (see API
+        Specification §3.6). Returns the updated resource.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def UnlockResource(self, request, context):
-        """Unlock a previously locked shared resource (ADR-020 §3).
-        Returns the updated resource (ADR-034 P10).
+        """Unlock a previously locked shared resource (see API Specification §3.6).
+        Returns the updated resource.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -516,7 +521,7 @@ class DeviceServiceServicer:
     def Ping(self, request, context):
         """--- Heartbeat ---
 
-        Heartbeat / liveness ping (ADR-020 §5).
+        Heartbeat / liveness ping (see API Specification §2.2.3 and §3.7).
         Clients should call this at least every 24 seconds while idle to keep
         their session alive (default timeout 60 s, `user_timeout_secs`).
         """
@@ -525,7 +530,7 @@ class DeviceServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def Disconnect(self, request, context):
-        """User-initiated disconnect (Phase 25-Fix-H, F10).
+        """User-initiated disconnect (see API Specification §2.2.3 and §3.7).
         Releases all resources held by this user on any device,
         removes the user session, and ceases heartbeat checking.
         This is the recommended way to end a client session.
@@ -723,17 +728,18 @@ class DeviceService:
     DeviceService handles device discovery, configuration, and monitoring.
     It corresponds to the FrontPanel device-level operations (not data port ops).
 
-    Caller identity (ADR-029, ADR-034 P8): every resource RPC requires the
-    `x-user-id` metadata header (or the request's `user_id` field where one
-    exists).
+    Caller identity (see API Specification §2.2.1 and §3.7.1): every resource
+    RPC requires the `x-user-id` metadata header (or the request's `user_id`
+    field where one exists).
 
-    Status mapping for resource RPCs (ADR-034 P7), matching REST:
+    Status mapping for resource RPCs (see API Specification §1.2.3 and §3.10),
+    matching REST:
     REST 404 -> NOT_FOUND            (unknown resource / device)
     REST 409 -> FAILED_PRECONDITION  (overlap, locked, blocked,
     mode_mismatch, private, duplicate name,
     device not programmed, held on delete)
     REST 422 -> INVALID_ARGUMENT     (invalid declaration or mode)
-    When a D73 code applies, the error details carry a
+    When a conflict code applies, the error details carry a
     ResourceConflictDetail (see that message).
     --- Enumeration ---
     """
@@ -1779,7 +1785,8 @@ class ClassicDataPortServiceServicer:
     def ResetFPGA(self, request, context):
         """Reset the FPGA (equivalent to pressing the reset button). Changes
         user-logic state, so it counts as a write: the caller must hold a
-        resource on the device in a mode other than ReadOnly (D66, D75).
+        resource on the device in a mode other than ReadOnly (see API
+        Specification §2.5.8 and §4.10).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -1812,7 +1819,7 @@ class ClassicDataPortServiceServicer:
         """Get the value of a WireOut endpoint from the snapshot taken by the last
         UpdateWireOuts (by any client; one snapshot per device). Set
         `update = true` to refresh the snapshot first under the same device
-        lock (ADR-034 §9, D76).
+        lock (see API Specification §2.5.2 and §4.4).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -1821,7 +1828,7 @@ class ClassicDataPortServiceServicer:
     def UpdateWireOuts(self, request, context):
         """Read all WireOut values from the FPGA into the device snapshot.
         Allowed for ReadOnly holders: it only samples the WireOut inputs and is
-        invisible to user logic (D75).
+        invisible to user logic (see API Specification §2.5.2 and §4.6).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -1842,9 +1849,9 @@ class ClassicDataPortServiceServicer:
         last call"). This clears the latches of EVERY TriggerOut on the device,
         so a trigger another client has not read yet is lost to it. Coordinate
         trigger reads between clients (lock, exclusive resource) or mark
-        TriggerOuts private. Denied to ReadOnly holders when any resource on
-        the device declares a private TriggerOut (D75). A future server-side
-        TriggerOut event log may improve this (roadmap, Later).
+        TriggerOuts private (see API Specification §2.5.4 and §4.4.5). Denied to
+        ReadOnly holders when any resource on the device declares a private
+        TriggerOut (see API Specification §4.6.1).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -1853,8 +1860,8 @@ class ClassicDataPortServiceServicer:
     def IsTriggered(self, request, context):
         """Check trigger bits on one TriggerOut endpoint in the snapshot taken by
         the last UpdateTriggerOuts (by any client). Set `update = true` to
-        refresh first (ADR-034 §9, D76). A client cannot tell from this call
-        how many updates happened since its own previous read.
+        refresh first (see API Specification §2.5.4 and §4.4). A client cannot
+        tell from this call how many updates happened since its own previous read.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -2565,7 +2572,7 @@ class ClassicDataPortService:
 
 class AXIDataPortServiceStub:
     """AXIDataPortService handles direct FrontPanel AXI Lite, Full, and Stream
-    operations via FPGADataPortAXI (D50, D64, P9).
+    operations via FPGADataPortAXI (see API Specification §2.6 and §3.2.3).
 
     Available only on OK_DATAPORT_AXI (FP-Gen3-USB) devices whose loaded
     bitfile instantiates the corresponding AXI dataport HDL.
@@ -2647,7 +2654,7 @@ class AXIDataPortServiceStub:
 
 class AXIDataPortServiceServicer:
     """AXIDataPortService handles direct FrontPanel AXI Lite, Full, and Stream
-    operations via FPGADataPortAXI (D50, D64, P9).
+    operations via FPGADataPortAXI (see API Specification §2.6 and §3.2.3).
 
     Available only on OK_DATAPORT_AXI (FP-Gen3-USB) devices whose loaded
     bitfile instantiates the corresponding AXI dataport HDL.
@@ -2827,7 +2834,7 @@ def add_AXIDataPortServiceServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class AXIDataPortService:
     """AXIDataPortService handles direct FrontPanel AXI Lite, Full, and Stream
-    operations via FPGADataPortAXI (D50, D64, P9).
+    operations via FPGADataPortAXI (see API Specification §2.6 and §3.2.3).
 
     Available only on OK_DATAPORT_AXI (FP-Gen3-USB) devices whose loaded
     bitfile instantiates the corresponding AXI dataport HDL.
@@ -3191,7 +3198,7 @@ class ServerServiceStub:
 
     This service provides RPCs for querying server status, managing
     optional services (REST, gRPC, MQTT, mDNS), and restarting the server.
-    See ADR-010 for the ServiceManager architecture.
+    See API Specification §2.8.
     """
 
     def __init__(self, channel):
@@ -3237,7 +3244,7 @@ class ServerServiceServicer:
 
     This service provides RPCs for querying server status, managing
     optional services (REST, gRPC, MQTT, mDNS), and restarting the server.
-    See ADR-010 for the ServiceManager architecture.
+    See API Specification §2.8.
     """
 
     def GetServerStatus(self, request, context):
@@ -3335,7 +3342,7 @@ class ServerService:
 
     This service provides RPCs for querying server status, managing
     optional services (REST, gRPC, MQTT, mDNS), and restarting the server.
-    See ADR-010 for the ServiceManager architecture.
+    See API Specification §2.8.
     """
 
     @staticmethod

@@ -59,10 +59,12 @@ fn is_expected_skip(e: &ClientError) -> bool {
 async fn test_01_server_status() {
     let client = OkFpgaRestClient::new(&server_url());
     let status = client.get_server_status().await.expect("server reachable");
-    assert!(status.get("api_version").is_some());
-    assert!(status.get("uptime_secs").is_some());
-    println!("Server v{}, uptime={}s",
-        status["api_version"], status["uptime_secs"]);
+    assert!(status.get("server_version").is_some());
+    assert!(status.get("uptime_seconds").is_some());
+    println!(
+        "Server v{}, uptime={}s",
+        status["server_version"], status["uptime_seconds"]
+    );
 }
 
 #[tokio::test]
@@ -165,14 +167,36 @@ async fn test_06_dataport_type() {
 // Phase 3: Classic Data Port — Wires
 // ============================================================================
 
-/// Helper: configure FPGA and return serial (reusable by Classic tests).
+/// Helper: configure FPGA, register + acquire a covering resource for `enforce` mode,
+/// and return `(client, serial)` (reusable by Classic tests).
 async fn setup_programmed_device() -> (OkFpgaRestClient, String) {
-    let client = OkFpgaRestClient::new(&server_url());
+    let user_id = "integration-test-user";
+    let client = OkFpgaRestClient::new(&server_url()).with_user_id(user_id);
     let path = bitfile_path();
     let devices = client.list_devices().await.expect("list devices");
-    let serial = devices["devices"][0]["serial"].as_str().unwrap().to_string();
-    let _ = client.configure_fpga(&serial, &path).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let dev = &devices["devices"][0];
+    let serial = dev["serial"].as_str().unwrap().to_string();
+    let is_programmed = dev.get("bitfile").is_some();
+    let resource_id = format!("{}:test-classic-counters", serial);
+
+    if !is_programmed {
+        let _ = client.configure_fpga(&serial, &path).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+
+    // Ensure the covering resource exists and is acquired by `integration-test-user`.
+    let _ = client
+        .create_resource(
+            "test-classic-counters",
+            &serial,
+            Some("Counters.bit Classic resource"),
+            "shared",
+        )
+        .await;
+    let _ = client
+        .acquire_resource(&resource_id, "shared", user_id)
+        .await;
+
     (client, serial)
 }
 
@@ -481,6 +505,11 @@ async fn test_21_delete_resource() {
     let (client, serial) = setup_programmed_device().await;
 
     let resource_id = format!("{}:test-classic-counters", serial);
+    // Release any held lease before deleting so we don't hit 409 Resource Held.
+    let _ = client
+        .release_resource(&resource_id, "integration-test-user")
+        .await;
+
     match client.delete_resource(&resource_id).await {
         Ok(_) => println!("Deleted resource: {}", resource_id),
         Err(e) if is_expected_skip(&e) => println!("SKIP"),
@@ -493,4 +522,104 @@ async fn test_21_delete_resource() {
             }
         }
     }
+}
+
+// ============================================================================
+// Phase 8: Separable Dual-Board Isolation Test (Optional — Skips if < 2 Boards)
+// ============================================================================
+
+#[tokio::test]
+#[ignore]
+async fn test_22_dual_board_isolation_optional() {
+    let user_a = "dual-board-user-a";
+    let user_b = "dual-board-user-b";
+    let client_a = OkFpgaRestClient::new(&server_url()).with_user_id(user_a);
+    let client_b = OkFpgaRestClient::new(&server_url()).with_user_id(user_b);
+
+    let devices_resp = client_a.list_devices().await.expect("list devices");
+    let devices = devices_resp["devices"].as_array().expect("devices array");
+    if devices.len() < 2 {
+        println!(
+            "SKIP: test_22_dual_board_isolation_optional requires >= 2 connected FPGAs (found {})",
+            devices.len()
+        );
+        return;
+    }
+
+    let serial_a = devices[0]["serial"].as_str().unwrap().to_string();
+    let serial_b = devices[1]["serial"].as_str().unwrap().to_string();
+    println!(
+        "Running dual-board REST isolation test on {} and {}",
+        serial_a, serial_b
+    );
+
+    let path = bitfile_path();
+    client_a
+        .configure_fpga(&serial_a, &path)
+        .await
+        .expect("configure Board A");
+    client_b
+        .configure_fpga(&serial_b, &path)
+        .await
+        .expect("configure Board B");
+
+    let res_a = format!("{}:test-classic-counters", serial_a);
+    let res_b = format!("{}:test-classic-counters", serial_b);
+    let _ = client_a
+        .create_resource("test-classic-counters", &serial_a, None, "shared")
+        .await;
+    let _ = client_b
+        .create_resource("test-classic-counters", &serial_b, None, "shared")
+        .await;
+    client_a
+        .acquire_resource(&res_a, "shared", user_a)
+        .await
+        .expect("acquire Board A");
+    client_b
+        .acquire_resource(&res_b, "shared", user_b)
+        .await
+        .expect("acquire Board B");
+
+    // Reset Counter #2 on both boards and pulse Board A 4 times, Board B 9 times.
+    client_a
+        .set_wire_in(&serial_a, WIRE_IN_EP, 0x00, None)
+        .await
+        .unwrap();
+    client_b
+        .set_wire_in(&serial_b, WIRE_IN_EP, 0x00, None)
+        .await
+        .unwrap();
+    client_a
+        .activate_trigger_in(&serial_a, TRIGGER_IN_EP, 0)
+        .await
+        .unwrap();
+    client_b
+        .activate_trigger_in(&serial_b, TRIGGER_IN_EP, 0)
+        .await
+        .unwrap();
+    for _ in 0..4 {
+        client_a
+            .activate_trigger_in(&serial_a, TRIGGER_IN_EP, 1)
+            .await
+            .unwrap();
+    }
+    for _ in 0..9 {
+        client_b
+            .activate_trigger_in(&serial_b, TRIGGER_IN_EP, 1)
+            .await
+            .unwrap();
+    }
+
+    let out_a = client_a.get_wire_out(&serial_a, 0x21).await.unwrap();
+    let out_b = client_b.get_wire_out(&serial_b, 0x21).await.unwrap();
+    let c2_a = out_a["value"].as_u64().unwrap() & 0xFF;
+    let c2_b = out_b["value"].as_u64().unwrap() & 0xFF;
+    println!("Dual-board REST Counter #2: A={} B={}", c2_a, c2_b);
+    assert_eq!(c2_a, 4);
+    assert_eq!(c2_b, 9);
+
+    let _ = client_a.release_resource(&res_a, user_a).await;
+    let _ = client_b.release_resource(&res_b, user_b).await;
+    let _ = client_a.delete_resource(&res_a).await;
+    let _ = client_b.delete_resource(&res_b).await;
 }

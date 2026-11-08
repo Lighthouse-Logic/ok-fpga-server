@@ -29,10 +29,6 @@ fn grpc_url() -> String {
     env::var("OKFPGA_GRPC_URL").unwrap_or_else(|_| "http://localhost:50051".to_string())
 }
 
-fn rest_url() -> String {
-    env::var("OKFPGA_SERVER_URL").unwrap_or_else(|_| "http://localhost:8088".to_string())
-}
-
 fn bitfile_path() -> String {
     env::var("OKFPGA_TEST_BITFILE").unwrap_or_else(|_| {
         let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
@@ -56,6 +52,39 @@ fn is_expected_skip(e: &tonic::Status) -> bool {
 
 async fn get_serial(client: &mut OkFpgaGrpcClient) -> String {
     client.list_devices().await.unwrap().into_inner().devices[0].serial.clone()
+}
+
+/// Ensure the first device is programmed and `grpc-test-user` holds a covering resource.
+async fn setup_programmed_device() -> (OkFpgaGrpcClient, String) {
+    let user_id = "grpc-test-user";
+    let mut client = OkFpgaGrpcClient::connect(&grpc_url())
+        .await
+        .unwrap()
+        .with_user_id(user_id);
+    let devices = client.list_devices().await.unwrap().into_inner().devices;
+    let dev = &devices[0];
+    let serial = dev.serial.clone();
+    let resource_id = format!("{}:test-grpc-counters", serial);
+
+    if dev.bitfile.is_none() {
+        let path = bitfile_path();
+        let _ = client.configure_fpga(&serial, &path).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+
+    let _ = client
+        .create_resource(
+            "test-grpc-counters",
+            &serial,
+            "Classic counter resource for gRPC test",
+            "shared",
+        )
+        .await;
+    let _ = client
+        .acquire_resource(&resource_id, "shared", user_id)
+        .await;
+
+    (client, serial)
 }
 
 // ============================================================================
@@ -103,37 +132,42 @@ async fn test_04_list_services() {
 }
 
 // ============================================================================
-// Phase 2: Configure FPGA via REST (no gRPC ConfigureDevice RPC yet)
+// Phase 2: Configure FPGA via gRPC (DeviceService::ConfigureFPGA)
 // ============================================================================
 
 #[tokio::test]
 #[ignore]
 async fn test_05_configure_fpga_via_rest() {
-    let mut client = OkFpgaGrpcClient::connect(&grpc_url()).await.unwrap();
+    let mut client = OkFpgaGrpcClient::connect(&grpc_url())
+        .await
+        .unwrap()
+        .with_user_id("grpc-test-user");
     let serial = get_serial(&mut client).await;
     let path = bitfile_path();
 
-    let http = reqwest::Client::new();
-    let url = format!("{}/api/v1/devices/{}/configure", rest_url(), serial);
-    let resp = http
-        .post(&url)
-        .json(&serde_json::json!({ "bitfile_path": path }))
-        .send()
-        .await;
-    match resp {
-        Ok(r) if r.status().is_success() => {
-            println!("FPGA configured via REST: {}", r.text().await.unwrap_or_default());
-        }
+    match client.configure_fpga(&serial, &path).await {
         Ok(r) => {
-            println!("SKIP: configure returned {}", r.status());
+            println!("FPGA configured via gRPC: {:?}", r.into_inner().bitfile);
+        }
+        Err(e) if is_expected_skip(&e) => {
+            println!("SKIP: configure returned {}", e);
             return;
         }
-        Err(e) => {
-            println!("SKIP: REST not available: {}", e);
-            return;
-        }
+        Err(e) => panic!("configure failed: {}", e),
     }
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let resource_id = format!("{}:test-grpc-counters", serial);
+    let _ = client
+        .create_resource(
+            "test-grpc-counters",
+            &serial,
+            "Classic counter resource for gRPC test",
+            "shared",
+        )
+        .await;
+    let _ = client
+        .acquire_resource(&resource_id, "shared", "grpc-test-user")
+        .await;
 }
 
 // ============================================================================
@@ -143,8 +177,7 @@ async fn test_05_configure_fpga_via_rest() {
 #[tokio::test]
 #[ignore]
 async fn test_06_classic_wire_in_reset() {
-    let mut client = OkFpgaGrpcClient::connect(&grpc_url()).await.unwrap();
-    let serial = get_serial(&mut client).await;
+    let (mut client, serial) = setup_programmed_device().await;
 
     match client.set_wire_in_value(&serial, WIRE_IN_EP, 0x01, 0xFF).await {
         Ok(_) => {}
@@ -164,8 +197,7 @@ async fn test_06_classic_wire_in_reset() {
 #[tokio::test]
 #[ignore]
 async fn test_07_classic_wire_in_free_run() {
-    let mut client = OkFpgaGrpcClient::connect(&grpc_url()).await.unwrap();
-    let serial = get_serial(&mut client).await;
+    let (mut client, serial) = setup_programmed_device().await;
 
     match client.set_wire_in_value(&serial, WIRE_IN_EP, 0x00, 0xFF).await {
         Ok(_) => {}
@@ -191,8 +223,7 @@ async fn test_07_classic_wire_in_free_run() {
 #[tokio::test]
 #[ignore]
 async fn test_08_classic_wire_in_disable() {
-    let mut client = OkFpgaGrpcClient::connect(&grpc_url()).await.unwrap();
-    let serial = get_serial(&mut client).await;
+    let (mut client, serial) = setup_programmed_device().await;
 
     match client.set_wire_in_value(&serial, WIRE_IN_EP, 0x02, 0xFF).await {
         Ok(_) => {}
@@ -222,8 +253,7 @@ async fn test_08_classic_wire_in_disable() {
 #[tokio::test]
 #[ignore]
 async fn test_09_classic_trigger_reset_counter2() {
-    let mut client = OkFpgaGrpcClient::connect(&grpc_url()).await.unwrap();
-    let serial = get_serial(&mut client).await;
+    let (mut client, serial) = setup_programmed_device().await;
 
     match client.set_wire_in_value(&serial, WIRE_IN_EP, 0x00, 0xFF).await {
         Ok(_) => {}
@@ -248,8 +278,7 @@ async fn test_09_classic_trigger_reset_counter2() {
 #[tokio::test]
 #[ignore]
 async fn test_10_classic_trigger_count_up() {
-    let mut client = OkFpgaGrpcClient::connect(&grpc_url()).await.unwrap();
-    let serial = get_serial(&mut client).await;
+    let (mut client, serial) = setup_programmed_device().await;
 
     match client.set_wire_in_value(&serial, WIRE_IN_EP, 0x00, 0xFF).await {
         Ok(_) => {}
@@ -274,8 +303,7 @@ async fn test_10_classic_trigger_count_up() {
 #[tokio::test]
 #[ignore]
 async fn test_11_classic_trigger_count_down() {
-    let mut client = OkFpgaGrpcClient::connect(&grpc_url()).await.unwrap();
-    let serial = get_serial(&mut client).await;
+    let (mut client, serial) = setup_programmed_device().await;
 
     match client.set_wire_in_value(&serial, WIRE_IN_EP, 0x00, 0xFF).await {
         Ok(_) => {}
@@ -303,8 +331,7 @@ async fn test_11_classic_trigger_count_down() {
 #[tokio::test]
 #[ignore]
 async fn test_12_classic_trigger_out_vector() {
-    let mut client = OkFpgaGrpcClient::connect(&grpc_url()).await.unwrap();
-    let serial = get_serial(&mut client).await;
+    let (mut client, serial) = setup_programmed_device().await;
 
     match client.get_trigger_out_vector(&serial, 0x60).await {
         Ok(resp) => println!("TriggerOut 0x60: vector={}", resp.into_inner().vector),
@@ -320,8 +347,7 @@ async fn test_12_classic_trigger_out_vector() {
 #[tokio::test]
 #[ignore]
 async fn test_13_classic_register_read() {
-    let mut client = OkFpgaGrpcClient::connect(&grpc_url()).await.unwrap();
-    let serial = get_serial(&mut client).await;
+    let (mut client, serial) = setup_programmed_device().await;
 
     match client.read_register(&serial, 0x00).await {
         Ok(resp) => println!("Register 0x00: value={}", resp.into_inner().value),
@@ -333,8 +359,7 @@ async fn test_13_classic_register_read() {
 #[tokio::test]
 #[ignore]
 async fn test_14_classic_register_write() {
-    let mut client = OkFpgaGrpcClient::connect(&grpc_url()).await.unwrap();
-    let serial = get_serial(&mut client).await;
+    let (mut client, serial) = setup_programmed_device().await;
 
     match client.write_register(&serial, 0x00, 0x42).await {
         Ok(_) => println!("Write register 0x00 = 0x42"),
@@ -350,8 +375,7 @@ async fn test_14_classic_register_write() {
 #[tokio::test]
 #[ignore]
 async fn test_15_axi_lite_read() {
-    let mut client = OkFpgaGrpcClient::connect(&grpc_url()).await.unwrap();
-    let serial = get_serial(&mut client).await;
+    let (mut client, serial) = setup_programmed_device().await;
 
     match client.axi_lite_read(&serial, 0x00).await {
         Ok(r) => println!("AXI Lite read: {:?}", r.into_inner()),
@@ -363,8 +387,7 @@ async fn test_15_axi_lite_read() {
 #[tokio::test]
 #[ignore]
 async fn test_16_axi_lite_write() {
-    let mut client = OkFpgaGrpcClient::connect(&grpc_url()).await.unwrap();
-    let serial = get_serial(&mut client).await;
+    let (mut client, serial) = setup_programmed_device().await;
 
     match client.axi_lite_write(&serial, 0x00, 0x01).await {
         Ok(_) => println!("AXI Lite write OK"),
@@ -380,8 +403,7 @@ async fn test_16_axi_lite_write() {
 #[tokio::test]
 #[ignore]
 async fn test_17_create_resource() {
-    let mut client = OkFpgaGrpcClient::connect(&grpc_url()).await.unwrap();
-    let serial = get_serial(&mut client).await;
+    let (mut client, serial) = setup_programmed_device().await;
 
     match client.create_resource(
         "test-grpc-counters",
@@ -439,10 +461,13 @@ async fn test_19_ping() {
 #[tokio::test]
 #[ignore]
 async fn test_20_delete_resource() {
-    let mut client = OkFpgaGrpcClient::connect(&grpc_url()).await.unwrap();
-    let serial = get_serial(&mut client).await;
+    let (mut client, serial) = setup_programmed_device().await;
 
     let resource_id = format!("{}:test-grpc-counters", serial);
+    let _ = client
+        .release_resource(&resource_id, "grpc-test-user")
+        .await;
+
     match client.delete_resource(&resource_id).await {
         Ok(_) => println!("Deleted resource: {}", resource_id),
         Err(e) if is_expected_skip(&e) => println!("SKIP: {}", e),
@@ -454,4 +479,121 @@ async fn test_20_delete_resource() {
             }
         }
     }
+}
+
+// ============================================================================
+// Phase 8: Separable Dual-Board Isolation Test (Optional — Skips if < 2 Boards)
+// ============================================================================
+
+#[tokio::test]
+#[ignore]
+async fn test_21_dual_board_isolation_optional() {
+    let user_a = "grpc-dual-user-a";
+    let user_b = "grpc-dual-user-b";
+    let mut client_a = OkFpgaGrpcClient::connect(&grpc_url())
+        .await
+        .unwrap()
+        .with_user_id(user_a);
+    let mut client_b = OkFpgaGrpcClient::connect(&grpc_url())
+        .await
+        .unwrap()
+        .with_user_id(user_b);
+
+    let devices = client_a.list_devices().await.unwrap().into_inner().devices;
+    if devices.len() < 2 {
+        println!(
+            "SKIP: test_21_dual_board_isolation_optional requires >= 2 connected FPGAs (found {})",
+            devices.len()
+        );
+        return;
+    }
+
+    let serial_a = devices[0].serial.clone();
+    let serial_b = devices[1].serial.clone();
+    println!(
+        "Running dual-board gRPC isolation test on {} and {}",
+        serial_a, serial_b
+    );
+
+    let path = bitfile_path();
+    client_a
+        .configure_fpga(&serial_a, &path)
+        .await
+        .expect("configure Board A");
+    client_b
+        .configure_fpga(&serial_b, &path)
+        .await
+        .expect("configure Board B");
+
+    let res_a = format!("{}:test-grpc-counters", serial_a);
+    let res_b = format!("{}:test-grpc-counters", serial_b);
+    let _ = client_a
+        .create_resource("test-grpc-counters", &serial_a, "Board A", "shared")
+        .await;
+    let _ = client_b
+        .create_resource("test-grpc-counters", &serial_b, "Board B", "shared")
+        .await;
+    client_a
+        .acquire_resource(&res_a, "shared", user_a)
+        .await
+        .expect("acquire Board A");
+    client_b
+        .acquire_resource(&res_b, "shared", user_b)
+        .await
+        .expect("acquire Board B");
+
+    client_a
+        .set_wire_in_value(&serial_a, WIRE_IN_EP, 0x00, 0xFF)
+        .await
+        .unwrap();
+    client_a.update_wire_ins(&serial_a).await.unwrap();
+    client_b
+        .set_wire_in_value(&serial_b, WIRE_IN_EP, 0x00, 0xFF)
+        .await
+        .unwrap();
+    client_b.update_wire_ins(&serial_b).await.unwrap();
+
+    client_a
+        .activate_trigger_in(&serial_a, TRIGGER_IN_EP, 0)
+        .await
+        .unwrap();
+    client_b
+        .activate_trigger_in(&serial_b, TRIGGER_IN_EP, 0)
+        .await
+        .unwrap();
+    for _ in 0..4 {
+        client_a
+            .activate_trigger_in(&serial_a, TRIGGER_IN_EP, 1)
+            .await
+            .unwrap();
+    }
+    for _ in 0..9 {
+        client_b
+            .activate_trigger_in(&serial_b, TRIGGER_IN_EP, 1)
+            .await
+            .unwrap();
+    }
+
+    let c2_a = client_a
+        .get_wire_out_value(&serial_a, WIRE_OUT_COUNTER2)
+        .await
+        .unwrap()
+        .into_inner()
+        .value
+        & 0xFF;
+    let c2_b = client_b
+        .get_wire_out_value(&serial_b, WIRE_OUT_COUNTER2)
+        .await
+        .unwrap()
+        .into_inner()
+        .value
+        & 0xFF;
+    println!("Dual-board gRPC Counter #2: A={} B={}", c2_a, c2_b);
+    assert_eq!(c2_a, 4);
+    assert_eq!(c2_b, 9);
+
+    let _ = client_a.release_resource(&res_a, user_a).await;
+    let _ = client_b.release_resource(&res_b, user_b).await;
+    let _ = client_a.delete_resource(&res_a).await;
+    let _ = client_b.delete_resource(&res_b).await;
 }

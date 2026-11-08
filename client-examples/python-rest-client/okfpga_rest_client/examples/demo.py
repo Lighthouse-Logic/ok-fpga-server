@@ -67,9 +67,10 @@ async def main() -> None:
         print("━━━ Server Status ━━━")
         try:
             status = await client.get_server_status()
-            print(f"  API Version:  {status.get('api_version', 'N/A')}")
-            print(f"  Uptime:       {status.get('uptime_secs', 'N/A')}s")
-            print(f"  Devices:      {status.get('device_count', 'N/A')}")
+            print(f"  Server Ver:   {status.get('server_version', 'N/A')}")
+            print(f"  OpenAPI Ver:  {status.get('openapi_version', 'N/A')}")
+            print(f"  Uptime:       {status.get('uptime_seconds', 'N/A')}s")
+            print(f"  Devices:      {status.get('connected_devices', 'N/A')}")
         except Exception as e:
             print(f"  Error: {e}")
 
@@ -92,7 +93,7 @@ async def main() -> None:
                 print("  No devices connected")
             for dev in devices:
                 print(f"  {dev['serial']} — {dev['product_name']} "
-                      f"(programmed: {dev['is_programmed']})")
+                      f"(programmed: {'bitfile' in dev})")
         except Exception as e:
             print(f"  Error: {e}")
 

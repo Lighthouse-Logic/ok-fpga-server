@@ -54,6 +54,8 @@ pub struct OkFpgaGrpcClient {
     pub axi: AxiDataPortServiceClient<Channel>,
     /// Client for server management (status, services, restart)
     pub server: ServerServiceClient<Channel>,
+    /// User identity attached via `x-user-id` gRPC metadata on every RPC (S-18, ADR-029).
+    user_id: String,
 }
 
 impl OkFpgaGrpcClient {
@@ -73,7 +75,28 @@ impl OkFpgaGrpcClient {
             classic: ClassicDataPortServiceClient::new(channel.clone()),
             axi: AxiDataPortServiceClient::new(channel.clone()),
             server: ServerServiceClient::new(channel),
+            user_id: "rust-grpc-client".to_string(),
         })
+    }
+
+    /// Override the `x-user-id` caller identity sent with gRPC requests.
+    pub fn with_user_id(mut self, user_id: &str) -> Self {
+        self.user_id = user_id.to_string();
+        self
+    }
+
+    /// Return the configured caller identity (`x-user-id`).
+    pub fn user_id(&self) -> &str {
+        &self.user_id
+    }
+
+    /// Attach `x-user-id` metadata to an outgoing gRPC request.
+    fn req<T>(&self, msg: T) -> tonic::Request<T> {
+        let mut r = tonic::Request::new(msg);
+        if let Ok(val) = tonic::metadata::MetadataValue::try_from(self.user_id.as_str()) {
+            r.metadata_mut().insert("x-user-id", val);
+        }
+        r
     }
 
     // ========================================================================
@@ -85,7 +108,7 @@ impl OkFpgaGrpcClient {
         &mut self,
     ) -> Result<tonic::Response<okfpga::v1::ListDevicesResponse>, tonic::Status> {
         self.device
-            .list_devices(okfpga::v1::ListDevicesRequest {})
+            .list_devices(self.req(okfpga::v1::ListDevicesRequest {}))
             .await
     }
 
@@ -95,9 +118,9 @@ impl OkFpgaGrpcClient {
         serial: &str,
     ) -> Result<tonic::Response<okfpga::v1::DeviceInfoResponse>, tonic::Status> {
         self.device
-            .get_device_info(okfpga::v1::DeviceRequest {
+            .get_device_info(self.req(okfpga::v1::DeviceRequest {
                 serial: serial.to_string(),
-            })
+            }))
             .await
     }
 
@@ -107,9 +130,9 @@ impl OkFpgaGrpcClient {
         serial: &str,
     ) -> Result<tonic::Response<okfpga::v1::DeviceSettingsResponse>, tonic::Status> {
         self.device
-            .get_device_settings(okfpga::v1::DeviceRequest {
+            .get_device_settings(self.req(okfpga::v1::DeviceRequest {
                 serial: serial.to_string(),
-            })
+            }))
             .await
     }
 
@@ -120,10 +143,10 @@ impl OkFpgaGrpcClient {
         key: &str,
     ) -> Result<tonic::Response<okfpga::v1::DeviceSettingResponse>, tonic::Status> {
         self.device
-            .get_device_setting(okfpga::v1::GetDeviceSettingRequest {
+            .get_device_setting(self.req(okfpga::v1::GetDeviceSettingRequest {
                 serial: serial.to_string(),
                 key: key.to_string(),
-            })
+            }))
             .await
     }
 
@@ -133,9 +156,9 @@ impl OkFpgaGrpcClient {
         serial: &str,
     ) -> Result<tonic::Response<okfpga::v1::SyzygyPortsResponse>, tonic::Status> {
         self.device
-            .get_syzygy_ports(okfpga::v1::DeviceRequest {
+            .get_syzygy_ports(self.req(okfpga::v1::DeviceRequest {
                 serial: serial.to_string(),
-            })
+            }))
             .await
     }
 
@@ -145,9 +168,48 @@ impl OkFpgaGrpcClient {
         serial: &str,
     ) -> Result<tonic::Response<okfpga::v1::DeviceSensorsResponse>, tonic::Status> {
         self.device
-            .get_device_sensors(okfpga::v1::DeviceRequest {
+            .get_device_sensors(self.req(okfpga::v1::DeviceRequest {
                 serial: serial.to_string(),
-            })
+            }))
+            .await
+    }
+
+    /// Program the FPGA from a bitfile path on the server's filesystem.
+    pub async fn configure_fpga(
+        &mut self,
+        serial: &str,
+        bitfile_path: &str,
+    ) -> Result<tonic::Response<okfpga::v1::ConfigureFpgaResponse>, tonic::Status> {
+        self.device
+            .configure_fpga(self.req(okfpga::v1::ConfigureFpgaRequest {
+                serial: serial.to_string(),
+                bitfile_path: bitfile_path.to_string(),
+                user_id: self.user_id.clone(),
+            }))
+            .await
+    }
+
+    /// Clear the current FPGA configuration.
+    pub async fn clear_fpga_configuration(
+        &mut self,
+        serial: &str,
+    ) -> Result<tonic::Response<okfpga::v1::StatusResponse>, tonic::Status> {
+        self.device
+            .clear_fpga_configuration(self.req(okfpga::v1::DeviceRequest {
+                serial: serial.to_string(),
+            }))
+            .await
+    }
+
+    /// Get the active data port type for a device.
+    pub async fn get_dataport_type(
+        &mut self,
+        serial: &str,
+    ) -> Result<tonic::Response<okfpga::v1::DataportTypeResponse>, tonic::Status> {
+        self.device
+            .get_dataport_type(self.req(okfpga::v1::DeviceRequest {
+                serial: serial.to_string(),
+            }))
             .await
     }
 
@@ -156,7 +218,7 @@ impl OkFpgaGrpcClient {
         &mut self,
     ) -> Result<tonic::Response<okfpga::v1::ServerStatus>, tonic::Status> {
         self.device
-            .get_server_status(okfpga::v1::ServerStatusRequest {})
+            .get_server_status(self.req(okfpga::v1::ServerStatusRequest {}))
             .await
     }
 
@@ -169,7 +231,7 @@ impl OkFpgaGrpcClient {
         &mut self,
     ) -> Result<tonic::Response<okfpga::v1::ServerStatusResponse>, tonic::Status> {
         self.server
-            .get_server_status(okfpga::v1::StatusResponse { error: None })
+            .get_server_status(self.req(okfpga::v1::StatusResponse { error: None }))
             .await
     }
 
@@ -178,7 +240,7 @@ impl OkFpgaGrpcClient {
         &mut self,
     ) -> Result<tonic::Response<okfpga::v1::ListServicesResponse>, tonic::Status> {
         self.server
-            .list_services(okfpga::v1::StatusResponse { error: None })
+            .list_services(self.req(okfpga::v1::StatusResponse { error: None }))
             .await
     }
 
@@ -195,13 +257,13 @@ impl OkFpgaGrpcClient {
         mask: u32,
     ) -> Result<tonic::Response<okfpga::v1::StatusResponse>, tonic::Status> {
         self.classic
-            .set_wire_in_value(okfpga::v1::SetWireInValueRequest {
+            .set_wire_in_value(self.req(okfpga::v1::SetWireInValueRequest {
                 serial: serial.to_string(),
                 endpoint,
                 value,
                 mask,
                 auto_update: false,
-            })
+            }))
             .await
     }
 
@@ -211,9 +273,9 @@ impl OkFpgaGrpcClient {
         serial: &str,
     ) -> Result<tonic::Response<okfpga::v1::StatusResponse>, tonic::Status> {
         self.classic
-            .update_wire_ins(okfpga::v1::DeviceRequest {
+            .update_wire_ins(self.req(okfpga::v1::DeviceRequest {
                 serial: serial.to_string(),
-            })
+            }))
             .await
     }
 
@@ -225,11 +287,11 @@ impl OkFpgaGrpcClient {
         bit: i32,
     ) -> Result<tonic::Response<okfpga::v1::StatusResponse>, tonic::Status> {
         self.classic
-            .activate_trigger_in(okfpga::v1::ActivateTriggerInRequest {
+            .activate_trigger_in(self.req(okfpga::v1::ActivateTriggerInRequest {
                 serial: serial.to_string(),
                 endpoint,
                 bit,
-            })
+            }))
             .await
     }
 
@@ -240,11 +302,11 @@ impl OkFpgaGrpcClient {
         endpoint: i32,
     ) -> Result<tonic::Response<okfpga::v1::WireValueResponse>, tonic::Status> {
         self.classic
-            .get_wire_out_value(okfpga::v1::GetWireValueRequest {
+            .get_wire_out_value(self.req(okfpga::v1::GetWireValueRequest {
                 serial: serial.to_string(),
                 endpoint,
                 update: Some(true),
-            })
+            }))
             .await
     }
 
@@ -254,9 +316,9 @@ impl OkFpgaGrpcClient {
         serial: &str,
     ) -> Result<tonic::Response<okfpga::v1::StatusResponse>, tonic::Status> {
         self.classic
-            .update_wire_outs(okfpga::v1::DeviceRequest {
+            .update_wire_outs(self.req(okfpga::v1::DeviceRequest {
                 serial: serial.to_string(),
-            })
+            }))
             .await
     }
 
@@ -267,11 +329,11 @@ impl OkFpgaGrpcClient {
         endpoint: i32,
     ) -> Result<tonic::Response<okfpga::v1::TriggerOutVectorResponse>, tonic::Status> {
         self.classic
-            .get_trigger_out_vector(okfpga::v1::TriggerOutVectorRequest {
+            .get_trigger_out_vector(self.req(okfpga::v1::TriggerOutVectorRequest {
                 serial: serial.to_string(),
                 endpoint,
                 update: Some(true),
-            })
+            }))
             .await
     }
 
@@ -282,10 +344,10 @@ impl OkFpgaGrpcClient {
         address: u32,
     ) -> Result<tonic::Response<okfpga::v1::RegisterValueResponse>, tonic::Status> {
         self.classic
-            .read_register(okfpga::v1::ReadRegisterRequest {
+            .read_register(self.req(okfpga::v1::ReadRegisterRequest {
                 serial: serial.to_string(),
                 address,
-            })
+            }))
             .await
     }
 
@@ -297,11 +359,11 @@ impl OkFpgaGrpcClient {
         data: u32,
     ) -> Result<tonic::Response<okfpga::v1::StatusResponse>, tonic::Status> {
         self.classic
-            .write_register(okfpga::v1::WriteRegisterRequest {
+            .write_register(self.req(okfpga::v1::WriteRegisterRequest {
                 serial: serial.to_string(),
                 address,
                 data,
-            })
+            }))
             .await
     }
 
@@ -311,9 +373,9 @@ impl OkFpgaGrpcClient {
         serial: &str,
     ) -> Result<tonic::Response<okfpga::v1::StatusResponse>, tonic::Status> {
         self.classic
-            .reset_fpga(okfpga::v1::DeviceRequest {
+            .reset_fpga(self.req(okfpga::v1::DeviceRequest {
                 serial: serial.to_string(),
-            })
+            }))
             .await
     }
 
@@ -328,11 +390,11 @@ impl OkFpgaGrpcClient {
         address: u64,
     ) -> Result<tonic::Response<okfpga::v1::AxiLiteReadResponse>, tonic::Status> {
         self.axi
-            .axi_lite_read(okfpga::v1::AxiLiteReadRequest {
+            .axi_lite_read(self.req(okfpga::v1::AxiLiteReadRequest {
                 serial: serial.to_string(),
                 address,
                 timeout_ms: None,
-            })
+            }))
             .await
     }
 
@@ -344,12 +406,12 @@ impl OkFpgaGrpcClient {
         value: u32,
     ) -> Result<tonic::Response<okfpga::v1::StatusResponse>, tonic::Status> {
         self.axi
-            .axi_lite_write(okfpga::v1::AxiLiteWriteRequest {
+            .axi_lite_write(self.req(okfpga::v1::AxiLiteWriteRequest {
                 serial: serial.to_string(),
                 address,
                 value,
                 timeout_ms: None,
-            })
+            }))
             .await
     }
 
@@ -358,6 +420,9 @@ impl OkFpgaGrpcClient {
     // ========================================================================
 
     /// Create a new resource for a programmed FPGA (ADR-020 / ADR-034).
+    ///
+    /// When `access_mode == "shared"`, populates the standard `Counters.bit`
+    /// endpoint and register declarations so `ADR-034 D68` validation succeeds.
     pub async fn create_resource(
         &mut self,
         name: &str,
@@ -365,22 +430,126 @@ impl OkFpgaGrpcClient {
         description: &str,
         access_mode: &str,
     ) -> Result<tonic::Response<okfpga::v1::ResourceResponse>, tonic::Status> {
+        let shared_enum = okfpga::v1::ResourceAccessMode::Shared as i32;
         let mode_enum = match access_mode {
             "exclusive" => okfpga::v1::ResourceAccessMode::Exclusive as i32,
-            _ => okfpga::v1::ResourceAccessMode::Shared as i32,
+            _ => shared_enum,
         };
+        let (endpoints, address_ranges) = if access_mode == "shared" {
+            let ep = okfpga::v1::EndpointDeclaration {
+                default_access: Some(shared_enum),
+                entries: vec![
+                    okfpga::v1::EndpointEntry {
+                        address: 0x00,
+                        r#type: "wire_in".to_string(),
+                        access: Some(shared_enum),
+                        private: false,
+                        description: String::new(),
+                    },
+                    okfpga::v1::EndpointEntry {
+                        address: 0x20,
+                        r#type: "wire_out".to_string(),
+                        access: Some(shared_enum),
+                        private: false,
+                        description: String::new(),
+                    },
+                    okfpga::v1::EndpointEntry {
+                        address: 0x21,
+                        r#type: "wire_out".to_string(),
+                        access: Some(shared_enum),
+                        private: false,
+                        description: String::new(),
+                    },
+                    okfpga::v1::EndpointEntry {
+                        address: 0x22,
+                        r#type: "wire_out".to_string(),
+                        access: Some(shared_enum),
+                        private: false,
+                        description: String::new(),
+                    },
+                    okfpga::v1::EndpointEntry {
+                        address: 0x40,
+                        r#type: "trigger_in".to_string(),
+                        access: Some(shared_enum),
+                        private: false,
+                        description: String::new(),
+                    },
+                    okfpga::v1::EndpointEntry {
+                        address: 0x60,
+                        r#type: "trigger_out".to_string(),
+                        access: Some(shared_enum),
+                        private: false,
+                        description: String::new(),
+                    },
+                    okfpga::v1::EndpointEntry {
+                        address: 0x61,
+                        r#type: "trigger_out".to_string(),
+                        access: Some(shared_enum),
+                        private: false,
+                        description: String::new(),
+                    },
+                ],
+            };
+            let ranges = vec![okfpga::v1::AddressRange {
+                name: "classic_registers".to_string(),
+                start: 0,
+                end: 255,
+                access: Some(shared_enum),
+                private: false,
+                description: String::new(),
+            }];
+            (Some(ep), ranges)
+        } else {
+            (None, vec![])
+        };
+
         self.device
-            .create_resource(okfpga::v1::CreateResourceRequest {
+            .create_resource(self.req(okfpga::v1::CreateResourceRequest {
                 name: name.to_string(),
                 device_serial: device_serial.to_string(),
                 description: description.to_string(),
                 access_mode: Some(mode_enum),
                 interfaces: vec!["classic".to_string()],
-                endpoints: None,
-                address_ranges: vec![],
+                endpoints,
+                address_ranges,
                 metadata: std::collections::HashMap::new(),
                 private: false,
-            })
+            }))
+            .await
+    }
+
+    /// Acquire a resource in `"shared"`, `"exclusive"`, or `"read_only"` mode.
+    pub async fn acquire_resource(
+        &mut self,
+        resource_id: &str,
+        mode: &str,
+        user_id: &str,
+    ) -> Result<tonic::Response<okfpga::v1::ResourceResponse>, tonic::Status> {
+        let mode_enum = match mode {
+            "exclusive" => okfpga::v1::AccessMode::Exclusive as i32,
+            "read_only" => okfpga::v1::AccessMode::ReadOnly as i32,
+            _ => okfpga::v1::AccessMode::Shared as i32,
+        };
+        self.device
+            .acquire_resource(self.req(okfpga::v1::AcquireResourceRequest {
+                resource_id: resource_id.to_string(),
+                user_id: user_id.to_string(),
+                mode: Some(mode_enum),
+            }))
+            .await
+    }
+
+    /// Release a previously acquired resource.
+    pub async fn release_resource(
+        &mut self,
+        resource_id: &str,
+        user_id: &str,
+    ) -> Result<tonic::Response<okfpga::v1::StatusResponse>, tonic::Status> {
+        self.device
+            .release_resource(self.req(okfpga::v1::ReleaseResourceRequest {
+                resource_id: resource_id.to_string(),
+                user_id: user_id.to_string(),
+            }))
             .await
     }
 
@@ -389,7 +558,7 @@ impl OkFpgaGrpcClient {
         &mut self,
     ) -> Result<tonic::Response<okfpga::v1::ListResourcesResponse>, tonic::Status> {
         self.device
-            .list_resources(okfpga::v1::ListResourcesRequest {})
+            .list_resources(self.req(okfpga::v1::ListResourcesRequest {}))
             .await
     }
 
@@ -399,9 +568,9 @@ impl OkFpgaGrpcClient {
         resource_id: &str,
     ) -> Result<tonic::Response<okfpga::v1::StatusResponse>, tonic::Status> {
         self.device
-            .delete_resource(okfpga::v1::ResourceRequest {
+            .delete_resource(self.req(okfpga::v1::ResourceRequest {
                 resource_id: resource_id.to_string(),
-            })
+            }))
             .await
     }
 
@@ -412,10 +581,10 @@ impl OkFpgaGrpcClient {
         user_id: &str,
     ) -> Result<tonic::Response<okfpga::v1::ResourceResponse>, tonic::Status> {
         self.device
-            .lock_resource(okfpga::v1::LockResourceRequest {
+            .lock_resource(self.req(okfpga::v1::LockResourceRequest {
                 resource_id: resource_id.to_string(),
                 user_id: user_id.to_string(),
-            })
+            }))
             .await
     }
 
@@ -426,10 +595,10 @@ impl OkFpgaGrpcClient {
         user_id: &str,
     ) -> Result<tonic::Response<okfpga::v1::ResourceResponse>, tonic::Status> {
         self.device
-            .unlock_resource(okfpga::v1::LockResourceRequest {
+            .unlock_resource(self.req(okfpga::v1::LockResourceRequest {
                 resource_id: resource_id.to_string(),
                 user_id: user_id.to_string(),
-            })
+            }))
             .await
     }
 
@@ -443,9 +612,9 @@ impl OkFpgaGrpcClient {
         user_id: &str,
     ) -> Result<tonic::Response<okfpga::v1::PingResponse>, tonic::Status> {
         self.device
-            .ping(okfpga::v1::PingRequest {
+            .ping(self.req(okfpga::v1::PingRequest {
                 user_id: user_id.to_string(),
-            })
+            }))
             .await
     }
 
@@ -458,7 +627,7 @@ impl OkFpgaGrpcClient {
         &mut self,
     ) -> Result<tonic::Response<okfpga::v1::ListUsersResponse>, tonic::Status> {
         self.device
-            .list_users(okfpga::v1::ListUsersRequest {})
+            .list_users(self.req(okfpga::v1::ListUsersRequest {}))
             .await
     }
 }

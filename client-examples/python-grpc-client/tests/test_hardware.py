@@ -85,6 +85,30 @@ async def device_serial(client: OkFpgaGrpcClient) -> str:
     return devices[0].serial
 
 
+async def ensure_programmed_and_held(
+    client: OkFpgaGrpcClient, serial: str
+) -> None:
+    """Ensure the FPGA is programmed and client.user_id holds a covering resource."""
+    info = await client.get_device_info(serial)
+    if not info.device.HasField("bitfile"):
+        await client.configure_fpga(serial, BITFILE_PATH)
+        await asyncio.sleep(0.3)
+    res_id = f"{serial}:session-grpc-counters"
+    try:
+        await client.create_resource(
+            "session-grpc-counters",
+            serial,
+            description="Session covering resource for gRPC tests",
+            access_mode="shared",
+        )
+    except grpc.aio.AioRpcError:
+        pass
+    try:
+        await client.acquire_resource(res_id, client.user_id, "shared")
+    except grpc.aio.AioRpcError:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Phase 1: Server Connectivity & Device Discovery
 # ---------------------------------------------------------------------------
@@ -121,28 +145,21 @@ async def test_04_list_services(client: OkFpgaGrpcClient):
 
 
 # ---------------------------------------------------------------------------
-# Phase 2: Configure FPGA via REST (no gRPC ConfigureDevice yet)
+# Phase 2: Configure FPGA via gRPC (DeviceService.ConfigureFPGA)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_05_configure_fpga_via_rest(device_serial: str):
-    """Configure FPGA via REST API before Classic gRPC tests."""
-    import urllib.request
-    import json
-
-    url = f"{REST_URL}/api/v1/devices/{device_serial}/configure"
-    payload = json.dumps({"bitfile_path": BITFILE_PATH}).encode()
-
-    try:
-        req = urllib.request.Request(url, data=payload, method="POST",
-                                     headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            body = resp.read().decode()
-            logger.info(f"FPGA configured via REST: {body}")
-    except Exception as e:
-        logger.warning(f"REST configure failed: {e}")
-        pytest.skip(f"REST configure failed: {e}")
-    await asyncio.sleep(0.5)
+async def test_05_configure_fpga_via_rest(
+    client: OkFpgaGrpcClient, device_serial: str
+):
+    """Configure FPGA via gRPC before Classic gRPC tests."""
+    resp = await skip_if_unimplemented(
+        client.configure_fpga(device_serial, BITFILE_PATH),
+        "ConfigureFPGA",
+    )
+    logger.info(f"FPGA configured via gRPC: {resp.bitfile.filename}")
+    await asyncio.sleep(0.3)
+    await ensure_programmed_and_held(client, device_serial)
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +169,7 @@ async def test_05_configure_fpga_via_rest(device_serial: str):
 @pytest.mark.asyncio
 async def test_06_classic_wire_in_reset(client: OkFpgaGrpcClient, device_serial: str):
     """Set WireIn RESET1."""
+    await ensure_programmed_and_held(client, device_serial)
     await skip_if_unimplemented(
         client.set_wire_in_value(device_serial, WIRE_IN_EP, 0x01, 0xFF),
         "SetWireInValue",
@@ -166,6 +184,7 @@ async def test_06_classic_wire_in_reset(client: OkFpgaGrpcClient, device_serial:
 @pytest.mark.asyncio
 async def test_07_classic_wire_in_free_run(client: OkFpgaGrpcClient, device_serial: str):
     """Clear controls — counter should free-run."""
+    await ensure_programmed_and_held(client, device_serial)
     await skip_if_unimplemented(
         client.set_wire_in_value(device_serial, WIRE_IN_EP, 0x00, 0xFF),
         "SetWireInValue",
@@ -184,6 +203,7 @@ async def test_07_classic_wire_in_free_run(client: OkFpgaGrpcClient, device_seri
 @pytest.mark.asyncio
 async def test_08_classic_wire_in_disable(client: OkFpgaGrpcClient, device_serial: str):
     """Set DISABLE1 — counter should freeze."""
+    await ensure_programmed_and_held(client, device_serial)
     await skip_if_unimplemented(
         client.set_wire_in_value(device_serial, WIRE_IN_EP, 0x02, 0xFF),
         "SetWireInValue",
@@ -206,6 +226,7 @@ async def test_08_classic_wire_in_disable(client: OkFpgaGrpcClient, device_seria
 @pytest.mark.asyncio
 async def test_09_classic_trigger_reset_counter2(client: OkFpgaGrpcClient, device_serial: str):
     """Reset counter2 via TriggerIn."""
+    await ensure_programmed_and_held(client, device_serial)
     await skip_if_unimplemented(
         client.set_wire_in_value(device_serial, WIRE_IN_EP, 0x00, 0xFF),
         "SetWireInValue",
@@ -222,6 +243,7 @@ async def test_09_classic_trigger_reset_counter2(client: OkFpgaGrpcClient, devic
 @pytest.mark.asyncio
 async def test_10_classic_trigger_count_up(client: OkFpgaGrpcClient, device_serial: str):
     """Count up 5 times via TriggerIn."""
+    await ensure_programmed_and_held(client, device_serial)
     await skip_if_unimplemented(
         client.set_wire_in_value(device_serial, WIRE_IN_EP, 0x00, 0xFF),
         "SetWireInValue",
@@ -242,6 +264,7 @@ async def test_10_classic_trigger_count_up(client: OkFpgaGrpcClient, device_seri
 @pytest.mark.asyncio
 async def test_11_classic_trigger_count_down(client: OkFpgaGrpcClient, device_serial: str):
     """Count 10 up + 3 down = 7."""
+    await ensure_programmed_and_held(client, device_serial)
     await skip_if_unimplemented(
         client.set_wire_in_value(device_serial, WIRE_IN_EP, 0x00, 0xFF),
         "SetWireInValue",
@@ -264,6 +287,7 @@ async def test_11_classic_trigger_count_down(client: OkFpgaGrpcClient, device_se
 @pytest.mark.asyncio
 async def test_12_classic_trigger_out_vector(client: OkFpgaGrpcClient, device_serial: str):
     """Read TriggerOut vector."""
+    await ensure_programmed_and_held(client, device_serial)
     resp = await skip_if_unimplemented(
         client.get_trigger_out_vector(device_serial, 0x60),
         "GetTriggerOutVector",
@@ -278,6 +302,7 @@ async def test_12_classic_trigger_out_vector(client: OkFpgaGrpcClient, device_se
 @pytest.mark.asyncio
 async def test_13_classic_register_read(client: OkFpgaGrpcClient, device_serial: str):
     """Read register 0x00."""
+    await ensure_programmed_and_held(client, device_serial)
     resp = await skip_if_unimplemented(
         client.read_register(device_serial, 0x00),
         "ReadRegister",
@@ -288,6 +313,7 @@ async def test_13_classic_register_read(client: OkFpgaGrpcClient, device_serial:
 @pytest.mark.asyncio
 async def test_14_classic_register_write(client: OkFpgaGrpcClient, device_serial: str):
     """Write register 0x00."""
+    await ensure_programmed_and_held(client, device_serial)
     await skip_if_unimplemented(
         client.write_register(device_serial, 0x00, 0x42),
         "WriteRegister",
@@ -371,3 +397,57 @@ async def test_18_delete_resource(client: OkFpgaGrpcClient, device_serial: str):
         if code in (grpc.StatusCode.NOT_FOUND, grpc.StatusCode.UNIMPLEMENTED):
             pytest.skip(f"DeleteResource: {code}")
         raise
+
+
+# ---------------------------------------------------------------------------
+# Phase 8: Separable Dual-Board Isolation Test (Optional — Skips if < 2 Boards)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_19_dual_board_isolation_optional():
+    """Separable dual-XEM7320 gRPC isolation test (skips if < 2 boards)."""
+    async with (
+        OkFpgaGrpcClient(GRPC_TARGET, user_id="py-grpc-dual-a") as client_a,
+        OkFpgaGrpcClient(GRPC_TARGET, user_id="py-grpc-dual-b") as client_b,
+    ):
+        devices = list((await client_a.list_devices()).devices)
+        if len(devices) < 2:
+            pytest.skip(
+                f"Dual-board test requires >= 2 connected FPGAs (found {len(devices)})"
+            )
+
+        serial_a = devices[0].serial
+        serial_b = devices[1].serial
+        logger.info(f"Dual-board gRPC test on {serial_a} and {serial_b}")
+
+        await client_a.configure_fpga(serial_a, BITFILE_PATH)
+        await client_b.configure_fpga(serial_b, BITFILE_PATH)
+
+        res_a = f"{serial_a}:py-grpc-dual"
+        res_b = f"{serial_b}:py-grpc-dual"
+        await client_a.create_resource("py-grpc-dual", serial_a, access_mode="shared")
+        await client_b.create_resource("py-grpc-dual", serial_b, access_mode="shared")
+        await client_a.acquire_resource(res_a, "py-grpc-dual-a", "shared")
+        await client_b.acquire_resource(res_b, "py-grpc-dual-b", "shared")
+
+        await client_a.set_wire_in_value(serial_a, WIRE_IN_EP, 0x00, 0xFF)
+        await client_a.update_wire_ins(serial_a)
+        await client_b.set_wire_in_value(serial_b, WIRE_IN_EP, 0x00, 0xFF)
+        await client_b.update_wire_ins(serial_b)
+
+        await client_a.activate_trigger_in(serial_a, TRIGGER_IN_EP, 0)
+        await client_b.activate_trigger_in(serial_b, TRIGGER_IN_EP, 0)
+        for _ in range(4):
+            await client_a.activate_trigger_in(serial_a, TRIGGER_IN_EP, 1)
+        for _ in range(9):
+            await client_b.activate_trigger_in(serial_b, TRIGGER_IN_EP, 1)
+
+        c2_a = (await client_a.get_wire_out_value(serial_a, WIRE_OUT_COUNTER2)).value & 0xFF
+        c2_b = (await client_b.get_wire_out_value(serial_b, WIRE_OUT_COUNTER2)).value & 0xFF
+        assert c2_a == 4
+        assert c2_b == 9
+
+        await client_a.release_resource(res_a, "py-grpc-dual-a")
+        await client_b.release_resource(res_b, "py-grpc-dual-b")
+        await client_a.delete_resource(res_a)
+        await client_b.delete_resource(res_b)

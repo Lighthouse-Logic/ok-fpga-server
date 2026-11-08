@@ -65,6 +65,8 @@ pub struct OkFpgaRestClient {
     client: Client,
     /// Base URL of the REST API (e.g., "http://localhost:8088").
     base_url: String,
+    /// User identity sent via `X-User-Id` on every request (S-18, ADR-029).
+    user_id: String,
 }
 
 impl OkFpgaRestClient {
@@ -79,13 +81,30 @@ impl OkFpgaRestClient {
         Self {
             client: Client::new(),
             base_url: format!("{}/api/v1", base_url.trim_end_matches('/')),
+            user_id: "rust-rest-client".to_string(),
         }
+    }
+
+    /// Override the `X-User-Id` caller identity sent with requests.
+    pub fn with_user_id(mut self, user_id: &str) -> Self {
+        self.user_id = user_id.to_string();
+        self
+    }
+
+    /// Return the configured caller identity (`X-User-Id`).
+    pub fn user_id(&self) -> &str {
+        &self.user_id
     }
 
     /// Internal helper: perform a GET request and parse the JSON response.
     async fn get(&self, path: &str) -> Result<Value, ClientError> {
         let url = format!("{}{}", self.base_url, path);
-        let resp = self.client.get(&url).send().await?;
+        let resp = self
+            .client
+            .get(&url)
+            .header("X-User-Id", &self.user_id)
+            .send()
+            .await?;
         let status = resp.status().as_u16();
         if status >= 400 {
             let body = resp.text().await.unwrap_or_default();
@@ -97,7 +116,28 @@ impl OkFpgaRestClient {
     /// Internal helper: perform a POST request with a JSON body.
     async fn post(&self, path: &str, body: Option<Value>) -> Result<Value, ClientError> {
         let url = format!("{}{}", self.base_url, path);
-        let mut req = self.client.post(&url);
+        let mut req = self.client.post(&url).header("X-User-Id", &self.user_id);
+        if let Some(b) = body {
+            req = req.json(&b);
+        }
+        let resp = req.send().await?;
+        let status = resp.status().as_u16();
+        if status >= 400 {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ClientError::Server { status, body });
+        }
+        Ok(resp.json().await?)
+    }
+
+    /// Internal helper: perform a POST request with an explicit `X-User-Id` header override.
+    async fn post_with_user(
+        &self,
+        path: &str,
+        user_id: &str,
+        body: Option<Value>,
+    ) -> Result<Value, ClientError> {
+        let url = format!("{}{}", self.base_url, path);
+        let mut req = self.client.post(&url).header("X-User-Id", user_id);
         if let Some(b) = body {
             req = req.json(&b);
         }
@@ -113,7 +153,13 @@ impl OkFpgaRestClient {
     /// Internal helper: perform a PUT request with a JSON body.
     async fn put(&self, path: &str, body: Value) -> Result<Value, ClientError> {
         let url = format!("{}{}", self.base_url, path);
-        let resp = self.client.put(&url).json(&body).send().await?;
+        let resp = self
+            .client
+            .put(&url)
+            .header("X-User-Id", &self.user_id)
+            .json(&body)
+            .send()
+            .await?;
         let status = resp.status().as_u16();
         if status >= 400 {
             let body = resp.text().await.unwrap_or_default();
@@ -125,7 +171,12 @@ impl OkFpgaRestClient {
     /// Internal helper: perform a GET request returning raw binary bytes (S-05).
     async fn get_bytes(&self, path: &str) -> Result<Vec<u8>, ClientError> {
         let url = format!("{}{}", self.base_url, path);
-        let resp = self.client.get(&url).send().await?;
+        let resp = self
+            .client
+            .get(&url)
+            .header("X-User-Id", &self.user_id)
+            .send()
+            .await?;
         let status = resp.status().as_u16();
         if status >= 400 {
             let body = resp.text().await.unwrap_or_default();
@@ -140,6 +191,7 @@ impl OkFpgaRestClient {
         let resp = self
             .client
             .post(&url)
+            .header("X-User-Id", &self.user_id)
             .header("Content-Type", "application/octet-stream")
             .body(data.to_vec())
             .send()
@@ -155,7 +207,12 @@ impl OkFpgaRestClient {
     /// Internal helper: perform a DELETE request.
     async fn delete_req(&self, path: &str) -> Result<(), ClientError> {
         let url = format!("{}{}", self.base_url, path);
-        let resp = self.client.delete(&url).send().await?;
+        let resp = self
+            .client
+            .delete(&url)
+            .header("X-User-Id", &self.user_id)
+            .send()
+            .await?;
         let status = resp.status().as_u16();
         if status >= 400 {
             let body = resp.text().await.unwrap_or_default();
@@ -271,6 +328,11 @@ impl OkFpgaRestClient {
             Some(serde_json::json!({ "bitfile_path": bitfile_path })),
         )
         .await
+    }
+
+    /// `DELETE /devices/{serial}/configure` — Clear the FPGA configuration (ADR-028).
+    pub async fn clear_fpga_configuration(&self, serial: &str) -> Result<(), ClientError> {
+        self.delete_req(&format!("/devices/{}/configure", serial)).await
     }
 
     /// `GET /devices/{serial}/bitfile` — Get info about the loaded bitfile.
@@ -562,7 +624,8 @@ impl OkFpgaRestClient {
         user_id: &str,
     ) -> Result<Value, ClientError> {
         let body = serde_json::json!({ "mode": mode, "user_id": user_id });
-        self.post(&format!("/resources/{}/acquire", resource_id), Some(body)).await
+        self.post_with_user(&format!("/resources/{}/acquire", resource_id), user_id, Some(body))
+            .await
     }
 
     /// `POST /resources/{resource_id}/release` — Release a resource.
@@ -572,10 +635,14 @@ impl OkFpgaRestClient {
         user_id: &str,
     ) -> Result<Value, ClientError> {
         let body = serde_json::json!({ "user_id": user_id });
-        self.post(&format!("/resources/{}/release", resource_id), Some(body)).await
+        self.post_with_user(&format!("/resources/{}/release", resource_id), user_id, Some(body))
+            .await
     }
 
     /// `POST /resources` — Create a new resource (ADR-020 / ADR-034).
+    ///
+    /// When `access_mode == "shared"`, populates the standard `Counters.bit`
+    /// endpoint and register declarations so `ADR-034 D68` validation succeeds.
     ///
     /// # Arguments
     /// * `name` — Human-readable resource name
@@ -595,6 +662,28 @@ impl OkFpgaRestClient {
             "access_mode": access_mode,
             "interfaces": ["classic"],
         });
+        if access_mode == "shared" {
+            body["endpoints"] = serde_json::json!({
+                "default_access": "shared",
+                "entries": [
+                    { "address": "0x00", "type": "wire_in", "access": "shared" },
+                    { "address": "0x20", "type": "wire_out", "access": "shared" },
+                    { "address": "0x21", "type": "wire_out", "access": "shared" },
+                    { "address": "0x22", "type": "wire_out", "access": "shared" },
+                    { "address": "0x40", "type": "trigger_in", "access": "shared" },
+                    { "address": "0x60", "type": "trigger_out", "access": "shared" },
+                    { "address": "0x61", "type": "trigger_out", "access": "shared" },
+                ]
+            });
+            body["address_ranges"] = serde_json::json!([
+                {
+                    "name": "classic_registers",
+                    "start": "0x00000000",
+                    "end": "0x000000FF",
+                    "access": "shared"
+                }
+            ]);
+        }
         if let Some(desc) = description {
             body["description"] = serde_json::json!(desc);
         }
@@ -615,7 +704,8 @@ impl OkFpgaRestClient {
         user_id: &str,
     ) -> Result<Value, ClientError> {
         let body = serde_json::json!({ "user_id": user_id });
-        self.post(&format!("/resources/{}/lock", resource_id), Some(body)).await
+        self.post_with_user(&format!("/resources/{}/lock", resource_id), user_id, Some(body))
+            .await
     }
 
     /// `POST /resources/{resource_id}/unlock` — Unlock a locked resource (ADR-020 §3).
@@ -625,13 +715,14 @@ impl OkFpgaRestClient {
         user_id: &str,
     ) -> Result<Value, ClientError> {
         let body = serde_json::json!({ "user_id": user_id });
-        self.post(&format!("/resources/{}/unlock", resource_id), Some(body)).await
+        self.post_with_user(&format!("/resources/{}/unlock", resource_id), user_id, Some(body))
+            .await
     }
 
     /// `POST /heartbeat` — User liveness heartbeat (ADR-020 §5).
     pub async fn heartbeat(&self, user_id: &str) -> Result<Value, ClientError> {
         let body = serde_json::json!({ "user_id": user_id });
-        self.post("/heartbeat", Some(body)).await
+        self.post_with_user("/heartbeat", user_id, Some(body)).await
     }
 
     // ========================================================================
