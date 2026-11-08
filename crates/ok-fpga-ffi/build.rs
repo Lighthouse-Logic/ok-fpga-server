@@ -26,24 +26,42 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
-    // Tell Cargo to re-run this build script if the header changes.
+    // Tell Cargo to re-run this build script if the header or SDK env var changes.
     // This ensures that if Opal Kelly releases a new header, our bindings
     // are automatically regenerated on the next build.
+    println!("cargo:rerun-if-env-changed=OK_FRONTPANEL_SDK_DIR");
     println!("cargo:rerun-if-changed=../../FrontPanel-6.1.0/okFrontPanel.h");
     println!("cargo:rerun-if-changed=build.rs");
 
-    // Resolve the absolute path to the header file.
-    // We navigate from the crate root (crates/ok-fpga-ffi/) up two levels
-    // to the workspace root, then into FrontPanel-6.1.0/.
+    // Resolve the path to `okFrontPanel.h`.
+    // Priority:
+    // 1. `OK_FRONTPANEL_SDK_DIR` environment variable (`<dir>/okFrontPanel.h` or `<dir>/API/include/okFrontPanel.h`)
+    // 2. `<workspace_root>/FrontPanel-6.1.0/okFrontPanel.h`
     let manifest_dir =
         env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set by Cargo");
-    let header_path = PathBuf::from(&manifest_dir).join("../../FrontPanel-6.1.0/okFrontPanel.h");
+    let header_path = if let Ok(sdk_dir) = env::var("OK_FRONTPANEL_SDK_DIR") {
+        let base = PathBuf::from(&sdk_dir);
+        let direct = base.join("okFrontPanel.h");
+        let nested = base.join("API").join("include").join("okFrontPanel.h");
+        if direct.exists() {
+            println!("cargo:rerun-if-changed={}", direct.display());
+            direct
+        } else if nested.exists() {
+            println!("cargo:rerun-if-changed={}", nested.display());
+            nested
+        } else {
+            direct
+        }
+    } else {
+        PathBuf::from(&manifest_dir).join("../../FrontPanel-6.1.0/okFrontPanel.h")
+    };
 
     // Verify the header file exists — give a clear error message if not.
     if !header_path.exists() {
         panic!(
             "FrontPanel header not found at: {}\n\
-             Make sure FrontPanel-6.1.0/okFrontPanel.h exists in the workspace root.",
+             Copy okFrontPanel.h from the Opal Kelly FrontPanel 6.1.0 SDK into FrontPanel-6.1.0/\n\
+             or set OK_FRONTPANEL_SDK_DIR=/path/to/FrontPanel-6.1.0 (see FrontPanel-6.1.0/README.md).",
             header_path.display()
         );
     }

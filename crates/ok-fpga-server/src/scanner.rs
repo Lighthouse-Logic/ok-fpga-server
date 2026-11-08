@@ -342,18 +342,23 @@ impl DeviceScanner {
 ///
 /// Priority:
 /// 1. `OKFPGA_DLL_PATH` environment variable
-/// 2. Platform-specific default relative to CWD
+/// 2. `OK_FRONTPANEL_SDK_DIR` environment variable (`<dir>/<lib_name>`)
+/// 3. Platform-specific default relative to CWD (`FrontPanel-6.1.0/<lib_name>`)
 fn resolve_dll_path() -> PathBuf {
     if let Ok(path) = std::env::var("OKFPGA_DLL_PATH") {
         return PathBuf::from(path);
     }
 
-    // Default path: FrontPanel-6.1.0/<platform library name>
+    // Default library name: okFrontPanel.dll (Windows) or libokFrontPanel.so (Linux)
     let lib_name = if cfg!(windows) {
         "okFrontPanel.dll"
     } else {
         "libokFrontPanel.so"
     };
+
+    if let Ok(sdk_dir) = std::env::var("OK_FRONTPANEL_SDK_DIR") {
+        return Path::new(&sdk_dir).join(lib_name);
+    }
 
     Path::new("FrontPanel-6.1.0").join(lib_name)
 }

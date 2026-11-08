@@ -25,14 +25,15 @@ Thumbs.db
 
 # Server logs
 logs/
-# FPGA bitfiles: never commit (custom / user designs stay local).
-# Exception: Opal Kelly example bitfiles used by the hardware tests
-# (crates/ok-fpga-ffi/tests/hardware.rs). These must be removed before
-# any public release of this repository.
-*.bit
-!FrontPanel-6.1.0/ExampleBitfiles/**/*.bit
 
-# Opal Kelly FrontPanel shared libraries (keep local; full SDK cleanup in Later)
-FrontPanel-6.1.0/*.so
-FrontPanel-6.1.0/*.so.*
-FrontPanel-6.1.0/*.dylib
+# FPGA bitfiles: never commit (custom / user / Opal Kelly sample designs stay local)
+*.bit
+
+# Opal Kelly FrontPanel 6.1.0 proprietary SDK headers, libraries, and sample bitfiles
+# (keep local on disk or set OK_FRONTPANEL_SDK_DIR; never commit to git)
+FrontPanel-6.1.0/*
+!FrontPanel-6.1.0/README.md
+!FrontPanel-6.1.0/60-opalkelly.rules
+!FrontPanel-6.1.0/ExampleBitfiles/
+FrontPanel-6.1.0/ExampleBitfiles/*
+!FrontPanel-6.1.0/ExampleBitfiles/README.md

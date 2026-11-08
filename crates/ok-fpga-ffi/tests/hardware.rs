@@ -39,10 +39,15 @@ use ok_fpga_ffi::*;
 ///
 /// Priority:
 /// 1. `OKFPGA_DLL_PATH` environment variable (absolute path)
-/// 2. `FrontPanel-6.1.0/okFrontPanel.dll` relative to the workspace root
+/// 2. `OK_FRONTPANEL_SDK_DIR` environment variable (`<dir>/<lib_name>`)
+/// 3. `FrontPanel-6.1.0/<lib_name>` relative to the workspace root
 fn dll_path() -> PathBuf {
     if let Ok(path) = std::env::var("OKFPGA_DLL_PATH") {
         return PathBuf::from(path);
+    }
+
+    if let Ok(sdk_dir) = std::env::var("OK_FRONTPANEL_SDK_DIR") {
+        return PathBuf::from(sdk_dir).join(FrontPanelDll::default_library_name());
     }
 
     // The workspace root is 2 levels up from the FFI crate manifest dir.

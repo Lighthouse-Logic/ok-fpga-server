@@ -38,7 +38,7 @@ A Rust-based server that wraps the [Opal Kelly FrontPanel 6.1.0](https://opalkel
 - **protoc** — required for gRPC proto compilation (only when building with `--features grpc`)
   - Windows: `winget install Google.Protobuf`
   - Ubuntu: `apt install protobuf-compiler`
-- **FrontPanel 6.1.0 SDK** — the `okFrontPanel.dll` (Windows) or `libokFrontPanel.so` (Linux) must be available at runtime
+- **FrontPanel 6.1.0 SDK** — proprietary Opal Kelly SDK files (`okFrontPanel.h` at build time and `okFrontPanel.dll` / `libokFrontPanel.so` at runtime) are gitignored; copy them into [`FrontPanel-6.1.0/`](FrontPanel-6.1.0/README.md) or set `OK_FRONTPANEL_SDK_DIR`
 
 ### Build & Run
 
@@ -65,8 +65,9 @@ cargo test -p ok-fpga-ffi --test hardware -- --ignored --test-threads=1 --nocapt
 |----------|-------------|---------|
 | `LIBCLANG_PATH` | Path to LLVM/libclang bin directory | System PATH |
 | `PROTOC` | Path to `protoc` binary | System PATH |
+| `OK_FRONTPANEL_SDK_DIR` | Path to Opal Kelly FrontPanel 6.1.0 SDK directory (`okFrontPanel.h` + shared library) | `FrontPanel-6.1.0/` |
 | `OKFPGA_CONFIG` | Path to TOML config file | `config.toml` |
-| `OKFPGA_DLL_PATH` | Path to `okFrontPanel.dll` / `.so` | `FrontPanel-6.1.0/okFrontPanel.dll` |
+| `OKFPGA_DLL_PATH` | Explicit path to `okFrontPanel.dll` / `libokFrontPanel.so` | `<OK_FRONTPANEL_SDK_DIR>/<lib>` or `FrontPanel-6.1.0/<lib>` |
 
 ## Feature Flags
 

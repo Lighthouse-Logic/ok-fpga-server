@@ -1,7 +1,7 @@
 # ok-FPGA-Server — Development Roadmap
 
 > **Status:** Living Document
-> **Last Updated:** 2026-11-08 (Phase 49 completed and archived)
+> **Last Updated:** 2026-11-08 (Phase 50 completed and archived)
 > **Architecture Decisions:** See [docs/architecture/overview.md](architecture/overview.md)
 > **Archive:** Completed phases are in [docs/archive/](archive/)
 
@@ -56,13 +56,14 @@
 | **Phase 46** | API Specification: Expand the Overview Chapters (§2.1–§2.9) | — | ✅ [Archived](archive/roadmap-phases-46-47.md#phase-46--api-specification-expand-the-overview-chapters-2129--doc-v100-server-0310) |
 | **Phase 47** | OpenAPI / Proto Cite API Specification Section Numbers | — | ✅ [Archived](archive/roadmap-phases-46-47.md#phase-47--openapi--proto-cite-api-specification-section-numbers--doc-v100-server-0310) |
 | **Phase 48** | Configurable MQTT Test Broker Host | — | ✅ [Archived](archive/roadmap-phases-48.md) |
-| **Phase 49** | Hardware Integration Verification Pass | ADR-028, ADR-029, ADR-034 | ✅ [Archived](archive/roadmap-phases-49.md) |
+| **Phase 49** | Hardware Integration Verification Pass (`v0.3.11`) | ADR-028, ADR-029, ADR-034 | ✅ [Archived](archive/roadmap-phases-49-50.md) |
+| **Phase 50** | Purge Tracked Proprietary Opal Kelly FrontPanel SDK/IP Files from Git (`v0.3.12`) | — | ✅ [Archived](archive/roadmap-phases-49-50.md#phase-50--purge-tracked-proprietary-opal-kelly-frontpanel-sdkip-files-from-git--server-0312) |
 
 ---
 
 ## 🟢 Now
 
-*(Empty — Phase 49 completed and archived in [docs/archive/roadmap-phases-49.md](archive/roadmap-phases-49.md). Per Roadmap Rule 5, promote the next phase explicitly when ready.)*
+*(Empty — Phase 50 completed and archived in [docs/archive/roadmap-phases-49-50.md](archive/roadmap-phases-49-50.md). Per Roadmap Rule 5, promote the next phase explicitly when ready.)*
 
 ---
 
@@ -246,13 +247,6 @@ Features in this section represent uncommitted research or long-term capabilitie
   parsing in isolation) so all unit tests run with
   `EndpointEnforcement::Enforce` enabled.
 
-* **Purge tracked proprietary Opal Kelly FrontPanel SDK/IP files from git (Phase 44-F Q5)** —
-  remove tracked proprietary FrontPanel SDK headers, C++ wrappers, sample
-  bitfiles, and libraries under `FrontPanel-6.1.0/` from git tracking, keep
-  `FrontPanel-6.1.0/` gitignored, and document how developers and CI machines
-  install or point `OK_FRONTPANEL_SDK_DIR` / `LD_LIBRARY_PATH` at an external
-  Opal Kelly FrontPanel SDK directory.
-
 * **Rust egui demo unit tests** — egui does not provide a built-in test harness
   like iced's `iced_test`; implementing headless UI tests will require
   significant effort.
@@ -330,7 +324,8 @@ implementation details, verification steps, and acceptance criteria.
 | 46 | API Specification: Expand the Overview Chapters (§2.1–§2.9) | 2026-11-06 | — | [phases 46–47](archive/roadmap-phases-46-47.md#phase-46--api-specification-expand-the-overview-chapters-2129--doc-v100-server-0310) |
 | 47 | OpenAPI / Proto Cite API Specification Section Numbers | 2026-11-06 | — | [phases 46–47](archive/roadmap-phases-46-47.md#phase-47--openapi--proto-cite-api-specification-section-numbers--doc-v100-server-0310) |
 | 48 | Configurable MQTT Test Broker Host | 2026-11-06 | — | [phase 48](archive/roadmap-phases-48.md) |
-| 49 | Hardware Integration Verification Pass | 2026-11-08 | ADR-028, ADR-029, ADR-034 | [phase 49](archive/roadmap-phases-49.md) |
+| 49 | Hardware Integration Verification Pass | 2026-11-08 | ADR-028, ADR-029, ADR-034 | [phases 49–50](archive/roadmap-phases-49-50.md) |
+| 50 | Purge Tracked Proprietary Opal Kelly FrontPanel SDK/IP Files from Git | 2026-11-08 | — | [phases 49–50](archive/roadmap-phases-49-50.md#phase-50--purge-tracked-proprietary-opal-kelly-frontpanel-sdkip-files-from-git--server-0312) |
 
 ---
 
