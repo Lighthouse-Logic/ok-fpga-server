@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 //! # Registration-time warnings
 //!
 //! Some declarations are *allowed* but probably not what the HDL architect

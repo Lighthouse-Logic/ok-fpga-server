@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 //! # Multi-User Resource Management
 //!
 //! This module implements the resource model from ADR-006. A "resource" is a

@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 //! # ok-FPGA-Server gRPC GUI Common Library
 //!
 //! Shared gRPC API client for the Rust gRPC GUI demos (egui and iced).

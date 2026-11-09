@@ -212,5 +212,5 @@ See [ADR-023 — GUI Example Clients](ADR-023-gui-example-clients.md).
 - [ADR-017 — FFI Endpoint Wiring](ADR-017-ffi-endpoint-wiring.md)
 - [ADR-020 — Client-Side Resource Registration](ADR-020-client-side-resource-registration.md)
 - [ADR-023 — GUI Example Clients](ADR-023-gui-example-clients.md)
-- [Counters.bit Endpoint Reference](../counters-bit-endpoints.md)
-- [ai-collaboration.md §9 — Testing Strategy](../../.agents/rules/ai-collaboration.md)
+- [Counters.bit Endpoint Reference](../../counters-bit-endpoints.md)
+- [ai-collaboration.md §9 — Testing Strategy](../../../.agents/rules/ai-collaboration.md)

@@ -9,8 +9,8 @@
 
 **Status**: `[x]` Completed (2026-08-18, `8f33610`)  
 **Depends on**: Phase 15, Phase 19 (ADR-018 handle pool)  
-**ADR reference**: [ADR-002](architecture/adr/ADR-002-device-lifecycle.md) (addendum),
-[ADR-018](architecture/adr/ADR-018-device-handle-pool.md)
+**ADR reference**: [ADR-002](../architecture/adr/ADR-002-device-lifecycle.md) (addendum),
+[ADR-018](../architecture/adr/ADR-018-device-handle-pool.md)
 
 ### Overview
 
@@ -74,8 +74,8 @@ cargo test --features full --lib
 
 **Status**: `[x]` Completed (2026-08-18)  
 **Depends on**: Phase 8 (web dashboard), Phase 23 (disconnect fix â€” INFO-level events)  
-**ADR reference**: [ADR-022](architecture/adr/ADR-022-dashboard-logging.md),
-[ADR-007](architecture/adr/ADR-007-web-dashboard.md) Â§77-94
+**ADR reference**: [ADR-022](../architecture/adr/ADR-022-dashboard-logging.md),
+[ADR-007](../architecture/adr/ADR-007-web-dashboard.md) Â§77-94
 
 ### Overview
 
@@ -191,9 +191,9 @@ cargo test --features full --lib
 **Commits**: `e2ea397` (8 GUI demos + 4 common libraries), `26f9305` (docs)  
 **Depends on**: Phase 16 (example clients), Phase 18 (hardware integration tests),
 Phase 20 (enhanced resource registration), Phase 19 (FFI endpoint wiring)  
-**ADR reference**: [ADR-023](architecture/adr/ADR-023-gui-example-clients.md),
-[ADR-014](architecture/adr/ADR-014-example-clients.md) Â§GUI Demos,
-[ADR-016](architecture/adr/ADR-016-hardware-integration-testing.md) Â§GUI Integration Tests
+**ADR reference**: [ADR-023](../architecture/adr/ADR-023-gui-example-clients.md),
+[ADR-014](../architecture/adr/ADR-014-example-clients.md) Â§GUI Demos,
+[ADR-016](../architecture/adr/ADR-016-hardware-integration-testing.md) Â§GUI Integration Tests
 
 ### Overview
 
@@ -269,7 +269,7 @@ Same feature set as 25F, using gRPC API.
 
 **Status**: `[x]` Completed (2026-08-18, `463810c`, `b30636d`, `966c1d0`, `62857f6`)  
 **Depends on**: Phase 25Aâ€“25H  
-**ADR reference**: [ADR-023 Â§8 Testing Strategy](architecture/adr/ADR-023-gui-example-clients.md)
+**ADR reference**: [ADR-023 Â§8 Testing Strategy](../architecture/adr/ADR-023-gui-example-clients.md)
 
 #### Phase 25-Fix-A: Upgrade iced 0.13 â†’ 0.14
 
@@ -314,7 +314,7 @@ Each Python package gets a `pyproject.toml` with `[project.optional-dependencies
 
 **Status**: `[x]` Completed (2026-08-18)  
 **Depends on**: Phase 25-Fix-C  
-**ADR reference**: [ADR-023 Â§2 User-Controlled Startup Sequence](architecture/adr/ADR-023-gui-example-clients.md)
+**ADR reference**: [ADR-023 Â§2 User-Controlled Startup Sequence](../architecture/adr/ADR-023-gui-example-clients.md)
 
 All 8 GUI demos were refactored to implement explicit device selection:
 
@@ -347,8 +347,8 @@ after connect (user must select explicitly). All 48 iced tests pass.
 
 **Status**: `[x]` Completed (2026-08-18, `fded41f`, `d93d20e`)  
 **Depends on**: Phase 25-Fix-D  
-**ADR reference**: [ADR-023 Addendum: Phase 25-Fix-E](architecture/adr/ADR-023-gui-example-clients.md)  
-**Rule added**: [ai-collaboration.md Â§6 â€” API Specification Authority](../.agents/rules/ai-collaboration.md)
+**ADR reference**: [ADR-023 Addendum: Phase 25-Fix-E](../architecture/adr/ADR-023-gui-example-clients.md)  
+**Rule added**: [ai-collaboration.md Â§6 â€” API Specification Authority](../../.agents/rules/ai-collaboration.md)
 
 Manual testing revealed 4 bugs across all 8 GUI demos, all caused by
 client-server contract mismatches. Split into two commits:
@@ -433,7 +433,7 @@ Each GUI demo should be verified with:
 
 **Status**: `[x]` Completed (2026-08-18, `d9da0db`)  
 **Depends on**: Phase 25-Fix-E  
-**ADR reference**: [ADR-023 Addendum: Phase 25-Fix-F](architecture/adr/ADR-023-gui-example-clients.md)
+**ADR reference**: [ADR-023 Addendum: Phase 25-Fix-F](../architecture/adr/ADR-023-gui-example-clients.md)
 
 Manual testing of the Rust REST iced demo against a live server with one device
 revealed 7 bugs. Five are fixed in this phase; two are deferred to Fix-G.
@@ -461,7 +461,7 @@ F4 smart-skip, F5 bitfile toggle) are iced-specific and must be ported to other 
 
 **Status**: `[x]` Completed (2026-08-18, `bdf2b68`)  
 **Depends on**: Phase 25-Fix-F  
-**ADR reference**: [ADR-023 Addendum: Phase 25-Fix-F](architecture/adr/ADR-023-gui-example-clients.md)
+**ADR reference**: [ADR-023 Addendum: Phase 25-Fix-F](../architecture/adr/ADR-023-gui-example-clients.md)
 
 Dashboard-focused phase for bugs deferred from Fix-F.
 
@@ -474,7 +474,7 @@ Dashboard-focused phase for bugs deferred from Fix-F.
 
 **Status**: `[x]` Completed (2026-08-18, `0e8fb6a..7d67fe3`)  
 **Depends on**: Phase 25-Fix-G  
-**ADR reference**: [ADR-023 Addendum: Phase 25-Fix-H](architecture/adr/ADR-023-gui-example-clients.md)
+**ADR reference**: [ADR-023 Addendum: Phase 25-Fix-H](../architecture/adr/ADR-023-gui-example-clients.md)
 
 Bugs discovered during manual testing of Fix-G dashboard with the iced GUI demo.
 

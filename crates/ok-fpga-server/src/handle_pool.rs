@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 //! # Device Handle Pool — Persistent Per-Device FFI Access (ADR-018)
 //!
 //! This module provides [`DeviceHandlePool`], which holds open FrontPanel device

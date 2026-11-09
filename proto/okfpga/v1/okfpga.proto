@@ -1,4 +1,5 @@
-// Copyright 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic.
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 //
 // ok-FPGA-Server gRPC Service Definition
 // FrontPanel 6.1.0 API — USB 3.0, PCIe, Gen3 devices only

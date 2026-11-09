@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 //! # Build Script for ok-fpga-ffi
 //!
 //! This build script uses `rust-bindgen` to parse the FrontPanel 6.1.0

@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 //! # ok-fpga-core — Safe Domain Logic for the ok-FPGA-Server
 //!
 //! This crate is the "brain" of the server. It sits between the low-level

@@ -105,4 +105,4 @@ Both Classic and AXI paths manipulate the **same** hardware counters.
 
 - [ADR-016 — Hardware Integration Testing](architecture/adr/ADR-016-hardware-integration-testing.md)
 - [ADR-023 — GUI Example Clients](architecture/adr/ADR-023-gui-example-clients.md)
-- [Original endpoint doc](../FrontPanel-6.1.0/ExampleBitfiles/20190501-FP50-XEM7320-A75/XEM7320-A75/Counetrs-endpoints.md)
+- `Original endpoint doc` (local SDK file)

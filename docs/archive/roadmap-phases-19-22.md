@@ -9,7 +9,7 @@
 
 **Status**: `[x]` Completed (2026-08-17)  
 **Depends on**: Phase 17, Phase 18A  
-**ADR references**: [ADR-017 â€” FFI Endpoint Wiring](architecture/adr/ADR-017-ffi-endpoint-wiring.md), [ADR-018 â€” Device Handle Pool](architecture/adr/ADR-018-device-handle-pool.md), [ADR-019 â€” AXI Interface Architecture](architecture/adr/ADR-019-axi-interface-architecture.md)
+**ADR references**: [ADR-017 â€” FFI Endpoint Wiring](../architecture/adr/ADR-017-ffi-endpoint-wiring.md), [ADR-018 â€” Device Handle Pool](../architecture/adr/ADR-018-device-handle-pool.md), [ADR-019 â€” AXI Interface Architecture](../architecture/adr/ADR-019-axi-interface-architecture.md)
 
 ### Overview
 
@@ -73,7 +73,7 @@ Wired all Classic handlers in `classic.rs` to FFI:
 #### Phase 19D: AXI Data Port Endpoints â€” All Three Sub-Interfaces
 
 **Status**: `[/]` Partially complete â€” requires design fix  
-**ADR reference**: [ADR-019 â€” AXI Interface Architecture](architecture/adr/ADR-019-axi-interface-architecture.md)
+**ADR reference**: [ADR-019 â€” AXI Interface Architecture](../architecture/adr/ADR-019-axi-interface-architecture.md)
 
 Per ADR-019, the three AXI sub-interfaces (Lite, Full, Stream) are **independent,
 distinct protocols** that must NOT fall back to each other:
@@ -177,7 +177,7 @@ pytest tests/test_hardware.py -v -s
 #### Phase 19G: Device Settings & SYZYGY FFI Wiring
 
 **Status**: `[x]` Completed (2026-08-17)  
-**ADR reference**: [ADR-021 â€” Device Settings FFI Wiring](architecture/adr/ADR-021-settings-ffi-wiring.md)
+**ADR reference**: [ADR-021 â€” Device Settings FFI Wiring](../architecture/adr/ADR-021-settings-ffi-wiring.md)
 
 Wired the three settings REST endpoints, three gRPC RPCs, and the SYZYGY
 discovery endpoints from 501 stubs to real FFI calls via the `DeviceHandlePool`.
@@ -215,7 +215,7 @@ do not require FPGA programming.
 
 **Status**: `[x]` Completed (2026-08-17)  
 **Depends on**: Phase 19  
-**ADR reference**: [ADR-020 â€” Client-Side Resource Registration](architecture/adr/ADR-020-client-side-resource-registration.md)
+**ADR reference**: [ADR-020 â€” Client-Side Resource Registration](../architecture/adr/ADR-020-client-side-resource-registration.md)
 
 ### Overview
 

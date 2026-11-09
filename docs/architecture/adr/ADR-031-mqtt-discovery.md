@@ -41,7 +41,7 @@ broker.
   "server_id": "okfpga-server-01",
   "payload": {
     "description": "Lab Bench 1 - XEM7320",
-    "rest_url": "http://10.0.1.50:8080",
+    "rest_url": "http://10.0.1.50:8088",
     "grpc_url": "grpc://10.0.1.50:50051",
     "dashboard_url": "http://10.0.1.50:9090",
     "mqtt_topic_prefix": "okfpga/server01",
@@ -165,7 +165,7 @@ These are needed by `publish_server_announce()` to build URLs.
 ## References
 
 - [ADR-011: MQTT Status Publishing](ADR-011-mqtt-publishing.md) — base MQTT architecture
-- [ADR-012: mDNS Service Discovery](ADR-012-mdns-service-discovery.md) — link-local discovery
+- [ADR-012: mDNS Service Discovery](ADR-012-mdns-discovery.md) — link-local discovery
 - [ADR-032: Report-by-Exception Publishing](ADR-032-mqtt-report-by-exception.md) — refines periodic publishing to change-driven model
 - [netdev crate](https://crates.io/crates/netdev) — cross-platform network interface enumeration
 - [MQTT v5.0 — Will Message](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901033)

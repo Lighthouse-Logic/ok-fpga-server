@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
+
 """Tests for the ok-FPGA-Server gRPC services.
 
 These tests require the server to be running with --features full.

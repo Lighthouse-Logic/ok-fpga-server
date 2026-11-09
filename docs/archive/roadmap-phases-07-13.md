@@ -9,7 +9,7 @@
 
 **Status**: `[x]` Completed (2026-08-16, `b976fbc`)  
 **Depends on**: Phase 5, Phase 6  
-**ADR reference**: [ADR-010](architecture/adr/ADR-010-service-manager.md)
+**ADR reference**: [ADR-010](../architecture/adr/ADR-010-service-manager.md)
 
 ### What to do
 
@@ -71,7 +71,7 @@
 
 **Status**: `[x]` Completed (2026-08-16, `6edd186`)  
 **Depends on**: Phase 7  
-**ADR references**: [ADR-007](architecture/adr/ADR-007-web-dashboard.md), [ADR-010](architecture/adr/ADR-010-service-manager.md)  
+**ADR references**: [ADR-007](../architecture/adr/ADR-007-web-dashboard.md), [ADR-010](../architecture/adr/ADR-010-service-manager.md)  
 **Feature flag**: `dashboard` (default feature)
 
 ### What to do
@@ -111,7 +111,7 @@
 
 **Status**: `[x]` Completed (2026-08-16, `e3314d9`)  
 **Depends on**: Phase 6  
-**ADR reference**: [ADR-008](architecture/adr/ADR-008-authentication.md)
+**ADR reference**: [ADR-008](../architecture/adr/ADR-008-authentication.md)
 
 ### What to do
 
@@ -137,7 +137,7 @@
 
 **Status**: `[x]` Completed (2026-08-16, `a2fab2a`)  
 **Depends on**: Phase 4E, Phase 7  
-**ADR reference**: [ADR-011](architecture/adr/ADR-011-mqtt-publishing.md)  
+**ADR reference**: [ADR-011](../architecture/adr/ADR-011-mqtt-publishing.md)  
 **Feature flag**: `mqtt` (NOT a default feature)
 
 ### What to do
@@ -174,7 +174,7 @@
 
 **Status**: `[x]` Completed (2026-08-16, `cda7303`)  
 **Depends on**: Phase 4E, Phase 7  
-**ADR reference**: [ADR-012](architecture/adr/ADR-012-mdns-discovery.md)  
+**ADR reference**: [ADR-012](../architecture/adr/ADR-012-mdns-discovery.md)  
 **Feature flag**: `mdns` (NOT a default feature)
 
 ### What to do

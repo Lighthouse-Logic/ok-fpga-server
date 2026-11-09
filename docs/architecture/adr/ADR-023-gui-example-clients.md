@@ -26,7 +26,7 @@ A second tier of **GUI-based** example clients is needed to:
 
 All GUI demos target the `Counters.bit` example bitfile, which implements two
 counters with Classic Data Port endpoints. The bitfile path is configured via
-`OKFPGA_TEST_BITFILE`. See [Counters.bit Endpoint Reference](../counters-bit-endpoints.md).
+`OKFPGA_TEST_BITFILE`. See [Counters.bit Endpoint Reference](../../counters-bit-endpoints.md).
 
 ## Decision
 
@@ -218,7 +218,7 @@ The interval applies to all reads in a single batch per cycle:
 
 ### 8. Testing Strategy
 
-All code follows TDD per [§10 of ai-collaboration.md](../../.agents/rules/ai-collaboration.md).
+All code follows TDD per [§10 of ai-collaboration.md](../../../.agents/rules/ai-collaboration.md).
 Tests are organized in three tiers:
 
 #### Tier 1: Common Library Unit Tests (Always Run, No Server/Hardware)
@@ -346,9 +346,9 @@ test = [
 - [ADR-014 — Example Client Architecture](ADR-014-example-clients.md)
 - [ADR-016 — Hardware Integration Testing](ADR-016-hardware-integration-testing.md)
 - [ADR-020 — Client-Side Resource Registration](ADR-020-client-side-resource-registration.md)
-- [Counters.bit Endpoint Reference](../counters-bit-endpoints.md)
-- [ai-collaboration.md §10 — Testing Strategy](../../.agents/rules/ai-collaboration.md)
-- [ai-collaboration.md §6 — API Specification Authority](../../.agents/rules/ai-collaboration.md)
+- [Counters.bit Endpoint Reference](../../counters-bit-endpoints.md)
+- [ai-collaboration.md §10 — Testing Strategy](../../../.agents/rules/ai-collaboration.md)
+- [ai-collaboration.md §6 — API Specification Authority](../../../.agents/rules/ai-collaboration.md)
 - [iced_test 0.14 documentation](https://docs.rs/iced_test/0.14.0)
 
 ---

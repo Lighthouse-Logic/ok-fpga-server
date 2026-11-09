@@ -210,4 +210,4 @@ For the web dashboard, a simple session mechanism:
 
 ## References
 
-- [Project Goals — Authentication](../../ok-FPGA-Server_Project-goals.txt) — line 5
+- [Project Goals — Authentication](../../../ok-FPGA-Server_Project-goals.txt) — line 5

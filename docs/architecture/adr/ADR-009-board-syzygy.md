@@ -183,9 +183,9 @@ Sensor types map to the `okEDeviceSensorType` enum:
 
 ## References
 
-- [Project Goals — Supported Boards](../../ok-FPGA-Server_Project-goals.txt) — lines 85-93
-- [Project Goals — SYZYGY](../../ok-FPGA-Server_Project-goals.txt) — lines 32-81
-- [okTDeviceSensor struct](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 670-679
-- [DeviceSettings C API](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 866-883
-- [DeviceSensors C API](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 847-854
-- [OK_PRODUCT_* constants](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 376-440
+- [Project Goals — Supported Boards](../../../ok-FPGA-Server_Project-goals.txt) — lines 85-93
+- [Project Goals — SYZYGY](../../../ok-FPGA-Server_Project-goals.txt) — lines 32-81
+- [okTDeviceSensor struct](../../../FrontPanel-6.1.0/README.md) — lines 670-679
+- [DeviceSettings C API](../../../FrontPanel-6.1.0/README.md) — lines 866-883
+- [DeviceSensors C API](../../../FrontPanel-6.1.0/README.md) — lines 847-854
+- [OK_PRODUCT_* constants](../../../FrontPanel-6.1.0/README.md) — lines 376-440

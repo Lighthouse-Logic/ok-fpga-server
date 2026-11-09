@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 //! # Windows-specific Win32 mDNS Service Registration
 //!
 //! Calls `DnsServiceConstructInstance` and `DnsServiceRegister` directly from

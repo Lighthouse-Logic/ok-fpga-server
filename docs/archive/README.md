@@ -11,7 +11,7 @@ or grouped ranges for small early phases (`roadmap-phases-00-06.md`).
 
 > **Archived:** YYYY-MM-DD
 > **Source:** [development-roadmap.md](../development-roadmap.md) §NN
-> **ADR:** [ADR-NNN](../architecture/adr/ADR-NNN-slug.md)
+> **ADR:** `ADR-NNN` (`../architecture/adr/ADR-NNN-slug.md`)
 ```
 
 ## Rules

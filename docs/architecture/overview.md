@@ -1,8 +1,8 @@
 # ok-FPGA-Server — Architecture Overview
 
-**Version**: 0.1.0  
-**Date**: 2026-08-16  
-**Author**: Architecture Team  
+**Version**: 0.3.12  
+**Date**: 2026-11-08  
+**Author**: Lighthouse Logic  
 
 ---
 
@@ -190,7 +190,6 @@ duplicate table that used to be here was removed in ADR-034 / SD-02).
 
 ## 9. References
 
-- [FrontPanel 6.1.0 Header](../../FrontPanel-6.1.0/okFrontPanel.h)
-- [FP5→FP6 Migration Guide](../../migrate-cpp-fp5-to-fp6.md)
+- [FrontPanel 6.1.0 SDK Setup](../../FrontPanel-6.1.0/README.md)
 - [Project Goals](../../ok-FPGA-Server_Project-goals.txt)
 - [Opal Kelly FrontPanel API Documentation](https://library.opalkelly.com/library/FrontPanelAPI/namespaceOpalKelly.html)

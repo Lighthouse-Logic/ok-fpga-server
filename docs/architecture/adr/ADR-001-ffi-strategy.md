@@ -114,5 +114,5 @@ The corresponding error codes (`ok_I2CRestrictedAddress`, `ok_I2CBitError`, `ok_
 
 - [rust-bindgen](https://github.com/rust-lang/rust-bindgen)
 - [libloading crate](https://docs.rs/libloading)
-- [okFrontPanel.h](../../FrontPanel-6.1.0/okFrontPanel.h)
-- [okFrontPanel_TryLoadLib()](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 774-786
+- [okFrontPanel.h](../../../FrontPanel-6.1.0/README.md)
+- [okFrontPanel_TryLoadLib()](../../../FrontPanel-6.1.0/README.md) — lines 774-786

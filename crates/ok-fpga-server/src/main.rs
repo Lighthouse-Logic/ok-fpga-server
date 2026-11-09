@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 //! # ok-fpga-server — REST + gRPC Server and Web Dashboard
 //!
 //! This is the main binary crate for the ok-FPGA-Server. When you run it,

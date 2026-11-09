@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 //! # mDNS Discovery Module
 //!
 //! Discovers ok-FPGA-Server instances on the local network using mDNS/DNS-SD.

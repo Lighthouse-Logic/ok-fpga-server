@@ -211,9 +211,9 @@ reporting `okDATAPORT_LEGACY` (e.g., XEM7320) do not support any AXI sub-interfa
 
 ## References
 
-- [FPGADataPortClassic C API](../../../FrontPanel-6.1.0/okFrontPanel.h) — lines 1080-1131
-- [FPGADataPortAXI / AXILite / AXIFull / AXIStream C API](../../../FrontPanel-6.1.0/okFrontPanel.h) — lines 939-1077
-- [C++ data port split](../../../FrontPanel-6.1.0/okFrontPanel.h) — lines 1696-1822
-- [okTDeviceInfo.dataport field](../../../FrontPanel-6.1.0/okFrontPanel.h) — line 642
+- [FPGADataPortClassic C API](../../../FrontPanel-6.1.0/README.md) — lines 1080-1131
+- [FPGADataPortAXI / AXILite / AXIFull / AXIStream C API](../../../FrontPanel-6.1.0/README.md) — lines 939-1077
+- [C++ data port split](../../../FrontPanel-6.1.0/README.md) — lines 1696-1822
+- [okTDeviceInfo.dataport field](../../../FrontPanel-6.1.0/README.md) — line 642
 - [ADR-019 — AXI Interface Architecture](ADR-019-axi-interface-architecture.md)
 

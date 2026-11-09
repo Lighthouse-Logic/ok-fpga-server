@@ -248,10 +248,10 @@ When adding Linux support, try the following before defaulting to polling:
 
 ## References
 
-- [FrontPanelManager C API](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 1271-1306
-- [FrontPanelManager C++ class](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 2235-2273
-- [okREALM_TEST / okREALM_LOCAL](../../FrontPanel-6.1.0/okFrontPanel.h) — lines 2232-2233
-- [EmulateTestDeviceConnection](../../FrontPanel-6.1.0/okFrontPanel.h) — line 1306
+- [FrontPanelManager C API](../../../FrontPanel-6.1.0/README.md) — lines 1271-1306
+- [FrontPanelManager C++ class](../../../FrontPanel-6.1.0/README.md) — lines 2235-2273
+- [okREALM_TEST / okREALM_LOCAL](../../../FrontPanel-6.1.0/README.md) — lines 2232-2233
+- [EmulateTestDeviceConnection](../../../FrontPanel-6.1.0/README.md) — line 1306
 - [ADR-013 — Device Scanner](ADR-013-device-scanner.md) — Phase 1 implementation
 - [`device_monitor.rs`](../../../crates/ok-fpga-server/src/device_monitor.rs) — callback implementation (retained, `dead_code`)
 - [`main.rs` — `device_poll_loop`](../../../crates/ok-fpga-server/src/main.rs) — polling implementation (active)

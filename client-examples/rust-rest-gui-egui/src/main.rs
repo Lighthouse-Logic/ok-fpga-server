@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 //! # Counters.bit Interactive Demo — Rust REST + egui
 //!
 //! This demo provides a GUI for real-time control of the Counters.bit hardware

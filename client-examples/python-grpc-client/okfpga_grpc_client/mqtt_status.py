@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
+
 """MQTT Status Publisher.
 
 Publishes client connection status to an MQTT broker. Topic structure

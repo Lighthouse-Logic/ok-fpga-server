@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 /// Build script for the Rust gRPC client.
 ///
 /// Compiles the ok-FPGA-Server proto file into Rust client stubs using

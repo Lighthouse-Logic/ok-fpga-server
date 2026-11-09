@@ -315,8 +315,8 @@ full architecture.
 
 ## References
 
-- [OpenAPI 3.0 Spec](../../api/openapi.yaml)
-- [Proto3 gRPC Spec](../../proto/okfpga/v1/okfpga.proto)
+- [OpenAPI 3.0 Spec](../../../api/openapi.yaml)
+- [Proto3 gRPC Spec](../../../proto/okfpga/v1/okfpga.proto)
 - [ADR-004 — REST API Design](ADR-004-rest-api-design.md)
 - [ADR-005 — gRPC API Design](ADR-005-grpc-api-design.md)
 - [ADR-006 — Resource Management](ADR-006-resource-management.md)

@@ -96,7 +96,7 @@ Features in this section represent uncommitted research, future expansion, or lo
 
 ## 📦 Milestone Archive & Historical Context
 
-To maintain scannability, completed phases are summarized here and archived in detail in the [Changelog](CHANGELOG.md) and [Archived Roadmaps](https://www.google.com/search?q=docs/archive/roadmap-history.md).
+To maintain scannability, completed phases are summarized here and archived in detail in the `Changelog` (`CHANGELOG.md`) and [Archived Roadmaps](https://www.google.com/search?q=docs/archive/roadmap-history.md).
 
 #### Phase 1: Proof of Concept & Hardware Bring-Up (v0.1.0 – v0.4.0)
 

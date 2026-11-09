@@ -103,7 +103,7 @@ okFPGAService
 
 gRPC proto3 file example (one message/response shown)
 
-// Copyright 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic.
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
 //
 
 // This line is required, as it specifies the version of the .proto file format

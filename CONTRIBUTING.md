@@ -1,6 +1,53 @@
-# Contributing to ok-FPGA-Server
+# Contributing to `ok-fpga-server`
 
-## Development Setup
+Thank you for your interest in contributing to **`ok-fpga-server`**, maintained by **Lighthouse Logic** (a registered trade name of **Great Bay Synergy LLC**).
+
+---
+
+## 1. Dual-Licensing & Contributor License Agreement (CLA)
+
+### Why We Require a CLA
+**`ok-fpga-server`** is published under a **Dual-Licensing Model**:
+- The **Community Edition** is free and open-source under the **GNU General Public License v3.0 (`GPLv3`)** (see [`LICENSE`](./LICENSE)).
+- **Great Bay Synergy LLC d/b/a Lighthouse Logic** also offers commercial, closed-source licensing options to fund ongoing FPGA/embedded systems R&D and enable commercial hardware/software integration (see [`COMMERCIAL-LICENSE.md`](./COMMERCIAL-LICENSE.md)).
+
+To maintain this dual-licensing model while allowing **you to retain full copyright ownership** of your work, all contributors must agree to our **Contributor License Agreement ([`CLA.md`](./CLA.md))** before a Pull Request can be merged.
+
+### How to Sign the CLA (1-Minute Automated PR Comment)
+We use a self-contained GitHub Action (`contributor-assistant/github-action`)—**no third-party OAuth website login is required**:
+
+1. Open your Pull Request on `Lighthouse-Logic/ok-fpga-server` as normal.
+2. The automated CLA bot will post a comment on your Pull Request asking you to review [`CLA.md`](./CLA.md).
+3. Once you have read and agreed to [`CLA.md`](./CLA.md), post a new comment on the Pull Request with the exact text:
+   ```text
+   I have read the CLA Document and I hereby sign the CLA
+   ```
+4. The workflow will automatically record your GitHub username and signature in `.github/cla-signatures.json` and mark the CLA status check as **passed**. You only need to sign once across all Pull Requests in this repository.
+
+---
+
+## 2. Pull Request & Commit Hygiene
+
+1. **Git Author Privacy & Identity**:
+   - Everything committed to a public Git repository becomes part of the permanent public commit log. Before committing, verify your local `git config user.name` and `git config user.email` match the public identity or GitHub `noreply` email you wish to publish.
+2. **SPDX & Copyright Headers**:
+   - Preserve existing SPDX license identifiers (`SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial`) and copyright notices in source files.
+3. **Focused Changes**:
+   - Keep each Pull Request scoped to a single bug fix, feature, or documentation improvement.
+4. **No Third-Party Copyleft Contamination**:
+   - Do not copy code from third-party GPL-only or proprietary sources unless you are the sole copyright holder and can grant the rights specified in [`CLA.md`](./CLA.md).
+5. **Testing**:
+   - Include or update unit/integration tests alongside code changes and ensure all existing tests pass before submitting your PR.
+
+---
+
+## 3. Commercial Licensing or Private Inquiries
+
+If your organization would like to contribute under a corporate agreement, sponsor a feature, or obtain a commercial license for **`ok-fpga-server`**, please contact us at [admin@lighthouselogic.dev](mailto:admin@lighthouselogic.dev) or visit [https://lighthouselogic.dev](https://lighthouselogic.dev).
+
+---
+
+## 4. Development Setup
 
 ### Prerequisites
 
@@ -45,20 +92,22 @@ protoc --version
 
 ### FrontPanel SDK
 
-Place the FrontPanel 6.1.0 SDK at the repository root:
+Place the FrontPanel 6.1.0 SDK at the repository root (or set `OK_FRONTPANEL_SDK_DIR`):
 
 ```
 ok-fpga-server/
 ├── FrontPanel-6.1.0/
 │   ├── okFrontPanel.h          # C header (used by bindgen at build time)
-│   ├── okFrontPanel.dll        # Windows runtime library
+│   ├── okFrontPanel.dll        # Windows runtime library (or libokFrontPanel.so on Linux)
 │   └── ExampleBitfiles/        # Optional: for hardware tests
 └── ...
 ```
 
-> **Note**: The SDK files are not committed to the public repository.
+> **Note**: The proprietary Opal Kelly SDK files are not committed to the public repository. See [`FrontPanel-6.1.0/README.md`](FrontPanel-6.1.0/README.md) for setup instructions.
 
-## Building
+---
+
+## 5. Building
 
 ```bash
 # Default build (REST + dashboard)
@@ -74,7 +123,9 @@ cargo build --no-default-features
 cargo build --release --features full
 ```
 
-## Testing
+---
+
+## 6. Testing
 
 ```bash
 # Run all unit and integration tests
@@ -101,10 +152,12 @@ cargo test -p ok-fpga-ffi --test hardware -- --ignored --test-threads=1 --nocapt
 
 Hardware tests use `#[ignore]` and are skipped by default. They require:
 - A connected Opal Kelly USB3/Gen3 FPGA board
-- `okFrontPanel.dll` accessible
+- `okFrontPanel.dll` / `libokFrontPanel.so` accessible
 - `--test-threads=1` (FrontPanel C API is not thread-safe)
 
-## Code Quality
+---
+
+## 7. Code Quality
 
 ```bash
 # Format code
@@ -117,7 +170,9 @@ cargo clippy --features full --all-targets
 cargo doc --no-deps --open
 ```
 
-## Project Structure
+---
+
+## 8. Project Structure
 
 ```
 ok-fpga-server/
@@ -160,14 +215,14 @@ ok-fpga-server/
 │   └── architecture/
 │       ├── overview.md
 │       └── adr/               # Architecture Decision Records
-└── FrontPanel-6.1.0/          # SDK (not committed)
+└── FrontPanel-6.1.0/          # SDK instructions (proprietary binaries not committed)
 ```
 
-## Architecture Decision Records
+---
 
-When making significant design decisions, document them as ADRs in `docs/architecture/adr/`. Use the existing ADRs as templates. ADRs are numbered sequentially (ADR-001, ADR-002, etc.).
+## 9. Architecture Decision Records & Commit Style
 
-## Commit Style
+When making significant design decisions, document them as ADRs in `docs/architecture/adr/`. Use the existing ADRs as templates. ADRs are numbered sequentially (`ADR-001`, `ADR-002`, etc.).
 
 Use [Conventional Commits](https://www.conventionalcommits.org/):
 

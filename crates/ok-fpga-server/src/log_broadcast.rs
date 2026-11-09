@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 //! # Dashboard Log Broadcast Layer (ADR-022)
 //!
 //! This module provides a custom `tracing_subscriber::Layer` that captures

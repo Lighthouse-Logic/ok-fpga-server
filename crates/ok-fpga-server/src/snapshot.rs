@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 //! # Opal Kelly snapshot reads (ADR-034 §9, D76)
 //!
 //! FrontPanel reads output endpoints in two steps:

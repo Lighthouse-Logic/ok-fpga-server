@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 //! # ok-fpga-ffi — Low-Level FFI Bindings to Opal Kelly FrontPanel 6.1.0
 //!
 //! This crate provides the lowest layer of the ok-FPGA-Server stack. It handles:

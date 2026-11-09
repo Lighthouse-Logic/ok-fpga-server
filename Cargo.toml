@@ -49,5 +49,5 @@ chrono = { version = "0.4", features = ["serde"] }
 [workspace.package]
 version = "0.3.12"
 edition = "2021"
-authors = ["Lighthouse Logic"]
-license = "MIT"
+authors = ["Lighthouse Logic <admin@lighthouselogic.dev>"]
+license = "GPL-3.0-or-later"

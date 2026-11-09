@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 //! # Device Scanner — FrontPanel DLL → DeviceManager Bridge
 //!
 //! This module implements ADR-013: it loads the FrontPanel shared library at

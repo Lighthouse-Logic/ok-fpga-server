@@ -3,8 +3,8 @@ name = "rust-grpc-gui-egui"
 version = "0.1.0"
 edition = "2021"
 description = "Interactive Counters.bit GUI demo — Rust gRPC + egui (Rusty Garpac)"
-authors = ["Lighthouse Logic"]
-license = "MIT"
+authors = ["Lighthouse Logic <admin@lighthouselogic.dev>"]
+license = "GPL-3.0-or-later"
 
 [dependencies]
 rust-grpc-gui-common = { path = "../rust-grpc-gui-common" }

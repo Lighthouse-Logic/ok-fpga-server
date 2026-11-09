@@ -9,7 +9,7 @@
 
 **Status**: `[x]` Complete  
 **Depends on**: Phase 3 (FFI layer), Phase 4 (Core domain), Phase 8 (Dashboard)  
-**ADR reference**: [ADR-013 â€” Device Scanner](architecture/adr/ADR-013-device-scanner.md)
+**ADR reference**: [ADR-013 â€” Device Scanner](../architecture/adr/ADR-013-device-scanner.md)
 
 ### What to do
 
@@ -48,7 +48,7 @@
 
 **Status**: `[x]` Complete  
 **Depends on**: Phase 14 (Device Scanner)  
-**ADR reference**: [ADR-002 â€” Device Lifecycle & Hot-Plug](architecture/adr/ADR-002-device-lifecycle.md)
+**ADR reference**: [ADR-002 â€” Device Lifecycle & Hot-Plug](../architecture/adr/ADR-002-device-lifecycle.md)
 
 ### What was done
 
@@ -88,7 +88,7 @@
 
 **Status**: `[x]` Completed (2026-08-17)  
 **Depends on**: Phase 6 (REST), Phase 5 (gRPC), Phase 10 (MQTT), Phase 11 (mDNS)  
-**ADR reference**: [ADR-014 â€” Example Client Architecture](architecture/adr/ADR-014-example-clients.md)
+**ADR reference**: [ADR-014 â€” Example Client Architecture](../architecture/adr/ADR-014-example-clients.md)
 
 ### Overview
 
@@ -236,7 +236,7 @@ clients use mock programming and mock resources to verify the protocol layer.
 
 **Status**: `[x]` Completed (2026-08-17)  
 **Depends on**: Phase 16  
-**ADR reference**: [ADR-015 â€” HTTP Method Semantics](architecture/adr/ADR-015-http-method-semantics.md)
+**ADR reference**: [ADR-015 â€” HTTP Method Semantics](../architecture/adr/ADR-015-http-method-semantics.md)
 
 ### Overview
 
@@ -272,7 +272,7 @@ Also added two new resource CRUD endpoints:
 
 **Status**: `[x]` Completed (2026-08-17)  
 **Depends on**: Phase 17  
-**ADR reference**: [ADR-016 â€” Hardware Integration Testing](architecture/adr/ADR-016-hardware-integration-testing.md)
+**ADR reference**: [ADR-016 â€” Hardware Integration Testing](../architecture/adr/ADR-016-hardware-integration-testing.md)
 
 ### Overview
 

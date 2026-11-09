@@ -232,5 +232,5 @@ This will be tracked as a separate task, not part of Phase 36.
 - [gRPC proto — ConfigureFPGA / ConfigureFPGAFromMemory](../../../proto/okfpga/v1/okfpga.proto)
 - [ADR-017: FFI Endpoint Wiring Strategy](ADR-017-ffi-endpoint-wiring.md)
 - [ADR-034: Resource Model Consolidation](ADR-034-resource-model-consolidation.md)
-- [ADR-C-004: FPGA Programming Flow (Client)](../../client/ADR/ADR-C-004-programming-flow.md)
-- [Configure FPGA Review](../../client/labview-developer-guide.html)
+- `ADR-C-004: FPGA Programming Flow (Client)`
+- `Configure FPGA Review`

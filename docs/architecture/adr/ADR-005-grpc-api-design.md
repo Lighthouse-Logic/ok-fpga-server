@@ -336,7 +336,7 @@ Defaults to `"shared"` if omitted.
 
 - [Tonic gRPC framework](https://docs.rs/tonic)
 - [Proto3 Language Guide](https://protobuf.dev/programming-guides/proto3/)
-- [Project goals proto example](../../ok-FPGA-Server_Project-goals.txt) — lines 104-144
+- [Project goals proto example](../../../ok-FPGA-Server_Project-goals.txt) — lines 104-144
 - [ADR-010 Service Manager](ADR-010-service-manager.md) — feature flags and service lifecycle
 - [ADR-020 Client-Side Resource Registration](ADR-020-client-side-resource-registration.md) — resource CRUD, lock/unlock, heartbeat
 - [ADR-024 Endpoint Access Enforcement](ADR-024-endpoint-access-enforcement.md) — runtime endpoint gating

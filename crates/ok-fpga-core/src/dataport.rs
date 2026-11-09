@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 //! # Data Port Abstractions — Classic vs AXI
 //!
 //! This module defines the data port types from ADR-003. After an FPGA is

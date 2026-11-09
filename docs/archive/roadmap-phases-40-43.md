@@ -12,7 +12,7 @@ publishing, and hostname-derived server identity for cross-subnet
 environments.
 
 **ADRs:**
-- [ADR-011 (Addendum B)](../architecture/adr/ADR-011-mqtt.md) — MQTT configuration updates
+- [ADR-011 (Addendum B)](../architecture/adr/ADR-011-mqtt-publishing.md) — MQTT configuration updates
 - [ADR-031](../architecture/adr/ADR-031-mqtt-discovery.md) — MQTT server announce/discovery
 - [ADR-032](../architecture/adr/ADR-032-mqtt-report-by-exception.md) — MQTT report-by-exception
 

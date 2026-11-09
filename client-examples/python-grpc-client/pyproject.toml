@@ -6,8 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "okfpga-grpc-client"
 version = "0.1.4"
 description = "Example Python gRPC client for ok-FPGA-Server"
-authors = [{ name = "Lighthouse Logic" }]
-license = { text = "MIT" }
+authors = [{ name = "Lighthouse Logic", email = "admin@lighthouselogic.dev" }]
+license = { text = "GPL-3.0-or-later" }
 requires-python = ">=3.12"
 dependencies = [
     "grpcio>=1.60",

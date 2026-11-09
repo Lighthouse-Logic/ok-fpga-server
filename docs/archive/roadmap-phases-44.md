@@ -90,7 +90,7 @@
 | `SD-05` | Docs | `dataport` descriptions updated in OpenAPI, proto, and [ADR-034 §15](../architecture/adr/ADR-034-resource-model-consolidation.md) | 44-H |
 | `SD-06` | Docs | [python-rest-client-guide.md](../guides/python-rest-client-guide.md) §5–§9 updated to ADR-028 two-route configure contract and ADR-034 resource model | 44-J |
 | `SD-07` | Docs | [ADR-020](../architecture/adr/ADR-020-client-side-resource-registration.md) marked superseded by ADR-034 | 44-A, 44-J |
-| `SD-08` | Docs | [hdl-resource-mapping-guide.md](../client/hdl-resource-mapping-guide.md) updated to ADR-034 (`R1`, `Rule A`, `D55`, `D61`, `D68`, `D77`, `B1`, 32-bit wire width) | 44-J |
+| `SD-08` | Docs | `hdl-resource-mapping-guide.md` updated to ADR-034 (`R1`, `Rule A`, `D55`, `D61`, `D68`, `D77`, `B1`, 32-bit wire width) | 44-J |
 | `SD-09` | Docs | `rest/resources.rs` `create_resource` doc comment updated for interface validation (`D54`) | 44-B |
 
 ### 44.4 Acceptance Criteria (All Verified ✅)
@@ -744,7 +744,7 @@ adopted, 2 rejected as non-observable / redundant).
     - [overview.md](../architecture/overview.md)
   - Guides & Resource Docs:
     - [python-rest-client-guide.md](../guides/python-rest-client-guide.md) (`SD-06`)
-    - [hdl-resource-mapping-guide.md](../client/hdl-resource-mapping-guide.md) (`SD-08`)
+    - `hdl-resource-mapping-guide.md` (`SD-08`)
     - [resource-management-developer-guide.md](../resource-management-developer-guide.md)
     - [resource-management-recommendations.md](../resource-management-recommendations.md)
   - API Specification & Roadmap:

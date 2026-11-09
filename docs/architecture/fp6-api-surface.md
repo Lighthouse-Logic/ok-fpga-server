@@ -1,6 +1,6 @@
 # FrontPanel 6.1.0 C API Surface Catalog
 
-**Purpose**: Complete inventory of every C function, struct, enum, and constant that the Rust FFI layer must bind, organized by subsystem. This catalog is derived directly from [okFrontPanel.h](../../FrontPanel-6.1.0/okFrontPanel.h).
+**Purpose**: Complete inventory of every C function, struct, enum, and constant that the Rust FFI layer must bind, organized by subsystem. This catalog is derived directly from [okFrontPanel.h](../../FrontPanel-6.1.0/README.md).
 
 **Exclusions**: Functions marked ❌ are excluded from the FFI layer (USB 2.0-only, Lua scripting, or Android-only).
 

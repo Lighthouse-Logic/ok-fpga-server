@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 //! # Device Manager Integration Tests
 //!
 //! Tests device registration, hot-plug event broadcasting, and
@@ -1030,7 +1032,7 @@ fn test_emulated_pipe_and_register_round_trip_with_ok_realm_test() {
 }
 
 #[test]
-#[ignore = "Requires live XEM7320 hardware on the hardware test host and libokFrontPanel.so"]
+#[ignore = "Requires live XEM7320 hardware and libokFrontPanel.so"]
 fn test_hardware_xem7320_wire_in_auto_update_semantics() {
     use ok_fpga_ffi::api::FrontPanelDll;
     use ok_fpga_ffi::*;

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
+
 """Proto file compiler for the ok-FPGA-Server gRPC client.
 
 Runs grpcio-tools (protoc) to compile the proto file into Python stubs.

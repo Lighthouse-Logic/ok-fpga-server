@@ -1,0 +1,47 @@
+# Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
+
+name: "CLA Assistant"
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, closed, synchronize]
+
+# Explicit token permissions so the self-contained Action can comment on PRs
+# and commit new CLA signatures to .github/cla-signatures.json
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  cla-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "CLA Assistant"
+        if: (github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') || github.event_name == 'pull_request_target'
+        uses: contributor-assistant/github-action@v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN || secrets.GITHUB_TOKEN }}
+        with:
+          path-to-signatures: ".github/cla-signatures.json"
+          # Storing signatures on a dedicated branch ('cla-signatures') avoids conflicting with
+          # branch protection on 'main' and keeps the main commit log clean.
+          branch: "cla-signatures"
+          allowlist: "LightHouseLogic-dev,Lighthouse-Logic,lighthouselogic-admin,ll-admin,dependabot[bot],github-actions[bot]"
+          remote-organization-name: "Lighthouse-Logic"
+          remote-repository-name: "ok-fpga-server"
+          create-file-commit-message: "chore(cla): initialize CLA signature file for ok-fpga-server"
+          signed-commit-message: "chore(cla): @$contributorName has signed the CLA in #$pullRequestNo"
+          custom-notsigned-prcomment: >
+            Thank you for your submission to **ok-fpga-server**! We require all contributors to sign our
+            [Contributor License Agreement (CLA)](https://github.com/Lighthouse-Logic/ok-fpga-server/blob/main/CLA.md)
+            before we can merge your Pull Request.
+            Please review `CLA.md` and reply with a comment containing the exact text below:
+          custom-pr-sign-comment: "I have read the CLA Document and I hereby sign the CLA"
+          custom-allsigned-prcomment: "All contributors have signed the Contributor License Agreement (CLA)!"
+          lock-pullrequest-aftermerge: false

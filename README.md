@@ -75,7 +75,7 @@ Features control which optional server components are compiled in:
 
 | Feature | Default | Description |
 |---------|---------|-------------|
-| `rest` | ✓ | REST API server (Axum, port 8080) |
+| `rest` | ✓ | REST API server (Axum, port 8088) |
 | `dashboard` | ✓ | Web dashboard SPA (served on management port 9090) |
 | `grpc` | | gRPC API server (Tonic, port 50051) |
 | `mqtt` | | MQTT status publisher (requires external broker) |
@@ -103,7 +103,7 @@ log_level = "info"           # trace, debug, info, warn, error
 [rest]
 enabled = true
 bind = "0.0.0.0"
-port = 8080
+port = 8088
 
 [grpc]
 enabled = true
@@ -113,8 +113,6 @@ port = 50051
 [mqtt]
 enabled = false
 broker_url = "mqtt://localhost:1883"
-client_id = "okfpga-server-01"
-topic_prefix = "okfpga/server01"
 publish_interval_secs = 5
 
 [mdns]
@@ -197,6 +195,14 @@ All major design decisions are documented as ADRs in [`docs/architecture/adr/`](
 | [ADR-012](docs/architecture/adr/ADR-012-mdns-discovery.md) | mDNS/DNS-SD Service Discovery |
 | [ADR-013](docs/architecture/adr/ADR-013-device-scanner.md) | Device Scanner — FFI→DeviceManager Bridge |
 
-## License
+## License & Commercial Licensing
 
-See [LICENSE](LICENSE) for details.
+Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic.
+
+**`ok-fpga-server`** is **dual-licensed**:
+
+1. **Open-Source (`GPLv3`)**: Available under the [GNU General Public License v3.0](./LICENSE).
+2. **Commercial License**: To integrate `ok-fpga-server` into closed-source software, proprietary test systems, or commercial hardware products without GPLv3 copyleft obligations, please see [`COMMERCIAL-LICENSE.md`](./COMMERCIAL-LICENSE.md) or contact **Lighthouse Logic** at [admin@lighthouselogic.dev](mailto:admin@lighthouselogic.dev) ([https://lighthouselogic.dev](https://lighthouselogic.dev)).
+
+### Contributing
+Contributions are welcome! All contributors must agree to our [Contributor License Agreement (`CLA.md`)](./CLA.md) via a one-line Pull Request comment. See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for details.

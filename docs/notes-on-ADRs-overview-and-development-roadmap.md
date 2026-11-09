@@ -29,7 +29,7 @@ When a roadmap item involves a major technical pivot or settled architectural de
 <!-- Good: Clean roadmap with ADR linkage -->
 - [x] Phase 2: Host Interface & Telemetry Bridge
   - Status: Completed (v0.4.0)
-  - Architecture: See [ADR-0004: gRPC Transport Migration](docs/adr/0004-grpc-transport.md)
+  - Architecture: See `ADR-0004: gRPC Transport Migration`
 
 ```
 

@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
 //! # RFC 7807 Problem Details
 //!
 //! Implements the [RFC 7807](https://tools.ietf.org/html/rfc7807) Problem

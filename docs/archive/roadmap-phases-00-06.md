@@ -9,7 +9,7 @@
 
 **Status**: `[x]` Completed (2026-08-16, `c56145b`)  
 **Depends on**: Nothing  
-**ADR reference**: [Architecture Overview](architecture/overview.md)
+**ADR reference**: [Architecture Overview](../architecture/overview.md)
 
 ### What to do
 
@@ -68,7 +68,7 @@
 
 **Status**: `[x]` Completed (2026-08-16, `44c2d0c`)  
 **Depends on**: Phase 0  
-**ADR reference**: [ADR-004 REST API Design](architecture/adr/ADR-004-rest-api-design.md)
+**ADR reference**: [ADR-004 REST API Design](../architecture/adr/ADR-004-rest-api-design.md)
 
 ### What to do
 
@@ -160,7 +160,7 @@ Create `api/openapi.yaml` â€” a complete OpenAPI 3.0.0 specification.
 
 **Status**: `[x]` Completed (2026-08-16, `44c2d0c`)  
 **Depends on**: Phase 0  
-**ADR reference**: [ADR-005 gRPC API Design](architecture/adr/ADR-005-grpc-api-design.md)
+**ADR reference**: [ADR-005 gRPC API Design](../architecture/adr/ADR-005-grpc-api-design.md)
 
 ### What to do
 
@@ -198,7 +198,7 @@ Create `proto/okfpga/v1/okfpga.proto` â€” a complete proto3 service definit
 
 **Status**: `[x]` Complete  
 **Depends on**: Phase 0  
-**ADR reference**: [ADR-001 FFI Strategy](architecture/adr/ADR-001-ffi-strategy.md), [FP6 API Surface Catalog](architecture/fp6-api-surface.md)
+**ADR reference**: [ADR-001 FFI Strategy](../architecture/adr/ADR-001-ffi-strategy.md), [FP6 API Surface Catalog](../architecture/fp6-api-surface.md)
 
 ### What to do
 
@@ -229,7 +229,7 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 1. Add `libloading` as a dependency in `ok-fpga-ffi/Cargo.toml`
 2. Create `ok-fpga-ffi/src/api.rs` â€” the function dispatch table:
-   - Define a `FrontPanelApi` struct that holds a `libloading::Library` and `Symbol` for every C function listed in the [FP6 API Surface Catalog](architecture/fp6-api-surface.md) (sections 1-15, ~160 functions)
+   - Define a `FrontPanelApi` struct that holds a `libloading::Library` and `Symbol` for every C function listed in the [FP6 API Surface Catalog](../architecture/fp6-api-surface.md) (sections 1-15, ~160 functions)
    - Implement `FrontPanelApi::load(dll_path: &Path) -> Result<Self, LoadError>` that:
      - Opens the library with `Library::new()`
      - Resolves every symbol, returning a clear error if any are missing
@@ -272,7 +272,7 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 **Status**: `[x]` Complete  
 **Depends on**: Phase 3  
-**ADR references**: [ADR-002](architecture/adr/ADR-002-device-lifecycle.md), [ADR-003](architecture/adr/ADR-003-data-port-abstraction.md), [ADR-006](architecture/adr/ADR-006-resource-management.md), [ADR-009](architecture/adr/ADR-009-board-syzygy.md)
+**ADR references**: [ADR-002](../architecture/adr/ADR-002-device-lifecycle.md), [ADR-003](../architecture/adr/ADR-003-data-port-abstraction.md), [ADR-006](../architecture/adr/ADR-006-resource-management.md), [ADR-009](../architecture/adr/ADR-009-board-syzygy.md)
 
 ### What to do (sub-phases)
 
@@ -330,7 +330,7 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 **Status**: `[x]` Completed (2026-08-16, `025de4b`)  
 **Depends on**: Phase 4  
-**ADR reference**: [ADR-010](architecture/adr/ADR-010-service-manager.md)
+**ADR reference**: [ADR-010](../architecture/adr/ADR-010-service-manager.md)
 
 ### What to do
 
@@ -357,7 +357,7 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 **Status**: `[x]` Completed (2026-08-16, `8edfdce`)  
 **Depends on**: Phase 2, Phase 4E  
-**ADR references**: [ADR-005](architecture/adr/ADR-005-grpc-api-design.md), [ADR-010](architecture/adr/ADR-010-service-manager.md)  
+**ADR references**: [ADR-005](../architecture/adr/ADR-005-grpc-api-design.md), [ADR-010](../architecture/adr/ADR-010-service-manager.md)  
 **Feature flag**: `grpc` (NOT a default feature)
 
 ### What to do
@@ -386,7 +386,7 @@ This phase builds the low-level Rust FFI bindings. It has **three sub-phases**:
 
 **Status**: `[x]` Completed (2026-08-16, `8edfdce`)  
 **Depends on**: Phase 1, Phase 4E  
-**ADR references**: [ADR-004](architecture/adr/ADR-004-rest-api-design.md), [ADR-010](architecture/adr/ADR-010-service-manager.md)  
+**ADR references**: [ADR-004](../architecture/adr/ADR-004-rest-api-design.md), [ADR-010](../architecture/adr/ADR-010-service-manager.md)  
 **Feature flag**: `rest` (default feature)
 
 ### What to do

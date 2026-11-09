@@ -1,8 +1,8 @@
 # ok-fpga-server — Product Requirements Document (PRD)
 
-> **Status:** Living Specification v1.0 (`v0.3.10`, API Specification `v1.0.0`, ADR-034)
-> **Last Updated:** 2026-11-07
-> **License:** GPLv3 (`lighthouselogic/ok-fpga-server`)
+> **Status:** Living Specification v1.0 (`v0.3.12`, API Specification `v1.0.0`, ADR-034)
+> **Last Updated:** 2026-11-08
+> **License:** Dual-Licensed: GPL-3.0-or-later OR Commercial (Great Bay Synergy LLC d/b/a Lighthouse Logic)
 > **Related Docs:** [Architecture Overview](architecture/overview.md) | [Development Roadmap (NNL)](development-roadmap.md) | [API Specification PDF](API-Specification/ok-fpga-server-api-specification.pdf) | [OpenAPI 3.0 Spec](../api/openapi.yaml) | [Proto3 Spec](../proto/okfpga/v1/okfpga.proto)
 
 ---

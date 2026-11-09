@@ -3,8 +3,8 @@ name = "rust-rest-gui-egui"
 version = "0.1.0"
 edition = "2021"
 description = "Interactive Counters.bit GUI demo — Rust REST + egui (Rusty Rester)"
-authors = ["Lighthouse Logic"]
-license = "MIT"
+authors = ["Lighthouse Logic <admin@lighthouselogic.dev>"]
+license = "GPL-3.0-or-later"
 
 [dependencies]
 # Shared API client for Counters.bit demo

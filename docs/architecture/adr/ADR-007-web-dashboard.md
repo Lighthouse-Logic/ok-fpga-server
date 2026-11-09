@@ -124,6 +124,6 @@ The dashboard respects the authentication stubs (ADR-008):
 
 ## References
 
-- [Project Goals — Web Dashboard](../../ok-FPGA-Server_Project-goals.txt) — line 4
+- [Project Goals — Web Dashboard](../../../ok-FPGA-Server_Project-goals.txt) — line 4
 - [Axum static file serving](https://docs.rs/axum/latest/axum/routing/struct.Router.html#method.nest_service)
 - [tracing crate](https://docs.rs/tracing)

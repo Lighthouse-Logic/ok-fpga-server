@@ -101,7 +101,7 @@ cargo build
 ### 1.3 Configure for Network Access
 
 The server binds to `0.0.0.0` by default, so it is accessible from any machine
-on the network. The default configuration file is [`config.toml`](config.toml):
+on the network. The default configuration file is [`config.toml`](../config.toml):
 
 ```toml
 # === config.toml ===
@@ -514,18 +514,17 @@ external MQTT broker (e.g., Mosquitto).
 [mqtt]
 enabled = true
 broker_url = "mqtt://192.168.1.50:1883"
-client_id = "okfpga-server-01"
-topic_prefix = "okfpga/server01"
 publish_interval_secs = 5
 ```
 
-**Topics published:**
+**Topics published (where `<hostname>` is the server's OS hostname):**
 
 | Topic | Description |
 |-------|-------------|
-| `okfpga/server01/status` | Periodic server heartbeat |
-| `okfpga/server01/devices` | Device connect/disconnect events |
-| `okfpga/server01/services` | Service state changes |
+| `okfpga/server-<hostname>/server/announce` | Retained server discovery payload & LWT offline status |
+| `okfpga/server-<hostname>/status` | Report-by-exception & periodic server heartbeat |
+| `okfpga/server-<hostname>/devices` | Device connect/disconnect/configure events |
+| `okfpga/server-<hostname>/services` | Service state changes |
 
 ### 5.3 Authentication
 
@@ -534,19 +533,13 @@ For multi-user environments, enable authentication:
 ```toml
 [auth]
 provider = "local"
-session_expiry_secs = 28800  # 8 hours
+session_timeout_secs = 3600
 
-[[auth.local.users]]
-username = "admin"
-password_hash = "$2b$12$..."  # bcrypt hash
-display_name = "Administrator"
-groups = ["admin"]
-
-[[auth.local.users]]
-username = "student1"
-password_hash = "$2b$12$..."
-display_name = "Student 1"
-groups = ["users"]
+[auth.local]
+users = [
+    { username = "admin", password_hash = "$2b$12$...", display_name = "Administrator", groups = ["admin"] },
+    { username = "student1", password_hash = "$2b$12$...", display_name = "Student 1", groups = ["users"] },
+]
 ```
 
 ---

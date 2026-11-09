@@ -4,17 +4,7 @@ trigger: always_on
 
 # ok-fpga-server — AI Collaboration Rules
 
-These rules apply to any AI assistant (Antigravity, Gemini, Copilot, etc.)
-working on this codebase. They must be followed in every session.
-
-## 0. Local Models & Strata Protocol (For Hosted AI Assitants only (Antigravity, Gemini, Copilot, etc)
-- **Default Engine**: Use `strata-mcp` (`strata_chat`, `strata_generate`, `strata_review_files`) for planning, architecture, test code, unit tests, code reviews, and implementation. Check if the model is warmed up with strata_status, if it is not, triple the normal timeout time.
-- **Model Choice**: `strata_status` shows which model is loaded. The default is Qwen3.8-Flash-Next IQ3_S (images on); `strata_start` with `model` (`swift`, `coder`, or an id from `strata://models`) switches it, and `strata_start` with no model returns to the default. Prefer the Coder only for code; switch back when done. The tool descriptions carry the live speed and token limits.
-- **Fallbacks**: Use `local-ollama` (Qwen 2.5 VL) only for Playwright visual/UI tests, or when `strata-mcp` is unreachable (Qwen 3.8).
-- **Workspace & File Ingestion**: Pass workspace-relative paths or globs in `files: [...]` to `strata_chat` or `strata_review_files`. The bridge reads files and injects project rules automatically.
-- **Unified Diffs Only**: Instruct `strata-mcp` to output code changes strictly as concise `diff -u` chunks with minimal rationale. Never output full files or unchanged lines.
-- **Execution Mediation**: Hosted Antigravity agent inspects diffs and applies them via `replace_file_content` / `write_to_file`. No unmediated local disk writes.
-- **Token Allocation**: When calling strata-mcp, request max_tokens: 16384 (or 49152) and reasoning_budget_tokens: 8192 (or 16384). Mimir operates locally at ~95 tok/s with 512k context; never throttle requests to conservative cloud 4k limits.
+These rules apply to any AI coding assistant working on this codebase. They must be followed in every session.
 
 **1. Explicit Approval & Scope**
 * WAIT FOR APPROVAL: Stop and wait for the user to explicitly approve a plan before modifying code. Feedback without an approval phrase is not approval.
@@ -44,7 +34,7 @@ working on this codebase. They must be followed in every session.
 * Keep responses concise: point to artifacts after creating or updating them instead of re-summarizing their contents.
 * Format all file references as clickable `file://` links.
 
-**7. Commits **
+**7. Commits**
 * Commit after successful builds (`feat:`, `fix:`, `refactor:`, `chore:`, `docs:`, etc.) and report the hash. Do not batch unrelated features.
 
 **8. Rust Documentation**

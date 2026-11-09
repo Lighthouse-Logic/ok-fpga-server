@@ -1,9 +1,11 @@
 # Rust build output (workspace root + client-examples)
 **/target/
 
-# Python cache
+# Python cache & packaging metadata
 **/__pycache__/
 *.pyc
+*.egg-info/
+**/*.egg-info/
 
 # IDE files
 .idea/
