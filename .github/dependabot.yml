@@ -1,0 +1,27 @@
+# Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial
+# Automated weekly dependency & security update checks via GitHub Dependabot
+
+version: 2
+updates:
+  # Rust Cargo workspace dependencies (crates/ok-fpga-ffi, ok-fpga-core, ok-fpga-server)
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "rust"
+
+  # GitHub Actions workflow versions (.github/workflows/*)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "ci"

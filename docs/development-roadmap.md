@@ -199,18 +199,11 @@ Features in this section represent uncommitted research or long-term capabilitie
   both REST (HTTPS) and gRPC (gRPC-TLS channel credentials). See ADR-029 §Future
   Considerations for details.
 
-* **Persistent resource definitions** — save resource registrations to disk so
-  they survive server restarts. This would have to do a quick state save of 
-  Users, Resources, connected devices and all info about the device (is it
-  programmed, with what bitfile and description, by what user) and this would 
-  have to be reloaded and cleared after a "restart" (add that option to the 
-  Service Management page on the Web Dashboard?)  - There's no benefit to 
-  keeping a persistent save file of the "last bitfile programed, last users
-  connected" when the server shutsdown and then reload that on next startup, as
-  that could be hours or days apart, the connected FPGA could be reprogrammed, etc.
-  This is only useful if the server needs to restart (gracefully and quickly)
-  Should this info be always written in case a crash/restart occurs. Is that
-  likely with RUST? 
+* **Graceful warm-restart state snapshot** — optionally serialize active
+  device, bitfile, user-session, and resource-registration state across an
+  in-place warm restart initiated from the Management API / Web Dashboard,
+  while discarding stale snapshots across cold boots or power cycles where
+  connected FPGA hardware state may have changed externally.
 
 
 * **Role-based access control** — Admin vs Normal user authority levels,

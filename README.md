@@ -147,6 +147,23 @@ Configuration priority: defaults → TOML file → `OKFPGA_*` environment variab
 | `ok-fpga-core` | Safe Rust domain layer: device lifecycle, resources, auth, sensors, SYZYGY. |
 | `ok-fpga-server` | Binary crate: REST/gRPC servers, management API, dashboard, MQTT, mDNS. |
 
+## Current Status & Known Limitations
+
+`ok-fpga-server` (`v0.3.x`) is hardware-verified on Classic DataPort boards (`XEM7320` / `XEM8320`) across REST, gRPC, Web Dashboard, MQTT, and mDNS. Before deploying in shared labs or production environments, please note the following current limitations and planned extensions (tracked in [GitHub Issues](https://github.com/Lighthouse-Logic/ok-fpga-server/issues) and [`docs/development-roadmap.md`](docs/development-roadmap.md)):
+
+> [!IMPORTANT]
+> **Network & Authentication Boundary:** Built-in `[auth]` providers (`local` and `ldap`) are currently **architectural stubs** ([`ADR-008`](docs/architecture/adr/ADR-008-authentication.md)) and transport ports (`:8088`, `:9090`, `:50051`) serve plaintext HTTP / HTTP/2. Deploy on a trusted lab LAN/VPN or behind an authenticating TLS reverse proxy / zero-trust tunnel. See [`SECURITY.md`](SECURITY.md) for full deployment guidance.
+
+| Area | Current Status / Limitation | Recommended Workaround |
+|------|-----------------------------|------------------------|
+| **gRPC AXI DataPort (`AXIDataPortService`)** | All 14 gRPC AXI RPCs (Lite, Full, Stream) currently return `UNIMPLEMENTED` pending Gen3-USB (`OK_DATAPORT_AXI`) hardware verification. | Use the **REST AXI endpoints** (`api/openapi.yaml`), or Classic DataPort (fully wired on both REST and gRPC). |
+| **gRPC Device Auxiliary RPCs** | `FlashRead`/`Write`/`EraseSector`, `Get`/`SetPLLConfiguration`, `LoadDefaultPLLConfiguration`, `SetDeviceID`, `SetTimeout`, `GetBitfileInfo`, and `GetUser` return `UNIMPLEMENTED` on gRPC. | Invoke the corresponding **REST API** endpoints (`/api/v1/devices/{serial}/...`). |
+| **Authentication & RBAC (`[auth]`)** | `local` and `ldap` auth providers are stubs; `X-User-Id` is cooperative/self-asserted and role-based restrictions on bitstream reprogramming are not yet enforced. | Gate external network access with a reverse proxy (Caddy/Nginx/Envoy mTLS or OIDC) or VPN. |
+| **Native TLS Termination** | Built-in `rustls` / client-certificate mTLS is planned on the roadmap; servers currently listen over plaintext TCP. | Terminate TLS at an edge proxy or SSH/WireGuard/Cloudflare tunnel. |
+| **Shared `UpdateTriggerOuts` Semantics** | Per FrontPanel SDK hardware semantics ([`ADR-034 §9`](docs/architecture/adr/ADR-034-resource-model-consolidation.md)), `UpdateTriggerOuts()` reads **and clears** all TriggerOut latches device-wide, so one shared client's poll can clear another client's pending trigger. | Acquire an **exclusive** resource/lock for TriggerOut-critical workflows (a sequenced TriggerOut event log extension is scoped on the roadmap). |
+| **Design-Specific MMIO Policy Hooks** | `ResourceAccessPolicy` hooks in `ok-fpga-core` default to permissive pass-through stubs so custom HDL designs can plug in bitfile-specific shared/exclusive MMIO address arbitration. | Implement custom policy hooks in `ok-fpga-core` when multiplexing custom register bridges across concurrent users. |
+| **Daemon Process Restart & State Persistence** | Individual sub-services (REST, gRPC, MQTT, mDNS) start/stop dynamically via `ServiceManager`, while full process restart (`POST /api/v1/server/restart`) is a stub and resource registrations live in-memory only. | Manage full daemon restarts via `systemd` or Windows Service Manager. |
+
 ## API Documentation
 
 - **REST API**: OpenAPI 3.0 spec at [`api/openapi.yaml`](api/openapi.yaml)
