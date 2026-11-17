@@ -75,7 +75,7 @@ async-trait = { workspace = true }
 tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Base64 encoding/decoding for pipe data transfer in REST handlers.
-base64 = "0.22"
+base64 = "0.23"
 
 # TOML parsing for server configuration files.
 toml = "1.1"
