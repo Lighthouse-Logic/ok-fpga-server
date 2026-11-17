@@ -90,7 +90,7 @@ axum = { version = "0.8", features = ["ws", "multipart"] }
 # Tower provides middleware (logging, timeouts, CORS, etc.) used by the
 # management server and REST API.
 tower = "0.5"
-tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
+tower-http = { version = "0.7", features = ["fs", "cors", "trace"] }
 
 # --- gRPC feature dependencies ---
 
