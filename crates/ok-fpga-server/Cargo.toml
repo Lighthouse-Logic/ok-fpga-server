@@ -78,7 +78,7 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 base64 = "0.22"
 
 # TOML parsing for server configuration files.
-toml = "0.8"
+toml = "1.1"
 
 # Hostname resolution for mDNS service registration.
 hostname = "0.4"
