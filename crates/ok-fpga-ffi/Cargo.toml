@@ -20,4 +20,4 @@ thiserror = { workspace = true }
 # bindgen parses C header files and generates Rust FFI type declarations.
 # It requires libclang to be installed on the build machine.
 # This is only used at build time, not at runtime.
-bindgen = "0.71"
+bindgen = "0.73"
