@@ -108,7 +108,7 @@ rumqttc = { version = "0.24", optional = true }
 # netdev enumerates network interfaces with names + IPv4/IPv6 addresses.
 # Used by the MQTT announce publisher (ADR-031, Phase 40) to resolve the
 # server's routable IPv4 address for cross-subnet discovery URLs.
-netdev = { version = "0.31", optional = true }
+netdev = { version = "0.47", optional = true }
 
 # --- mDNS feature dependencies ---
 
