@@ -78,7 +78,7 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 base64 = "0.22"
 
 # TOML parsing for server configuration files.
-toml = "0.8"
+toml = "1.1"
 
 # Hostname resolution for mDNS service registration.
 hostname = "0.4"
@@ -103,12 +103,12 @@ prost = { version = "0.13", optional = true }
 
 # rumqttc is a pure-Rust async MQTT v5 client. Used to publish status
 # messages to an external broker (e.g., Mosquitto).
-rumqttc = { version = "0.24", optional = true }
+rumqttc = { version = "0.25", optional = true }
 
 # netdev enumerates network interfaces with names + IPv4/IPv6 addresses.
 # Used by the MQTT announce publisher (ADR-031, Phase 40) to resolve the
 # server's routable IPv4 address for cross-subnet discovery URLs.
-netdev = { version = "0.31", optional = true }
+netdev = { version = "0.47", optional = true }
 
 # --- mDNS feature dependencies ---
 

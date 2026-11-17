@@ -967,6 +967,8 @@ mod tests {
         cfg.rest.enabled = false;
         cfg.rest.bind = "127.0.0.1".to_string();
         cfg.rest.port = port;
+        cfg.grpc.bind = "127.0.0.1".to_string();
+        cfg.grpc.port = 0;
 
         // The check should pass — REST is disabled, so its port isn't checked.
         let result = check_port_availability(&cfg);
@@ -1009,6 +1011,8 @@ mod tests {
         cfg.rest.enabled = true;
         cfg.rest.bind = "127.0.0.1".to_string();
         cfg.rest.port = 0;
+        cfg.grpc.bind = "127.0.0.1".to_string();
+        cfg.grpc.port = 0;
 
         let result = check_port_availability(&cfg);
         assert!(result.is_ok(), "all ports free should pass");
