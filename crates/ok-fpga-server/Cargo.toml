@@ -103,7 +103,7 @@ prost = { version = "0.13", optional = true }
 
 # rumqttc is a pure-Rust async MQTT v5 client. Used to publish status
 # messages to an external broker (e.g., Mosquitto).
-rumqttc = { version = "0.24", optional = true }
+rumqttc = { version = "0.25", optional = true }
 
 # netdev enumerates network interfaces with names + IPv4/IPv6 addresses.
 # Used by the MQTT announce publisher (ADR-031, Phase 40) to resolve the
