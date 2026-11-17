@@ -10,7 +10,7 @@ license.workspace = true
 # libloading provides cross-platform runtime loading of shared libraries
 # (.dll on Windows, .so on Linux). We use it instead of link-time binding
 # so the server can start gracefully even if the FrontPanel DLL is missing.
-libloading = "0.8"
+libloading = "0.9"
 
 # thiserror gives us a derive macro to create clean error enums that
 # implement std::error::Error automatically.
