@@ -19,12 +19,22 @@ updates:
         patterns:
           - "tonic*"
           - "prost*"
+      windows-win32:
+        patterns:
+          - "windows"
+          - "windows-*"
     ignore:
       # tonic 0.14 split ProstCodec into a new tonic-prost crate requiring build.rs refactoring
       - dependency-name: "tonic*"
         versions: [">= 0.14.0"]
       - dependency-name: "prost*"
         versions: [">= 0.14.0"]
+      # bindgen 0.73.x currently fails upstream compilation against syn 3.0 ParseQuote
+      - dependency-name: "bindgen"
+        versions: [">= 0.73.0"]
+      # windows-strings must stay on 0.5 in lockstep with windows = "0.62" (win32_mdns.rs PCWSTR)
+      - dependency-name: "windows-strings"
+        versions: [">= 0.6.0"]
 
   # GitHub Actions workflow versions (.github/workflows/*)
   - package-ecosystem: "github-actions"

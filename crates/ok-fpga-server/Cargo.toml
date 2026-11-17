@@ -75,7 +75,7 @@ async-trait = { workspace = true }
 tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Base64 encoding/decoding for pipe data transfer in REST handlers.
-base64 = "0.22"
+base64 = "0.23"
 
 # TOML parsing for server configuration files.
 toml = "1.1"
@@ -90,7 +90,7 @@ axum = { version = "0.8", features = ["ws", "multipart"] }
 # Tower provides middleware (logging, timeouts, CORS, etc.) used by the
 # management server and REST API.
 tower = "0.5"
-tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
+tower-http = { version = "0.7", features = ["fs", "cors", "trace"] }
 
 # --- gRPC feature dependencies ---
 
@@ -122,7 +122,7 @@ dns-sd-native = { version = "0.1", optional = true }
 # mdns-sd is a pure-Rust mDNS/DNS-SD library. Used as fallback when the OS
 # daemon is not running (no port conflict in that scenario). Also used by
 # client-side GUI demos for browsing.
-mdns-sd = { version = "0.13", optional = true }
+mdns-sd = { version = "0.21", optional = true }
 
 # local-ip-address resolves the machine's primary LAN IPv4 address.
 # Used by the mDNS registration to include A records in DNS-SD responses

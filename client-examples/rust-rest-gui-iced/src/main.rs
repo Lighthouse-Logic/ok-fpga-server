@@ -884,7 +884,7 @@ mod tests {
         state.resource_info = Some(ResourceInfo {
             id: "r1".to_string(), name: "R".to_string(),
             device_serial: "S".to_string(), access_mode: "shared".to_string(),
-            holders: vec![], locked_by: None,
+            holders: vec![], locked_by: None, warnings: vec![],
         });
         assert!(!state.is_locked_out());
     }
@@ -895,7 +895,7 @@ mod tests {
         state.resource_info = Some(ResourceInfo {
             id: "r1".to_string(), name: "R".to_string(),
             device_serial: "S".to_string(), access_mode: "shared".to_string(),
-            holders: vec![], locked_by: Some(USER_ID.to_string()),
+            holders: vec![], locked_by: Some(USER_ID.to_string()), warnings: vec![],
         });
         assert!(!state.is_locked_out());
     }
@@ -906,7 +906,7 @@ mod tests {
         state.resource_info = Some(ResourceInfo {
             id: "r1".to_string(), name: "R".to_string(),
             device_serial: "S".to_string(), access_mode: "shared".to_string(),
-            holders: vec![], locked_by: Some("someone_else".to_string()),
+            holders: vec![], locked_by: Some("someone_else".to_string()), warnings: vec![],
         });
         assert!(state.is_locked_out());
     }
@@ -918,7 +918,7 @@ mod tests {
         state.resource_info = Some(ResourceInfo {
             id: "r1".to_string(), name: "R".to_string(),
             device_serial: "S".to_string(), access_mode: "shared".to_string(),
-            holders: vec![], locked_by: Some("someone_else".to_string()),
+            holders: vec![], locked_by: Some("someone_else".to_string()), warnings: vec![],
         });
         assert!(!state.is_locked_out());
     }
@@ -1034,7 +1034,7 @@ mod tests {
         let info = ResourceInfo {
             id: "res-abc".to_string(), name: "Counter".to_string(),
             device_serial: "S".to_string(), access_mode: "shared".to_string(),
-            holders: vec![], locked_by: None,
+            holders: vec![], locked_by: None, warnings: vec![],
         };
         let _ = update(&mut state, Message::RegisterResult(Ok(info)));
         assert_eq!(state.phase, Phase::Registered);
@@ -1143,6 +1143,7 @@ mod tests {
             access_mode: "shared".to_string(),
             holders: vec![],
             locked_by: None,
+            warnings: vec![],
         };
         let _ = update(&mut state, Message::CheckDeviceStateResult(
             Ok((true, Some(resource))),
