@@ -1,0 +1,394 @@
+<!-- Copyright (C) 2026 Great Bay Synergy LLC d/b/a Lighthouse Logic -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-LighthouseLogic-Commercial -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 852" width="1440" height="852" role="img" aria-labelledby="title desc">
+  <title id="title">ok-FPGA-Server System Topology &amp; Crate Architecture</title>
+  <desc id="desc">Architecture diagram showing Network Clients and Discovery on the left connecting via REST, gRPC, Web Dashboard, MQTT, and mDNS to the Rust ok-FPGA-Server workspace in the center (ok-fpga-server, ok-fpga-core with Resource Locks and User MMIO Stub Logic, ok-fpga-ffi), bridging via dynamic C API runtime loading into User-Supplied Opal Kelly IP over USB 3.0 / PCIe to Opal Kelly FPGA hardware on the right.</desc>
+
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#060a12"/>
+      <stop offset="55%" stop-color="#0b1220"/>
+      <stop offset="100%" stop-color="#080d18"/>
+    </linearGradient>
+
+    <linearGradient id="serverGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#111b2e"/>
+      <stop offset="100%" stop-color="#0b1322"/>
+    </linearGradient>
+
+    <linearGradient id="cardBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f1d35"/>
+      <stop offset="100%" stop-color="#0b1526"/>
+    </linearGradient>
+
+    <linearGradient id="cardTeal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0c2224"/>
+      <stop offset="100%" stop-color="#0a1622"/>
+    </linearGradient>
+
+    <linearGradient id="pcbGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#142628"/>
+      <stop offset="100%" stop-color="#0c181b"/>
+    </linearGradient>
+
+    <filter id="shadow" x="-8%" y="-8%" width="116%" height="120%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+
+    <filter id="amberGlow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="4" stdDeviation="12" flood-color="#d97706" flood-opacity="0.14"/>
+    </filter>
+
+    <pattern id="dotGrid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1" fill="#1e2d47" opacity="0.55"/>
+    </pattern>
+
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="#38bdf8"/>
+    </marker>
+    <marker id="arrowAmber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="#f59e0b"/>
+    </marker>
+    <marker id="arrowTeal" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="#10b981"/>
+    </marker>
+    <marker id="arrowPurple" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="#a78bfa"/>
+    </marker>
+  </defs>
+
+  <!-- ==================== CANVAS & GRID ==================== -->
+  <rect width="1440" height="852" rx="18" fill="url(#bgGrad)"/>
+  <rect width="1440" height="852" rx="18" fill="url(#dotGrid)"/>
+  <rect x="1" y="1" width="1438" height="850" rx="17" fill="none" stroke="#1f2e47" stroke-width="2"/>
+
+  <!-- ==================== TOP HEADER BAR ==================== -->
+  <g transform="translate(44, 28)">
+    <rect x="0" y="0" width="38" height="34" rx="6" fill="#f59e0b"/>
+    <text x="19" y="23" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" font-weight="800" fill="#070b12">LL</text>
+    <text x="52" y="15" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" font-weight="700" letter-spacing="1.6" fill="#f59e0b">LIGHTHOUSE LOGIC  •  SYSTEM ARCHITECTURE</text>
+    <text x="52" y="34" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="20" font-weight="700" fill="#ecf3ff">ok-FPGA-Server  —  Networked Multi-Protocol FPGA Gateway</text>
+
+    <!-- Right-aligned Legend Pills -->
+    <g transform="translate(880, 6)">
+      <rect x="0" y="0" width="142" height="24" rx="12" fill="#0f1d35" stroke="#38bdf8" stroke-width="1.2"/>
+      <circle cx="14" cy="12" r="4" fill="#38bdf8"/>
+      <text x="26" y="16" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="600" fill="#bae6fd">Network Clients</text>
+
+      <rect x="154" y="0" width="148" height="24" rx="12" fill="#1f1912" stroke="#f59e0b" stroke-width="1.2"/>
+      <circle cx="168" cy="12" r="4" fill="#f59e0b"/>
+      <text x="180" y="16" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="600" fill="#fde68a">Rust Server Stack</text>
+
+      <rect x="314" y="0" width="156" height="24" rx="12" fill="#0c2224" stroke="#10b981" stroke-width="1.2"/>
+      <circle cx="328" cy="12" r="4" fill="#10b981"/>
+      <text x="340" y="16" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="600" fill="#a7f3d0">SDK &amp; FPGA Fabric</text>
+    </g>
+  </g>
+  <line x1="44" y1="78" x2="1396" y2="78" stroke="#1f2e47" stroke-width="1"/>
+
+  <!-- ==================== LEFT COLUMN: NETWORK CLIENTS (x=44..374) ==================== -->
+  <text x="48" y="106" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="700" letter-spacing="1.4" fill="#38bdf8">REMOTE &amp; LOCAL CLIENTS (TCP / IP)</text>
+
+  <!-- Card 1: REST & OpenAPI Clients -->
+  <g transform="translate(44, 120)" filter="url(#shadow)">
+    <rect width="330" height="150" rx="12" fill="url(#cardBlue)" stroke="#0284c7" stroke-width="1.5"/>
+    <rect x="18" y="18" width="38" height="38" rx="8" fill="#082f49" stroke="#38bdf8" stroke-width="1.2"/>
+    <text x="37" y="42" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="800" fill="#38bdf8">{ }</text>
+    <text x="68" y="31" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10" font-weight="700" letter-spacing="1.2" fill="#38bdf8">HTTP / JSON  •  PORT 8088</text>
+    <text x="68" y="50" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="700" fill="#f0f9ff">REST API Clients</text>
+    <text x="18" y="76" font-family="system-ui, -apple-system, sans-serif" font-size="12.5" fill="#94a8c4">OpenAPI 3.0 endpoints for device control,</text>
+    <text x="18" y="94" font-family="system-ui, -apple-system, sans-serif" font-size="12.5" fill="#94a8c4">bitstream load, registers, wires &amp; pipes.</text>
+    <g transform="translate(18, 112)" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" font-weight="600" fill="#bae6fd">
+      <rect x="0" y="0" width="58" height="22" rx="5" fill="#0c2a42" stroke="#0369a1"/>
+      <text x="29" y="15" text-anchor="middle">Python</text>
+      <rect x="66" y="0" width="68" height="22" rx="5" fill="#0c2a42" stroke="#0369a1"/>
+      <text x="100" y="15" text-anchor="middle">LabVIEW</text>
+      <rect x="142" y="0" width="76" height="22" rx="5" fill="#0c2a42" stroke="#0369a1"/>
+      <text x="180" y="15" text-anchor="middle">TypeScript</text>
+      <rect x="226" y="0" width="66" height="22" rx="5" fill="#0c2a42" stroke="#0369a1"/>
+      <text x="259" y="15" text-anchor="middle">curl/CLI</text>
+    </g>
+  </g>
+
+  <!-- Card 2: gRPC Clients -->
+  <g transform="translate(44, 288)" filter="url(#shadow)">
+    <rect width="330" height="150" rx="12" fill="url(#cardBlue)" stroke="#0284c7" stroke-width="1.5"/>
+    <rect x="18" y="18" width="38" height="38" rx="8" fill="#082f49" stroke="#38bdf8" stroke-width="1.2"/>
+    <path d="M27 37 L35 27 L35 34 L47 34 L39 45 L39 38 Z" fill="#38bdf8"/>
+    <text x="68" y="31" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10" font-weight="700" letter-spacing="1.2" fill="#38bdf8">PROTO3 / HTTP2  •  PORT 50051</text>
+    <text x="68" y="50" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="700" fill="#f0f9ff">gRPC High-Throughput</text>
+    <text x="18" y="76" font-family="system-ui, -apple-system, sans-serif" font-size="12.5" fill="#94a8c4">Strictly typed low-latency RPC &amp; streaming</text>
+    <text x="18" y="94" font-family="system-ui, -apple-system, sans-serif" font-size="12.5" fill="#94a8c4">for automated HIL testbenches &amp; bulk pipes.</text>
+    <g transform="translate(18, 112)" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" font-weight="600" fill="#bae6fd">
+      <rect x="0" y="0" width="48" height="22" rx="5" fill="#0c2a42" stroke="#0369a1"/>
+      <text x="24" y="15" text-anchor="middle">Rust</text>
+      <rect x="56" y="0" width="52" height="22" rx="5" fill="#0c2a42" stroke="#0369a1"/>
+      <text x="82" y="15" text-anchor="middle">C/C++</text>
+      <rect x="116" y="0" width="42" height="22" rx="5" fill="#0c2a42" stroke="#0369a1"/>
+      <text x="137" y="15" text-anchor="middle">Go</text>
+      <rect x="166" y="0" width="58" height="22" rx="5" fill="#0c2a42" stroke="#0369a1"/>
+      <text x="195" y="15" text-anchor="middle">Python</text>
+      <rect x="232" y="0" width="46" height="22" rx="5" fill="#0c2a42" stroke="#0369a1"/>
+      <text x="255" y="15" text-anchor="middle">C#</text>
+    </g>
+  </g>
+
+  <!-- Card 3: Web Dashboard & Mgmt -->
+  <g transform="translate(44, 456)" filter="url(#shadow)">
+    <rect width="330" height="144" rx="12" fill="url(#cardBlue)" stroke="#0284c7" stroke-width="1.5"/>
+    <rect x="18" y="18" width="38" height="38" rx="8" fill="#082f49" stroke="#38bdf8" stroke-width="1.2"/>
+    <rect x="25" y="26" width="24" height="18" rx="2" fill="none" stroke="#38bdf8" stroke-width="1.8"/>
+    <line x1="25" y1="31" x2="49" y2="31" stroke="#38bdf8" stroke-width="1.5"/>
+    <text x="68" y="31" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10" font-weight="700" letter-spacing="1.2" fill="#38bdf8">BROWSER SPA  •  PORT 9090</text>
+    <text x="68" y="50" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="700" fill="#f0f9ff">Web UI &amp; Admin Console</text>
+    <text x="18" y="76" font-family="system-ui, -apple-system, sans-serif" font-size="12.5" fill="#94a8c4">Live board inventory, SYZYGY &amp; thermal</text>
+    <text x="18" y="94" font-family="system-ui, -apple-system, sans-serif" font-size="12.5" fill="#94a8c4">sensors, service toggles &amp; log streaming.</text>
+    <g transform="translate(18, 109)" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" font-weight="600" fill="#bae6fd">
+      <rect x="0" y="0" width="92" height="22" rx="5" fill="#0c2a42" stroke="#0369a1"/>
+      <text x="46" y="15" text-anchor="middle">HTML5 / JS</text>
+      <rect x="100" y="0" width="96" height="22" rx="5" fill="#0c2a42" stroke="#0369a1"/>
+      <text x="148" y="15" text-anchor="middle">Live Metrics</text>
+      <rect x="204" y="0" width="88" height="22" rx="5" fill="#0c2a42" stroke="#0369a1"/>
+      <text x="248" y="15" text-anchor="middle">Auth / ACL</text>
+    </g>
+  </g>
+
+  <!-- Card 4: MQTT & mDNS Discovery -->
+  <g transform="translate(44, 618)" filter="url(#shadow)">
+    <rect width="330" height="146" rx="12" fill="#121428" stroke="#7c3aed" stroke-width="1.5"/>
+    <rect x="18" y="18" width="38" height="38" rx="8" fill="#251747" stroke="#a78bfa" stroke-width="1.2"/>
+    <circle cx="37" cy="37" r="4" fill="#a78bfa"/>
+    <path d="M29 29 A11 11 0 0 1 45 29 M25 25 A17 17 0 0 1 49 25" fill="none" stroke="#a78bfa" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="68" y="31" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10" font-weight="700" letter-spacing="1.2" fill="#a78bfa">PUB/SUB &amp; ZERO-CONF</text>
+    <text x="68" y="50" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="700" fill="#f5f3ff">MQTT &amp; mDNS Discovery</text>
+    <text x="18" y="76" font-family="system-ui, -apple-system, sans-serif" font-size="12.5" fill="#94a8c4">Push telemetry events to external MQTT</text>
+    <text x="18" y="94" font-family="system-ui, -apple-system, sans-serif" font-size="12.5" fill="#94a8c4">brokers &amp; advertise via DNS-SD on LAN.</text>
+    <g transform="translate(18, 110)" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" font-weight="600" fill="#ddd6fe">
+      <rect x="0" y="0" width="122" height="22" rx="5" fill="#1e1638" stroke="#6d28d9"/>
+      <text x="61" y="15" text-anchor="middle">MQTT v3.1 / v5</text>
+      <rect x="132" y="0" width="146" height="22" rx="5" fill="#1e1638" stroke="#6d28d9"/>
+      <text x="205" y="15" text-anchor="middle">_okfpga._tcp.local</text>
+    </g>
+  </g>
+
+  <!-- ==================== CENTER HUB: ok-FPGA-Server (x=444..996) ==================== -->
+  <g transform="translate(444, 98)" filter="url(#amberGlow)">
+    <!-- Outer Rust Workspace Chassis -->
+    <rect width="552" height="666" rx="16" fill="url(#serverGrad)" stroke="#f59e0b" stroke-width="2"/>
+
+    <!-- Chassis Header Banner -->
+    <path d="M 2 16 Q 2 2 16 2 L 536 2 Q 550 2 550 16 L 550 64 L 2 64 Z" fill="#192338"/>
+    <line x1="2" y1="64" x2="550" y2="64" stroke="#2a3b59" stroke-width="1.5"/>
+
+    <circle cx="34" cy="33" r="15" fill="#f59e0b" opacity="0.18" stroke="#f59e0b" stroke-width="1.5"/>
+    <circle cx="34" cy="33" r="6" fill="none" stroke="#fbbf24" stroke-width="2"/>
+    <text x="60" y="27" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" font-weight="700" letter-spacing="1.4" fill="#fbbf24">RUST WORKSPACE  •  SAFE MEMORY CONCURRENCY</text>
+    <text x="60" y="48" font-family="system-ui, -apple-system, sans-serif" font-size="19" font-weight="800" fill="#ffffff">ok-FPGA-Server Host Daemon</text>
+
+    <!-- ===== TIER 1: ok-fpga-server (Binary Crate) ===== -->
+    <g transform="translate(22, 82)">
+      <rect width="508" height="192" rx="11" fill="#0d1628" stroke="#33496e" stroke-width="1.5"/>
+      <rect x="14" y="-10" width="218" height="20" rx="5" fill="#f59e0b"/>
+      <text x="123" y="4" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11" font-weight="800" fill="#070b12">CRATE: ok-fpga-server (BIN)</text>
+
+      <!-- REST Axum -->
+      <rect x="18" y="20" width="228" height="68" rx="8" fill="#132038" stroke="#0284c7" stroke-width="1.2"/>
+      <text x="32" y="41" font-family="system-ui, -apple-system, sans-serif" font-size="13.5" font-weight="700" fill="#e0f2fe">REST Server (Axum)</text>
+      <text x="32" y="59" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11" fill="#7dd3fc">OpenAPI 3.0  •  :8088</text>
+      <text x="32" y="76" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#94a8c4">JSON validation &amp; HTTP routing</text>
+
+      <!-- gRPC Tonic -->
+      <rect x="262" y="20" width="228" height="68" rx="8" fill="#132038" stroke="#0284c7" stroke-width="1.2"/>
+      <text x="276" y="41" font-family="system-ui, -apple-system, sans-serif" font-size="13.5" font-weight="700" fill="#e0f2fe">gRPC Server (Tonic)</text>
+      <text x="276" y="59" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11" fill="#7dd3fc">okfpga.v1 Proto3  •  :50051</text>
+      <text x="276" y="76" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#94a8c4">Async binary RPC &amp; streams</text>
+
+      <!-- Web Dashboard & Mgmt -->
+      <rect x="18" y="102" width="228" height="68" rx="8" fill="#132038" stroke="#38bdf8" stroke-width="1.2"/>
+      <text x="32" y="123" font-family="system-ui, -apple-system, sans-serif" font-size="13.5" font-weight="700" fill="#e0f2fe">Mgmt &amp; Web UI (Axum)</text>
+      <text x="32" y="141" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11" fill="#7dd3fc">Always-On SPA  •  :9090</text>
+      <text x="32" y="158" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#94a8c4">Service manager &amp; live logs</text>
+
+      <!-- MQTT + mDNS Publishers -->
+      <rect x="262" y="102" width="228" height="68" rx="8" fill="#181734" stroke="#8b5cf6" stroke-width="1.2"/>
+      <text x="276" y="123" font-family="system-ui, -apple-system, sans-serif" font-size="13.5" font-weight="700" fill="#ede9fe">MQTT &amp; mDNS Tasks</text>
+      <text x="276" y="141" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11" fill="#c4b5fd">Telemetry &amp; DNS-SD</text>
+      <text x="276" y="158" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#94a8c4">Async event broadcast</text>
+    </g>
+
+    <!-- Connector Arrows Tier 1 -> Tier 2 -->
+    <line x1="180" y1="274" x2="180" y2="302" stroke="#f59e0b" stroke-width="2" marker-end="url(#arrowAmber)"/>
+    <line x1="276" y1="274" x2="276" y2="302" stroke="#f59e0b" stroke-width="2" marker-end="url(#arrowAmber)"/>
+    <line x1="372" y1="274" x2="372" y2="302" stroke="#f59e0b" stroke-width="2" marker-end="url(#arrowAmber)"/>
+
+    <!-- ===== TIER 2: ok-fpga-core (Safe Domain Layer) ===== -->
+    <g transform="translate(22, 308)">
+      <rect width="508" height="196" rx="11" fill="#141d2f" stroke="#f59e0b" stroke-width="1.6"/>
+      <rect x="14" y="-10" width="248" height="20" rx="5" fill="#fbbf24"/>
+      <text x="138" y="4" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11" font-weight="800" fill="#070b12">CRATE: ok-fpga-core (SAFE RUST)</text>
+
+      <text x="18" y="29" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="700" fill="#fef3c7">Domain Engine, Concurrency &amp; Multi-User Resource Arbitration</text>
+
+      <!-- Core Submodule Grid: 2x2 on Left (Cols 1-2) + 2-Row Spanned Resource Locks Card on Right (Col 3) -->
+      <g transform="translate(18, 42)" font-family="system-ui, -apple-system, sans-serif">
+        <!-- Row 1, Col 1: Device Lifecycle -->
+        <rect x="0" y="0" width="142" height="62" rx="7" fill="#1b2740" stroke="#3b4f75"/>
+        <text x="11" y="22" font-size="12" font-weight="700" fill="#f8fafc">Device Lifecycle</text>
+        <text x="11" y="39" font-size="10" fill="#94a8c4">Hot-plug, sensors</text>
+        <text x="11" y="52" font-size="10" fill="#94a8c4">&amp; serial discovery</text>
+
+        <!-- Row 1, Col 2: DataPort Engine (Swapped into middle!) -->
+        <rect x="150" y="0" width="142" height="62" rx="7" fill="#1b2740" stroke="#3b4f75"/>
+        <text x="161" y="22" font-size="12" font-weight="700" fill="#f8fafc">DataPort Engine</text>
+        <text x="161" y="39" font-size="10" fill="#94a8c4">Classic FrontPanel</text>
+        <text x="161" y="52" font-size="10" fill="#94a8c4">&amp; AXI4 bus routing</text>
+
+        <!-- Row 2, Col 1: Pluggable Auth -->
+        <rect x="0" y="72" width="142" height="66" rx="7" fill="#1b2740" stroke="#3b4f75"/>
+        <text x="11" y="94" font-size="12" font-weight="700" fill="#f8fafc">Pluggable Auth</text>
+        <text x="11" y="111" font-size="10" fill="#94a8c4">None / Local / LDAP</text>
+        <text x="11" y="125" font-size="10" fill="#94a8c4">session enforcement</text>
+
+        <!-- Row 2, Col 2: SYZYGY & Flash -->
+        <rect x="150" y="72" width="142" height="66" rx="7" fill="#1b2740" stroke="#3b4f75"/>
+        <text x="161" y="94" font-size="12" font-weight="700" fill="#f8fafc">SYZYGY &amp; Flash</text>
+        <text x="161" y="111" font-size="10" fill="#94a8c4">SmartVIO DNA, PLL</text>
+        <text x="161" y="125" font-size="10" fill="#94a8c4">&amp; bitstream load</text>
+
+        <!-- Col 3 (Spans Both Rows, x=302, w=170, h=138): Resource Locks + User MMIO Stub Logic -->
+        <rect x="302" y="0" width="170" height="138" rx="8" fill="#1a2236" stroke="#f59e0b" stroke-width="1.5"/>
+        <text x="313" y="20" font-size="12.5" font-weight="700" fill="#f8fafc">Resource Locks</text>
+        <text x="313" y="35" font-size="10" fill="#94a8c4">Shared / Exclusive / RO ACL</text>
+        <text x="313" y="48" font-size="10" fill="#94a8c4">EP &amp; address-range guards</text>
+
+        <!-- Nested User-Provided Stub Logic Sub-Card -->
+        <rect x="310" y="57" width="154" height="73" rx="6" fill="#271b0c" stroke="#fb923c" stroke-width="1.3" stroke-dasharray="4 2"/>
+        <rect x="317" y="63" width="96" height="15" rx="3" fill="#43280e"/>
+        <text x="365" y="74" text-anchor="middle" font-family="ui-monospace, monospace" font-size="8.5" font-weight="700" fill="#fdba74">USER STUB LOGIC</text>
+        <text x="317" y="92" font-size="10.5" font-weight="700" fill="#ffedd5">Design-Specific MMIO</text>
+        <text x="317" y="106" font-size="9.5" fill="#fde68a">Custom shared / exclusive</text>
+        <text x="317" y="119" font-size="9.5" fill="#fde68a">memory-mapped I/O hooks</text>
+      </g>
+    </g>
+
+    <!-- Connector Arrows Tier 2 -> Tier 3 -->
+    <line x1="220" y1="504" x2="220" y2="532" stroke="#f59e0b" stroke-width="2" marker-end="url(#arrowAmber)"/>
+    <line x1="332" y1="504" x2="332" y2="532" stroke="#f59e0b" stroke-width="2" marker-end="url(#arrowAmber)"/>
+
+    <!-- ===== TIER 3: ok-fpga-ffi (Isolated FFI Boundary) ===== -->
+    <g transform="translate(22, 538)">
+      <rect width="508" height="86" rx="11" fill="#17141e" stroke="#fb923c" stroke-width="1.6" stroke-dasharray="6 3"/>
+      <rect x="14" y="-10" width="260" height="20" rx="5" fill="#fb923c"/>
+      <text x="144" y="4" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11" font-weight="800" fill="#070b12">CRATE: ok-fpga-ffi (FFI BOUNDARY)</text>
+
+      <text x="20" y="34" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="700" fill="#ffedd5">Dynamic C API Loader  —  rust-bindgen + libloading</text>
+      <text x="20" y="57" font-family="system-ui, -apple-system, sans-serif" font-size="12" fill="#cbd5e1">All <tspan font-family="ui-monospace, monospace" font-weight="700" fill="#fdba74">unsafe</tspan> code strictly quarantined here  •  Runtime shared-library resolution</text>
+      <rect x="378" y="18" width="114" height="26" rx="6" fill="#2a1b18" stroke="#fb923c"/>
+      <text x="435" y="35" text-anchor="middle" font-family="ui-monospace, monospace" font-size="10.5" font-weight="700" fill="#fdba74">RAII Handles</text>
+    </g>
+
+    <!-- OS Platform Strip at Bottom of Host Chassis -->
+    <text x="276" y="648" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11" font-weight="600" fill="#94a8c4">HOST OS:  Windows 11 (x86_64)   •   Ubuntu 22.04 / 24.04 / 26.04 LTS</text>
+  </g>
+
+  <!-- ==================== RIGHT COLUMN: SDK & FPGA HARDWARE (x=1066..1396) ==================== -->
+  <text x="1070" y="106" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="700" letter-spacing="1.4" fill="#10b981">SDK RUNTIME &amp; TARGET HARDWARE</text>
+
+  <!-- Right Box 1: User-Supplied Opal Kelly IP -->
+  <g transform="translate(1066, 120)" filter="url(#shadow)">
+    <rect width="330" height="156" rx="12" fill="url(#cardTeal)" stroke="#10b981" stroke-width="1.5" stroke-dasharray="7 4"/>
+    <rect x="18" y="16" width="196" height="22" rx="5" fill="#064e3b" stroke="#10b981"/>
+    <text x="116" y="31" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10" font-weight="700" fill="#a7f3d0">USER-SUPPLIED Opal Kelly IP</text>
+
+    <text x="18" y="62" font-family="system-ui, -apple-system, sans-serif" font-size="17" font-weight="700" fill="#ecfdf5">Opal Kelly FrontPanel 6.1+</text>
+    <text x="18" y="85" font-family="ui-monospace, SFMono-Regular, monospace" font-size="12" font-weight="600" fill="#6ee7b7">okFrontPanel.dll / libokFrontPanel.so</text>
+    <text x="18" y="108" font-family="system-ui, -apple-system, sans-serif" font-size="12" fill="#94a8c4">Loaded dynamically at runtime via</text>
+    <text x="18" y="126" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11" font-weight="600" fill="#cbd5e1">OK_FRONTPANEL_SDK_DIR <tspan font-family="system-ui, sans-serif" font-weight="400" fill="#94a8c4">(gitignored)</tspan></text>
+  </g>
+
+  <!-- High-Speed Physical Bus Connector (SDK <-> FPGA) -->
+  <line x1="1231" y1="286" x2="1231" y2="338" stroke="#10b981" stroke-width="2.5" marker-start="url(#arrowTeal)" marker-end="url(#arrowTeal)"/>
+  <rect x="1126" y="299" width="210" height="26" rx="13" fill="#062822" stroke="#10b981" stroke-width="1.4"/>
+  <text x="1231" y="316" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" font-weight="700" fill="#6ee7b7">USB 3.0 SuperSpeed / PCIe</text>
+
+  <!-- Right Box 2: Stylised Opal Kelly FPGA Carrier Board -->
+  <g transform="translate(1066, 350)" filter="url(#shadow)">
+    <rect width="330" height="414" rx="14" fill="url(#pcbGrad)" stroke="#10b981" stroke-width="2"/>
+
+    <!-- Gold Mounting Holes -->
+    <circle cx="18" cy="18" r="6" fill="#070b12" stroke="#d97706" stroke-width="2.5"/>
+    <circle cx="312" cy="18" r="6" fill="#070b12" stroke="#d97706" stroke-width="2.5"/>
+    <circle cx="18" cy="396" r="6" fill="#070b12" stroke="#d97706" stroke-width="2.5"/>
+    <circle cx="312" cy="396" r="6" fill="#070b12" stroke="#d97706" stroke-width="2.5"/>
+
+    <!-- USB-C / PCIe Edge Connector Tab on Top -->
+    <rect x="130" y="-6" width="70" height="14" rx="3" fill="#334155" stroke="#94a3b8" stroke-width="1.2"/>
+
+    <text x="36" y="30" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#6ee7b7">OPAL KELLY FPGA MODULE</text>
+    <text x="36" y="50" font-family="system-ui, -apple-system, sans-serif" font-size="15.5" font-weight="700" fill="#ffffff">XEM73xx / XEM83xx / HUB1450</text>
+
+    <!-- Onboard MCU / Firmware Block -->
+    <rect x="24" y="66" width="282" height="58" rx="8" fill="#0a2e2c" stroke="#14b8a6" stroke-width="1.3"/>
+    <text x="38" y="88" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="700" fill="#ccfbf1">Onboard USB3 / PCIe Firmware</text>
+    <text x="38" y="108" font-family="system-ui, -apple-system, sans-serif" font-size="11.5" fill="#99f6e4">FrontPanel Device Controller &amp; PLL / Flash</text>
+
+    <!-- FPGA Silicon Package Graphic -->
+    <g transform="translate(24, 140)">
+      <rect x="0" y="0" width="282" height="176" rx="10" fill="#111827" stroke="#475569" stroke-width="2"/>
+      <text x="16" y="24" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" font-weight="700" fill="#94a3b8">AMD / XILINX ARTIX &amp; KINTEX FPGA FABRIC</text>
+
+      <!-- FrontPanel HDL Endpoint IP -->
+      <rect x="16" y="36" width="250" height="54" rx="7" fill="#064e3b" stroke="#10b981" stroke-width="1.3"/>
+      <text x="28" y="57" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="700" fill="#ecfdf5">okHost &amp; FrontPanel HDL IP</text>
+      <text x="28" y="76" font-family="ui-monospace, SFMono-Regular, monospace" font-size="9.6" fill="#a7f3d0">Wires • Triggers • Pipes • RegBridge • AXI</text>
+
+      <!-- User Custom HDL Block -->
+      <rect x="16" y="102" width="250" height="58" rx="7" fill="#271b0c" stroke="#f59e0b" stroke-width="1.5"/>
+      <text x="28" y="124" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="700" fill="#fef3c7">Your Custom User HDL / DUT</text>
+      <text x="28" y="143" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#fde68a">DSP, TSN/Network MACs, Custom Test Logic</text>
+    </g>
+
+    <!-- SYZYGY & DDR4 Peripherals Strip -->
+    <g transform="translate(24, 332)">
+      <rect x="0" y="0" width="135" height="58" rx="7" fill="#0f2430" stroke="#38bdf8" stroke-width="1.2"/>
+      <text x="12" y="23" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#e0f2fe">SYZYGY Pods</text>
+      <text x="12" y="41" font-family="ui-monospace, monospace" font-size="10" fill="#7dd3fc">SmartVIO &amp; DNA</text>
+
+      <rect x="147" y="0" width="135" height="58" rx="7" fill="#0f2430" stroke="#38bdf8" stroke-width="1.2"/>
+      <text x="159" y="23" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#e0f2fe">DDR4 &amp; I/O</text>
+      <text x="159" y="41" font-family="ui-monospace, monospace" font-size="10" fill="#7dd3fc">Transceivers / GPIO</text>
+    </g>
+  </g>
+
+  <!-- ==================== INTER-COLUMN ROUTING LINES ==================== -->
+  <!-- 1. REST -->
+  <path d="M 374 195 L 408 195 L 408 224 L 460 224" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-dasharray="6 4" marker-end="url(#arrowBlue)"/>
+
+  <!-- 2. gRPC -->
+  <path d="M 374 363 L 418 363 L 418 244 L 460 244" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-dasharray="6 4" marker-end="url(#arrowBlue)"/>
+
+  <!-- 3. Web UI -->
+  <path d="M 374 528 L 428 528 L 428 318 L 460 318" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-dasharray="6 4" marker-end="url(#arrowBlue)"/>
+
+  <!-- 4. MQTT & mDNS -->
+  <path d="M 464 340 L 436 340 L 436 691 L 378 691" fill="none" stroke="#a78bfa" stroke-width="2.2" stroke-dasharray="6 4" marker-end="url(#arrowPurple)"/>
+
+  <!-- Center FFI (x=974, y=679) -> Right FrontPanel SDK (x=1066, y=198) -->
+  <path d="M 974 679 L 1030 679 L 1030 198 L 1060 198" fill="none" stroke="#10b981" stroke-width="2.6" marker-end="url(#arrowTeal)"/>
+  <!-- FFI Callout Pill centered on vertical trunk x=1030 -->
+  <g transform="translate(993, 412)">
+    <rect x="0" y="0" width="74" height="54" rx="8" fill="#062822" stroke="#10b981" stroke-width="1.3"/>
+    <text x="37" y="18" text-anchor="middle" font-family="ui-monospace, monospace" font-size="10" font-weight="700" fill="#6ee7b7">C API</text>
+    <text x="37" y="33" text-anchor="middle" font-family="ui-monospace, monospace" font-size="9" fill="#a7f3d0">dlopen /</text>
+    <text x="37" y="45" text-anchor="middle" font-family="ui-monospace, monospace" font-size="8.5" fill="#a7f3d0">LoadLibrary</text>
+  </g>
+
+  <!-- ==================== FOOTER ATTRIBUTION ==================== -->
+  <line x1="44" y1="796" x2="1396" y2="796" stroke="#1f2e47" stroke-width="1"/>
+  <text x="44" y="824" font-family="system-ui, -apple-system, sans-serif" font-size="12" fill="#64748b">
+    Great Bay Synergy LLC d/b/a <tspan fill="#f59e0b" font-weight="700">Lighthouse Logic</tspan>  •  Dual-Licensed (GPL-3.0-or-later / Commercial)  •  lighthouselogic.dev
+  </text>
+  <text x="1396" y="824" text-anchor="end" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11.5" fill="#64748b">
+    Multi-Client Remote FPGA Access Without Local SDK Drivers on Client Hosts
+  </text>
+</svg>

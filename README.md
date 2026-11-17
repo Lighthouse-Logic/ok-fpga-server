@@ -131,35 +131,13 @@ Configuration priority: defaults → TOML file → `OKFPGA_*` environment variab
 
 ## Architecture
 
-```
-┌───────────────────────────────────────────────────────┐
-│                    ok-FPGA-Server                      │
-│                                                        │
-│  ┌────────┐  ┌────────┐  ┌────────┐  ┌────────────┐  │
-│  │REST API│  │gRPC API│  │Web UI  │  │Device Mgr  │  │
-│  │(Axum)  │  │(Tonic) │  │(Axum)  │  │(FP Manager)│  │
-│  └───┬────┘  └───┬────┘  └───┬────┘  └─────┬──────┘  │
-│      └───────────┴───────────┴──────────────┘         │
-│                         │                              │
-│              ┌──────────┴──────────┐                   │
-│              │  ok-fpga-core       │                   │
-│              │  Domain Layer       │                   │
-│              └──────────┬──────────┘                   │
-│              ┌──────────┴──────────┐                   │
-│              │  ok-fpga-ffi        │                   │
-│              │  FFI Bindings       │                   │
-│              └──────────┬──────────┘                   │
-└─────────────────────────┼──────────────────────────────┘
-                          │ DLL/SO
-               ┌──────────┴──────────┐
-               │ okFrontPanel.dll/.so│
-               │ FrontPanel 6.1.0   │
-               └──────────┬──────────┘
-                          │ USB3 / PCIe / Gen3
-               ┌──────────┴──────────┐
-               │  Opal Kelly FPGAs   │
-               └─────────────────────┘
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/architecture-light.svg">
+    <img alt="ok-FPGA-Server System Topology and Crate Architecture" src="docs/assets/architecture-dark.svg" width="100%">
+  </picture>
+</p>
 
 ### Crate Structure
 
